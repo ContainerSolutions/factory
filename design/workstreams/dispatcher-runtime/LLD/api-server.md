@@ -14,7 +14,7 @@
 | Caller | Mechanism | Checks |
 |---|---|---|
 | Agent | `Authorization: Bearer <agentToken>` | token hash lookup → Agent; lease/task routes require the lease to belong to the agent |
-| UI | GitHub OAuth web flow → server-side session cookie (`HttpOnly`, `Secure`, `SameSite=Lax`, 12 h) | `GET /user` + org `role: admin` check on login for **commands**; any org member may read |
+| UI | GitHub OAuth web flow → server-side session cookie (`HttpOnly`, `Secure`, `SameSite=Lax`, 12 h) | `GET /user`; **commands** require membership of the catalog Group `maintainers` (resolved via `Conn.ResolveGroup`, cached 10 min — the CCF org admins in the PoC); any org member may read |
 | CLI | `Authorization: Bearer <cliToken>` (static token from env, PoC) | full admin; for `factory dispatch` |
 | Webhooks | provider HMAC (in `Conn.Handler()`) | — |
 
@@ -29,7 +29,7 @@ OAuth app config: `FACTORY_OAUTH_CLIENT_ID`, `FACTORY_OAUTH_CLIENT_SECRET` (a Gi
 4. identity := TaskSpec.identity; target must be the task target repo (or its linked objects) else 403
 5. req.idempotencyKey must be present and non-empty (≤ 200 chars)  else 400 idempotency-key-required
    idem := hash(task.id, req.idempotencyKey); if Effect(idem) exists → return it (200, replay)
-6. per-run rate limit: ≤ 20 comments/run, ≤ 60 effects/run           else 429
+6. rate limits: ≤ 20 comments/run, ≤ 60 effects/run, and ≤ 30 comments per work item per rolling hour (all runs)   else 429
 7. result := Conn.Apply(EffectRequest{op, target, args, identity, idem})
 8. store Effect; append to Run.progress; broadcast SSE; return {effectId, url}
 ```

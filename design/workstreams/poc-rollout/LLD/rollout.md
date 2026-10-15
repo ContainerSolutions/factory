@@ -22,6 +22,7 @@ Created by an org owner (RUN-S0-T02). Settings → Developer settings → GitHub
 | Organization permissions | Members R | — |
 | Events | Issues, Issue comment, Pull request, Pull request review, Pull request review comment, Pull request review thread, Release, Deployment status, Check suite, Sub issues | — |
 | Install on | `docs`, `mock-docs`, `workflows`, `mock-*` | `docs`, `mock-docs` |
+| Device flow (agent registration) | **Enable Device Flow: yes** (required by `factory-agent register`) | — |
 | User authorization (UI login) | enable "Request user authorization (OAuth) during installation": **no**; use its OAuth client for UI login (callback `https://<tunnel-host>/api/v1/auth/callback`) | — |
 
 Neither App is ever given a ruleset **bypass**. `ccf-release-bot` and `ccf-repo-admin` are never used by the factory.
@@ -101,9 +102,9 @@ An automated integration test (`make test-credentials`, run in CI against fakes 
 
 1. Start `factory serve` and one `factory-agent worker` with **canary values** for every secret: App private keys, webhook secret, OAuth client secret, session key, CLI token, pool join token, a fake Anthropic/OpenAI key in the worker's environment, and the device-flow user token.
 2. Route dispatcher ↔ agent and dispatcher ↔ GitHub (fake) traffic through a recording proxy.
-3. Run a fake task that performs effects and produces a transcript.
+3. Run a fake task that performs effects and produces a transcript, **and** drive a UI login end to end: `/api/v1/auth/login` → fake GitHub authorize → `/api/v1/auth/callback` → token exchange. The proxy records **full request URLs** (query strings included), not just bodies and headers.
 4. Assert that **no canary appears** in:
-   - recorded HTTP bodies and headers (except the canary's own legitimate channel: e.g. the App key never leaves the dispatcher, the join token appears only in `POST /agents`);
+   - recorded URLs, bodies and headers, except each canary's one legitimate channel: the App key never leaves the dispatcher (only signed JWTs do), the join token appears only in `POST /api/v1/agents`, and the OAuth client secret appears **only** in the token-exchange request to GitHub (never in a redirect URL or browser-facing response);
    - dispatcher and agent logs;
    - the store dump and uploaded transcripts;
    - the harness process environment (`/proc/<pid>/environ` or `ps eww`);

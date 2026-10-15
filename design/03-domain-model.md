@@ -177,15 +177,15 @@ This resolves the naming problem. `run.completed` isn't a free-floating type tha
 
 ### Event vocabularies
 
-Each provider **type** declares the event types it can emit. The neutral domains are shared on purpose, so rules port across GitHub, GHE and (one day) GitLab:
+Each provider **type** declares the event types it can emit (the authoritative list is [contracts.md §Event vocabulary](workstreams/foundation/LLD/contracts.md#event-vocabulary)). The neutral domains are shared on purpose, so rules port across GitHub, GHE and (one day) GitLab:
 
 | Domain | Types | Emitted by provider types |
 |---|---|---|
 | `issue.*` | `issue.opened`, `issue.commented`, `issue.labeled`, `issue.closed` | github (gitlab later) |
-| `pr.*` | `pr.opened`, `pr.updated`, `pr.review.submitted`, `pr.checks.completed`, `pr.merged`, `pr.labeled` | github (gitlab later) |
+| `pr.*` | `pr.opened`, `pr.updated`, `pr.ready_for_review`, `pr.labeled`, `pr.review.submitted`, `pr.checks.completed`, `pr.merged`, `pr.closed` | github (gitlab later) |
 | `release.*` | `release.published`, with facts `event.release.semver` (`major`, `minor`, `patch`, `prerelease`, `bump`) and `previousTag` | github (including the `release-finished` dispatch) |
 | `deploy.*` | `deploy.succeeded`, `deploy.failed` (GitHub `deployment_status`; linked to work items by commit) | github |
-| `message.*` | `message.posted`, `message.mention`, `message.reacted` | slack |
+| `message.*` | `message.posted`, `message.mention` | slack (future) |
 | `factory.*` | as above | `factory` only |
 
 The full CloudEvents identity of an event is `(source = provider instance, type)`. Rules match `type`. The provider comes from the RuleSet binding, or is `factory` for `factory.*` types.

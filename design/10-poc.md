@@ -251,7 +251,7 @@ spec:
   pool: local
   concurrency: 2
   budget: { daily: { runs: 40 } }
-  retry: { max: 1, on: [agent-lost, agent-throttled] }
+  retry: { max: 1, on: [agent-lost, infra-failure] }   # throttling never consumes an attempt
 ```
 
 PoC agents register like this. They live in the DB, not the catalog: **each owner sets how much they lend** in their worker's local config, with no catalog PR needed.
@@ -378,7 +378,9 @@ kind: TaskSpec
 metadata: { name: merge }
 spec:
   description: Re-verify gates and merge a PR, or a whole stack bottom-up. If the reviewer App's approval doesn't count toward required reviews, add the merge label instead (Q5).
-  inputs: { target: { type: string, enum: [pr, stack], default: pr } }
+  inputs:
+    target:        { type: string, enum: [pr, stack], default: pr }
+    requiredCheck: { type: string, default: "ci / required" }   # "test-build" until docs is on the shared workflows (DWF)
   instructions: { template: prompts/merge.md.tmpl, headless: true }
   skills: [{ source: ccf-skills, ref: v0.8.0, use: [merge] }]
   harness: { default: { name: codex, config: { model: "gpt-5*", reasoningEffort: low } } }
@@ -398,12 +400,17 @@ String values starting with `=` are **CEL, evaluated at runtime** (`"=event.obje
 - name: docs-on-release-train
   providerSelector: { matchLabels: { family: github } }
   on: [issue.closed]
-  where: "event.repo == 'compliance-framework/workflows' && 'train:done' in event.issue.labels"
+  params: { trainManifest: repos.yaml, allowDryRun: false, docsRepo: compliance-framework/docs }   # dev RuleSet overrides these
+  where: >
+    event.repo == 'compliance-framework/workflows' && has(event.train) &&
+    event.train.manifest == params.trainManifest &&
+    (('train:done' in event.issue.labels && !event.train.dryRun) ||
+     (params.allowDryRun && 'train:dry-run' in event.issue.labels))
   actions:
     - dispatch:
         taskSpec: release-docs
         queue: poc
-        target: { repo: compliance-framework/docs }
+        target: { repo: "{{ params.docsRepo }}" }
         inputs: { train: "=event.object.ref" }
     - set: { release: drafting, train: "=event.object.ref" }
 
@@ -444,7 +451,8 @@ String values starting with `=` are **CEL, evaluated at runtime** (`"=event.obje
     item.pr.approvedBy.exists(a, a.identity == 'reviewer' && a.commit == item.pr.head) &&
     item.pr.checks.state == 'success' &&
     !item.pr.labels.exists(l, l in ['do-not-merge', 'factory:hold', 'factory:stop'])
-  actions: [{ dispatch: { taskSpec: merge, queue: poc, inputs: { target: pr } } }]
+  params: { requiredCheck: "ci / required" }
+  actions: [{ dispatch: { taskSpec: merge, queue: poc, inputs: { target: pr, requiredCheck: "{{ params.requiredCheck }}" } } }]
 
 - name: announce-release-docs
   on: [factory.run.completed]
@@ -507,7 +515,8 @@ String values starting with `=` are **CEL, evaluated at runtime** (`"=event.obje
   where: >
     has(item.state.plan) && item.state.review == 'approved' &&
     item.prs.all(p, p.checks.state == 'success')
-  actions: [{ dispatch: { taskSpec: merge, queue: poc, inputs: { target: stack } } }]
+  params: { requiredCheck: "ci / required" }
+  actions: [{ dispatch: { taskSpec: merge, queue: poc, inputs: { target: stack, requiredCheck: "{{ params.requiredCheck }}" } } }]
 
 - name: record-merge-outcome
   on: [factory.run.completed]
@@ -570,6 +579,8 @@ spec:
   scope: { repos: ["compliance-framework/docs"] }
   rules: { selector: { matchExpressions: [{ key: pack, operator: In, values: [review-human, shared] }] } }
 ```
+
+**Dev RuleSets** (`dev-release-docs`, `dev-docs-epic`) select the same packs but target **`mock-docs`** and mock trains: they override `trainManifest: repos.mock.yaml`, `allowDryRun: true` and `docsRepo: compliance-framework/mock-docs`. Full table: [catalog-poc.md §Dev and prod RuleSets](workstreams/catalog-poc/LLD/catalog-poc.md#dev-and-prod-rulesets).
 
 The packs coexist on `docs` PRs:
 
@@ -710,11 +721,11 @@ sequenceDiagram
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/agents` | Register: owner identity, join token, capabilities, consent. Returns the agent id and a short-lived agent token. |
-| `GET /v1/agents/{id}/lease?wait=30s` | Long-poll for a task. **Outbound only**, so it works behind NAT. The dispatcher's only public endpoints are this API and the GitHub webhook. |
-| `POST /v1/leases/{id}/heartbeat` | Extend the lease (TTL 2m, heartbeat 30s) and stream progress |
-| `POST /v1/leases/{id}/complete` / `abandon` | Finish with a Result, or hand the task back. `abandon` and expired leases put the task back to `Pending`. |
-| `PATCH /v1/agents/{id}` | Status: `Ready`, `Throttled{until}`, `Draining`, `Offline` |
+| `POST /api/v1/agents` | Register: owner identity, join token, capabilities, consent. Returns the agent id and a short-lived agent token. |
+| `GET /api/v1/agents/{id}/lease?wait=30s` | Long-poll for a task. **Outbound only**, so it works behind NAT. The dispatcher's only public endpoints are this API and the GitHub webhook. |
+| `POST /api/v1/leases/{id}/heartbeat` | Extend the lease (TTL 2m, heartbeat 30s) and stream progress |
+| `POST /api/v1/leases/{id}/complete` / `abandon` | Finish with a Result, or hand the task back. `abandon` and expired leases put the task back to `Pending`. |
+| `PATCH /api/v1/agents/{id}` | Status: `Ready`, `Throttled{until}`, `Draining`, `Offline` |
 
 Delivery is **at-least-once**, so effects carry **idempotency keys** (task id plus an effect sequence number). A retried task never posts the same comment twice.
 

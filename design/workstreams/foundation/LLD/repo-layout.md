@@ -110,7 +110,7 @@ jobs:
                 # (or calls workflows' ci-go-service.yml pinned @sha # vX.Y.Z if it fits a mixed repo)
   web:          # needs: changes; if web == 'true' && hashFiles('web/package.json') != ''
                 # working-directory: web; npm ci; npm run reviewable
-  required:     # needs: [go, web]; if: always(); fails if any needed job failed (skipped = ok)
+  required:     # needs: [changes, go, web]; if: always(); fails only when a needed job's result is failure or cancelled (skipped = ok)
 ```
 
 - Path filters: `go` ← `cmd/**`, `internal/**`, `api/**`, `schemas/**`, `catalog/**`, `go.*`, `Makefile`; `web` ← `web/**`, `api/openapi.yaml`, `api/examples/**`.

@@ -55,6 +55,7 @@ On match:
 
 - `POST /leases/{id}/heartbeat` every `pool.lease.heartbeat` (30 s); body carries progress events (appended to Run, broadcast on SSE) and token usage deltas (`today.tokens`).
 - Response: `{expiresAt, cancel: bool, refreshedGitCredential?}` (credential refreshed when < 10 min left).
+- **Usage accounting.** Heartbeats carry **deltas** since the previous heartbeat (`inputTokens`, `outputTokens`, `costUSD`); the scheduler adds them to the `BudgetCounter`s and the agent's `today` as they arrive. `Result.harness.usage` is the **cumulative total** for the run. On `complete`, the scheduler adds `max(0, total − Σ deltas)` per field, so nothing is counted twice, and logs a warning when `Σ deltas > total`. On lease expiry or abandon, only the deltas already received count.
 - No heartbeat for `ttl` (2 min) → lease expired → Task back to `Pending` (`attempts++`, reason `agent-lost`) if retry policy allows, else `Failed{agent-lost}`.
 
 ## Throttling

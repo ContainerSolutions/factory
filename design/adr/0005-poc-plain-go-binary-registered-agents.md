@@ -7,7 +7,7 @@
 The PoC targets `docs`. It should run on registered agents on maintainers' machines: **Codex on the owners' ChatGPT plans** for default traffic, and **Claude Code on org API keys** mostly for validation. So every agent is a registered agent outside any cluster. State is in-memory and the config is central (ADR-0001, ADR-0006), so a long-running dispatcher is required. No existing tool covers the rule layer plus capability-matched pools of harness agents ([10](../10-poc.md#is-there-tooling-that-already-matches)).
 
 ## Decision
-- **Dispatcher:** one Go binary, one replica, **not on Kubernetes**. It contains the API, the in-memory store and queues, the controllers and the UI. Ingress is the GitHub App webhook (through a tunnel for the PoC), plus optional Slack Socket Mode.
+- **Dispatcher:** one Go binary, one replica, **not on Kubernetes**. It contains the API, the in-memory store and queues, the controllers and the UI. Ingress is the GitHub App webhook (through a tunnel for the PoC) only; Slack is future work (Q1).
 - **Pools:** one registered pool, `maintainer-agents`. Agents use the lease protocol in [10](../10-poc.md#agent-lifecycle-and-lease-protocol) and run the harnesses under their owners' own logins (ADR-0008).
 - Keep the Kubernetes *shape* (resources, selectors, controllers, `Store` interface), so config kinds can become CRDs later if ephemeral pod pools or GitOps call for it.
 - agent-orca, kagent, Claude Managed Agents, and GitHub self-hosted runners as the pool are **not adopted**.

@@ -67,7 +67,7 @@ Each adapter maps the same Task fields to its harness. Every value comes from `t
 | Model | `-m <resolved.model>` | `--model <resolved.model>` |
 | Reasoning effort | `-c model_reasoning_effort=<resolved.reasoningEffort>` | Mapped to Claude Code's effort or thinking setting (flag or settings key to verify) |
 | Auth (PoC) | Owner's `codex login`, in a **dedicated `CODEX_HOME`** | Owner's subscription login, in a **dedicated `CLAUDE_CONFIG_DIR`** (verify) |
-| Auth (beyond the PoC) | Owner's plan, or an API key (Q15) | `ANTHROPIC_API_KEY` in the worker's environment |
+| Auth (beyond the PoC) | API key or Enterprise access token (Q15) | `ANTHROPIC_API_KEY` in the worker's environment |
 | System / TaskSpec prompt | `AGENTS.md` in the scratch `CODEX_HOME`, prompt on stdin | `--append-system-prompt` (headless preamble), prompt on stdin |
 | Skills | `SKILL.md` folders copied into the scratch Codex skills dir (path to verify) | `--plugin-dir <materialised ccf-skills plugin>` |
 | Workspace mode | `--sandbox read-only \| workspace-write`, `--ask-for-approval never` (flags to verify) | `--permission-mode`, `--disallowedTools`, a `PreToolUse` hook that enforces the workspace mode |

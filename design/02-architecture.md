@@ -101,12 +101,14 @@ flowchart TB
 | `Queue` | git | scheduler | Concurrency, priority, budget; which pool drains it |
 | `Pool` | git | pool controller | Registered agents (PoC) or ephemeral agents with scaling (later) |
 | `Event` | DB, short-lived | rule controller | Normalised event (CloudEvents) from a Provider instance or the built-in `factory` provider |
-| `Approval` | DB | approval controller | A pending human gate. It resolves into `factory.approval.*` events. |
+| `Delivery` | DB, short-lived | provider controller | Raw provider webhook, stored **before** it's acknowledged; normalised into one or more Events |
+| `Approval` | DB | approval controller | A pending human gate. It resolves into `factory.approval.*` events. **Future (Q18): not built in the PoC.** |
 | `WorkItem` | DB | work-item controller | Links provider objects; state keys; projection |
 | `Task` | DB | scheduler → pool controller | One instance of a task spec for a work item (immutable spec, mutable status) |
 | `Run` | DB | run controller | One execution attempt: agent, progress, usage, result |
 | `Agent` | DB | pool controller | A registered worker: owner, capabilities (harnesses, auth mode, models, efforts), consent, heartbeat, throttling. Or an ephemeral agent's handle. |
 | `Effect` | DB | API (applied synchronously) | Audit record of every change made on a provider |
+| `BudgetCounter` | DB | scheduler | Daily usage per queue, RuleSet and global scope (runs, tokens, USD) |
 
 The model is deliberately **Kubernetes-shaped**: `metadata`, `spec`, `status`, labels and selectors, controllers. That keeps the option of later running the config kinds as real CRDs on a cluster. It's not a requirement, because the same controllers run against our own store.
 
@@ -118,19 +120,19 @@ The model is deliberately **Kubernetes-shaped**: `metadata`, `spec`, `status`, l
 | **provider** | `Provider` | Runs one adapter instance per Provider object: opens the webhook route or Socket Mode connection, verifies and dedupes inbound calls, and normalises them into `Event` resources. Resolves the actor's tier with that provider's trust config. Reports health in `Provider.status`. |
 | **rule** | `Event` (provider and `factory.*`), schedule ticks | Finds the work item for the event (or creates one). Finds the RuleSets in scope: for provider events by bound provider and scope; for `factory.*` events by the work item's linked objects. Evaluates their selected rules (`on` → `where`, `priority`/`final`), dedupes per (event, rule), checks the **safety rails**, and runs the actions. `dispatch` creates a `Task` (`Pending`) in its queue. `requestApproval` creates an `Approval`. `notify` renders a Template and sends it through the providers. |
 | **work-item** | `WorkItem`, provider observations | Calls `Observe` on linked objects to merge in out-of-band human actions, and writes the **projection** (labels, marker comment, Slack metadata). It runs the periodic **resync** (re-observe, then emit `workitem.resynced` events so rules can react) and the **rebuild** on startup. |
-| **scheduler** | `Task` (Pending), `Queue` | Orders tasks by priority, applies the queue's concurrency and budget, and binds a task to the queue's pool (status `Scheduled`). This is the same idea as Kubernetes pod scheduling. |
+| **scheduler** | `Task` (Pending), `Queue` | Orders tasks by priority, applies the queue's concurrency and budget, and offers it to the queue's pool; a matched task becomes `Leased`. This is the same idea as Kubernetes pod scheduling. Details: [scheduler-and-pools.md](workstreams/dispatcher-runtime/LLD/scheduler-and-pools.md). |
 | **pool** | `Task` (Pending), `Pool`, `Agent` | **Registered pool (PoC):** matches tasks to connected agents by capability. That includes **resolving harness config patterns** against what the agent offers ([03](03-domain-model.md#patterns-in-harness-config)), respecting consent, hours and throttling. It then grants **leases**, and handles heartbeats and expired leases. **Ephemeral pool (later):** launches an agent through the pool's backend within `scaling.max`. |
 | **run** | `Run` | Tracks progress, enforces wall-clock limits, cancels runs whose work item moved on (e.g. a review of a stale commit), and ingests the Result. Emits **`factory.run.completed`** / **`factory.run.failed`** from the built-in `factory` provider, which loops back into the rule controller. |
-| **approval** | `Approval`, candidate decisions from providers and UI | Presents approvals on their channels (templated GitHub comment, Slack buttons, UI), checks each decision's actor against the approver Group, applies the quorum and expiry, and emits **`factory.approval.granted` / `.denied` / `.expired`**. |
+| **approval** *(future, Q18)* | `Approval`, candidate decisions from providers and UI | Presents approvals on their channels (templated GitHub comment, Slack buttons, UI), checks each decision's actor against the approver Group, applies the quorum and expiry, and emits **`factory.approval.granted` / `.denied` / `.expired`**. |
 
 ### API server
 
 | Surface | Clients | Notes |
 |---|---|---|
-| **Runner API** | agents | Fetch a task by id with a one-time token, stream progress, submit the result, heartbeat or lease (registered agents) |
+| **Runner API** | agents | Register (owner device-flow login + join token), lease (long-poll), fetch the leased task, heartbeat with progress, complete or abandon. Agents authenticate with an **agent bearer token**; task routes also require that the agent holds the task's lease. |
 | **Effector API** | agents (through the Effector CLI or MCP) | Effect requests are checked against the task's effects allow-list, recorded as `Effect` resources, and applied through the Provider's adapter. **Provider credentials never leave the dispatcher.** |
 | **Resource API** | UI, CLI (`factory get rules`, `factory describe workitem …`), tests | Read and watch. Config kinds are read-only here (they come from git, ADR-0006). |
-| **Command API** | UI, CLI, Slack actions | Approve or deny (feeds the approval controller), pause, resume, cancel, re-dispatch. Each command becomes a **`factory.command.*` event**, so it goes through the rules like everything else. |
+| **Command API** | UI, CLI | Pause, resume, cancel, re-dispatch, dispatch, resync-catalog (approve/deny come with Approvals, Q18). Each command becomes a **`factory.command.*` event**, so it goes through the rules like everything else. |
 
 ### DB and queue
 
@@ -138,11 +140,13 @@ The model is deliberately **Kubernetes-shaped**: `metadata`, `spec`, `status`, l
 - **Rebuild on startup:** the in-memory store starts empty. The catalog is re-synced from git, the provider controller reconnects, and the work-item controller calls `List` on each Provider's bound scope and reads each object's **projection**:
 
   ```markdown
-  <!-- factory:wi id=wi_01JA… state=triage:triaged,implement:running runs=triage:1,implement:1 approvals=implement:granted links=github-public:docs#57,slack-ccf:C0123/1697… -->
+  <!-- factory:wi v=1 id=wi_01JA… state=release:drafting,train:compliance-framework%2Fworkflows%23123 runs=release-docs:1 links=github-public:compliance-framework%2Fdocs%2357 -->
   ```
 
+  The format (versioned, URL-encoded values, `b64:` for structured values) is defined once in [github-provider.md §Observe, list and projection](workstreams/provider-github/LLD/github-provider.md#observe-list-and-projection).
+
   **Rule:** anything rules need to continue must be in the projection. History (old runs, transcripts, cost) is lost on restart until the store is durable. Runs that finish while the dispatcher is down report back with their full task (the runner keeps a copy), so they're adopted after the rebuild.
-- **Queue:** one logical queue per `Queue` resource, implemented on the store at first. Tasks are `Task` resources with a phase (`Pending → Scheduled → Running → Succeeded / Failed / Cancelled`). That gives leases, retries and visibility in the UI for free. Postgres with SKIP LOCKED (e.g. River) comes when the store goes durable.
+- **Queue:** one logical queue per `Queue` resource, implemented on the store at first. Tasks are `Task` resources with a phase (`Pending → Leased → Running → Succeeded / Failed / Cancelled`, plus `Cancelling`; a task waiting on budget or capacity stays `Pending` with a reason). That gives leases, retries and visibility in the UI for free. Postgres with SKIP LOCKED (e.g. River) comes when the store goes durable.
 
 ### Factory UI
 
@@ -155,15 +159,15 @@ The UI is a client of the Resource and Command APIs (P9):
 | **Queues and pools** | Depth, running and leased tasks, ephemeral scale, registered agents and their capabilities |
 | **Run** | Live progress (SSE), transcript, harness and effective config, cost, effects performed |
 | **Catalog** | Loaded git SHA, providers and their health, rules (plus a "would this rule match?" dry-run against a recorded event), task specs, queues, pools. **Read-only.** |
-| **Controls** | Approve or deny, pause or resume (global, provider, queue, work item), cancel, re-dispatch |
+| **Controls** | Pause or resume (global, provider, queue, work item), cancel, re-dispatch, resync catalog (approve/deny later, Q18) |
 
-Sign-in is through OAuth against a configured Provider (GitHub org members). Commands require the maintainer tier.
+Sign-in is through OAuth against a configured Provider (GitHub org members). Commands require membership of the `maintainers` Group (the CCF org admins in the PoC, Q17).
 
 ## Provider objects and adapters
 
 A **Provider object** is configuration: which adapter type, how to connect, which identities to use, how to resolve actor tiers, and the scope it covers. **Secrets are referenced, never inlined.** Rules select providers by name (`providerRef`) or by label (`providerSelector`), so one rule can cover public GitHub and GitHub Enterprise at once. See [03](03-domain-model.md#provider) for full examples.
 
-Each adapter type implements one interface. The provider controller creates one instance per Provider object:
+Each adapter type implements one interface. The provider controller creates one instance per Provider object. The authoritative definition is [contracts.md §Provider interface](workstreams/foundation/LLD/contracts.md#provider-interface):
 
 ```go
 type Adapter interface {
@@ -171,12 +175,20 @@ type Adapter interface {
     Connect(ctx context.Context, p Provider, secrets SecretResolver) (Conn, error)
 }
 type Conn interface {
-    Events(ctx context.Context) (<-chan RawEvent, error)           // webhook route / Socket Mode
-    Normalise(ev RawEvent) (Event, error)                          // → provider-neutral Event, actor tier resolved
+    // Ingress: persist before acknowledging; re-ingest missed deliveries on startup
+    Handler(sink IngressSink) http.Handler
+    Recover(ctx context.Context, since time.Time, sink IngressSink) error
+    Normalise(ctx context.Context, ev RawEvent) ([]Event, error)  // one delivery → 0..n events, actor tier resolved
+    // Observation
     Observe(ctx context.Context, ref ObjectRef) (Observation, error)
     List(ctx context.Context, scope Scope) ([]ObjectRef, error)    // for resync / rebuild
-    Apply(ctx context.Context, e Effect) (EffectResult, error)     // effects + projection writes
-    MintGitCredential(ctx context.Context, repo string, perms Permissions, ttl time.Duration) (Credential, error)
+    ResolveGroup(ctx context.Context, g GroupSource) ([]string, error)
+    // Projection + effects
+    Project(ctx context.Context, ref ObjectRef, p Projection) error
+    Apply(ctx context.Context, e EffectRequest) (EffectResult, error)
+    // Credentials for agents
+    MintGitCredential(ctx context.Context, req GitCredentialRequest) (Credential, error)
+    Health() HealthStatus
 }
 ```
 
@@ -355,7 +367,7 @@ All dispatcher components (API, DB, queue, controllers and the UI's static asset
 
 | Shape | Dispatcher | DB / queue | Pools | When |
 |---|---|---|---|---|
-| **A. PoC** | Single replica; GitHub App webhook + Slack Socket Mode; plain Go binary, not Kubernetes ([10](10-poc.md#build-on-kubernetes-for-the-poc)) | In-memory, rebuilt from projections | **Registered only**: `maintainer-agents`, Codex on owners' plans (default), Claude Code on API keys (validation) ([10](10-poc.md#registered-agents-codex-on-subscriptions-claude-on-api-keys)) | `docs`, first weeks |
+| **A. PoC** | Single replica; GitHub App webhook only (Slack is future, Q1); plain Go binary, not Kubernetes ([10](10-poc.md#build-on-kubernetes-for-the-poc)) | In-memory, rebuilt from projections | **Registered only**: `maintainer-agents`, Codex on owners' plans (default), Claude Code on API keys (validation) ([10](10-poc.md#registered-agents-codex-on-subscriptions-claude-on-api-keys)) | `docs`, first weeks |
 | **B. Durable** *(future, not planned)* | Same | Postgres behind `Store` (queue on SKIP LOCKED); history survives; HA possible | + ephemeral pools (`actions-ephemeral`, API-key auth) for capacity that doesn't depend on someone's machine | More repos, budgets and reporting |
 | **C. Scale** *(future, not planned)* | HA | Postgres, or config kinds as CRDs on a cluster | k8s / Agent Sandbox ephemeral pools with warm pools; optional kagent / agent-orca backends | Volume or cost demands it |
 

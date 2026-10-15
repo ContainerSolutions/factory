@@ -26,7 +26,7 @@ catalog/
 └── testdata/<case>/{event.json,workitem.json,expected.json}
 ```
 
-`ccf-skills` ref in every TaskSpec: the SKL release tag (`v0.8.0`). Required check name: `ci / required` once DWF lands (until then `test-build`) — a `param` on merge rules, `requiredCheck`.
+`ccf-skills` ref in every TaskSpec: the SKL release tag (`v0.8.0`). Required check name: `ci / required` once DWF lands (until then `test-build`). It's a `requiredCheck` **param** on the merge rules, passed to the `merge` TaskSpec as the **input** of the same name (default `ci / required`); the rules' `where` checks the rollup state, the merge task checks that specific check.
 
 ## TaskSpecs, prompts and result schemas
 
