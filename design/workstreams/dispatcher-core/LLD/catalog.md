@@ -17,6 +17,7 @@ type Catalog struct {
     Pools      map[string]*v1alpha1.Pool
     Programs   cel.ProgramIndex               // compiled where/"=" programs
     Sources    map[ObjectKey]SourcePos        // file:line for every object (errors, UI)
+    Assets     Assets                         // prompts (parsed templates) and result schemas (compiled), keyed by relative path
 }
 ```
 
@@ -47,7 +48,7 @@ func LoadGit(ctx context.Context, repoURL, ref string, opts Options) (*Catalog, 
 type Options struct { Capabilities []v1alpha1.AdapterCapabilities; KnownModels map[string][]string; Strict bool }
 ```
 
-1. Walk `providers/ groups/ templates/ rules/ rulesets/ taskspecs/ queues/ pools/ harnesses/ prompts/ schemas/` (directory names are conventions; **kind** decides, not directory).
+1. **Object discovery:** walk every `*.yaml`/`*.yml` file **except** under `prompts/`, `schemas/` and `testdata/` (directory names are otherwise conventions; **kind** decides). **Assets** are loaded separately and never decoded as objects: `prompts/**` → `Catalog.Assets.Prompts` (raw templates, parsed with `text/template` at load), `schemas/**/*.json` → `Catalog.Assets.Schemas` (compiled JSON Schemas). A YAML document without `apiVersion`/`kind` outside those dirs is error `CAT002`.
 2. Split multi-document YAML; decode **strictly** (`UnmarshalStrict`) into the kind's type; record `file:line` per document.
 3. Duplicate `(kind, name)` → error `CAT001`.
 

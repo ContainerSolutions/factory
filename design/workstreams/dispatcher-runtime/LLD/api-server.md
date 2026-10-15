@@ -27,7 +27,8 @@ OAuth app config: `FACTORY_OAUTH_CLIENT_ID`, `FACTORY_OAUTH_CLIENT_SECRET` (a Gi
 2. op ∈ task.spec.effects.allow                         else 403 effect-not-allowed
 3. label ops: every label matches task.spec.effects.labels globs   else 403
 4. identity := TaskSpec.identity; target must be the task target repo (or its linked objects) else 403
-5. idem := hash(task.id, req.idempotencyKey); if Effect(idem) exists → return it (200, replay)
+5. req.idempotencyKey must be present and non-empty (≤ 200 chars)  else 400 idempotency-key-required
+   idem := hash(task.id, req.idempotencyKey); if Effect(idem) exists → return it (200, replay)
 6. per-run rate limit: ≤ 20 comments/run, ≤ 60 effects/run           else 429
 7. result := Conn.Apply(EffectRequest{op, target, args, identity, idem})
 8. store Effect; append to Run.progress; broadcast SSE; return {effectId, url}
@@ -37,13 +38,15 @@ Git-side ops (`push-branch`, `stack.*`) are **recorded** (step 5–8 without `Co
 
 ## Commands (`POST /commands`)
 
-| `type` | Effect |
-|---|---|
-| `pause` / `resume` `{scope: global\|provider\|queue\|workitem, name}` | sets kill-switch flags in the store (rails read them); emits `factory.command.pause/resume` |
-| `cancel {task}` | Task → `Cancelling` |
-| `redispatch {task, harness?}` | clones the Task with an optional harness override; new Task `Pending` |
-| `dispatch {event}` | validates + stores an injected Event (source must be a configured provider or `factory`), used by `factory dispatch` and the UI dry-run "run for real" |
-| `resync-catalog` | triggers catalog-sync |
+Body: `{type, target, args}`.
+
+| `type` | `target` / `args` | Effect |
+|---|---|---|
+| `pause` / `resume` | `target: {scope: global\|provider\|queue\|workitem, name}` | sets kill-switch flags in the store (rails read them); emits `factory.command.pause/resume` |
+| `cancel` | `target: {task}` | Task → `Cancelling` |
+| `redispatch` | `target: {task}`, `args: {harness?}` | clones the Task with an optional harness override; new Task `Pending` |
+| `dispatch` | `args: {event}` | validates + stores an injected Event (source must be a configured provider or `factory`), used by `factory dispatch` and the UI dry-run "run for real" |
+| `resync-catalog` | — | triggers catalog-sync |
 
 ## SSE (`GET /stream?topics=…`)
 

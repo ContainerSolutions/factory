@@ -31,12 +31,12 @@ func (c *Controller) Run(ctx context.Context) error
 | | |
 |---|---|
 | Watches | timer (default 60 s) + `POST /commands {type: resync-catalog}` |
-| Does | `git ls-remote <repo> refs/heads/main`; if SHA changed → `catalog.LoadGit` → if no errors swap `atomic.Pointer[catalog.Catalog]`; else keep old, publish status `{lastGood, lastAttempt, errors}` |
+| Does | `git ls-remote <repo> <catalog-ref>` (branch or tag as configured; default `main`); if SHA changed → `catalog.LoadGit(repo, <that SHA>)` → if no errors swap `atomic.Pointer[catalog.Catalog]`; else keep old, publish status `{lastGood, lastAttempt, errors}` |
 | Config | `--catalog-repo` (default `https://github.com/compliance-framework/factory`), `--catalog-path catalog`, `--catalog-ref main`; `--catalog-dir` for local dev (fsnotify reload) |
 
 ### provider
 
-Creates one `Conn` per Provider in the catalog (re-created when the Provider object's digest changes). Mounts `Conn.Handler()` at the webhook path. Pumps `Conn.Events()` → `Conn.Normalise` → `store.Create(Event)`. Also owns the built-in **`factory` provider**: an in-process emitter `EmitFactoryEvent(type, workItem, data)` used by other controllers; it's the only writer of `factory.*` Events.
+Creates one `Conn` per Provider in the catalog (re-created when the Provider object's digest changes). Mounts `Conn.Handler(sink)` at the webhook path, where `sink.Accept` stores a `Delivery` record before the handler acknowledges. Watches `Delivery` (status `received`) → `Conn.Normalise` → `store.Create(Event)` per output (IDs `<delivery>/<n>`) → marks the delivery `normalised`. On startup calls `Conn.Recover`. Also owns the built-in **`factory` provider**: an in-process emitter `EmitFactoryEvent(type, workItem, data)` used by other controllers; it's the only writer of `factory.*` Events.
 
 ### rule (RT-S2-T01)
 

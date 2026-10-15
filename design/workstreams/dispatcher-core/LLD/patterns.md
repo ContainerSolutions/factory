@@ -10,7 +10,7 @@
 | exact | `claude-sonnet-5-5` | string equality |
 | glob | `claude-sonnet-5-*`, `gpt-5?-codex` | `gobwas/glob` with no separators |
 | glob alternation | `claude-{sonnet,opus}-5-*` | same (gobwas supports `{a,b}`) |
-| regex | `re:^gpt-5(\.\d+)?-codex$` | `regexp.MustCompile` (anchored as written) |
+| regex | `re:^gpt-5(\.\d+)?-codex$` | `regexp.Compile` (anchored as written); a compile error is returned as a typed `PatternError`, never a panic |
 | any | `*` | always true |
 | list | `[low, medium]` (YAML list) | any element matches; **order = preference** |
 

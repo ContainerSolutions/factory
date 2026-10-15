@@ -51,9 +51,9 @@ All go through `POST /commands`, behind a confirm dialog that shows the exact co
 
 | Control | Where | Command |
 |---|---|---|
-| Pause / resume (global, provider, queue, work item) | header menu, pools view, work item | `{type: pause\|resume, scope, name}` |
-| Cancel run | run view | `{type: cancel, task}` |
-| Re-dispatch (optionally another harness/model) | run view | `{type: redispatch, task, harness}` |
+| Pause / resume (global, provider, queue, work item) | header menu, pools view, work item | `{type: pause\|resume, target: {scope, name}}` |
+| Cancel run | run view | `{type: cancel, target: {task}}` |
+| Re-dispatch (optionally another harness/model) | run view | `{type: redispatch, target: {task}, args: {harness}}` |
 | Resync catalog | catalog view | `{type: resync-catalog}` |
 
 ## Auth and session

@@ -17,7 +17,7 @@ Running ──cancel──▶ Cancelling ──ack or lease expiry──▶ Canc
 `POST /api/v1/agents` body: `{pool, joinToken, ownerToken, capabilities, lending, agentVersion}`.
 
 1. `joinToken` matches `Pool.admission.tokenRef` secret (constant-time compare).
-2. `ownerToken` (the owner's `gh auth token`) → `GET /user` → login; **discarded immediately** (never stored or logged).
+2. `ownerToken` (a short-lived user token from the GitHub **device flow** that `factory-agent register` runs against the dispatcher's OAuth client) → `GET /user` → login; **discarded immediately** (never stored or logged). The worker's OS user needs no `gh` login.
 3. Owner ∈ `Pool.admission.owners` Group (via `Conn.ResolveGroup`, cached 10 min).
 4. Capabilities ⊇ `Pool.require` (e.g. at least one required harness).
 5. Issue `agentToken` (random 32 bytes, stored hashed, TTL 24 h, renewed by heartbeats) and create/replace the `Agent` object (`agt_<owner>-<host>`).
@@ -63,7 +63,7 @@ On match:
 
 ## Budgets
 
-Counters per day (UTC) kept on Queue/RuleSet status objects in the store: `runs`, `tokens`, `usd`. A Task deferred for budget is retried at the next day boundary or when the budget config changes.
+Counters live in a dedicated runtime kind, **`BudgetCounter`**, one object per (scope, name, UTC day): name `budget.<queue|ruleset|global>.<name>.<YYYY-MM-DD>`, fields `runs`, `tokens`, `usd`. Queue and RuleSet stay pure config. Updates use store CAS (`Update` with `resourceVersion`, retry on `ErrConflict`): `runs` is incremented when a lease is granted; `tokens`/`usd` from heartbeat deltas and the final Result. The matcher reads today's counters for the task's queue, RuleSet and global scope. Counters are swept after 90 days like other runtime kinds. A Task deferred for budget is retried at the next UTC day boundary (a new counter object) or when the catalog budget changes.
 
 ## Tests
 

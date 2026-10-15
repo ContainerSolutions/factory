@@ -49,7 +49,8 @@ PoC: Gustavo's machine (or a small VM) running `factory serve` (built with `make
 1. `go install github.com/compliance-framework/factory/cmd/factory-agent@<ref>`.
 2. Codex: `CODEX_HOME=~/.factory-agent/codex-home codex login --device-auth`. Claude Code (PoC): `CLAUDE_CONFIG_DIR=~/.factory-agent/claude claude` → `/login` once.
 3. For `has-local-stack`/`gif-tooling`: Docker, `local-dev` checkout, `npx playwright install chromium`, `brew install gifski vhs ffmpeg`.
-4. `gh auth login` (owner identity), place the join token file, write `agent.yaml` (from example), set `lending`.
+4. Run the worker as a **dedicated OS user** (e.g. `factory-agent`) with **no `gh` login and no personal GitHub credentials** in its home. Place the join token file, write `agent.yaml` (from example), set `lending`.
+   `factory-agent register` proves the owner's identity with a GitHub **device flow** (open the URL, enter the code). The short-lived user token is used once for registration and never stored. Tasks only ever get the factory's per-task App tokens.
 5. `factory-agent probe` → check labels; `factory-agent worker` (or a launchd/systemd unit from the kit).
 
 ## Use case 1 runbook
@@ -92,4 +93,19 @@ Enable `poc-docs-human-review` (already in catalog; confirm `docs` App installed
 | 4 | human PR reviewed, nothing else | PR timeline |
 | 5 | Codex writes, Claude reviews; exact effective config | Run pages |
 | 6 | restart loses nothing | before/after screenshots of the work item |
-| 7 | no credentials stored/sent beyond scoped git tokens | code review (`FACTORY-CRED-001`) + store dump grep |
+| 7 | no credentials stored/sent beyond scoped git tokens | code review (`FACTORY-CRED-001`) **plus the canary integration test** (below) |
+
+### Credential canary test (criterion 7)
+
+An automated integration test (`make test-credentials`, run in CI against fakes and once on the real PoC setup):
+
+1. Start `factory serve` and one `factory-agent worker` with **canary values** for every secret: App private keys, webhook secret, OAuth client secret, session key, CLI token, pool join token, a fake Anthropic/OpenAI key in the worker's environment, and the device-flow user token.
+2. Route dispatcher ↔ agent and dispatcher ↔ GitHub (fake) traffic through a recording proxy.
+3. Run a fake task that performs effects and produces a transcript.
+4. Assert that **no canary appears** in:
+   - recorded HTTP bodies and headers (except the canary's own legitimate channel: e.g. the App key never leaves the dispatcher, the join token appears only in `POST /agents`);
+   - dispatcher and agent logs;
+   - the store dump and uploaded transcripts;
+   - the harness process environment (`/proc/<pid>/environ` or `ps eww`);
+   - the task workspace files.
+

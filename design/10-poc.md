@@ -442,7 +442,8 @@ String values starting with `=` are **CEL, evaluated at runtime** (`"=event.obje
   where: >
     has(item.state.release) &&
     item.pr.approvedBy.exists(a, a.identity == 'reviewer' && a.commit == item.pr.head) &&
-    item.pr.checks.state == 'success'
+    item.pr.checks.state == 'success' &&
+    !item.pr.labels.exists(l, l in ['do-not-merge', 'factory:hold', 'factory:stop'])
   actions: [{ dispatch: { taskSpec: merge, queue: poc, inputs: { target: pr } } }]
 
 - name: announce-release-docs
@@ -548,7 +549,7 @@ spec:
   providerSelector: { matchLabels: { family: github, network: public } }
   scope: { repos: ["compliance-framework/workflows", "compliance-framework/docs"] }   # the train issue + the docs PR it produces
   rules:
-    selector: { matchLabels: { pack: release-docs } }
+    selector: { matchExpressions: [{ key: pack, operator: In, values: [release-docs, shared] }] }
     exclude: [merge-release-docs]          # remove this line once everything else is trusted (Q10)
   stateKeys: [release, train, review, merge]
 ---
@@ -558,7 +559,7 @@ spec:
   providerSelector: { matchLabels: { family: github, network: public } }
   scope: { repos: ["compliance-framework/docs"] }
   rules:
-    selector: { matchLabels: { pack: docs-epic } }
+    selector: { matchExpressions: [{ key: pack, operator: In, values: [docs-epic, shared] }] }
     exclude: [merge-whole-stack]           # same
   stateKeys: [plan, stackNext, stackTotal, review, merge]
 ---
@@ -567,7 +568,7 @@ metadata: { name: poc-docs-human-review }
 spec:
   providerSelector: { matchLabels: { family: github, network: public } }
   scope: { repos: ["compliance-framework/docs"] }
-  rules: { selector: { matchLabels: { pack: review-human } } }
+  rules: { selector: { matchExpressions: [{ key: pack, operator: In, values: [review-human, shared] }] } }
 ```
 
 The packs coexist on `docs` PRs:

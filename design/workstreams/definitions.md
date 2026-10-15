@@ -59,12 +59,16 @@ flowchart LR
     DOC & DWF & SKL --> RUN
 ```
 
-| Stage | Runs in parallel | Needs |
-|---|---|---|
-| **A** | RUN-S0 `[human]` · FND · SKL-S1/S2 · DOC-S1 | nothing |
-| **B** | CORE · GH · AGT · WEB · RT-S1 (store, controller runtime) · DWF-S1 · DOC-S2 | FND (factory tasks), DOC-S1 (DWF, DOC-S2) |
-| **C** | RT-S2 (rule/work-item controllers, pools, API, serve) · CAT · SKL-S3 · DWF-S2 | CORE, GH; SKL-S2 for CAT |
-| **D** | RUN-S1…S4: deploy, register agents, use case 1 (mock-docs → docs), human-PR review, use case 2, enable merge | everything above |
+| Stage | Step | Runs in parallel | Needs |
+|---|---|---|---|
+| **A** | A1 | RUN-S0-T01 `[human]` (design merged) · RUN-S0-T02/T03 `[human]` · SKL-S1 · DOC-S1-T01, DOC-S1-T02 | nothing |
+| | A2 | FND · DOC-S1-T03…T05 | FND: RUN-S0-T01 · DOC: DOC-S1-T02 |
+| | A3 | SKL-S2 | SKL-S1-T01, DOC-S1-T02 (`instances.yaml` format) |
+| **B** | | CORE · GH · AGT · WEB · RT-S1 (store, controller runtime) · DWF-S1 · DOC-S2 | FND (factory tasks); DOC-S1-T01 (DWF-S1-T01); RUN-S0-T03 + DOC-S1-T05 (DOC-S2, DWF-S1-T02/T03) |
+| **C** | | RT-S2 (rule/work-item controllers, pools, API, serve) · CAT · SKL-S3 · DWF-S2 | per task: CORE-S1-T04 + RT-S1-T02 (RT-S2-T01); GH-S1-T04 + RT-S2-T03 (RT-S2-T04); CORE-S1-T03 + SKL-S3-T02 (CAT) |
+| **D** | | RUN-S1…S4: deploy, register agents, use case 1 (mock-docs → docs), human-PR review, use case 2, enable merge | everything above |
+
+Each task's `Depends:` line is authoritative; the table is the overview.
 
 ## How to run a task with lisa
 
@@ -86,7 +90,12 @@ awk -v id="### $TASK " 'index($0,id)==1{f=1;print;next} f&&/^### /{f=0} f' "$FIL
   - For each next task, set `LISA_BASE=<branch below>` and run it "one-shot".
   - Watch the stack by running lisa once on the **top** PR. It fixes threads bottom-up and keeps one cron for the whole stack.
   - Keep stacks linear. Merge bottom-up.
-- **Parallel stacks in `factory`** (CORE, GH, AGT, WEB, RT, CAT) each branch from `main` and touch disjoint directories (see each workstream's *Owns* line). If two need the same file, the later one rebases.
+- **Parallel stacks in `factory`** (CORE, GH, AGT, WEB, RT, CAT) each branch from `main` and mostly touch disjoint directories (see each workstream's *Owns* line). The exceptions are the **shared entrypoints**:
+  - `cmd/factory/main.go` (subcommand registration): touched by FND (creates it), CORE (`validate`, `rules test`) and RT (`serve`, `dispatch`).
+  - `cmd/factory-agent/main.go`: touched by FND (creates it) and AGT (every subcommand).
+  - `go.mod`/`go.sum`: any stack adding a dependency.
+
+  Each subcommand lives in its own file (`cmd/factory/validate.go`, `serve.go`, …) and registers itself with one line in `main.go`, which keeps conflicts to a single line. **Merge order for these files:** FND first; then CORE before RT; AGT whenever it's ready. The stack merging later rebases on `main` and keeps both registrations. `go.mod` conflicts are resolved with `go mod tidy` after rebasing, never by hand.
 - **Identity.** Run lisa as your own `gh` identity, or as `ccf-lisa[bot]`. **Never** as `ccf-release-bot` or the factory's own Apps.
 - **`[human]` tasks** need an org owner: GitHub Apps, secrets, repo creation, repo settings, hosting, agent machines. Agents never do these.
 
@@ -145,11 +154,11 @@ Every PR gets `/ccf-review:review <PR URL>` before merge, and `--again` after ne
 
 - **`go`:** calls `compliance-framework/workflows` `ci-go-service.yml`, pinned `@<sha> # vX.Y.Z`. If that workflow can't run in a repo that also has `web/`, use a local job with the same steps.
 - **`web`:** a local job, path-filtered to `web/**` and `api/openapi.yaml`, running `npm ci && npm run reviewable` in `web/`. It's skipped while `web/package.json` doesn't exist.
-- **`required`:** aggregates both.
+- **`required`:** aggregates both and must report on **every** PR, even when path filters skip `go` or `web`. It has `needs: [changes, go, web]` and `if: always()`. It fails only when a needed job's result is `failure` or `cancelled`; `skipped` counts as success. Branch protection requires only `required`.
 - Add `notify-failure.yml` like the other repos.
 - Follow `CORE-CI-001`: actions pinned by SHA, top-level `permissions: contents: read`, `persist-credentials: false`.
 
-**Done when:** the PR's `required` check is green, and a PR touching only `web/` skips `go` (and the reverse).
+**Done when:** the PR's `required` check is green. Two throwaway test PRs (a Go-only change and a web-only change) each show one job skipped and `required` **green and reported**. A deliberately failing job turns `required` red.
 
 ### FND-S1-T01 `feat(apis): v1alpha1 types and JSON Schemas`
 
@@ -318,7 +327,7 @@ Use the `fake` provider from contracts.md in tests.
 
 ### RT-S2-T04 `feat(cmd): factory serve`
 
-- **Branch:** `fx/rt-s2-t04-serve` · **Base:** `fx/rt-s2-t03-server` · **Stack:** `rt-2` · **Depends:** GH-S1-T04
+- **Branch:** `fx/rt-s2-t04-serve` · **Base:** `main`, after the `gh` stack and the `rt-2` stack up to RT-S2-T03 have **both merged** (it's the integration point of the two stacks, so it's not stacked on either) · **Depends:** GH-S1-T04, RT-S2-T03
 
 **Spec.** Per [api-server.md §serve](dispatcher-runtime/LLD/api-server.md#factory-serve): config from env and flags, wiring of the store, controllers, the GitHub provider, the scheduler, the server and the embedded UI (`internal/webui`), graceful shutdown, and structured logs (`slog`). Add `factory dispatch --event file.json` to inject a fake event through the API.
 
@@ -532,7 +541,7 @@ Use a **fake harness** adapter in tests.
 
 ### CAT-S1-T02 `feat(catalog): task specs, prompts and templates`
 
-- **Branch:** `fx/cat-s1-t02-taskspecs` · **Base:** `fx/cat-s1-t01-base` · **Stack:** `cat` · **Depends:** SKL-S2 (skill names and ref)
+- **Branch:** `fx/cat-s1-t02-taskspecs` · **Base:** `fx/cat-s1-t01-base` · **Stack:** `cat` · **Depends:** SKL-S3-T02 (the `ccf-skills` v0.8.0 tag that every TaskSpec pins; it includes the skill names from SKL-S2-T01…T04)
 
 **Spec.** Five TaskSpecs (`release-docs`, `plan-epic`, `implement`, `docs-review`, `merge`), their prompt templates and result schemas, and four templates, per [catalog-poc.md §TaskSpecs and prompts](catalog-poc/LLD/catalog-poc.md#taskspecs-prompts-and-result-schemas). Pin `ccf-skills` to the SKL release tag.
 
@@ -643,7 +652,7 @@ Use a **fake harness** adapter in tests.
 
 ### SKL-S3-T02 `chore: release v0.8.0`
 
-- **Branch:** `fx/skl-s3-t02-release` · **Base:** `main` · **Depends:** SKL-S1, SKL-S2, SKL-S3-T01
+- **Branch:** `fx/skl-s3-t02-release` · **Base:** `main` · **Depends:** SKL-S1-T03, SKL-S2-T04, SKL-S3-T01 (the tops of the `skl-headless` and `skl-docs` stacks, and the rules PR)
 
 **Spec.** Bump the plugin versions and marketplace entries, update the CHANGELOG, and tag `v0.8.0`.
 
@@ -672,7 +681,7 @@ Use a **fake harness** adapter in tests.
 
 - **Branch:** `fx/doc-s1-t02-instances` · **Base:** `fx/doc-s1-t01-cleanup` · **Stack:** `doc`
 
-**Spec.** `instances.yaml` (schema in the LLD: repo → instance id, kind, path, route, label, policy repos), plus a `docusaurus.config.ts` that generates the docs plugin instances, navbar (CCF · API · UI · Agent · Catalog) and version dropdowns from it. The general section stays the default instance.
+**Spec.** `instances.yaml` (schema in the LLD: repo → instance id, kind, path, route, label, policy repos), `scripts/gen-sidebars.mjs` wired as `prestart`/`prebuild` ([§Sidebar generation](docs-revamp/LLD/docs-revamp.md#sidebar-generation)), plus a `docusaurus.config.ts` that generates the docs plugin instances, navbar (CCF · API · UI · Agent · Catalog) and version dropdowns from it. The general section stays the default instance.
 
 **Done when:** the build passes with empty instances, and the navbar renders.
 
@@ -848,7 +857,7 @@ Open the i18n + PT-BR issue on `mock-docs` first, then on `docs`. Success criter
 
 ### RUN-S4-T01 `feat(catalog): enable merge rules`
 
-- **Repo:** factory · **Branch:** `fx/run-s4-t01-merge` · **Base:** `main` · **Depends:** RUN-S3-T01…T03
+- **Repo:** factory · **Branch:** `fx/run-s4-t01-merge` · **Base:** `main` · **Depends:** RUN-S3-T01, RUN-S3-T02, RUN-S3-T03
 
 **Spec.** Remove `merge-release-docs` and `merge-whole-stack` from the RuleSets' `exclude` lists. This PR needs **two approvals** ([07](../07-security-and-governance.md#governance-of-the-catalog-itself)).
 

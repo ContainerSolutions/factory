@@ -20,8 +20,9 @@ Needs-info: if the epic is ambiguous on a decision only a human can make (e.g. "
 **Input:** `target: pr | stack`, required check name (param), merge label (repo config). **Output:** merged PRs or a block reason; result `merge` schema.
 
 ```text
-gates(pr): approvedBy reviewer at head SHA ∧ required check success ∧ unresolvedThreads == 0 ∧ no do-not-merge/factory:stop label
-           ∧ no human comment after the approval asking to hold (heuristic: "hold", "wait", "don't merge" by a maintainer)
+gates(pr): approvedBy reviewer at head SHA ∧ required check success ∧ unresolvedThreads == 0
+           ∧ no hold label: do-not-merge, factory:hold, factory:stop       (explicit signals only; comment wording is never parsed)
+           ∧ no human CHANGES_REQUESTED review newer than the factory approval
 pr:    if !gates → outcome blocked{reason}; else factory pr merge (fallback merge label → labelled-for-merge)
 stack: for pr in bottom→top:
          if !gates(pr) → blocked{pr, reason}; stop
@@ -31,4 +32,4 @@ stack: for pr in bottom→top:
          wait for next's required check (poll via observe, ≤ 20 min) before continuing
 ```
 
-Never force-merges; never bypasses rulesets; never merges a PR the factory didn't author (human PRs are review-only).
+A maintainer who wants the factory to wait adds `factory:hold` (documented in the `epic-plan` and `needs-human` templates and in the `docs` CONTRIBUTING.md). Never force-merges; never bypasses rulesets; never merges a PR the factory didn't author (human PRs are review-only).

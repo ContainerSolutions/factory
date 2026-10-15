@@ -19,7 +19,7 @@ catalog/
 │   ├── release-docs/*.yaml                      # pack: release-docs
 │   ├── docs-epic/*.yaml                         # pack: docs-epic
 │   ├── review-human/*.yaml                      # pack: review-human
-│   └── shared/escalate-needs-human.yaml         # labels: {pack: shared}
+│   └── shared/escalate-needs-human.yaml         # labels: {pack: shared} — selected by every RuleSet (below)
 ├── rulesets/
 │   ├── poc-release-docs.yaml  poc-docs-epic.yaml  poc-docs-human-review.yaml     # → docs
 │   └── dev-release-docs.yaml  dev-docs-epic.yaml                                 # → mock-docs
@@ -48,7 +48,7 @@ TaskSpec YAML is as in [10 §TaskSpecs](../../../10-poc.md#taskspecs). Prompts a
 | `plan-epic` | 3–8 sub-issues, each independently reviewable and mergeable in order; each with acceptance criteria; create them with `factory issue create` + `factory issue sub-add`; comment the plan |
 | `implement` | `mode: new` → implement the sub-issue on a branch based on `inputs.base` (`factory/stack/<wi>/<n>`), open PR with base `inputs.base`; `mode: address-review` → address every unresolved thread (`resolve` skill), push, reply/resolve threads; `target: stack` → use `lisa` stack mode one-shot |
 | `docs-review` | use `ccf-review:review` with the `docs-site` pack; with `verifyAgainst` use `docs-verify` against the running versions; one review per PR (stack: per PR, plus a summary comment on the top PR); approve only when no must-fix findings remain; Questions → outcome `needs-human` |
-| `merge` | re-verify gates (approval by reviewer at head, `requiredCheck` green, no unresolved threads, no `do-not-merge`); stack: merge bottom-up, retarget the next PR, rebase, wait for checks, continue; review-required block → add merge label (Q5) |
+| `merge` | re-verify gates (approval by reviewer at head, `requiredCheck` green, no unresolved threads, no hold label: `do-not-merge`, `factory:hold` or `factory:stop`, no human `CHANGES_REQUESTED` review newer than the approval); stack: merge bottom-up, retarget the next PR, rebase, wait for checks, continue; review-required block → add merge label (Q5) |
 
 Result schemas extend the base Result (`status`, `outcome`, `summary`) with `data`:
 
@@ -86,7 +86,16 @@ So `docs-on-release-train` declares params `trainManifest`, `allowDryRun`, `docs
 where: >
   event.repo == 'compliance-framework/workflows' && has(event.train) &&
   event.train.manifest == params.trainManifest &&
-  ('train:done' in event.issue.labels || (params.allowDryRun && 'train:dry-run' in event.issue.labels))
+  (('train:done' in event.issue.labels && !event.train.dryRun) ||
+   (params.allowDryRun && 'train:dry-run' in event.issue.labels))
+```
+
+Every RuleSet selects its own pack **plus the `shared` pack**, so `escalate-needs-human` applies everywhere:
+
+```yaml
+rules:
+  selector: { matchExpressions: [{ key: pack, operator: In, values: [release-docs, shared] }] }   # docs-epic / review-human likewise
+  exclude: [merge-release-docs]
 ```
 
 All `merge-*` rules are in every RuleSet's `rules.exclude` until RUN-S4-T01.

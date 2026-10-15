@@ -58,23 +58,31 @@ The engine **never** performs I/O: applying decisions (creating Tasks, writing s
    for r in candidates:
        if stop: record Match{suppressed-by-final}; continue
        if seen[(ev.ID, r.Name)]: record Match{duplicate}; continue      // dedupe across RuleSets
+       seen[(ev.ID, r.Name)] = true                                      // mark first, so every exit below counts
        act := activation(ev, wi with state, r.Params)
        ok, err := r.Where.EvalBool(act)       // empty where = true
        if err: record Match{error}; continue
        if !ok: record Match{not-matched}; continue
-       for a in r.Actions:                     // ordered; later actions see updated state
-           intent, err := materialise(a, act)  // evaluates "=" leaves
-           if err: record error, abort this rule's remaining actions; break
+       // stage: materialise ALL actions before committing any (atomic per rule)
+       staged := []; overlay := copy(state)
+       for a in r.Actions:                     // ordered; later actions see the staged overlay
+           intent, err := materialise(a, act with item.state = overlay)   // evaluates "=" leaves
+           if err: staged = nil; record Match{action-error, index, err}; break
+           if intent is Set: overlay[k] = v
+           staged = append(staged, intent)
+       if staged == nil: continue             // nothing from this rule is committed
+       // commit
+       for intent in staged:
            verdict := rails.Check(intent)
            append Decision{set, r, intent, verdict}
-           if intent is Set and verdict.Allowed: state[k] = v; act.item.state = state
-       seen[(ev.ID, r.Name)] = true
+           if intent is Set and verdict.Allowed: state[k] = v
        if r.Final: stop = true
 4. return Evaluation{..., StateAfter: state}
 ```
 
 Notes:
 
+- **Atomicity:** a rule's actions are all-or-nothing at evaluation time: if any action fails to materialise, none of that rule's decisions are emitted (matching the CEL error contract). Rail verdicts are per action at commit time; a suppressed `set` is not applied to `StateAfter`, but later actions in the same rule were already materialised against the staged overlay (documented; fixtures cover it).
 - **Counters** (`item.count`) come from `wi.RunsBySpec`, so a dispatch in the same evaluation does **not** increment them (it's not a run yet).
 - **Debounce:** a rule with `debounce{window, key}` yields `Debounce{Key: eval(key), Until: now+window, Then: <first action>}`; the controller holds one pending intent per key and fires at `Until` (subsequent matches extend nothing — first wins, documented).
 - **requestApproval** in the PoC yields `Unsupported` decision (Q18) and a catalog warning.
@@ -115,7 +123,8 @@ factory rules test --catalog catalog --fixtures catalog/testdata [--update] [--b
 | `final` + priority (`autoimplement` vs `request-implement-approval`) | lower rule suppressed |
 | same rule via two RuleSets | one decision, one `duplicate` match |
 | factory event scoping via links | rules from the docs RuleSet fire for a run linked to `docs#57` |
-| `where` runtime error | not matched + error recorded |
+| `where` runtime error | not matched + error recorded; the rule is still marked seen (a second RuleSet selecting it records `duplicate`) |
+| action materialise error after a valid `set` | **no** decisions from that rule; state unchanged; `action-error` match recorded |
 | `set` then `dispatch` reading new state (`build-stack-next`) | dispatch input uses incremented index |
 | `record-review-outcome` priority 100 before `merge-whole-stack` | merge sees `review == approved` |
 | rails suppress / defer | verdicts recorded, state not updated on suppressed `set` |

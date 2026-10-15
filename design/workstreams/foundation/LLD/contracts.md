@@ -54,6 +54,7 @@ type Action struct {
 | `Run` | `Task`, `Attempt`, `Agent`, `Owner`, `StartedAt`, `EndedAt`, `Progress []ProgressEvent` (ring buffer), `Result *Result`, `TranscriptRef`, `Usage` |
 | `Agent` | `Spec{Pool, Owner, Capabilities{Harnesses []HarnessOffer{Name, Version, Auth, Models, ReasoningEffort}, Labels}, Lending{Unlimited, Queues, RuleSets, Harnesses, MaxConcurrent, MaxRunsPerDay, MaxTokensPerDay, Hours}}`; `Status{Phase, ThrottledUntil, LastHeartbeat, Running []TaskID, Today{Runs, Tokens}}` |
 | `Effect` | `Task`, `Op`, `Target ObjectRef`, `IdempotencyKey`, `Identity`, `Request`, `Result{URL, Error}`, `At` |
+| `BudgetCounter` | name `budget.<scope>.<name>.<YYYY-MM-DD>`; `Runs`, `Tokens`, `USD` (CAS-updated by the scheduler) |
 | `Approval` | type only in PoC (Q18) |
 
 ### Result
@@ -110,8 +111,8 @@ type Adapter interface {
 
 type Conn interface {
     // Ingress
-    Handler() http.Handler                                       // mounted at Provider.webhook.path; verifies + enqueues
-    Events() <-chan RawEvent
+    Handler(sink IngressSink) http.Handler                       // mounted at Provider.webhook.path; verifies, then sink.Accept (persists) BEFORE acking
+    Recover(ctx context.Context, since time.Time, sink IngressSink) error // startup: re-ingest deliveries the store hasn't seen
     Normalise(ctx context.Context, ev RawEvent) ([]v1alpha1.Event, error)
     // Observation
     Observe(ctx context.Context, ref v1alpha1.ObjectRef) (Observation, error)
@@ -124,6 +125,8 @@ type Conn interface {
     MintGitCredential(ctx context.Context, req GitCredentialRequest) (Credential, error)
     Health() HealthStatus
 }
+
+type IngressSink interface { Accept(ctx context.Context, ev RawEvent) error } // stores a Delivery record; error → handler returns 503
 
 type Projection struct {
     WorkItemID string
@@ -153,12 +156,13 @@ type Projection struct {
 | | `GET /tasks/{id}/prompt` | agent (own lease) | rendered prompt (text) |
 | | `GET /tasks/{id}/context/{n}` | agent (own lease) | fetched context item (fenced, labelled trust) |
 | | `PUT /runs/{id}/transcript` | agent | upload (gzip, ≤ 20 MB) |
-| **effects** | `POST /tasks/{id}/effects` | agent (own lease) | `{op, target, args, idempotencyKey}` → `{effectId, url}`; 403 if not allowed |
+| **effects** | `POST /tasks/{id}/effects` | agent (own lease) | `{op, target, args, idempotencyKey}` (`idempotencyKey` **required**, `minLength: 1`) → `{effectId, url}`; 400 if the key is missing, 403 if not allowed |
 | **resources** | `GET /workitems`, `GET /workitems/{id}`, `GET /tasks`, `GET /runs/{id}`, `GET /queues`, `GET /pools`, `GET /agents`, `GET /catalog`, `GET /catalog/{kind}/{name}`, `GET /providers` | UI session | read models (list endpoints paginate with `?cursor=`, filter with `?labelSelector=`) |
 | **dry-run** | `POST /catalog/dry-run` | UI session | `{event}` → `Evaluation` (no side effects) |
-| **commands** | `POST /commands` | UI session (org admin) / CLI token | `{type: pause\|resume\|cancel\|redispatch\|dispatch, target, args}` → becomes a `factory.command.*` or injected event |
+| **commands** | `POST /commands` | UI session (org admin) / CLI token | `{type, target, args}` with `type ∈ pause\|resume\|cancel\|redispatch\|dispatch\|resync-catalog` (shapes in [api-server.md §Commands](../../dispatcher-runtime/LLD/api-server.md#commands-post-commands)) → becomes a `factory.command.*` or injected event |
 | **events** | `GET /stream?topics=runs/{id},workitems,agents` | UI session | SSE: `progress`, `workitem.updated`, `task.updated`, `agent.updated` |
 | **auth** | `GET /auth/login`, `GET /auth/callback`, `POST /auth/logout`, `GET /auth/me` | — | GitHub OAuth web flow for the UI |
+| | `GET /auth/device-config` | — | `{clientId, scopes}` for the agent's device-flow owner login (`factory-agent register`) |
 | **webhooks** | `POST /hooks/{provider}` | provider HMAC | delegated to `Conn.Handler()` (not in OpenAPI body schemas; documented as opaque) |
 | **ops** | `GET /healthz`, `GET /readyz`, `GET /metrics` | none | — |
 

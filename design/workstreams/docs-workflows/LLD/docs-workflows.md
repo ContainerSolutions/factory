@@ -15,6 +15,25 @@
 | Release train | **no** — `release: false` | — |
 | Pages deploy | stays repo-local `deploy-pages.yml` (SHA-pinned) | docs |
 
+## The caller workflow (in `docs` and `mock-docs`)
+
+The check name `ci / required` comes from the caller's workflow `name` plus the job id that calls `ci-docs.yml`:
+
+```yaml
+# .github/workflows/ci.yml
+name: ci                                   # → check names "ci / …"
+on:
+  pull_request: { types: [opened, edited, synchronize, reopened, labeled, unlabeled, closed] }
+  push: { branches: [main] }
+permissions: { contents: read }
+jobs:
+  ci:
+    uses: compliance-framework/workflows/.github/workflows/ci-docs.yml@<sha> # vX.Y.Z
+    permissions: { actions: read, contents: read, pull-requests: read, security-events: write }
+```
+
+The reusable workflow's aggregate job is `required`, so GitHub reports **`ci / required`** (the same convention as the other repos' callers; check the exact rendered name on the first PR and match the ruleset to it).
+
 ## workflows changes (DWF-S1-T01)
 
 1. `internal/manifest`: add `KindDocs Kind = "docs"` to the kinds and `validKinds`; validation: `release` must be `false` for `docs` (error otherwise). Train planning ignores the kind (it already skips `release: false`; add a test).
