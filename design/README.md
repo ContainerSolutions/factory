@@ -33,6 +33,7 @@ flowchart LR
 | [08 — Roadmap](08-roadmap.md) | **PoC only**: foundations → use case 1 → human-PR review → use case 2 → enable merge; plus unplanned future work |
 | [09 — Open questions and decisions](09-open-questions.md) | All decisions taken so far (Q1–Q22); nothing open right now |
 | [10 — Proof of concept](10-poc.md) | PoC: **two use cases** (release → docs → review → merge; i18n epic → PR stack → PT-BR live), the **PoC catalog** for both, tooling fit, Kubernetes or not, registered agents |
+| [Workstreams](workstreams/definitions.md) | PoC workstreams (FND, CORE, RT, GH, AGT, WEB, CAT, SKL, DOC, DWF, RUN) as lisa-runnable tasks, each with a Low Level Design under `workstreams/<name>/LLD/` |
 | [adr/](adr/) | Proposed architecture decisions (0001–0008) |
 
 ## Headline proposals

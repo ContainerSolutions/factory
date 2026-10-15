@@ -2,7 +2,7 @@
 
 > Status: **draft for discussion** · Last updated: 2026-10-15
 >
-> This roadmap covers **the PoC only** (Q11). Everything after it is listed under [future work](#future-work-not-planned) and will be planned once the PoC proves the factory's value.
+> This roadmap covers **the PoC only** (Q11). The executable breakdown — workstreams, tasks for lisa, and Low Level Designs — is in [workstreams/definitions.md](workstreams/definitions.md). Everything after it is listed under [future work](#future-work-not-planned) and will be planned once the PoC proves the factory's value.
 
 ```mermaid
 flowchart LR
@@ -56,7 +56,7 @@ flowchart LR
   - OpenAPI rendering per version;
   - `STYLE.md` and `docs-map.yaml`;
   - **fake versions** to play with during development (Q10);
-  - `test-build` as a required check.
+  - a required CI check (`test-build`, replaced by `ci / required` when docs moves onto the shared workflows; see the DWF workstream).
 - **Skills in `ccf-skills`, changed backwards-compatibly** with headless mode opt-in (Q8):
   - new: `docs-release`, `docs-style`, `docs-gif`, `docs-verify`, `plan-epic`, `merge`;
   - `lisa` one-shot and stack via the Effector;

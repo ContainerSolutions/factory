@@ -601,7 +601,7 @@ These are the PoC's deltas to [03](03-domain-model.md). They've been folded back
   - `STYLE.md` and `docs-map.yaml`;
   - a few **fake versions** to exercise version cutting during development (Q10).
 - **GitHub Apps** `ccf-factory` and `ccf-factory-reviewer`, created and installed by Gustavo (Q4).
-- **Branch protection** on `docs` `main` requiring the `test-build` check (and an approval, which `ccf-factory-reviewer` provides if allowed; see Q5).
+- **Branch protection** on `docs` `main` requiring the CI check (`test-build` today, `ci / required` once docs moves onto the shared workflows, [DWF](workstreams/definitions.md#dwf-docs-onto-shared-workflows)) (and an approval, which `ccf-factory-reviewer` provides if allowed; see Q5).
 - **Agents** with Docker, a `local-dev` checkout, `gh-stack`, Playwright, `gifski` and `vhs`.
 
 ## Is there tooling that already matches?
