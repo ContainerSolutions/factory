@@ -87,7 +87,7 @@ This is the `docs-release` skill's checklist:
 | Section | Content | Source |
 |---|---|---|
 | **Release notes** | What changed, highlights first (e.g. performance gains), linked PRs | Release notes plus the train's digest draft |
-| **API reference** | The **full spec bound to that release**, rendered per version (e.g. `docusaurus-plugin-openapi-docs`) | `api/docs/swagger.yaml` at the tag |
+| **API reference** | The **full spec bound to that release**, rendered per version from the spec file (Redoc-based, no generated pages committed) | `api/docs/swagger.yaml` at the tag |
 | **Configuration reference** | Every new or changed `CCF_*` setting: purpose, type, **default**, examples | Diff of config code and defaults between `previousTag..tag` |
 | **Feature description and user guide** | What the feature is for, how it works, how to enable it, **permissions needed**, walkthroughs. **Prefer GIFs from the running system over words.** | Code diff, `authz-roles.yaml` diff, the running stack |
 | **Upgrade guide** | Breaking changes, renamed flags, migrations (minor and major releases) | Diff, release notes, `release:major-approved` signals |
@@ -251,7 +251,7 @@ spec:
   pool: local
   concurrency: 2
   budget: { daily: { runs: 40 } }
-  retry: { max: 1, on: [agent-lost, agent-throttled] }
+  retry: { max: 1, on: [agent-lost, infra-failure] }   # throttling never consumes an attempt
 ```
 
 PoC agents register like this. They live in the DB, not the catalog: **each owner sets how much they lend** in their worker's local config, with no catalog PR needed.
@@ -378,7 +378,9 @@ kind: TaskSpec
 metadata: { name: merge }
 spec:
   description: Re-verify gates and merge a PR, or a whole stack bottom-up. If the reviewer App's approval doesn't count toward required reviews, add the merge label instead (Q5).
-  inputs: { target: { type: string, enum: [pr, stack], default: pr } }
+  inputs:
+    target:        { type: string, enum: [pr, stack], default: pr }
+    requiredCheck: { type: string, default: "ci / required" }   # "build" (push-only "Test Build" workflow) until docs is on the shared workflows (DWF)
   instructions: { template: prompts/merge.md.tmpl, headless: true }
   skills: [{ source: ccf-skills, ref: v0.8.0, use: [merge] }]
   harness: { default: { name: codex, config: { model: "gpt-5*", reasoningEffort: low } } }
@@ -398,12 +400,17 @@ String values starting with `=` are **CEL, evaluated at runtime** (`"=event.obje
 - name: docs-on-release-train
   providerSelector: { matchLabels: { family: github } }
   on: [issue.closed]
-  where: "event.repo == 'compliance-framework/workflows' && 'train:done' in event.issue.labels"
+  params: { trainManifest: repos.yaml, allowDryRun: false, docsRepo: compliance-framework/docs }   # dev RuleSet overrides these
+  where: >
+    event.repo == 'compliance-framework/workflows' && has(event.train) &&
+    event.train.manifest == params.trainManifest &&
+    (('train:done' in event.issue.labels && !event.train.dryRun) ||
+     (params.allowDryRun && 'train:dry-run' in event.issue.labels))
   actions:
     - dispatch:
         taskSpec: release-docs
         queue: poc
-        target: { repo: compliance-framework/docs }
+        target: { repo: "{{ params.docsRepo }}" }
         inputs: { train: "=event.object.ref" }
     - set: { release: drafting, train: "=event.object.ref" }
 
@@ -442,8 +449,10 @@ String values starting with `=` are **CEL, evaluated at runtime** (`"=event.obje
   where: >
     has(item.state.release) &&
     item.pr.approvedBy.exists(a, a.identity == 'reviewer' && a.commit == item.pr.head) &&
-    item.pr.checks.state == 'success'
-  actions: [{ dispatch: { taskSpec: merge, queue: poc, inputs: { target: pr } } }]
+    item.pr.checks.state == 'success' &&
+    !item.pr.labels.exists(l, l in ['do-not-merge', 'factory:hold', 'factory:stop'])
+  params: { requiredCheck: "ci / required" }
+  actions: [{ dispatch: { taskSpec: merge, queue: poc, inputs: { target: pr, requiredCheck: "{{ params.requiredCheck }}" } } }]
 
 - name: announce-release-docs
   on: [factory.run.completed]
@@ -506,7 +515,8 @@ String values starting with `=` are **CEL, evaluated at runtime** (`"=event.obje
   where: >
     has(item.state.plan) && item.state.review == 'approved' &&
     item.prs.all(p, p.checks.state == 'success')
-  actions: [{ dispatch: { taskSpec: merge, queue: poc, inputs: { target: stack } } }]
+  params: { requiredCheck: "ci / required" }
+  actions: [{ dispatch: { taskSpec: merge, queue: poc, inputs: { target: stack, requiredCheck: "{{ params.requiredCheck }}" } } }]
 
 - name: record-merge-outcome
   on: [factory.run.completed]
@@ -514,13 +524,16 @@ String values starting with `=` are **CEL, evaluated at runtime** (`"=event.obje
   where: "run.spec == 'merge'"
   actions: [{ set: { merge: "=run.outcome" } }]
 
-- name: announce-ptbr-live
+- name: announce-ptbr-live                 # level-triggered: deploys can finish before or after the merge run
   providerSelector: { matchLabels: { family: github } }
-  on: [deploy.succeeded]
-  where: "has(item.state.plan) && item.state.merge == 'merged'"
+  on: [deploy.succeeded, factory.run.completed, factory.workitem.resynced]
+  where: >
+    has(item.state.plan) && item.state.merge == 'merged' && !has(item.state.announced) &&
+    item.deploy.state == 'success' && item.deploy.containsMerge
   actions:
     - notify: { template: ptbr-live, to: [{ item: primary }] }   # "PT-BR is live: https://compliance-framework.github.io/docs/pt-BR/"
     - effect: { op: close, target: primary }
+    - set: { announced: true }
 ```
 
 ### Rules, human PRs (`pack: review-human`)
@@ -548,7 +561,7 @@ spec:
   providerSelector: { matchLabels: { family: github, network: public } }
   scope: { repos: ["compliance-framework/workflows", "compliance-framework/docs"] }   # the train issue + the docs PR it produces
   rules:
-    selector: { matchLabels: { pack: release-docs } }
+    selector: { matchExpressions: [{ key: pack, operator: In, values: [release-docs, shared] }] }
     exclude: [merge-release-docs]          # remove this line once everything else is trusted (Q10)
   stateKeys: [release, train, review, merge]
 ---
@@ -558,17 +571,19 @@ spec:
   providerSelector: { matchLabels: { family: github, network: public } }
   scope: { repos: ["compliance-framework/docs"] }
   rules:
-    selector: { matchLabels: { pack: docs-epic } }
+    selector: { matchExpressions: [{ key: pack, operator: In, values: [docs-epic, shared] }] }
     exclude: [merge-whole-stack]           # same
-  stateKeys: [plan, stackNext, stackTotal, review, merge]
+  stateKeys: [plan, stackNext, stackTotal, review, merge, announced]
 ---
 kind: RuleSet
 metadata: { name: poc-docs-human-review }
 spec:
   providerSelector: { matchLabels: { family: github, network: public } }
   scope: { repos: ["compliance-framework/docs"] }
-  rules: { selector: { matchLabels: { pack: review-human } } }
+  rules: { selector: { matchExpressions: [{ key: pack, operator: In, values: [review-human, shared] }] } }
 ```
+
+**Dev RuleSets** (`dev-release-docs`, `dev-docs-epic`) select the same packs but target **`mock-docs`** and mock trains: they override `trainManifest: repos.mock.yaml`, `allowDryRun: true` and `docsRepo: compliance-framework/mock-docs`. Full table: [catalog-poc.md §Dev and prod RuleSets](workstreams/catalog-poc/LLD/catalog-poc.md#dev-and-prod-rulesets).
 
 The packs coexist on `docs` PRs:
 
@@ -601,7 +616,7 @@ These are the PoC's deltas to [03](03-domain-model.md). They've been folded back
   - `STYLE.md` and `docs-map.yaml`;
   - a few **fake versions** to exercise version cutting during development (Q10).
 - **GitHub Apps** `ccf-factory` and `ccf-factory-reviewer`, created and installed by Gustavo (Q4).
-- **Branch protection** on `docs` `main` requiring the `test-build` check (and an approval, which `ccf-factory-reviewer` provides if allowed; see Q5).
+- **Branch protection** on `docs` `main` requiring the CI check (`build` today, from the push-only "Test Build" workflow, so fork PRs have no check; `ci / required` once docs moves onto the shared workflows, [DWF](workstreams/definitions.md#dwf-docs-onto-shared-workflows)) (and an approval, which `ccf-factory-reviewer` provides if allowed; see Q5).
 - **Agents** with Docker, a `local-dev` checkout, `gh-stack`, Playwright, `gifski` and `vhs`.
 
 ## Is there tooling that already matches?
@@ -709,11 +724,11 @@ sequenceDiagram
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/agents` | Register: owner identity, join token, capabilities, consent. Returns the agent id and a short-lived agent token. |
-| `GET /v1/agents/{id}/lease?wait=30s` | Long-poll for a task. **Outbound only**, so it works behind NAT. The dispatcher's only public endpoints are this API and the GitHub webhook. |
-| `POST /v1/leases/{id}/heartbeat` | Extend the lease (TTL 2m, heartbeat 30s) and stream progress |
-| `POST /v1/leases/{id}/complete` / `abandon` | Finish with a Result, or hand the task back. `abandon` and expired leases put the task back to `Pending`. |
-| `PATCH /v1/agents/{id}` | Status: `Ready`, `Throttled{until}`, `Draining`, `Offline` |
+| `POST /api/v1/agents` | Register: owner identity, join token, capabilities, consent. Returns the agent id and a short-lived agent token. |
+| `GET /api/v1/agents/{id}/lease?wait=30s` | Long-poll for a task. **Outbound only**, so it works behind NAT. The dispatcher's only public endpoints are this API and the GitHub webhook. |
+| `POST /api/v1/leases/{id}/heartbeat` | Extend the lease (TTL 2m, heartbeat 30s) and stream progress |
+| `POST /api/v1/leases/{id}/complete` / `abandon` | Finish with a Result, or hand the task back. `abandon` and expired leases put the task back to `Pending`. |
+| `PATCH /api/v1/agents/{id}` | Status: `Ready`, `Throttled{until}`, `Draining`, `Offline` |
 
 Delivery is **at-least-once**, so effects carry **idempotency keys** (task id plus an effect sequence number). A retried task never posts the same comment twice.
 
