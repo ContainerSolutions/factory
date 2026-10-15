@@ -56,7 +56,7 @@ flowchart LR
   - OpenAPI rendering per version;
   - `STYLE.md` and `docs-map.yaml`;
   - **fake versions** to play with during development (Q10);
-  - a required CI check (`test-build`, replaced by `ci / required` when docs moves onto the shared workflows; see the DWF workstream).
+  - a required CI check: today the check is `build` (workflow "Test Build", runs on **push only**, so fork PRs get no CI); it's replaced by `ci / required` when docs moves onto the shared workflows (DWF).
 - **Skills in `ccf-skills`, changed backwards-compatibly** with headless mode opt-in (Q8):
   - new: `docs-release`, `docs-style`, `docs-gif`, `docs-verify`, `plan-epic`, `merge`;
   - `lisa` one-shot and stack via the Effector;

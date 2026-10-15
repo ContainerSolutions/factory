@@ -98,7 +98,7 @@ Each Provider resolves tiers through its `trust` list, usually backed by **Group
 
 ### Repo-side guardrails (GitHub rulesets)
 
-- Branch protection on `main` stays in force for bots: required checks (`ci / required` on `docs` once it's on the shared workflows; `test-build` until then), required review from an identity other than the author, and conversation resolution.
+- Branch protection on `main` stays in force for bots: required checks (`ci / required` on `docs` once it's on the shared workflows; `build` from the push-only "Test Build" workflow until then), required review from an identity other than the author, and conversation resolution.
 - The factory pushes only to `factory/*` branches; stacks use `factory/stack/<work item>/<n>`. A ruleset restricts `factory/*` creation to the factory Apps.
 - Workflows triggered by factory pushes must run CI. App tokens, not `GITHUB_TOKEN`, make sure the push events fire.
 - `CODEOWNERS` for sensitive paths (`.github/`, release config, `docusaurus.config.js` if wanted) requires a human approval, even when the `merge` pack is selected.

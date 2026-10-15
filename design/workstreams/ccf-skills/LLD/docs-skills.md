@@ -32,7 +32,7 @@ Reads the docs repo's `STYLE.md` and applies it: voice, page skeletons per secti
      inst := instances.yaml lookup (repo → instance id/kind; policy repos → owning plugin instance)
      depth := depthPolicy[bump]
      a. Release notes   — from GitHub release body + train digest; highlights first      (all)
-     b. API reference   — copy <repo>/docs/swagger.yaml@to → openapi/<inst>/<minor>.yaml; regenerate  (api; if changed)
+     b. API reference   — copy <repo>/docs/swagger.yaml@to → openapi/<inst>/<minor>.yaml (rendered at build; nothing generated)  (api; if changed)
      c. Config reference— scripts/diff_config.py <repo> from..to → new/changed CCF_* with defaults   (full)
      d. Feature guides  — code diff + authz-roles diff → guide pages; call docs-gif for flows        (full)
      e. Upgrade guide   — breaking changes, renamed flags, migrations                          (full, minor/major)

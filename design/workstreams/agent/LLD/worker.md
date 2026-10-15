@@ -46,7 +46,7 @@ lending:
 ## Startup
 
 1. Load + validate config (unknown keys are errors).
-2. `probe`: for each configured harness run the adapter's `Probe` (version, auth status, configured models/efforts); verify labels with the **full probe lists in [local-stack.md §Labels and probes](local-stack.md#labels-and-probes)** (`has-local-stack`: Docker, compose v2, `localDev` layout, memory; `gif-tooling`: Playwright **with installed browsers**, `gifski`, `vhs`, **`ffmpeg`**). A label is advertised only when every prerequisite passes; otherwise it's **dropped** with a warning.
+2. `probe`: for each configured harness run the adapter's `Probe` (version, auth status, configured models/efforts); verify labels with the **full probe lists in [local-stack.md §Labels and probes](local-stack.md#labels-and-probes)** (`has-local-stack`: Docker, compose v2, `localDev` layout, memory; `gif-tooling`: Playwright **with installed browsers**, `gifski`, `vhs`, **`ffmpeg`**). A label is advertised only when every prerequisite passes; otherwise it's **dropped** with a warning. **Base tooling** (required, or the worker refuses to start): `git`, `gh` with the `gh-pr-review` and `gh-stack` extensions, `jq`, `python3` (used by `lisa` and `ccf-review`'s `ccfr`).
 3. Owner identity: `factory-agent register` runs a **GitHub OAuth device flow** against the dispatcher's OAuth client (`GET /api/v1/auth/device-config` gives the client ID). The owner approves in their browser; the resulting short-lived user token is sent once in `POST /agents` and dropped from memory. **No `gh` login is needed or used on the worker's OS user**, so no personal GitHub credential sits where a task's harness could read it.
 4. Register → `agentToken` kept in memory only (re-register on restart).
 

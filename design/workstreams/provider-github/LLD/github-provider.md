@@ -40,7 +40,7 @@ Mapping (GitHub event/action → neutral type; facts added under `event.*`):
 | GitHub | Neutral type | Facts |
 |---|---|---|
 | `issues.opened` / `closed` / `labeled` | `issue.opened` / `issue.closed` / `issue.labeled` | `issue{title, labels, body (by ref)}`, `label` |
-| `issues.closed` in `compliance-framework/workflows` with a `<!-- train-state` block | `issue.closed` | **`train{month, manifest, dryRun, repos[]{name, versions, bump}}`** (extractor `ccf-train`: parses the hidden JSON; `bump` computed from each repo's previous final release vs released version) |
+| `issues.closed` in `compliance-framework/workflows` with a `<!-- train-state` block | `issue.closed` | **`train{month, manifest, dryRun, repos[]{name, versions, bump}}`** (extractor `ccf-train`: parses the hidden JSON; `bump` computed from each repo's previous final release vs released version). The train writes `dry_run` with `omitempty`, so **real trains omit it**: the extractor maps `dry_run` → `dryRun` and **defaults it to `false`**; likewise `repos` → `[]`. A body without `manifest` yields no `train` fact. Fixtures use a real train body (with and without `dry_run`) |
 | `issue_comment.created` | `issue.commented` (or PR comment → same type with `object.kind: pr`) | `text` (by ref) |
 | `pull_request.opened` / `synchronize` / `ready_for_review` / `labeled` / `closed` (merged) / `closed` | `pr.opened` / `pr.updated` / `pr.ready_for_review` / `pr.labeled` / `pr.merged` / `pr.closed` | `pr{draft, head, base}`, `label` |
 | `pull_request_review.submitted` | `pr.review.submitted` | `review{state (lower-case), commit}` |
@@ -65,6 +65,7 @@ Untrusted text (issue/PR bodies, comments) is stored as **content refs** (`githu
 `Observe(ref)` — one GraphQL query per object:
 
 - Issue: state, labels, sub-issues, linked PRs, comments count, the factory marker comment.
+- Deploy: for work items with merged PRs, the latest `github-pages` deployment of the default branch → `item.deploy{state, sha, url, containsMerge}` (`containsMerge`: every merge commit of the item's PRs is an ancestor of `sha`, via the compare API). docs' Pages workflow cancels in-progress deploys, so only the latest one matters.
 - PR: `isDraft`, `headRefOid`, `baseRefName`, labels, `reviews(last:20){author, state, commit{oid}}` → `approvedBy[]{identity, commit}`, `reviewThreads(first:100){isResolved}` → `unresolvedThreads`, `commits(last:1){statusCheckRollup{state}}` → `checks{state, settled}`, merged/mergedAt/mergeCommit, author (factory or not).
 
 `List(scope)` — open issues and PRs in scope repos updated in the last 90 days (search API, paginated), plus objects carrying the marker.

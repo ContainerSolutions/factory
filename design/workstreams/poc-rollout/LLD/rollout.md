@@ -49,7 +49,7 @@ PoC: Gustavo's machine (or a small VM) running `factory serve` (built with `make
 
 1. `go install github.com/compliance-framework/factory/cmd/factory-agent@<ref>`.
 2. Codex: `CODEX_HOME=~/.factory-agent/codex-home codex login --device-auth`. Claude Code (PoC): `CLAUDE_CONFIG_DIR=~/.factory-agent/claude claude` → `/login` once.
-3. For `has-local-stack`/`gif-tooling`: Docker, `local-dev` checkout, `npx playwright install chromium`, `brew install gifski vhs ffmpeg`.
+3. Base tooling: `git`, `gh` + `gh extension install` of `gh-pr-review` and `gh-stack`, `jq`, `python3` (no `gh auth login` needed: tasks get `GH_TOKEN`). For `has-local-stack`/`gif-tooling`: Docker, `local-dev` checkout, `npx playwright install chromium`, `brew install gifski vhs ffmpeg`.
 4. Run the worker as a **dedicated OS user** (e.g. `factory-agent`) with **no `gh` login and no personal GitHub credentials** in its home. Place the join token file, write `agent.yaml` (from example), set `lending`.
    `factory-agent register` proves the owner's identity with a GitHub **device flow** (open the URL, enter the code). The short-lived user token is used once for registration and never stored. Tasks only ever get the factory's per-task App tokens.
 5. `factory-agent probe` → check labels; `factory-agent worker` (or a launchd/systemd unit from the kit).

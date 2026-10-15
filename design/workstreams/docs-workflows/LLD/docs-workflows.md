@@ -13,7 +13,7 @@
 | Internal pins | **ccf-bump** moves shared-workflow pins (`uses: compliance-framework/workflows/...@<sha> # vX.Y.Z`); docs has no Go/image deps, so its bump PRs are `ci(deps)` (no release) | workflows |
 | Repo settings | `repo-settings`: rulesets `ccf-review` (one approval) and `ccf-required` (requires `ci / required`), branch deletion on merge, etc. | workflows (`[human]` apply) |
 | Release train | **no** — `release: false` | — |
-| Pages deploy | stays repo-local `deploy-pages.yml` (SHA-pinned) | docs |
+| Pages deploy | stays repo-local `deploy-pages.yml`, its actions upgraded from `@v3` to current majors and SHA-pinned | docs |
 
 ## The caller workflow (in `docs` and `mock-docs`)
 
@@ -69,7 +69,7 @@ Following the workflows rule *"prove on the mocks before touching a product repo
 
 ## Product (DWF-S2-T02…T04)
 
-1. `docs` adopts `ci-docs.yml` pinned `@<release sha> # vX.Y.Z`; `test-build.yml` deleted; Dependabot removed.
+1. `docs` adopts `ci-docs.yml` pinned `@<release sha> # vX.Y.Z`; `test-build.yml` deleted (it was push-only, check `build`); `deploy-pages.yml` actions upgraded and pinned; no `dependabot.yml` exists, and repo-level Dependabot security PRs stay disabled.
 2. `repos.yaml` += `{name: docs, kind: docs, release: false}`.
 3. `[human]` `repo-settings` apply for docs; branch protection now requires **`ci / required`** (the factory's merge rules use this name via the `requiredCheck` param — see [catalog-poc](../../catalog-poc/LLD/catalog-poc.md)).
 

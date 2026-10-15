@@ -19,7 +19,7 @@ Declared once with `cel.NewEnv`, all variables as `map(string, dyn)`-backed obje
 |---|---|
 | `event` | `id, type, source, subject, time, repo, object{kind, ref, number}, labels, text, issue{labels, body, title}, release{tag, previousTag, semver{major,minor,patch,prerelease,bump}, conclusion, train}, review{state, commit}, label, workflow{name, conclusion}, train{month, manifest, dryRun, repos[]{name, versions, bump}} (CCF train issues, via the GitHub adapter's `ccf-train` extractor), raw` |
 | `actor` | `id, tier, isBot, isFactory, identity` |
-| `item` | `id, state (map), counters (map), links, reporter{id, tier}, pr{author{isFactory}, draft, head, labels, checks{state, settled}, approvedBy[]{identity, commit}, unresolvedThreads}, prs[]` + functions below |
+| `item` | `id, state (map), counters (map), links, reporter{id, tier}, pr{author{isFactory}, draft, head, labels, checks{state, settled}, approvedBy[]{identity, commit}, unresolvedThreads}, prs[], deploy{state, sha, url, containsMerge}` + functions below |
 | `run` | `id, spec, outcome, status, inputs (map), result (map), agent, harness{name, model}` |
 | `approval` | `name, phase, by` (future) |
 | `provider` | `name, type, labels` |

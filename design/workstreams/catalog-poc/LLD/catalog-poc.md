@@ -26,7 +26,7 @@ catalog/
 └── testdata/<case>/{event.json,workitem.json,expected.json}
 ```
 
-`ccf-skills` ref in every TaskSpec: the SKL release tag (`v0.8.0`). Required check name: `ci / required` once DWF lands (until then `test-build`). It's a `requiredCheck` **param** on the merge rules, passed to the `merge` TaskSpec as the **input** of the same name (default `ci / required`); the rules' `where` checks the rollup state, the merge task checks that specific check.
+`ccf-skills` ref in every TaskSpec: the SKL release tag (`v0.8.0`). Required check name: `ci / required` once DWF lands (until then `build`, from docs' push-only "Test Build" workflow). It's a `requiredCheck` **param** on the merge rules, passed to the `merge` TaskSpec as the **input** of the same name (default `ci / required`); the rules' `where` checks the rollup state, the merge task checks that specific check.
 
 ## TaskSpecs, prompts and result schemas
 
@@ -113,7 +113,8 @@ All `merge-*` rules are in every RuleSet's `rules.exclude` until RUN-S4-T01.
 | `plan-decomposed-5` | state plan + stackNext 0 + dispatch implement #1 base main |
 | `implement-pr-opened-k` (k=1..5) | next layer / at k=5 `docs-review target: stack` |
 | `stack-review-approved` + `checks-green` | (merge excluded) no merge decision; after RUN-S4 golden update: `merge target: stack` |
-| `deploy-succeeded-after-merge` | `ptbr-live` notify + close |
+| `deploy-succeeded-after-merge` | `ptbr-live` notify + close + `announced` |
+| `deploy-succeeded-before-merge-recorded` (race) | nothing on the deploy event; then on `factory.run.completed` (merge merged, `item.deploy` success) → `ptbr-live` once |
 | `human-pr-opened` / `human-pr-draft` / `bot-pr` | review / nothing / nothing |
 | `factory-stop-label` | everything suppressed by rails |
 | `hostile-verdict` (future triage pack) | — (not in PoC) |

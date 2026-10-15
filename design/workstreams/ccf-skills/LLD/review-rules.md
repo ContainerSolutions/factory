@@ -14,6 +14,8 @@
 }
 ```
 
+Size counting for docs repos: add to `generated` the globs `*_versioned_docs/*`, `*_versioned_sidebars/*`, `*_versions.json`, `openapi/*` and `sidebars/*` (gitignored anyway). A version cut copies a whole instance and the api spec is ~1 MB, so without these every release-docs PR would hit CORE-SIZE-001. Reviewers still see those files; they just don't count towards the limit.
+
 `vue-app` detection only checks the repo-root `package.json`, so add `{ "contains": { "web/package.json": "\"vue\"" } }` to `vue-app.when` for the factory's `web/` app.
 
 ## `docs-site` pack (initial rules)

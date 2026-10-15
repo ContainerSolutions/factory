@@ -673,7 +673,10 @@ Use a **fake harness** adapter in tests.
 
 - One package manager (`yarn`, matching `deploy-pages.yml`): delete `package-lock.json`.
 - Fix the README (it says Docusaurus v2) and add `.nvmrc`.
-- Add `STYLE.md` per [docs-revamp.md §STYLE.md](docs-revamp/LLD/docs-revamp.md#stylemd) and a `CONTRIBUTING.md` for versioned docs.
+- Add `STYLE.md` per [docs-revamp.md §STYLE.md](docs-revamp/LLD/docs-revamp.md#stylemd) and a `CONTRIBUTING.md` for versioned docs (including the `factory:hold` label).
+- Remove template leftovers: Docusaurus navbar/footer links, the template social card, `src/pages/markdown-page.md`.
+- Fix existing broken links, then set `onBrokenLinks: 'throw'`.
+- Leave `.archive/` untouched (outside the build).
 
 **Done when:** `yarn build` passes.
 
@@ -681,7 +684,7 @@ Use a **fake harness** adapter in tests.
 
 - **Branch:** `fx/doc-s1-t02-instances` · **Base:** `fx/doc-s1-t01-cleanup` · **Stack:** `doc`
 
-**Spec.** `instances.yaml` (schema in the LLD: repo → instance id, kind, path, route, label, policy repos), `scripts/gen-sidebars.mjs` wired as `prestart`/`prebuild` ([§Sidebar generation](docs-revamp/LLD/docs-revamp.md#sidebar-generation)), plus a `docusaurus.config.ts` that generates the docs plugin instances, navbar (CCF · API · UI · Agent · Catalog) and version dropdowns from it. The general section stays the default instance.
+**Spec.** `instances.yaml` (schema in the LLD: repo → instance id, kind, path, route, label, policy repos), `scripts/gen-sidebars.mjs` wired as `prestart`/`prebuild` ([§Sidebar generation](docs-revamp/LLD/docs-revamp.md#sidebar-generation)), plus a `docusaurus.config.ts` (`baseUrl`/`projectName` from `DOCS_PROJECT`, default `docs`) that generates the docs plugin instances, navbar (CCF · API · UI · Agent · Catalog) and version dropdowns from it. The general section stays the default instance.
 
 **Done when:** the build passes with empty instances, and the navbar renders.
 
@@ -693,7 +696,7 @@ Use a **fake harness** adapter in tests.
 
 - move `docs/architecture/*` into it, with redirects from the old URLs;
 - baseline pages for the current api (`0.21`): overview, config reference generated from api's config, auth and permissions from `authz-roles.yaml`;
-- OpenAPI rendering of `api/docs/swagger.yaml` at v0.21.0 (`docusaurus-plugin-openapi-docs`);
+- OpenAPI rendering of `api/docs/swagger.yaml` at v0.21.0 into `openapi/api/0.21.yaml`, rendered client-side with a Redoc-based plugin (no generated MDX);
 - **cut version `0.21`**.
 
 **Done when:** the build passes, old architecture URLs redirect, and the API reference renders.
@@ -722,7 +725,7 @@ Use a **fake harness** adapter in tests.
 
 - **Repo:** mock-docs · **Branch:** `fx/doc-s2-t01-seed` · **Base:** `main` · **Depends:** RUN-S0-T03, DOC-S1-T05
 
-**Spec.** Mirror `docs` `main` into `mock-docs`. Add instances for the **mock repos** (`mock-api`, `mock-ui`, `mock-agent`, `mock-plugin-1/2` with `mock-plugin-policies-1/2`), with a couple of **fake versions** each. Deploy to GitHub Pages (separate site) so the factory has a safe target.
+**Spec.** Mirror `docs` `main` into `mock-docs`, and set `DOCS_PROJECT=mock-docs` in its build/deploy workflows so the site works under `/mock-docs/`. Add instances for the **mock repos** (`mock-api`, `mock-ui`, `mock-agent`, `mock-plugin-1/2` with `mock-plugin-policies-1/2`), with a couple of **fake versions** each. Deploy to GitHub Pages (separate site) so the factory has a safe target.
 
 **Done when:** the `mock-docs` site builds and shows the mock instances.
 
@@ -762,8 +765,8 @@ Use a **fake harness** adapter in tests.
 **Spec.**
 
 - Replace the local build check with a `ci.yml` caller of `ci-docs.yml` (pinned to the DWF stack's top branch name until released, per the workflows README) plus `notify-failure.yml`.
-- Keep `deploy-pages.yml`, but pin its actions by SHA.
-- Remove any Dependabot config; Renovate owns dependencies.
+- Keep `deploy-pages.yml`, but upgrade its actions to current majors (`@v3` today) and pin them by SHA.
+- Dependabot: there's no `dependabot.yml`; keep repo-level Dependabot security PRs disabled (they are, as of 2026-10-15) and close any open Dependabot PRs. Renovate owns dependencies.
 
 **Done when:** `ci / required` is green on the PR, and Renovate (dry run) and `ccf-bump sync --repos mock-docs --dry-run` both plan updates.
 
@@ -777,7 +780,7 @@ Use a **fake harness** adapter in tests.
 
 - **Repo:** docs · **Branch:** `fx/dwf-s2-t02-ci` · **Base:** `main` · **Depends:** DWF-S2-T01, DOC-S1-T05
 
-**Spec.** The same as DWF-S1-T03 for `docs`, pinned to the released `workflows` SHA: replace `test-build.yml`, SHA-pin `deploy-pages.yml`, and remove Dependabot. The required check becomes **`ci / required`** (it replaces `test-build` everywhere in the factory design and catalog).
+**Spec.** The same as DWF-S1-T03 for `docs`, pinned to the released `workflows` SHA: replace `test-build.yml`, upgrade and SHA-pin `deploy-pages.yml`'s actions, and keep Dependabot PRs off. The required check becomes **`ci / required`** (it replaces the push-only `build` check everywhere in the factory design and catalog).
 
 **Done when:** `ci / required` is green.
 

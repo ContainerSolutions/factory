@@ -87,7 +87,7 @@ This is the `docs-release` skill's checklist:
 | Section | Content | Source |
 |---|---|---|
 | **Release notes** | What changed, highlights first (e.g. performance gains), linked PRs | Release notes plus the train's digest draft |
-| **API reference** | The **full spec bound to that release**, rendered per version (e.g. `docusaurus-plugin-openapi-docs`) | `api/docs/swagger.yaml` at the tag |
+| **API reference** | The **full spec bound to that release**, rendered per version from the spec file (Redoc-based, no generated pages committed) | `api/docs/swagger.yaml` at the tag |
 | **Configuration reference** | Every new or changed `CCF_*` setting: purpose, type, **default**, examples | Diff of config code and defaults between `previousTag..tag` |
 | **Feature description and user guide** | What the feature is for, how it works, how to enable it, **permissions needed**, walkthroughs. **Prefer GIFs from the running system over words.** | Code diff, `authz-roles.yaml` diff, the running stack |
 | **Upgrade guide** | Breaking changes, renamed flags, migrations (minor and major releases) | Diff, release notes, `release:major-approved` signals |
@@ -380,7 +380,7 @@ spec:
   description: Re-verify gates and merge a PR, or a whole stack bottom-up. If the reviewer App's approval doesn't count toward required reviews, add the merge label instead (Q5).
   inputs:
     target:        { type: string, enum: [pr, stack], default: pr }
-    requiredCheck: { type: string, default: "ci / required" }   # "test-build" until docs is on the shared workflows (DWF)
+    requiredCheck: { type: string, default: "ci / required" }   # "build" (push-only "Test Build" workflow) until docs is on the shared workflows (DWF)
   instructions: { template: prompts/merge.md.tmpl, headless: true }
   skills: [{ source: ccf-skills, ref: v0.8.0, use: [merge] }]
   harness: { default: { name: codex, config: { model: "gpt-5*", reasoningEffort: low } } }
@@ -524,13 +524,16 @@ String values starting with `=` are **CEL, evaluated at runtime** (`"=event.obje
   where: "run.spec == 'merge'"
   actions: [{ set: { merge: "=run.outcome" } }]
 
-- name: announce-ptbr-live
+- name: announce-ptbr-live                 # level-triggered: deploys can finish before or after the merge run
   providerSelector: { matchLabels: { family: github } }
-  on: [deploy.succeeded]
-  where: "has(item.state.plan) && item.state.merge == 'merged'"
+  on: [deploy.succeeded, factory.run.completed, factory.workitem.resynced]
+  where: >
+    has(item.state.plan) && item.state.merge == 'merged' && !has(item.state.announced) &&
+    item.deploy.state == 'success' && item.deploy.containsMerge
   actions:
     - notify: { template: ptbr-live, to: [{ item: primary }] }   # "PT-BR is live: https://compliance-framework.github.io/docs/pt-BR/"
     - effect: { op: close, target: primary }
+    - set: { announced: true }
 ```
 
 ### Rules, human PRs (`pack: review-human`)
@@ -570,7 +573,7 @@ spec:
   rules:
     selector: { matchExpressions: [{ key: pack, operator: In, values: [docs-epic, shared] }] }
     exclude: [merge-whole-stack]           # same
-  stateKeys: [plan, stackNext, stackTotal, review, merge]
+  stateKeys: [plan, stackNext, stackTotal, review, merge, announced]
 ---
 kind: RuleSet
 metadata: { name: poc-docs-human-review }
@@ -613,7 +616,7 @@ These are the PoC's deltas to [03](03-domain-model.md). They've been folded back
   - `STYLE.md` and `docs-map.yaml`;
   - a few **fake versions** to exercise version cutting during development (Q10).
 - **GitHub Apps** `ccf-factory` and `ccf-factory-reviewer`, created and installed by Gustavo (Q4).
-- **Branch protection** on `docs` `main` requiring the CI check (`test-build` today, `ci / required` once docs moves onto the shared workflows, [DWF](workstreams/definitions.md#dwf-docs-onto-shared-workflows)) (and an approval, which `ccf-factory-reviewer` provides if allowed; see Q5).
+- **Branch protection** on `docs` `main` requiring the CI check (`build` today, from the push-only "Test Build" workflow, so fork PRs have no check; `ci / required` once docs moves onto the shared workflows, [DWF](workstreams/definitions.md#dwf-docs-onto-shared-workflows)) (and an approval, which `ccf-factory-reviewer` provides if allowed; see Q5).
 - **Agents** with Docker, a `local-dev` checkout, `gh-stack`, Playwright, `gifski` and `vhs`.
 
 ## Is there tooling that already matches?

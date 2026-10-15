@@ -23,7 +23,7 @@ Mapping to `local-dev` overrides (env passed to `make`):
 | Component | Env var (local-dev) |
 |---|---|
 | api | `CCF_API_IMAGE=ghcr.io/compliance-framework/api:<v>` |
-| ui | `CCF_UI_IMAGE=ghcr.io/compliance-framework/ui:<v>` (**verify** var name in `compose/ui.yml`; add it in local-dev if missing — follow-up PR there) |
+| ui | `CCF_UI_IMAGE=ghcr.io/compliance-framework/ui:<v>` (confirmed in `compose/ui.yml`) |
 | agent | `CCF_AGENT_VERSION=<v>` |
 | plugins | per-plugin version vars used by the demo agents (**verify**; fallback: latest) |
 
