@@ -66,7 +66,7 @@ flowchart LR
 | | A3 | SKL-S2 | SKL-S1-T01, DOC-S1-T02 (`instances.yaml` format) |
 | **B** | | CORE · GH · AGT · WEB · RT-S1 (store, controller runtime) · DWF-S1 · DOC-S2 | FND (factory tasks); DOC-S1-T01 (DWF-S1-T01); RUN-S0-T03 + DOC-S1-T05 (DOC-S2, DWF-S1-T02/T03) |
 | **C** | | RT-S2 (rule/work-item controllers, pools, API, serve) · CAT · SKL-S3 · DWF-S2 | per task: CORE-S1-T04 + RT-S1-T02 (RT-S2-T01); GH-S1-T04 + RT-S2-T03 (RT-S2-T04); CORE-S1-T03 + SKL-S3-T02 (CAT) |
-| **D** | | RUN-S1…S4: deploy, register agents, use case 1 (mock-docs → docs), human-PR review, use case 2, enable merge | everything above |
+| **D** | | RUN-S1…S4: deploy, register agents, use case 1 (mock-docs → docs), human-PR review, use case 2, enable merge, put the factory on the release train | everything above |
 
 Each task's `Depends:` line is authoritative; the table is the overview.
 
@@ -865,3 +865,15 @@ Open the i18n + PT-BR issue on `mock-docs` first, then on `docs`. Success criter
 **Spec.** Remove `merge-release-docs` and `merge-whole-stack` from the RuleSets' `exclude` lists. This PR needs **two approvals** ([07](../07-security-and-governance.md#governance-of-the-catalog-itself)).
 
 **Done when:** after merge, the next UC1 and UC2 runs merge by themselves. That meets criteria 1 and 3 in full.
+
+### RUN-S4-T02 `chore: put the factory on the release train`
+
+- **Repo:** workflows · **Branch:** `fx/run-s4-t02-factory-release` · **Base:** `main` · **Depends:** RUN-S4-T01, and every `factory` task in this file merged
+
+**Spec.** `factory` is listed in `workflows/repos.yaml` as a core `go-service` with `release: false` ([compliance-framework/workflows#145](https://github.com/compliance-framework/workflows/pull/145)): Renovate acts on it, but the train and `ccf-bump` leave it out. Once all the factory work is done:
+
+- check that `factory` has what the train needs from a `release: true` repo (see `workflows/docs/manifest.md`): release-please config, a release workflow (e.g. `release-go-image.yml`) and the `release` environment that `repo-settings` applies;
+- flip `release: true` for `factory` in `repos.yaml` and check the stage `Stages()` puts it in;
+- in `factory`, follow up in its own PR: reword the `.github/workflows/ci.yml` header, since `ccf-bump` then moves the workflows pins.
+
+**Done when:** a train dry run (`train.yml` with `dry_run`) lists `factory` in its stage, and `ccf-bump-sync` dry-runs against it.
