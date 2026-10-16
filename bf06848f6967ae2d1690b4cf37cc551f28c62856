@@ -5,3 +5,6 @@ lisa-design:
 - Fairness: greedy per pass, tasks by priority then age; limited agents first (prefer-unlimited flips), then least-recently-leased.
 - Tokens: crypto/rand, stored as sha256 only, constant-time compare, renewed on any authenticated call (≤ every 10 min); owner token discarded after the exchange; git credentials never stored (expiry only), re-minted on heartbeat under 10 min left.
 - The API server must call Scheduler.Complete (usage top-up from the lease record), not RunAPI.Complete.
+
+lisa-selfreview:
+Pass 1: no findings (token handling, credential storage, lease commit order).
