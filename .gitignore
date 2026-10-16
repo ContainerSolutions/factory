@@ -10,8 +10,8 @@ deploy/poc/.env
 /bin/
 /dist/
 internal/webui/dist/
-coverage*
-*.out
+/coverage*.out
+*.coverprofile
 
 # Web (WEB workstream)
 web/node_modules/

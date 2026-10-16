@@ -21,8 +21,7 @@ lint: ## Run golangci-lint
 	golangci-lint run
 
 .PHONY: generate
-generate: schemas ## Regenerate code: oapi-codegen (once api/openapi.yaml exists), go generate, schemas
-	@if [ -f api/openapi.yaml ]; then go generate ./internal/apiserver/... ./internal/apiclient/...; fi
+generate: schemas ## Regenerate code: go generate ./... (incl. oapi-codegen directives once api/openapi.yaml exists) and schemas
 	go generate ./...
 
 .PHONY: schemas
