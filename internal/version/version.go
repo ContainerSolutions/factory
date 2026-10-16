@@ -9,3 +9,5 @@ var Version = "dev"
 func String(binary string) string {
 	return binary + " " + Version
 }
+
+// ci-check: throwaway Go-only change (do not merge)
