@@ -5,3 +5,6 @@ lisa-design:
 - Locks: owner tokens (idempotent, stale Unlock can't release a new holder), Renew, expired lease = ErrLockLost; waiters poll ≤20ms because the fake clock wakes nobody.
 - Label-selector matching lives on v1alpha1.LabelSelector (Matches/Validate), shared by store and catalog.
 - WorkItem retention is owned by the work-item controller (the store can't see link state).
+
+lisa-selfreview:
+Pass 1: no findings (watch fan-out send/close under one mutex; map delete during range is safe; replay preload sized).
