@@ -182,8 +182,8 @@ Every PR gets `/ccf-review:review <PR URL>` before merge, and `--again` after ne
 **Spec.**
 
 - Write `api/openapi.yaml` exactly as [contracts.md §HTTP API](foundation/LLD/contracts.md#http-api): agent, lease, effector, resources, commands, events (SSE), auth and webhooks.
-- Generate the Go server interface and client with `oapi-codegen` (`internal/apiserver/gen`, `internal/apiclient`) via `make generate`. CI fails if generated code is stale.
-- Add a tiny `cmd/factory-mock` that serves the contract with canned responses from `api/examples/`. Agent and web developers can use it before RT exists.
+- Generate the Go **Echo strict** server interface and the client with `oapi-codegen` (`internal/apiserver/gen`, `internal/apiclient`) via `make generate`. CI fails if generated code is stale.
+- Add a tiny `cmd/factory-mock` (plain `net/http`, no Echo) that serves the contract with canned responses from `api/examples/`. Agent and web developers can use it before RT exists.
 
 **Done when:** the spec lints clean (`redocly lint` or `vacuum`), generation is reproducible, and `factory-mock` answers every operation with its example.
 
@@ -315,7 +315,7 @@ Use the `fake` provider from contracts.md in tests.
 
 - **Branch:** `fx/rt-s2-t03-server` · **Base:** `fx/rt-s2-t02-scheduler` · **Stack:** `rt-2`
 
-**Spec.** Implement the generated server interface per [api-server.md](dispatcher-runtime/LLD/api-server.md):
+**Spec.** Implement the generated Echo strict server interface on **Echo v4** per [api-server.md](dispatcher-runtime/LLD/api-server.md):
 
 - agent and lease endpoints;
 - the Effector API (allow-list, idempotency keys, `Effect` records, apply through the Provider);
