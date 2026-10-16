@@ -1,7 +1,10 @@
 # CI for the factory repo. Go uses the shared go-service CI from compliance-framework/workflows,
-# pinned to a release commit, and its shared golangci-lint config (the repo has none). The pins
-# are bumped by hand: ccf-bump and Renovate only act on repos listed in workflows' repos.yaml,
-# and factory isn't there yet. The web app (web/) has its own local job.
+# pinned to a release commit, and its shared golangci-lint config (the repo has none). Renovate
+# bumps the third-party deps (Go modules, npm, actions), but the compliance-framework/workflows
+# pins (ci-go-service.yml and notify-failure.yml, both at the same release commit) are still moved
+# by hand: factory is listed in workflows' repos.yaml with release: false, and ccf-bump only bumps
+# release: true repos. That changes when factory gets its release workflow and is switched to
+# release: true. The web app (web/) has its own local job.
 # Each runs only when its side of the repo changed. The one status check to require is
 # `ci / required`, which reports on every PR, including when a side is skipped.
 name: ci
