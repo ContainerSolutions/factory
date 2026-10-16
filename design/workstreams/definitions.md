@@ -140,7 +140,7 @@ Every PR gets `/ccf-review:review <PR URL>` before merge, and `--again` after ne
 
 - `go.mod` (`github.com/compliance-framework/factory`, Go 1.26) and empty `cmd/factory` and `cmd/factory-agent` mains that print their version.
 - `Makefile` with the targets in the LLD (`build`, `test`, `lint`, `reviewable`, `generate`, `web`, `build-release`).
-- `.golangci.yml` with the same linters as `api`.
+- No `.golangci.yml`: like `api`, lint with the shared CCF config from `compliance-framework/workflows`.
 - `internal/webui` with the two build-tagged embed files and the committed placeholder page.
 - `web/.gitkeep`, `LICENSE` (AGPL-3.0 full text), `README.md`, `AGENTS.md` and `CLAUDE.md` (pointing at `AGENTS.md`), and `.gitignore` (must ignore `deploy/poc/.env`, `.env*` except `*.env.example`, `internal/webui/dist/`, `web/node_modules/`, `bin/`). The dispatcher host already has secrets in `deploy/poc/.env`, protected today by an untracked local `.gitignore`: remove that local file before pulling this scaffold.
 
