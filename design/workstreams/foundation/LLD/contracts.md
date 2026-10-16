@@ -71,7 +71,7 @@ All have the `metadata` / `spec` / `status` shape except Event (CloudEvents attr
 | `WorkItem` | `Spec.Links []Link{Provider, Ref, Kind, Primary}`; `Status.State map[string]any`, `Counters map[string]int`, `Approvals []ApprovalRef{Name, Phase}`, `Decisions []Decision{At, Event, RuleSet, Rule, Fired, Inputs, Rails []RailVerdict{Rail, Verdict, Reason}, Actions, Reason}` (bounded, newest `MaxDecisions` = 200), `Reporter *Actor` |
 | `Task` | `Metadata TaskMeta{ID, WorkItem, Provenance{Event, RuleSet, Rule, CatalogSHA}, Labels, ResourceVersion, CreatedAt}` (named by id, no `name`); `Spec TaskRunSpec{TaskSpec TaskSpecRef{Name, Digest}, Queue, Pool, Provider, Target, Inputs, Harness{Request *HarnessRequest, Resolved *HarnessResolved (null until leased)}, Skills (with commit), Prompt{Ref, Digest}, Context []ContextItem{Kind, Provider, Ref, Trust, Mount}, Credentials{Git{Provider, Identity, Repo, ReadRepos, Permissions, TTL}, LLM: "agent-local"}, Effects, Limits, Output}`; `Status{Phase (Pending\|Leased\|Running\|Succeeded\|Failed\|Cancelling\|Cancelled), Agent *string (null until leased), Reason, Attempts, LeaseExpiresAt}` |
 | `Run` | `Spec{Task, Attempt, Agent, Owner}`; `Status{StartedAt, EndedAt, Progress []ProgressEvent{At, Kind, Message, Data} (ring buffer), Result *Result, TranscriptRef, Usage *Usage}` |
-| `Agent` | `Spec{Pool, Owner, Capabilities{Harnesses []HarnessOffer{Name, Version, Auth, Models, ReasoningEffort}, Labels}, Lending *Lending{Unlimited, Queues, RuleSets, Harnesses, MaxConcurrent, MaxRunsPerDay, MaxTokensPerDay, Hours}}`; `Status{Phase (Ready\|Busy\|Throttled\|Draining\|Offline), ThrottledUntil *time.Time (null unless throttled), LastHeartbeat, Running []TaskID, Today{Runs, Tokens}}` |
+| `Agent` | `Spec{Pool, Owner, Capabilities{Harnesses []HarnessOffer{Name, Version, Auth, Models, DefaultModel, ReasoningEffort}, Labels}, Lending *Lending{Unlimited, Queues, RuleSets, Harnesses, MaxConcurrent, MaxRunsPerDay, MaxTokensPerDay, Hours}}`; `Status{Phase (Ready\|Busy\|Throttled\|Draining\|Offline), ThrottledUntil *time.Time (null unless throttled), LastHeartbeat, Running []TaskID, Today{Runs, Tokens}}` |
 | `Effect` | `Spec{Task, Op, Target ObjectRef, IdempotencyKey, Identity, Request map[string]any}`; `Status{Result{URL, Error}, At}` |
 | `BudgetCounter` | name `budget.<scope>.<name>.<YYYY-MM-DD>`; `Status{Runs, Tokens, USD}` (CAS-updated by the scheduler) |
 | `Approval` | type only in PoC (Q18): `Metadata{Name, Labels, …, WorkItem}`; `Spec ApprovalSpec{Name, Approvers, Quorum, Via, Template, Expires Duration}`; `Status{Phase (Pending\|Granted\|Denied\|Expired), Decisions []{By, Decision, At, Via}}` |
@@ -88,7 +88,7 @@ type AdapterCapabilities struct {          // published by each harness adapter 
     EffortMapping    map[string]string      // normalised effort → native value
     Features         []string               // "structured-output", "mcp", "plugins", "skills-dir"
 }
-type HarnessOffer struct { Name, Version, Auth string; Models, ReasoningEffort []string } // concrete values, not patterns
+type HarnessOffer struct { Name, Version, Auth string; Models []string; DefaultModel string; ReasoningEffort []string } // concrete values, not patterns; DefaultModel: the harness's own default, preferred by resolution
 ```
 
 `factory validate --capabilities caps.json` validates patterns against them; the agent's `Probe` produces per-machine offers (`HarnessOffer`).

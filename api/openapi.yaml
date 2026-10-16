@@ -2933,6 +2933,11 @@ components:
           type: array
           items:
             type: string
+        defaultModel:
+          description: |-
+            DefaultModel is the model the harness uses when none is asked for; resolution prefers
+            it over the highest version (patterns LLD). Empty when the probe can't tell.
+          type: string
         reasoningEffort:
           type: array
           items:
