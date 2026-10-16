@@ -7,7 +7,7 @@
 
 - Std `net/http` + `ServeMux`; handlers implement the oapi-codegen **strict** server interface (`internal/apiserver/gen`).
 - Middleware chain: request ID → structured access log (no bodies) → recover → auth (per route group) → body limit (1 MB; transcripts 20 MB) → handler.
-- Routes outside the contract: `/hooks/{provider}` (provider `Handler()`), `/` (embedded UI via `internal/webui.Handler()`), `/healthz`, `/readyz` (catalog loaded + rebuild done), `/metrics` (Prometheus text).
+- Routes outside the contract: `/hooks/{provider}` (provider `Handler()`), `/` (embedded UI via `internal/webui.Handler()`), and, **on a separate ops listener** (`--ops-addr`, default `127.0.0.1:9090`, never the public `--addr`): `/healthz`, `/readyz` (catalog loaded + rebuild done), `/metrics` (Prometheus text). The ops routes have no auth, so they must not be reachable through the public tunnel; binding them to localhost guarantees it.
 
 ## Auth
 
@@ -57,7 +57,7 @@ Body: `{type, target, args}`.
 ## `factory serve`
 
 ```text
-factory serve [--addr :8080] [--catalog-repo URL --catalog-ref main | --catalog-dir ./catalog]
+factory serve [--addr :8080] [--ops-addr 127.0.0.1:9090] [--catalog-repo URL --catalog-ref main | --catalog-dir ./catalog]
               [--retention 2160h] [--public-url https://…] [--log-format json|text]
 ```
 
@@ -67,6 +67,7 @@ Environment (names only; values from the secret store — see [rollout](../../po
 |---|---|
 | `FACTORY_SECRET_<NAME>_<KEY>` | resolves a catalog `secretRef{name, key}` (e.g. `FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY`) |
 | `FACTORY_OAUTH_CLIENT_ID`, `FACTORY_OAUTH_CLIENT_SECRET` | UI login |
+| `FACTORY_PUBLIC_URL` | the public base URL (the tunnel), used for `--public-url`, the webhook URL and the OAuth callback; **not a secret** |
 | `FACTORY_SESSION_KEY` | cookie signing (32 bytes) |
 | `FACTORY_CLI_TOKEN` | CLI admin token |
 | `FACTORY_POOL_JOIN_TOKEN_<POOL>` | via `secretRef` of the Pool |

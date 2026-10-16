@@ -829,7 +829,7 @@ Create the public repo `compliance-framework/mock-docs` with an initial commit o
 
 **Spec.** `deploy/poc/` per [rollout.md §Hosting](poc-rollout/LLD/rollout.md#dispatcher-hosting):
 
-- an `.env.example` (names only), a `run.sh` (build with `-tags webui`, start `factory serve`), tunnel instructions (ngrok, stable domain), the webhook URL setup, and `factory-agent` install and onboarding steps;
+- an `.env.example` (names only), a `run.sh` (build with `-tags webui`, start `factory serve`), tunnel instructions (ngrok, stable domain, with a Traffic Policy denying `/healthz`, `/readyz`, `/metrics`), the webhook URL setup, and `factory-agent` install and onboarding steps;
 - a `Makefile` target `poc-up`.
 
 **Done when:** a maintainer can follow the README to a running dispatcher and a registered agent.
