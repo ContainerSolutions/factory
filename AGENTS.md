@@ -7,7 +7,7 @@ Guidance for coding agents (and humans) working in this repo. The design lives i
 ```sh
 make reviewable                 # generated-code check + lint + tests + catalog checks: what CI runs for Go
 make test                       # go test -race -count=1 ./...
-make lint                       # golangci-lint v2
+make lint                       # golangci-lint v2 with the shared CCF config (workflows/.golangci.yml at the SHA ci.yml pins)
 make generate                   # oapi-codegen + go generate + schemas
 go test ./internal/webui -run TestHandler   # one test
 make build-release              # web/ build + go build -tags webui
@@ -19,7 +19,7 @@ Backend work never needs Node: without `-tags webui` the binary embeds `internal
 
 - `cmd/factory`, `cmd/factory-agent`: one file per subcommand; register it with one line in `main.go` (keeps merge conflicts to a single line).
 - `internal/apis/v1alpha1`, `api/openapi.yaml`, `schemas/`: **contracts**. Change them in their own PR, merged before the code that uses them.
-- `internal/{rules,cel,patterns,catalog}`: **pure** packages. No network, store, provider or processes (depguard enforces it).
+- `internal/{rules,cel,patterns,catalog}`: **pure** packages. No network, store, provider or processes.
 - `web/`: the Vue app, with its own toolchain. Never imported by Go; never changed in the same PR as Go code (except contract regeneration).
 - `catalog/`: factory configuration. Changes need `factory rules test` fixtures.
 - Each workstream writes only under the directories its *Owns* line lists in `design/workstreams/definitions.md`.

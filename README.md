@@ -27,7 +27,7 @@ make reviewable      # what CI runs for Go
 make build-release   # builds web/ and embeds it (-tags webui); needs web/ (WEB-S0-T01)
 ```
 
-Requires Go 1.26 and golangci-lint v2. The UI needs Node 20.
+Requires Go 1.26 and golangci-lint v2. The UI needs Node 20. CI runs `ci / required` (shared `compliance-framework/workflows` Go CI plus a local web job).
 
 ## Licence
 

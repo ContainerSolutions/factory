@@ -43,8 +43,7 @@ factory/
 ├── web/                      # Vue app (WEB) — own package.json, never imported by Go
 ├── deploy/poc/               # run kit (RUN)
 ├── design/                   # this design
-├── Makefile
-├── .golangci.yml
+├── Makefile                  # lint uses the shared CCF golangci-lint config (no .golangci.yml)
 ├── AGENTS.md  CLAUDE.md  README.md  LICENSE
 └── .github/workflows/ci.yml, notify-failure.yml
 ```
@@ -86,7 +85,7 @@ func Handler() http.Handler // serves assets under root; SPA fallback to index.h
 |---|---|
 | `build` | `go build ./cmd/...` (placeholder UI) |
 | `test` | `go test -race -count=1 ./...` |
-| `lint` | `golangci-lint run` (same linters as `api`, `new-from-merge-base` in CI) |
+| `lint` | `golangci-lint run` with the shared CCF config at the workflows SHA `ci.yml` pins (as `api`; `new-from-merge-base` in CI) |
 | `generate` | `oapi-codegen` (server + client), `go generate ./...`, `make schemas` |
 | `schemas` | generate `schemas/*.schema.json` from `internal/apis/v1alpha1` |
 | `check-generated` | `make generate` then `git diff --exit-code` |
@@ -125,7 +124,7 @@ jobs:
 - **Logging:** `log/slog`, JSON in serve mode; never log tokens, prompts with secrets, or untrusted bodies at info level.
 - **Time:** inject a `clock.Clock` (tests use a fake clock); no `time.Now()` in logic packages.
 - **Concurrency:** no shared mutable state without a lock; `-race` in CI.
-- **Packages:** `internal/rules`, `internal/cel`, `internal/patterns`, `internal/catalog` are **pure** (no network, no store) — enforced by a `depguard` rule.
+- **Packages:** `internal/rules`, `internal/cel`, `internal/patterns`, `internal/catalog` are **pure** (no network, no store); kept so in review.
 - **Tests:** table-driven; golden files under `testdata/` with `-update` flag; fakes live next to interfaces (`provider/fake`, `store/memory`, `agent/harness/fake`).
 - **Generated code:** never edited by hand; CI checks freshness.
 - **Commits/PRs:** conventional commits; one task per PR (see definitions).

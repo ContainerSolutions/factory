@@ -2,6 +2,11 @@
 VERSION ?= dev
 LDFLAGS := -X github.com/compliance-framework/factory/internal/version.Version=$(VERSION)
 
+# The repo has no golangci-lint config of its own: like CI, lint with the shared one at the
+# compliance-framework/workflows commit that ci.yml pins.
+WORKFLOWS_SHA := $(shell sed -n 's|.*compliance-framework/workflows/.github/workflows/ci-go-service.yml@\([0-9a-f]\{40\}\).*|\1|p' .github/workflows/ci.yml)
+LINT_CONFIG := bin/golangci-$(WORKFLOWS_SHA).yml
+
 .DEFAULT_GOAL := help
 
 .PHONY: help
@@ -17,8 +22,13 @@ test: ## Run Go tests with the race detector
 	go test -race -count=1 ./...
 
 .PHONY: lint
-lint: ## Run golangci-lint
-	golangci-lint run
+lint: $(LINT_CONFIG) ## Run golangci-lint with the shared CCF config, as CI does
+	golangci-lint run --config=$(LINT_CONFIG)
+
+$(LINT_CONFIG):
+	@mkdir -p bin
+	curl -fsSL -o $@.tmp https://raw.githubusercontent.com/compliance-framework/workflows/$(WORKFLOWS_SHA)/.golangci.yml
+	mv $@.tmp $@
 
 .PHONY: generate
 generate: schemas ## Regenerate code: go generate ./... (incl. oapi-codegen directives once api/openapi.yaml exists) and schemas
