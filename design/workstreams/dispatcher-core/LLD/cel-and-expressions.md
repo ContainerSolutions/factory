@@ -17,9 +17,9 @@ Declared once with `cel.NewEnv`, all variables as `map(string, dyn)`-backed obje
 
 | Variable | Fields (documented allow-list) |
 |---|---|
-| `event` | `id, type, source, subject, time, repo, object{kind, ref, number}, labels, text, issue{labels, body, title}, release{tag, previousTag, semver{major,minor,patch,prerelease,bump}, conclusion, train}, review{state, commit}, label, workflow{name, conclusion}, train{month, manifest, dryRun, repos[]{name, versions, bump}} (CCF train issues, via the GitHub adapter's `ccf-train` extractor), raw` |
+| `event` | `id, type, source, subject, time, repo, object{kind, ref, number}, labels, text, issue{labels, body, title}, release{tag, previousTag, semver{major,minor,patch,prerelease,bump}, conclusion, train}, review{state, commit}, label, workflow{name, conclusion}, train{month, manifest, dryRun, repos[]{name, versions, bump}} (CCF train issues, via the GitHub adapter's `ccf-train` extractor)`. Not `raw`: the provider payload is never shown to rules (`v1alpha1.EventData.Raw`) |
 | `actor` | `id, tier, isBot, isFactory, identity` |
-| `item` | `id, state (map), counters (map), links, reporter{id, tier}, pr{author{isFactory}, draft, head, labels, checks{state, settled}, approvedBy[]{identity, commit}, unresolvedThreads}, prs[], deploy{state, sha, url, containsMerge}` + functions below |
+| `item` | `id, state (map), counters (map), runs (map: TaskSpec → Run summaries, oldest first, from `WorkItemView.RunsBySpec`), links, reporter{id, tier}, pr{author{isFactory}, draft, head, labels, checks{state, settled}, approvedBy[]{identity, commit}, unresolvedThreads}, prs[], deploy{state, sha, url, containsMerge}` + functions below |
 | `run` | `id, spec, outcome, status, inputs (map), result (map), agent, harness{name, model}` |
 | `approval` | `name, phase, by` (future) |
 | `provider` | `name, type, labels` |
@@ -32,7 +32,7 @@ Declared once with `cel.NewEnv`, all variables as `map(string, dyn)`-backed obje
 | Function | Meaning |
 |---|---|
 | `item.count(spec string) int` | number of Runs of TaskSpec `spec` on this work item (derived counters) |
-| `item.lastRun(spec string) map` | last Run summary of `spec` or `null` |
+| `item.lastRun(spec string) map` | last Run summary of `spec` (the last element of `item.runs[spec]`) or `null` |
 | `hash(s string) int` | stable FNV-1a 32-bit → for sampling (`hash(item.id) % 10 == 0`) |
 | `semver.bump(a, b string) string` | `major\|minor\|patch\|none` |
 | `glob(pattern, s string) bool` | `internal/patterns` glob |
