@@ -1,2 +1,8 @@
 lisa-addressed:
 Self-review pass 1 fixed in 07c1086: YAML 1.2 via go.yaml.in/yaml/v3 (sigs.k8s.io/yaml, yaml11On, renameOn removed); GroupSource/Destination exactly-one in Validate + schema; `...` handled by the v3 decoder.
+
+lisa-design:
+- Supersedes the YAML 1.1 `on` alias note: YAML 1.2 via go.yaml.in/yaml/v3; every decode is YAML node -> generic value -> JSON -> strict encoding/json, so json tags are the only field names.
+- Own node-to-value walker (not node.Decode(&any)): line-numbered errors for duplicate/non-string/merge keys, timestamps kept as written, alias expansion bounded.
+- Encode goes JSON -> yaml.Node with styles reset: one code path, struct field order, quoting only where needed (YAML 1.2 output; `on`/`yes` unquoted).
+- Exactly-one rules (Action, GroupSource, Destination) live in both Validate() and the schemas.
