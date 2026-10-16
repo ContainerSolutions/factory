@@ -172,14 +172,23 @@ func redactError(err error, repoURL string) error {
 	return err
 }
 
+// gitEnv locks git down: no prompts, only allowed transports, no system config, and no
+// automatic gc or maintenance. A fetch or commit can otherwise leave a detached background gc
+// writing into the temporary checkout while it is being removed.
+var gitEnv = []string{
+	"GIT_TERMINAL_PROMPT=0",
+	"GIT_ALLOW_PROTOCOL=" + allowedProtocols,
+	"GIT_CONFIG_NOSYSTEM=1",
+	"GIT_CONFIG_COUNT=3",
+	"GIT_CONFIG_KEY_0=gc.auto", "GIT_CONFIG_VALUE_0=0",
+	"GIT_CONFIG_KEY_1=gc.autoDetach", "GIT_CONFIG_VALUE_1=false",
+	"GIT_CONFIG_KEY_2=maintenance.auto", "GIT_CONFIG_VALUE_2=false",
+}
+
 // git runs git with a locked-down environment and returns its trimmed stdout.
 func git(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = append(os.Environ(),
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_ALLOW_PROTOCOL="+allowedProtocols,
-		"GIT_CONFIG_NOSYSTEM=1",
-	)
+	cmd.Env = append(os.Environ(), gitEnv...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
