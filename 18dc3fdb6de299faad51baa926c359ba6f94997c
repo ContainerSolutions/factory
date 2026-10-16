@@ -3,3 +3,6 @@ lisa-design:
 - ProviderController (missing from the LLD): connects Providers via the Registry (all-or-nothing at start; follows catalog swaps by spec digest; keeps the old conn on failure), is the IngressSink (Delivery stored before ack; duplicates reported) and normalises deliveries into Events once; Recover since process start.
 - Startup: store+sweeper → catalog (wait first good) → providers (connect, recover) → listeners → work-item rebuild → controllers + scheduler → ready. Shutdown: end SSE and lease polls → drain HTTP → cancel controllers.
 - Ops address must be loopback and differ from --addr (refused otherwise). Secrets env-only (FACTORY_*; FACTORY_SECRET_<NAME>_<KEY>); factory dispatch reads the CLI token from env only.
+
+lisa-selfreview:
+Pass 1: no findings (secrets env-only and absent from logs; ops loopback-only; dev fake flag warns).
