@@ -83,7 +83,10 @@ type HarnessOffer struct {
 	Name    string `json:"name"`
 	Version string `json:"version,omitzero"`
 	// Auth is subscription, apiKey, accessToken or cloud.
-	Auth            string   `json:"auth,omitzero"`
-	Models          []string `json:"models,omitzero"`
+	Auth   string   `json:"auth,omitzero"`
+	Models []string `json:"models,omitzero"`
+	// DefaultModel is the model the harness uses when none is asked for; resolution prefers
+	// it over the highest version (patterns LLD). Empty when the probe can't tell.
+	DefaultModel    string   `json:"defaultModel,omitzero"`
 	ReasoningEffort []string `json:"reasoningEffort,omitzero"`
 }

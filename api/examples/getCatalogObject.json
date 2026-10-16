@@ -1,0 +1,85 @@
+{
+  "kind": "TaskSpec",
+  "metadata": {
+    "name": "triage"
+  },
+  "spec": {
+    "description": "Classify, de-duplicate and enrich an incoming issue or thread.",
+    "instructions": {
+      "template": "prompts/triage.md.tmpl",
+      "headless": true
+    },
+    "skills": [
+      {
+        "source": "ccf-skills",
+        "ref": "v0.7.0",
+        "use": [
+          "bugreport"
+        ]
+      }
+    ],
+    "harness": {
+      "allowed": [
+        {
+          "name": "codex",
+          "models": [
+            "gpt-5*"
+          ],
+          "reasoningEffort": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "name": "claude-code",
+          "models": [
+            "claude-{sonnet,haiku}-5-*"
+          ],
+          "reasoningEffort": "*"
+        }
+      ],
+      "default": {
+        "name": "codex",
+        "config": {
+          "model": "gpt-5*",
+          "reasoningEffort": "medium"
+        }
+      }
+    },
+    "identity": "author",
+    "permissions": {
+      "issues": "write",
+      "contents": "read"
+    },
+    "effects": {
+      "allow": [
+        "comment",
+        "label.add",
+        "label.remove",
+        "link-duplicate",
+        "create-issue"
+      ],
+      "labels": [
+        "type/*",
+        "area/*",
+        "needs-info"
+      ]
+    },
+    "limits": {
+      "maxTurns": 40,
+      "maxWallClock": "15m",
+      "maxCostUSD": 1.5
+    },
+    "output": {
+      "schema": "schemas/results/triage.json",
+      "outcomes": [
+        "triaged",
+        "needs-info",
+        "duplicate",
+        "not-actionable",
+        "promote"
+      ]
+    }
+  }
+}

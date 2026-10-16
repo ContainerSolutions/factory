@@ -8,7 +8,8 @@ Guidance for coding agents (and humans) working in this repo. The design lives i
 make reviewable                 # generated-code check + lint + tests + catalog checks: what CI runs for Go
 make test                       # go test -race -count=1 ./...
 make lint                       # golangci-lint v2 with the shared CCF config (workflows/.golangci.yml at the SHA ci.yml pins)
-make generate                   # oapi-codegen + go generate + schemas
+make generate                   # schemas + the spec's v1alpha1 components + go generate (oapi-codegen server and client)
+make openapi-lint               # vacuum on api/openapi.yaml (ruleset api/vacuum.yaml)
 go test ./internal/webui -run TestHandler   # one test
 make build-release              # web/ build + go build -tags webui
 ```

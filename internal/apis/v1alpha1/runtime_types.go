@@ -3,6 +3,8 @@ package v1alpha1
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/invopop/jsonschema"
 )
 
 // ---- Event ---------------------------------------------------------------------------------
@@ -119,15 +121,27 @@ type RailVerdict struct {
 // TaskPhase is a Task's lifecycle phase.
 type TaskPhase string
 
-// Task phases: Pending → Leased → Running → Succeeded | Failed | Cancelled.
+// Task phases: Pending → Leased → Running → Succeeded | Failed, and
+// Running → Cancelling → Cancelled.
 const (
 	TaskPending   TaskPhase = "Pending"
 	TaskLeased    TaskPhase = "Leased"
 	TaskRunning   TaskPhase = "Running"
 	TaskSucceeded TaskPhase = "Succeeded"
 	TaskFailed    TaskPhase = "Failed"
-	TaskCancelled TaskPhase = "Cancelled"
+	// TaskCancelling is a task being cancelled (the cancel command): its agent is told on the
+	// next heartbeat and the task becomes Cancelled on the agent's ack or on lease expiry.
+	TaskCancelling TaskPhase = "Cancelling"
+	TaskCancelled  TaskPhase = "Cancelled"
 )
+
+// TaskPhases lists the task phases in lifecycle order.
+func TaskPhases() []TaskPhase {
+	return []TaskPhase{TaskPending, TaskLeased, TaskRunning, TaskSucceeded, TaskFailed, TaskCancelling, TaskCancelled}
+}
+
+// JSONSchema makes TaskPhase an enum of TaskPhases.
+func (TaskPhase) JSONSchema() *jsonschema.Schema { return enumSchema(TaskPhases()) }
 
 // Task is one instantiation of a TaskSpec for a work item.
 type Task struct {
@@ -185,7 +199,7 @@ type TaskSpecRef struct {
 // TaskHarness is the requested harness and, once leased, the resolved one (null until then).
 type TaskHarness struct {
 	Request  *HarnessRequest  `json:"request,omitzero"`
-	Resolved *HarnessResolved `json:"resolved"`
+	Resolved *HarnessResolved `json:"resolved" jsonschema:"nullable"`
 }
 
 // HarnessResolved is the concrete harness config chosen when an agent leased the task.
@@ -232,7 +246,7 @@ type GitCredentialSpec struct {
 // TaskStatus is a Task's status. Agent is null until the task is leased.
 type TaskStatus struct {
 	Phase          TaskPhase `json:"phase"`
-	Agent          *string   `json:"agent"`
+	Agent          *string   `json:"agent" jsonschema:"nullable"`
 	Reason         string    `json:"reason,omitzero"`
 	Attempts       int       `json:"attempts,omitzero"`
 	LeaseExpiresAt time.Time `json:"leaseExpiresAt,omitzero"`
@@ -292,6 +306,14 @@ const (
 	AgentOffline   AgentPhase = "Offline"
 )
 
+// AgentPhases lists the agent phases.
+func AgentPhases() []AgentPhase {
+	return []AgentPhase{AgentReady, AgentBusy, AgentThrottled, AgentDraining, AgentOffline}
+}
+
+// JSONSchema makes AgentPhase an enum of AgentPhases.
+func (AgentPhase) JSONSchema() *jsonschema.Schema { return enumSchema(AgentPhases()) }
+
 // Agent is a registered worker.
 type Agent struct {
 	TypeMeta
@@ -334,7 +356,7 @@ type Lending struct {
 // AgentStatus is the agent's state. ThrottledUntil is null unless the harness reported plan limits.
 type AgentStatus struct {
 	Phase          AgentPhase  `json:"phase"`
-	ThrottledUntil *time.Time  `json:"throttledUntil"`
+	ThrottledUntil *time.Time  `json:"throttledUntil" jsonschema:"nullable"`
 	LastHeartbeat  time.Time   `json:"lastHeartbeat,omitzero"`
 	Running        []string    `json:"running,omitzero"`
 	Today          *AgentUsage `json:"today,omitzero"`
@@ -413,6 +435,14 @@ const (
 	ApprovalDenied  ApprovalPhase = "Denied"
 	ApprovalExpired ApprovalPhase = "Expired"
 )
+
+// ApprovalPhases lists the approval phases.
+func ApprovalPhases() []ApprovalPhase {
+	return []ApprovalPhase{ApprovalPending, ApprovalGranted, ApprovalDenied, ApprovalExpired}
+}
+
+// JSONSchema makes ApprovalPhase an enum of ApprovalPhases.
+func (ApprovalPhase) JSONSchema() *jsonschema.Schema { return enumSchema(ApprovalPhases()) }
 
 // Approval turns "a human said yes" into one factory event. Type only in the PoC (Q18).
 type Approval struct {

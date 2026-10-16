@@ -7,6 +7,10 @@ LDFLAGS := -X github.com/compliance-framework/factory/internal/version.Version=$
 WORKFLOWS_SHA := $(shell sed -n 's|.*compliance-framework/workflows/.github/workflows/ci-go-service.yml@\([0-9a-f]\{40\}\).*|\1|p' .github/workflows/ci.yml)
 LINT_CONFIG := bin/golangci-$(WORKFLOWS_SHA).yml
 
+# The OpenAPI linter, run with go run at a pinned version (no Node). Not a go.mod tool: its
+# dependency tree is large and would move shared dependencies of the module.
+VACUUM_VERSION := v0.30.6
+
 .DEFAULT_GOAL := help
 
 .PHONY: help
@@ -14,7 +18,7 @@ help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
 
 .PHONY: build
-build: ## Build bin/factory and bin/factory-agent with the placeholder UI (no Node needed)
+build: ## Build bin/factory, bin/factory-agent and bin/factory-mock with the placeholder UI (no Node needed)
 	go build -ldflags "$(LDFLAGS)" -o bin/ ./cmd/...
 
 .PHONY: test
@@ -31,8 +35,12 @@ $(LINT_CONFIG):
 	mv $@.tmp $@
 
 .PHONY: generate
-generate: schemas ## Regenerate code: go generate ./... (incl. oapi-codegen directives once api/openapi.yaml exists) and schemas
+generate: schemas openapi-components ## Regenerate code: schemas, the spec's v1alpha1 components, then go generate ./... (oapi-codegen)
 	go generate ./...
+
+.PHONY: openapi-components
+openapi-components: ## Write the v1alpha1 components into api/openapi.yaml (between its GENERATED markers)
+	go run ./api/componentsgen -spec api/openapi.yaml
 
 .PHONY: schemas
 schemas: ## Generate schemas/*.schema.json from internal/apis/v1alpha1 (once the types exist)
@@ -40,8 +48,13 @@ schemas: ## Generate schemas/*.schema.json from internal/apis/v1alpha1 (once the
 
 .PHONY: check-generated
 check-generated: generate ## Fail if generated files are stale
-	@out=$$(git status --porcelain -- schemas internal/apiserver/gen internal/apiclient); \
+	@out=$$(git status --porcelain -- schemas api/openapi.yaml internal/apiserver/gen internal/apiclient); \
 	if [ -n "$$out" ]; then echo "$$out"; echo "generated files are stale or uncommitted: run make generate and commit"; exit 1; fi
+
+.PHONY: openapi-lint
+openapi-lint: ## Lint api/openapi.yaml with vacuum (ruleset api/vacuum.yaml); infos fail too
+	go run github.com/daveshanley/vacuum@$(VACUUM_VERSION) lint --no-update-check --ext-refs \
+		--ruleset api/vacuum.yaml --fail-severity info --no-banner --no-style --details api/openapi.yaml
 
 .PHONY: catalog
 catalog: ## Validate the catalog and run its rule tests (once catalog/ exists)
@@ -51,7 +64,7 @@ catalog: ## Validate the catalog and run its rule tests (once catalog/ exists)
 	fi
 
 .PHONY: reviewable
-reviewable: check-generated lint test catalog ## Everything CI checks for Go
+reviewable: check-generated lint test catalog openapi-lint ## Everything CI checks for Go
 
 .PHONY: web
 web: ## Build the web UI into internal/webui/dist

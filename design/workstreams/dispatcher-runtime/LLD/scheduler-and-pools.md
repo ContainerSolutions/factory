@@ -14,13 +14,13 @@ Running ──cancel──▶ Cancelling ──ack or lease expiry──▶ Canc
 
 ## Registration
 
-`POST /api/v1/agents` body: `{pool, joinToken, ownerToken, capabilities, lending, agentVersion}`.
+`POST /api/v1/agents` (`registerAgent`): credentials in the headers `X-Factory-Join-Token` (the pool's join token) and `X-Factory-Owner-Token` (the owner's GitHub user token); body `{pool, host, agentVersion, capabilities, lending}`; response `201 {agentId, agentToken, expiresAt}` ([contracts.md §HTTP API](../../foundation/LLD/contracts.md#http-api)).
 
-1. `joinToken` matches `Pool.admission.tokenRef` secret (constant-time compare).
-2. `ownerToken` (a short-lived user token from the GitHub **device flow** that `factory-agent register` runs against the dispatcher's OAuth client) → `GET /user` → login; **discarded immediately** (never stored or logged). The worker's OS user needs no `gh` login.
+1. `X-Factory-Join-Token` matches `Pool.admission.tokenRef` secret (constant-time compare).
+2. `X-Factory-Owner-Token` (a short-lived user token from the GitHub **device flow** that `factory-agent register` runs against the dispatcher's OAuth client) → `GET /user` → login; **discarded immediately** (never stored or logged). The worker's OS user needs no `gh` login.
 3. Owner ∈ `Pool.admission.owners` Group (via `Conn.ResolveGroup`, cached 10 min).
 4. Capabilities ⊇ `Pool.require` (e.g. at least one required harness).
-5. Issue `agentToken` (random 32 bytes, stored hashed, TTL 24 h, renewed by heartbeats) and create/replace the `Agent` object (`agt_<owner>-<host>`).
+5. Issue `agentToken` (random 32 bytes, stored hashed, TTL 24 h, renewed by heartbeats) and create/replace the `Agent` object (`agt_<owner>-<host>`, `host` from the body).
 
 ## Lease matching
 

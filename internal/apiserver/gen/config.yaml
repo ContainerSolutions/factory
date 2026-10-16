@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/v2.7.2/configuration-schema.json
+# oapi-codegen config for the dispatcher's Echo strict server (go generate ./... runs it).
+# Webhooks are served by the provider adapter's Conn.Handler() and the ops routes by the
+# localhost ops listener, so neither gets a generated handler on the public server.
+package: gen
+output: server.gen.go
+generate:
+  models: true
+  echo-server: true
+  strict-server: true
+output-options:
+  exclude-tags:
+    - webhooks
+    - ops
+  # An absent list or map is nil already; no *[]T or *map[K]V.
+  prefer-skip-optional-pointer-on-container-types: true
+compatibility:
+  # Enum constants are always <Type><Value>, so adding a value never renames another.
+  always-prefix-enum-values: true

@@ -1,0 +1,18 @@
+# vacuum ruleset for api/openapi.yaml (make openapi-lint). The recommended rules, minus the
+# ones that conflict with how this contract is kept:
+extends: [[vacuum:oas, recommended]]
+rules:
+  # Examples live in api/examples/<operationId>.json, one per success response, validated
+  # against the schemas by api/spec_test.go and served by factory-mock and MSW. Inline
+  # example(s) would be a second, unchecked copy.
+  oas3-missing-example: off
+  # JSON names are fixed by the internal/apis/v1alpha1 types, which keep Go initialisms
+  # (catalogSHA, costUSD, apiURL, appID); the API-only shapes mirror them (UsageDelta.costUSD).
+  camel-case-properties: off
+  # Uniform shapes repeat their wording on purpose: every list page's nextCursor, every
+  # x-go-type import, the "A page of …" descriptions.
+  description-duplication: off
+  # OpenAPI 3.0 says "any JSON value" only by leaving out type. The generated v1alpha1
+  # components have a few, from Go's any and json.RawMessage: EventData.raw (the provider
+  # payload), InputSpec.default/enum, EffectAction's inline op fields and its `not`.
+  oas-missing-type: off

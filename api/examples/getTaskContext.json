@@ -1,0 +1,9 @@
+{
+  "index": 0,
+  "kind": "issue",
+  "provider": "github-public",
+  "ref": "compliance-framework/docs#42",
+  "trust": "untrusted",
+  "mediaType": "text/markdown",
+  "content": "````untrusted source=\"github-public:compliance-framework/docs#42\" author=\"octocat\"\n# OSCAL import page misses --profile\n\nThe import docs don't mention the --profile flag added in api v1.8.\n````\n"
+}
