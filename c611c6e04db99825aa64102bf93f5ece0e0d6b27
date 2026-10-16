@@ -1,0 +1,7 @@
+lisa-design:
+- golangci-lint: api has no .golangci.yml, so "same linters as api" = golangci v2 defaults; added only depguard (pure packages) and gofmt/goimports formatters.
+- webui embed is chosen by build tag (!webui → placeholder/, webui → dist/); the committed placeholder lets backend builds and CI skip Node. Handler never panics (returns 500 if the embed root is missing) per the no-panic convention.
+- webui.Handler: /api and /api/* return 404 (never the SPA), hashed /assets/* are immutable-cached, index.html no-cache; SPA fallback for everything else.
+- Makefile targets for not-yet-existing pieces (oapi-codegen, schemas, catalog, web) are guarded so `make reviewable` passes on the scaffold; `schemas` expects a generator at internal/apis/v1alpha1/schemagen (FND-S1-T01 to create).
+- check-generated uses `git status --porcelain` on generated paths so new untracked generated files are caught too, not only modified ones.
+- .gitignore ignores every .env* (incl. deploy/poc/.env) except *.env.example; build outputs go to bin/.
