@@ -640,7 +640,7 @@ No single tool matches the model. Here's how each candidate maps onto its parts 
 - The **pull pattern itself is well-trodden**: GitHub self-hosted runners, Temporal/Hatchet workers, Managed Agents workers. Our lease protocol copies their shape: register, long-poll, heartbeat, complete.
 - **One shortcut was considered and rejected for the PoC:** using GitHub self-hosted runners *as* the registered pool, with the dispatcher calling `workflow_dispatch` against `runs-on: [self-hosted, claude-code]`. It gives free registration and logs. But runner assignment can't do our capability and pattern matching, owner consent or plan throttling. It also runs workflow code on personal machines and ties the pools to GitHub. The lease API we'd build instead is small, and it's the core of the model.
 
-**Verdict:** build it. Reuse libraries rather than platforms: CEL (`cel-go`), CloudEvents SDK, `go-github`, Slack `socketmode`, and a glob matcher with `{a,b}` support (`gobwas/glob`).
+**Verdict:** build it. Reuse libraries rather than platforms: CEL (`cel-go`), CloudEvents SDK, `go-github`, Slack `socketmode`, and a glob matcher with `{a,b}` support (written on the standard library in `internal/patterns`).
 
 ## Build on Kubernetes for the PoC?
 

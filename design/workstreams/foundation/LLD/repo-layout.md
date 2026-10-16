@@ -147,7 +147,6 @@ jobs:
 | OpenAPI lint | `github.com/daveshanley/vacuum`, run with `go run …@<version>` from `make openapi-lint`; not in `go.mod` (its dependency tree would move shared dependencies) |
 | GitHub REST/GraphQL | `github.com/google/go-github/v7x`, `github.com/shurcooL/githubv4` |
 | App auth | `github.com/bradleyfalzon/ghinstallation/v2` |
-| Globs | `github.com/gobwas/glob` |
 | MCP | `github.com/modelcontextprotocol/go-sdk` |
 | Semver | `golang.org/x/mod/semver` |
 
