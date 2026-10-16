@@ -1,0 +1,13 @@
+# Source: design/03-domain-model.md §Approval.
+kind: Approval
+metadata: { name: apr_01JC…, workItem: wi_01JA… }
+spec:
+  name: implement                    # what rules test: approval.name == 'implement'
+  approvers: maintainers             # Group
+  quorum: 1
+  via: [ui, slack, github]           # where it's presented and where answers are accepted
+  template: approve-implement
+  expires: 7d
+status:
+  phase: Pending                     # Pending → Granted | Denied | Expired
+  decisions: [{ by: "github-public:octocat", decision: grant, at: "2026-10-15T12:00:00Z", via: github }]   # changed from the doc: at "…" is a placeholder; a timestamp is required

@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.ccf.dev/schemas/v1alpha1/queue.schema.json",
+  "$defs": {
+    "Budget": {
+      "properties": {
+        "daily": {
+          "$ref": "#/$defs/BudgetLimit"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "BudgetLimit": {
+      "properties": {
+        "runs": {
+          "type": "integer"
+        },
+        "tokens": {
+          "type": "integer"
+        },
+        "usd": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "resourceVersion": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "QueueSpec": {
+      "properties": {
+        "pool": {
+          "type": "string"
+        },
+        "concurrency": {
+          "type": "integer"
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "budget": {
+          "$ref": "#/$defs/Budget"
+        },
+        "retry": {
+          "$ref": "#/$defs/RetryPolicy"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "pool"
+      ]
+    },
+    "RetryPolicy": {
+      "properties": {
+        "max": {
+          "type": "integer"
+        },
+        "on": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "max"
+      ]
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "factory.ccf.dev/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Queue"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/QueueSpec"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "title": "Queue"
+}

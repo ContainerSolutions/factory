@@ -1,0 +1,17 @@
+# Source: design/03-domain-model.md §RuleSet (document 1 of 2).
+kind: RuleSet
+metadata: { name: docs }
+spec:
+  providerSelector: { matchLabels: { family: github, network: public } }   # binds instances
+  scope: { repos: ["compliance-framework/docs"] }      # also: exclude: [globs]
+  rules:
+    selector: { matchExpressions: [{ key: pack, operator: In, values: [intake, implement, review, release-docs] }] }
+    refs: [notify-ready-to-merge]            # explicit additions (refs ∪ selector)
+    exclude: [triage-maintainer-issues]      # explicit removals
+  overrides:                                  # per-rule params
+    review-factory-prs: { harness: { name: claude-code, config: { model: "claude-{sonnet,opus}-5-*", reasoningEffort: high } } }   # reviewer on a different harness from the author
+    implement-review-feedback: { maxImplementRuns: 3 }
+  defaults:                                   # params applied to every selected rule unless the rule overrides
+    queue: default
+  budget: { daily: { usd: 25, runs: 60 } }
+  stateKeys: [triage, implement, review, merge]

@@ -1,0 +1,11 @@
+# Source: design/03-domain-model.md §Template.
+kind: Template
+metadata: { name: approve-implement }
+spec:
+  bodies:
+    github: |
+      **Triage done** · {{ .run.result.summary }}
+      A maintainer can approve implementation with `/factory approve implement` or the `factory:approve-implement` label.
+      [View in Factory UI]({{ .links.ui }})
+    slack:
+      blocks: templates/approve-implement.slack.json   # Block Kit, with Approve / Deny buttons

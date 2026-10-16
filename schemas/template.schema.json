@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.ccf.dev/schemas/v1alpha1/template.schema.json",
+  "$defs": {
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "resourceVersion": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "TemplateBody": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "An inline Go text/template."
+        },
+        {
+          "properties": {
+            "blocks": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Path of a Slack Block Kit JSON file."
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "blocks"
+          ]
+        }
+      ]
+    },
+    "TemplateSpec": {
+      "properties": {
+        "bodies": {
+          "additionalProperties": {
+            "$ref": "#/$defs/TemplateBody"
+          },
+          "propertyNames": {
+            "enum": [
+              "github",
+              "slack"
+            ]
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "bodies"
+      ]
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "factory.ccf.dev/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Template"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/TemplateSpec"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "title": "Template"
+}

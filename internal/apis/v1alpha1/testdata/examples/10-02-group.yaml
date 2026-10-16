@@ -1,0 +1,6 @@
+# Source: design/10-poc.md §Provider, Group, Pool, Queue (document 2 of 4).
+kind: Group
+metadata: { name: maintainers }
+spec:
+  members:
+    - { provider: github-public, orgRole: { org: compliance-framework, role: admin } }   # the CCF org admins (Q17)

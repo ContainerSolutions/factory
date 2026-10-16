@@ -1,0 +1,375 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.ccf.dev/schemas/v1alpha1/taskspec.schema.json",
+  "$defs": {
+    "Duration": {
+      "type": "string",
+      "description": "A Go duration (\"90s\", \"15m\", \"1h30m\"), optionally prefixed by whole days (\"7d\", \"1d12h\")."
+    },
+    "EffectOp": {
+      "type": "string",
+      "enum": [
+        "comment",
+        "pr.comment",
+        "label.add",
+        "label.remove",
+        "create-issue",
+        "sub-issue.add",
+        "close",
+        "link-duplicate",
+        "pr.open",
+        "pr.update",
+        "pr.retarget",
+        "pr.merge",
+        "review.comment",
+        "review.request-changes",
+        "review.approve",
+        "thread.reply",
+        "thread.resolve",
+        "push-branch",
+        "stack.push",
+        "stack.rebase"
+      ]
+    },
+    "EffectsPolicy": {
+      "properties": {
+        "allow": {
+          "items": {
+            "$ref": "#/$defs/EffectOp"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "HarnessConfig": {
+      "properties": {
+        "model": {
+          "$ref": "#/$defs/StringOrList"
+        },
+        "reasoningEffort": {
+          "$ref": "#/$defs/StringOrList"
+        },
+        "prefer": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "HarnessConstraint": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "models": {
+          "$ref": "#/$defs/StringOrList"
+        },
+        "reasoningEffort": {
+          "$ref": "#/$defs/StringOrList"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "HarnessPolicy": {
+      "properties": {
+        "allowed": {
+          "items": {
+            "$ref": "#/$defs/HarnessConstraint"
+          },
+          "type": "array"
+        },
+        "default": {
+          "$ref": "#/$defs/HarnessRequest"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "HarnessRequest": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "config": {
+          "$ref": "#/$defs/HarnessConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "InputSpec": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "object",
+            "array"
+          ]
+        },
+        "enum": {
+          "items": true,
+          "type": "array"
+        },
+        "default": true,
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Instructions": {
+      "properties": {
+        "template": {
+          "type": "string"
+        },
+        "headless": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "template"
+      ]
+    },
+    "Limits": {
+      "properties": {
+        "maxTurns": {
+          "type": "integer"
+        },
+        "maxWallClock": {
+          "$ref": "#/$defs/Duration"
+        },
+        "maxCostUSD": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "resourceVersion": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "OutputSpec": {
+      "properties": {
+        "schema": {
+          "type": "string"
+        },
+        "outcomes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RepoMount": {
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "ro",
+            "rw"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ref"
+      ]
+    },
+    "Requires": {
+      "properties": {
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "SkillRef": {
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "use": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "source"
+      ]
+    },
+    "StringOrList": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "TaskSpecSpec": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "inputs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/InputSpec"
+          },
+          "type": "object"
+        },
+        "instructions": {
+          "$ref": "#/$defs/Instructions"
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/$defs/SkillRef"
+          },
+          "type": "array"
+        },
+        "requires": {
+          "$ref": "#/$defs/Requires"
+        },
+        "harness": {
+          "$ref": "#/$defs/HarnessPolicy"
+        },
+        "workspace": {
+          "$ref": "#/$defs/Workspace"
+        },
+        "identity": {
+          "type": "string"
+        },
+        "permissions": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "effects": {
+          "$ref": "#/$defs/EffectsPolicy"
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits"
+        },
+        "output": {
+          "$ref": "#/$defs/OutputSpec"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Workspace": {
+      "properties": {
+        "repos": {
+          "items": {
+            "$ref": "#/$defs/RepoMount"
+          },
+          "type": "array"
+        },
+        "checkout": {
+          "type": "string"
+        },
+        "publicReads": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "factory.ccf.dev/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "TaskSpec"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/TaskSpecSpec"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "title": "TaskSpec"
+}

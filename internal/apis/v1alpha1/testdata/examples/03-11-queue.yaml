@@ -1,0 +1,9 @@
+# Source: design/03-domain-model.md §Queue and Pool (document 1 of 3).
+kind: Queue
+metadata: { name: default }
+spec:
+  pool: maintainer-agents
+  concurrency: 4
+  priority: 50
+  budget: { daily: { runs: 80 } }
+  retry: { max: 1, on: [agent-lost, infra-failure] }

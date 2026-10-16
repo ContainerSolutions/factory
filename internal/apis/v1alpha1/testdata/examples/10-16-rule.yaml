@@ -1,0 +1,10 @@
+# Source: design/10-poc.md §Rules, use case 1 (`pack: release-docs`).
+# Converted from the shorthand rule list: name → metadata.name, the other keys under spec (values verbatim).
+kind: Rule
+metadata: { name: announce-release-docs }
+spec:
+  on: [factory.run.completed]
+  where: "run.spec == 'merge' && run.outcome == 'merged' && has(item.state.release)"
+  actions:
+    - notify: { template: release-docs-published, to: [{ item: all }] }   # the docs PR and the (closed) train issue
+    - set: { release: published }

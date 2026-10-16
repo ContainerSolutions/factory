@@ -1,0 +1,7 @@
+# Source: design/03-domain-model.md §RuleSet (document 2 of 2).
+kind: RuleSet
+metadata: { name: docs-slack }
+spec:
+  providerSelector: { matchLabels: { family: slack } }
+  scope: { channels: ["#ccf-docs"] }
+  rules: { selector: { matchLabels: { pack: slack-intake } } }

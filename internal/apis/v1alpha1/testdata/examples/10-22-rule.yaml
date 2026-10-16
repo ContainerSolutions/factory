@@ -1,0 +1,9 @@
+# Source: design/10-poc.md §Rules, use case 2 (`pack: docs-epic`).
+# Converted from the shorthand rule list: name → metadata.name, the other keys under spec (values verbatim).
+kind: Rule
+metadata: { name: record-review-outcome }
+spec:
+  on: [factory.run.completed]
+  priority: 100                                            # runs first, so later rules see the new state
+  where: "run.spec == 'docs-review'"
+  actions: [{ set: { review: "=run.outcome" } }]

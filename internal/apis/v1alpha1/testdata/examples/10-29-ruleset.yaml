@@ -1,0 +1,7 @@
+# Source: design/10-poc.md §RuleSets (document 3 of 3).
+kind: RuleSet
+metadata: { name: poc-docs-human-review }
+spec:
+  providerSelector: { matchLabels: { family: github, network: public } }
+  scope: { repos: ["compliance-framework/docs"] }
+  rules: { selector: { matchExpressions: [{ key: pack, operator: In, values: [review-human, shared] }] } }

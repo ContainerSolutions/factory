@@ -1,0 +1,9 @@
+# Source: design/10-poc.md §Rules, use case 1 (`pack: release-docs`).
+# Converted from the shorthand rule list: name → metadata.name, the other keys under spec (values verbatim).
+kind: Rule
+metadata: { name: fix-release-docs-review }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [pr.review.submitted]
+  where: "has(item.state.release) && event.review.state == 'changes_requested' && item.count('implement') < 3"
+  actions: [{ dispatch: { taskSpec: implement, queue: poc, inputs: { mode: address-review, target: pr } } }]

@@ -1,0 +1,8 @@
+# Source: design/10-poc.md §Rules, use case 2 (`pack: docs-epic`).
+# Converted from the shorthand rule list: name → metadata.name, the other keys under spec (values verbatim).
+kind: Rule
+metadata: { name: fix-stack-review }
+spec:
+  on: [factory.run.completed]
+  where: "run.spec == 'docs-review' && run.inputs.target == 'stack' && run.outcome == 'changes-requested' && item.count('docs-review') < 3"
+  actions: [{ dispatch: { taskSpec: implement, queue: poc, inputs: { mode: address-review, target: stack } } }]

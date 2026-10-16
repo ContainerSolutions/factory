@@ -1,0 +1,12 @@
+# Source: design/10-poc.md §Rules, use case 2 (`pack: docs-epic`).
+# Converted from the shorthand rule list: name → metadata.name, the other keys under spec (values verbatim).
+kind: Rule
+metadata: { name: merge-whole-stack }                  # excluded from the RuleSet until everything else is trusted (Q10)
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [factory.run.completed, pr.checks.completed]
+  where: >
+    has(item.state.plan) && item.state.review == 'approved' &&
+    item.prs.all(p, p.checks.state == 'success')
+  params: { requiredCheck: "ci / required" }
+  actions: [{ dispatch: { taskSpec: merge, queue: poc, inputs: { target: stack, requiredCheck: "{{ params.requiredCheck }}" } } }]

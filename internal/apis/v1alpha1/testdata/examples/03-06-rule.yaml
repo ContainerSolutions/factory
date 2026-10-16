@@ -1,0 +1,15 @@
+# Source: design/03-domain-model.md §Rule.
+kind: Rule
+metadata:
+  name: triage-outside-issues
+  labels: { pack: intake }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [issue.opened]
+  where: "actor.tier in ['anyone', 'contributor'] && !actor.isBot"
+  params:
+    queue: triage
+    harness: { name: codex, config: { model: "gpt-5*", reasoningEffort: medium } }
+  actions:
+    - dispatch: { taskSpec: triage, queue: "{{ params.queue }}", harness: "{{ params.harness }}", context: [event.object] }
+    - set: { triage: running }

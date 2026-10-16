@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.ccf.dev/schemas/v1alpha1/group.schema.json",
+  "$defs": {
+    "Duration": {
+      "type": "string",
+      "description": "A Go duration (\"90s\", \"15m\", \"1h30m\"), optionally prefixed by whole days (\"7d\", \"1d12h\")."
+    },
+    "GroupCache": {
+      "properties": {
+        "ttl": {
+          "$ref": "#/$defs/Duration"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ttl"
+      ]
+    },
+    "GroupSource": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "team": {
+          "type": "string"
+        },
+        "orgRole": {
+          "$ref": "#/$defs/OrgRole"
+        },
+        "users": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "userGroup": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider"
+      ]
+    },
+    "GroupSpec": {
+      "properties": {
+        "members": {
+          "items": {
+            "$ref": "#/$defs/GroupSource"
+          },
+          "type": "array"
+        },
+        "cache": {
+          "$ref": "#/$defs/GroupCache"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "members"
+      ]
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "resourceVersion": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "OrgRole": {
+      "properties": {
+        "org": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "org",
+        "role"
+      ]
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "factory.ccf.dev/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Group"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/GroupSpec"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "title": "Group"
+}

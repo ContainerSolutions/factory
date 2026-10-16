@@ -1,0 +1,11 @@
+# Source: design/03-domain-model.md §Provider (document 3 of 3).
+kind: Provider
+metadata: { name: slack-ccf, labels: { family: slack } }
+spec:
+  type: slack
+  slack:
+    mode: socket
+    appTokenRef: { name: slack-ccf, key: app-token }
+    botTokenRef: { name: slack-ccf, key: bot-token }
+  scope: { channels: ["#ccf-docs", "#ccf-factory"] }
+  trust: [{ tier: maintainer, group: maintainers }, { tier: anyone, workspaceMember: true }]

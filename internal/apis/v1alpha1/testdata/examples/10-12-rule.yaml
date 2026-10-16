@@ -1,0 +1,20 @@
+# Source: design/10-poc.md §Rules, use case 1 (`pack: release-docs`).
+# Converted from the shorthand rule list: name → metadata.name, the other keys under spec (values verbatim).
+kind: Rule
+metadata: { name: docs-on-release-train }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [issue.closed]
+  params: { trainManifest: repos.yaml, allowDryRun: false, docsRepo: compliance-framework/docs }   # dev RuleSet overrides these
+  where: >
+    event.repo == 'compliance-framework/workflows' && has(event.train) &&
+    event.train.manifest == params.trainManifest &&
+    (('train:done' in event.issue.labels && !event.train.dryRun) ||
+     (params.allowDryRun && 'train:dry-run' in event.issue.labels))
+  actions:
+    - dispatch:
+        taskSpec: release-docs
+        queue: poc
+        target: { repo: "{{ params.docsRepo }}" }
+        inputs: { train: "=event.object.ref" }
+    - set: { release: drafting, train: "=event.object.ref" }
