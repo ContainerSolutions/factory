@@ -1,0 +1,2 @@
+lisa-addressed:
+Self-review pass 1 fixed in 07c1086: YAML 1.2 via go.yaml.in/yaml/v3 (sigs.k8s.io/yaml, yaml11On, renameOn removed); GroupSource/Destination exactly-one in Validate + schema; `...` handled by the v3 decoder.
