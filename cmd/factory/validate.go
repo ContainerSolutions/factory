@@ -109,13 +109,11 @@ func runValidate(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		c, errs = catalog.LoadDir(os.DirFS(*dir), opts)
 	}
 
-	rep := validateReport{Diagnostics: make([]catalog.Error, len(errs))}
+	rep := validateReport{Diagnostics: catalogDiagnostics(*dir, errs)}
 	if c != nil {
 		rep.SHA = c.SHA
 	}
-	for i, e := range errs {
-		e.File = filepath.ToSlash(filepath.Join(*dir, e.File))
-		rep.Diagnostics[i] = e
+	for _, e := range rep.Diagnostics {
 		if e.Severity == catalog.SeverityError {
 			rep.Errors++
 		} else {
@@ -149,4 +147,15 @@ func runValidate(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		return exitInvalid
 	}
 	return exitValid
+}
+
+// catalogDiagnostics are errs with their files relative to the working directory (dir/file),
+// as factory validate prints them.
+func catalogDiagnostics(dir string, errs []catalog.Error) []catalog.Error {
+	out := make([]catalog.Error, len(errs))
+	for i, e := range errs {
+		e.File = filepath.ToSlash(filepath.Join(dir, e.File))
+		out[i] = e
+	}
+	return out
 }

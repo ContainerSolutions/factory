@@ -18,7 +18,7 @@
       "action": {
         "debounce": {
           "key": "docs-on-release/2026-11",
-          "until": "2026-10-16T14:00:00Z",
+          "until": "2026-10-16T13:00:00Z",
           "then": [
             {
               "dispatch": {
