@@ -5,3 +5,6 @@ lisa-design:
 - Rebuild = List → Observe → Observation.Projections (marker parsing stays in the adapter); GroupLookup injected into adapter constructors (Connect unchanged).
 - Registry is not global; the fake registers as github and keeps one Conn per instance across reconnects; its Apply mutates objects so cascades observe effects.
 - Open for GH-S1-T01: the lease's single gitCredential has no slot for the separate read-only token (additive API change).
+
+lisa-selfreview:
+Pass 1: no findings.
