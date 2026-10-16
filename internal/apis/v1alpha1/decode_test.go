@@ -1,7 +1,9 @@
 package v1alpha1
 
 import (
+	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -152,7 +154,27 @@ func TestDecodeErrors(t *testing.T) {
 		{
 			name:     "empty expression",
 			in:       "kind: Rule\nmetadata: { name: r }\nspec: { on: [issue.opened], actions: [{ dispatch: { taskSpec: t, queue: q, harness: \"\" } }] }\n",
-			contains: []string{"expression must not be empty"},
+			contains: []string{`"" is not an expression`},
+		},
+		{
+			name:     "bare value where a structure or an expression is expected",
+			in:       "kind: Rule\nmetadata: { name: r }\nspec: { on: [issue.opened], actions: [{ dispatch: { taskSpec: t, queue: q, harness: codex } }] }\n",
+			contains: []string{`"codex" is not an expression`, `"{{ params.x }}" template`, `start with "=" (CEL)`, "write the value as an object"},
+		},
+		{
+			name:     "effect args under args",
+			in:       "kind: Rule\nmetadata: { name: r }\nspec: { on: [issue.opened], actions: [{ effect: { op: label.add, args: { labels: [x] } } }] }\n",
+			contains: []string{`not under "args"`},
+		},
+		{
+			name:     "effect without op",
+			in:       "kind: Rule\nmetadata: { name: r }\nspec: { on: [issue.opened], actions: [{ effect: { target: primary } }] }\n",
+			contains: []string{"effect: op is required"},
+		},
+		{
+			name:     "effect target not a string",
+			in:       "kind: Rule\nmetadata: { name: r }\nspec: { on: [issue.opened], actions: [{ effect: { op: close, target: [a] } }] }\n",
+			contains: []string{"effect: target"},
 		},
 	}
 	for _, tt := range tests {
@@ -345,5 +367,80 @@ spec: { pool: yes, retry: { max: 1, on: [agent-lost] } }
 	}
 	if got := back.(*Rule).Spec.Params["on"]; got != "yes" {
 		t.Errorf(`re-decoded params["on"] = %#v`, got)
+	}
+}
+
+// effectRule wraps effect actions (YAML flow mappings) in a Rule.
+func effectRule(effects ...string) string {
+	out := "kind: Rule\nmetadata: { name: r }\nspec:\n  on: [issue.opened]\n  actions:\n"
+	for _, e := range effects {
+		out += "    - effect: " + e + "\n"
+	}
+	return out
+}
+
+func TestEffectActionInline(t *testing.T) {
+	tests := []struct {
+		name   string
+		effect string
+		want   EffectAction
+		json   string
+	}{
+		{
+			name:   "label.add (04-flows)",
+			effect: "{ op: label.add, labels: [factory:quarantined] }",
+			want:   EffectAction{Op: OpLabelAdd, Args: map[string]any{"labels": []any{"factory:quarantined"}}},
+			json:   `{"op":"label.add","labels":["factory:quarantined"]}`,
+		},
+		{
+			name:   "create-issue (04-flows)",
+			effect: `{ op: create-issue, provider: "{{ params.issueProvider }}", repo: "{{ params.issueRepo }}", from: run.result.issueDraft }`,
+			want: EffectAction{Op: OpCreateIssue, Args: map[string]any{
+				"provider": "{{ params.issueProvider }}", "repo": "{{ params.issueRepo }}", "from": "run.result.issueDraft",
+			}},
+			json: `{"op":"create-issue","from":"run.result.issueDraft","provider":"{{ params.issueProvider }}","repo":"{{ params.issueRepo }}"}`,
+		},
+		{
+			name:   "close with target (10-poc)",
+			effect: "{ op: close, target: primary }",
+			want:   EffectAction{Op: OpClose, Target: "primary"},
+			json:   `{"op":"close","target":"primary"}`,
+		},
+	}
+	schemas := compileSchemas(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := []byte(effectRule(tt.effect))
+			obj, err := DecodeOne(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := obj.(*Rule).Spec.Actions[0].Effect
+			if !reflect.DeepEqual(*got, tt.want) {
+				t.Fatalf("decoded %#v, want %#v", *got, tt.want)
+			}
+			b, err := json.Marshal(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(b) != tt.json {
+				t.Errorf("marshalled %s, want %s", b, tt.json)
+			}
+			out, err := Encode(obj)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(genericYAML(t, in), genericYAML(t, out)) {
+				t.Errorf("round trip changed the document:\n%s", out)
+			}
+			if err := schemas["rule.schema.json"].Validate(schemaInstance(t, genericYAML(t, in))); err != nil {
+				t.Errorf("schema rejects it: %v", err)
+			}
+		})
+	}
+	for _, args := range []string{"op", "target", "args"} {
+		if _, err := json.Marshal(EffectAction{Op: OpClose, Args: map[string]any{args: "x"}}); err == nil {
+			t.Errorf("marshalled an args key %q", args)
+		}
 	}
 }

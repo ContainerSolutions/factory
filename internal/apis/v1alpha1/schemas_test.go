@@ -40,6 +40,12 @@ func TestSchemasRejectWhatDecodingRejects(t *testing.T) {
 		{"action with two members", "rule.schema.json", `{"kind":"Rule","metadata":{"name":"r"},"spec":{"on":["issue.opened"],"actions":[{"set":{},"cancel":{"taskSpec":"t"}}]}}`, false},
 		{"action with no member", "rule.schema.json", `{"kind":"Rule","metadata":{"name":"r"},"spec":{"on":["issue.opened"],"actions":[{}]}}`, false},
 		{"templated harness", "rule.schema.json", `{"kind":"Rule","metadata":{"name":"r"},"spec":{"on":["issue.opened"],"actions":[{"dispatch":{"taskSpec":"t","queue":"q","harness":"{{ params.harness }}"}}]}}`, true},
+		{"CEL harness", "rule.schema.json", `{"kind":"Rule","metadata":{"name":"r"},"spec":{"on":["issue.opened"],"actions":[{"dispatch":{"taskSpec":"t","queue":"q","harness":"=params.h"}}]}}`, true},
+		{"bare harness string", "rule.schema.json", `{"kind":"Rule","metadata":{"name":"r"},"spec":{"on":["issue.opened"],"actions":[{"dispatch":{"taskSpec":"t","queue":"q","harness":"codex"}}]}}`, false},
+		{"effect args inline", "rule.schema.json", `{"kind":"Rule","metadata":{"name":"r"},"spec":{"on":["issue.opened"],"actions":[{"effect":{"op":"label.add","labels":["x"]}}]}}`, true},
+		{"effect args under args", "rule.schema.json", `{"kind":"Rule","metadata":{"name":"r"},"spec":{"on":["issue.opened"],"actions":[{"effect":{"op":"label.add","args":{"labels":["x"]}}}]}}`, false},
+		{"effect without op", "rule.schema.json", `{"kind":"Rule","metadata":{"name":"r"},"spec":{"on":["issue.opened"],"actions":[{"effect":{"target":"primary"}}]}}`, false},
+		{"effect target not a string", "rule.schema.json", `{"kind":"Rule","metadata":{"name":"r"},"spec":{"on":["issue.opened"],"actions":[{"effect":{"op":"close","target":1}}]}}`, false},
 		{"typed harness", "rule.schema.json", `{"kind":"Rule","metadata":{"name":"r"},"spec":{"on":["issue.opened"],"actions":[{"dispatch":{"taskSpec":"t","queue":"q","harness":{"name":"codex","config":{"model":["a","b"]}}}}]}}`, true},
 		{"unknown effect op", "taskspec.schema.json", `{"kind":"TaskSpec","metadata":{"name":"t"},"spec":{"effects":{"allow":["force-push"]}}}`, false},
 		{"template text and blocks", "template.schema.json", `{"kind":"Template","metadata":{"name":"t"},"spec":{"bodies":{"github":"hi","slack":{"blocks":"a.json"}}}}`, true},
@@ -65,5 +71,23 @@ func TestSchemasRejectWhatDecodingRejects(t *testing.T) {
 				t.Errorf("valid = %v, want %v: %v", err == nil, tt.valid, err)
 			}
 		})
+	}
+}
+
+// TestExprPatternMatchesGo checks that the schema's expression pattern and IsExpression agree.
+func TestExprPatternMatchesGo(t *testing.T) {
+	sch := compileSchemas(t)["rule.schema.json"]
+	for _, s := range []string{
+		"{{ params.harness }}", "=params.h", "=", "{{}}", "claude-{{ p }}-5", "{{ a\nb }}",
+		"codex", "", "a=b", "{{ open", "close }}", " =x", "{ {x} }",
+	} {
+		doc := map[string]any{"kind": "Rule", "metadata": map[string]any{"name": "r"}, "spec": map[string]any{
+			"on": []any{"issue.opened"},
+			"actions": []any{map[string]any{"dispatch": map[string]any{"taskSpec": "t", "queue": "q", "harness": s}}},
+		}}
+		schemaOK := sch.Validate(schemaInstance(t, doc)) == nil
+		if schemaOK != IsExpression(s) {
+			t.Errorf("%q: schema accepts = %v, IsExpression = %v", s, schemaOK, IsExpression(s))
+		}
 	}
 }

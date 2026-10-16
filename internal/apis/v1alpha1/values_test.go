@@ -118,7 +118,12 @@ func TestExprOr(t *testing.T) {
 		{name: "runtime CEL", in: `"=item.state.harness"`, wantExpr: "=item.state.harness"},
 		{name: "value", in: `{"name":"codex","config":{"model":"gpt-5*"}}`, wantName: "codex"},
 		{name: "unknown field in value", in: `{"name":"codex","effort":"x"}`, wantErr: true},
+		{name: "short CEL", in: `"=params.h"`, wantExpr: "=params.h"},
+		{name: "template inside text", in: `"claude-{{ params.family }}"`, wantExpr: "claude-{{ params.family }}"},
 		{name: "empty expression", in: `""`, wantErr: true},
+		{name: "bare value", in: `"codex"`, wantErr: true},
+		{name: "equals not at the start", in: `"a=b"`, wantErr: true},
+		{name: "unclosed template", in: `"{{ params.h"`, wantErr: true},
 		{name: "wrong type", in: `42`, wantErr: true},
 	}
 	for _, tt := range tests {

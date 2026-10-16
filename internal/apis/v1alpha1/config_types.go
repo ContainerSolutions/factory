@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/invopop/jsonschema"
 )
@@ -436,13 +437,112 @@ type LinkAction struct {
 	From string `json:"from"`
 }
 
-// EffectAction is a direct, no-LLM provider effect, shaped like an Effector request.
+// EffectAction is a direct, no-LLM provider effect: the op, an optional target and the
+// op-specific fields written inline, e.g. { op: label.add, labels: [needs-human] }. Inline
+// fields keep the catalog readable (design/04-flows.md). The Effector HTTP request is
+// {op, target, args, idempotencyKey}; the dispatcher maps Args to args.
 type EffectAction struct {
 	Op EffectOp `json:"op"`
 	// Target is the object to act on: primary, a ref, or "=CEL".
 	Target string `json:"target,omitzero"`
-	// Args are the op-specific arguments.
-	Args map[string]any `json:"args,omitzero"`
+	// Args are the op-specific fields, every key other than op and target. The catalog
+	// loader checks them per op.
+	Args map[string]any `json:"-"`
+}
+
+// effectReserved are the keys EffectAction itself owns; args can't use them.
+var effectReserved = map[string]bool{"op": true, "target": true, "args": true}
+
+// UnmarshalJSON reads op and target, and collects every other key into Args.
+func (e *EffectAction) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if _, ok := fields["args"]; ok {
+		return errors.New(`effect: write the op-specific fields inline next to op, not under "args"`)
+	}
+	raw, ok := fields["op"]
+	if !ok {
+		return errors.New("effect: op is required")
+	}
+	var out EffectAction
+	if err := json.Unmarshal(raw, &out.Op); err != nil {
+		return fmt.Errorf("effect: op: %w", err)
+	}
+	if raw, ok := fields["target"]; ok {
+		if err := json.Unmarshal(raw, &out.Target); err != nil {
+			return fmt.Errorf("effect: target: %w", err)
+		}
+	}
+	for k, raw := range fields {
+		if effectReserved[k] {
+			continue
+		}
+		var v any
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return fmt.Errorf("effect: %s: %w", k, err)
+		}
+		if out.Args == nil {
+			out.Args = make(map[string]any, len(fields))
+		}
+		out.Args[k] = v
+	}
+	*e = out
+	return nil
+}
+
+// MarshalJSON writes op, target, then the op-specific fields inline in sorted key order.
+func (e EffectAction) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	write := func(k string, v any) error {
+		if b.Len() > 1 {
+			b.WriteByte(',')
+		}
+		kb, err := json.Marshal(k)
+		if err != nil {
+			return err
+		}
+		vb, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Errorf("effect: %s: %w", k, err)
+		}
+		b.Write(kb)
+		b.WriteByte(':')
+		b.Write(vb)
+		return nil
+	}
+	b.WriteByte('{')
+	if err := write("op", e.Op); err != nil {
+		return nil, err
+	}
+	if e.Target != "" {
+		if err := write("target", e.Target); err != nil {
+			return nil, err
+		}
+	}
+	keys := make([]string, 0, len(e.Args))
+	for k := range e.Args {
+		if effectReserved[k] {
+			return nil, fmt.Errorf("effect: args key %q collides with a field of the effect", k)
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if err := write(k, e.Args[k]); err != nil {
+			return nil, err
+		}
+	}
+	b.WriteByte('}')
+	return b.Bytes(), nil
+}
+
+// JSONSchemaExtend allows the inline op-specific fields.
+func (EffectAction) JSONSchemaExtend(s *jsonschema.Schema) {
+	s.AdditionalProperties = jsonschema.TrueSchema
+	s.Not = &jsonschema.Schema{Required: []string{"args"}}
+	s.Description = "A direct provider effect: op, an optional target, and the op-specific fields inline (e.g. labels for label.add). The catalog loader checks those fields per op."
 }
 
 // ---- RuleSet -------------------------------------------------------------------------------

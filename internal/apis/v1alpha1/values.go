@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -128,12 +129,22 @@ func (StringOrList) JSONSchema() *jsonschema.Schema {
 
 // ExprOr holds either an expression string or a typed value. It is used where the catalog
 // writes a template that catalog load substitutes ("{{ params.harness }}"), or a "=CEL"
-// value evaluated at runtime, in place of a structure. Checking the expression is the
-// catalog loader's job.
+// value evaluated at runtime, in place of a structure. A string must look like one of the
+// two (ExprPattern), so a bare value such as `harness: codex` is an error rather than an
+// expression; checking the expression itself is the catalog loader's job.
 type ExprOr[T any] struct {
 	Expr  string
 	Value T
 }
+
+// ExprPattern is what an expression string must match: it starts with "=" (CEL) or contains
+// a "{{ … }}" template. The schema uses the same pattern.
+const ExprPattern = `^=|\{\{[\s\S]*\}\}`
+
+var exprRE = regexp.MustCompile(ExprPattern)
+
+// IsExpression reports whether s is an expression string (matches ExprPattern).
+func IsExpression(s string) bool { return exprRE.MatchString(s) }
 
 // IsExpr reports whether the field holds an expression.
 func (e ExprOr[T]) IsExpr() bool { return e.Expr != "" }
@@ -154,8 +165,8 @@ func (e *ExprOr[T]) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &s); err != nil {
 			return err
 		}
-		if s == "" {
-			return errors.New("expression must not be empty")
+		if !IsExpression(s) {
+			return fmt.Errorf(`%q is not an expression: a string here must be a "{{ params.x }}" template or start with "=" (CEL); write the value as an object instead`, s)
 		}
 		var zero T
 		*e = ExprOr[T]{Expr: s, Value: zero}
@@ -175,7 +186,7 @@ func (ExprOr[T]) JSONSchema() *jsonschema.Schema {
 	inner := r.ReflectFromType(reflect.TypeFor[T]())
 	inner.Version = ""
 	return &jsonschema.Schema{OneOf: []*jsonschema.Schema{
-		{Type: "string", MinLength: ptr(uint64(1)), Description: `An expression: "{{ params.x }}" (substituted at catalog load) or "=CEL" (evaluated at runtime).`},
+		{Type: "string", Pattern: ExprPattern, Description: `An expression: "{{ params.x }}" (substituted at catalog load) or "=CEL" (evaluated at runtime).`},
 		inner,
 	}}
 }

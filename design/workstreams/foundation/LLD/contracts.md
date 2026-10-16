@@ -27,7 +27,8 @@ Optional fields use `omitzero`, so an explicitly empty list or map (`labels: []`
 |---|---|---|
 | `Duration` | `string` as written; `Parse()` = `time.ParseDuration` plus a leading whole number of days (`7d`, `1d12h`) | every duration; validated by CORE, not at decode |
 | `StringOrList` | a string or a list of strings; remembers which, so it round-trips | harness patterns: `models`, `model`, `reasoningEffort` (`"*"` vs `[low, medium]`) |
-| `ExprOr[T]` | an expression string (`"{{ params.x }}"` at catalog load, `"=CEL"` at runtime) or a `T`; schema `oneOf [string, T]` | `dispatch.harness` (the only structured field the examples template) |
+| `ExprOr[T]` | an expression string or a `T`. A string must contain a `{{ … }}` template (substituted at catalog load) or start with `=` (CEL, evaluated at runtime): `ExprPattern` = `^=\|\{\{[\s\S]*\}\}`, the same pattern in Go and in the schema's `oneOf [string, T]`. Any other string (`harness: codex`) is an error asking for the object form | `dispatch.harness` (the only structured field the examples template) |
+| `EffectAction` | `op` (required), `target` (optional string) and the op-specific fields **inline** (`{ op: label.add, labels: [needs-human] }`), collected into `Args map[string]any` and written back inline in sorted order; an explicit `args:` key, or an `Args` key named `op`/`target`/`args`, is an error. Schema: `op` required, other properties allowed, checked per op by the catalog loader. Inline keeps the catalog readable and matches [04](../../../04-flows.md); the Effector HTTP request keeps `{op, target, args, idempotencyKey}`, and the dispatcher maps `Args` to `args` | the `effect` action |
 | `TemplateBody` | a string (inline Go `text/template`) or `{blocks: path}` (Slack Block Kit file) | `Template.spec.bodies` |
 | `map[string]any` | free-form | `params`, `inputs`, `set`, `defaults`, `overrides`, `facts`, `verdict`, `data` |
 
@@ -56,7 +57,7 @@ type Action struct {
     RequestApproval *ApprovalSpec   `json:"requestApproval,omitzero"` // future (Q18): the Approval's spec; accepted by schema, engine returns Unsupported in PoC
     Cancel          *CancelAction   `json:"cancel,omitzero"`          // TaskSpec
     Link            *LinkAction     `json:"link,omitzero"`            // From string (CEL)
-    Effect          *EffectAction   `json:"effect,omitzero"`          // Op EffectOp, Target string, Args map[string]any (the Effector request's shape)
+    Effect          *EffectAction   `json:"effect,omitzero"`          // Op EffectOp, Target string, op-specific fields inline (Args map[string]any); the Effector request carries them as args
 }
 ```
 

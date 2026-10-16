@@ -216,22 +216,25 @@
       "description": "A Go duration (\"90s\", \"15m\", \"1h30m\"), optionally prefixed by whole days (\"7d\", \"1d12h\")."
     },
     "EffectAction": {
+      "not": {
+        "required": [
+          "args"
+        ]
+      },
       "properties": {
         "op": {
           "$ref": "#/$defs/EffectOp"
         },
         "target": {
           "type": "string"
-        },
-        "args": {
-          "type": "object"
         }
       },
-      "additionalProperties": false,
+      "additionalProperties": true,
       "type": "object",
       "required": [
         "op"
-      ]
+      ],
+      "description": "A direct provider effect: op, an optional target, and the op-specific fields inline (e.g. labels for label.add). The catalog loader checks those fields per op."
     },
     "EffectOp": {
       "type": "string",
@@ -295,7 +298,7 @@
       "oneOf": [
         {
           "type": "string",
-          "minLength": 1,
+          "pattern": "^=|\\{\\{[\\s\\S]*\\}\\}",
           "description": "An expression: \"{{ params.x }}\" (substituted at catalog load) or \"=CEL\" (evaluated at runtime)."
         },
         {
