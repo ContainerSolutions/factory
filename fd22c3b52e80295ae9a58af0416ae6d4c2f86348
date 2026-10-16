@@ -1,0 +1,2 @@
+lisa-selfreview:
+Pass 1: security (should-fix+) gitsource read the checkout via os.DirFS, which follows a symlinked catalog dir out of the repo; fixed with os.Root + TestLoadRefusesSymlinkEscape. No other findings.
