@@ -82,7 +82,7 @@ func TestExprPatternMatchesGo(t *testing.T) {
 		"codex", "", "a=b", "{{ open", "close }}", " =x", "{ {x} }",
 	} {
 		doc := map[string]any{"kind": "Rule", "metadata": map[string]any{"name": "r"}, "spec": map[string]any{
-			"on": []any{"issue.opened"},
+			"on":      []any{"issue.opened"},
 			"actions": []any{map[string]any{"dispatch": map[string]any{"taskSpec": "t", "queue": "q", "harness": s}}},
 		}}
 		schemaOK := sch.Validate(schemaInstance(t, doc)) == nil
