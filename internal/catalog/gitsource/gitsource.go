@@ -63,7 +63,14 @@ func Load(ctx context.Context, repoURL, ref, dir string, opts catalog.Options) (
 	if sub == ".." || strings.HasPrefix(sub, "../") {
 		return nil, nil, fmt.Errorf("catalog directory %q is outside the repository", dir)
 	}
-	root := os.DirFS(tmp)
+	// os.Root confines every read to the checkout: a catalog directory (or anything under it)
+	// that is a symlink pointing outside the repository can't be followed out of it.
+	rt, err := os.OpenRoot(tmp)
+	if err != nil {
+		return nil, nil, fmt.Errorf("temporary checkout: %w", err)
+	}
+	defer func() { _ = rt.Close() }()
+	root := rt.FS()
 	if info, err := fs.Stat(root, sub); err != nil || !info.IsDir() {
 		return nil, nil, fmt.Errorf("catalog directory %q does not exist at %s", dir, ref)
 	}
