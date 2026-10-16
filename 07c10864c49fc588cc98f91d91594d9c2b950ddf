@@ -6,3 +6,6 @@ lisa-design:
 - Own node-to-value walker (not node.Decode(&any)): line-numbered errors for duplicate/non-string/merge keys, timestamps kept as written, alias expansion bounded.
 - Encode goes JSON -> yaml.Node with styles reset: one code path, struct field order, quoting only where needed (YAML 1.2 output; `on`/`yes` unquoted).
 - Exactly-one rules (Action, GroupSource, Destination) live in both Validate() and the schemas.
+
+lisa-selfreview:
+Pass 2 (final, lenient): no blocker/must-fix left. Open question for reviewers: YAML 1.2 output writes on/yes/no unquoted (a YAML 1.1 reader would misread them).
