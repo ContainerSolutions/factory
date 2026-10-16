@@ -117,7 +117,7 @@ Canonical names (as used in the PoC catalog), constants in `v1alpha1/effects.go`
 | Op | Side | Notes |
 |---|---|---|
 | `comment`, `pr.comment` | API | issue / PR comment |
-| `label.add`, `label.remove` | API | checked against `effects.labels` globs |
+| `label.add`, `label.remove` | API | checked against `effects.labels` globs (matched with `internal/patterns`) |
 | `create-issue`, `sub-issue.add`, `close`, `link-duplicate` | API | |
 | `pr.open`, `pr.update`, `pr.retarget`, `pr.merge` | API | `pr.merge` honours repo merge method; falls back to label if review requirement blocks (Q5) |
 | `review.comment`, `review.request-changes`, `review.approve`, `thread.reply`, `thread.resolve` | API | reviewer identity only (TaskSpec `identity: reviewer`) |

@@ -8,16 +8,18 @@
 | Form | Example | Compiles to |
 |---|---|---|
 | exact | `claude-sonnet-5-5` | string equality |
-| glob | `claude-sonnet-5-*`, `gpt-5?-codex` | `gobwas/glob` with no separators |
-| glob alternation | `claude-{sonnet,opus}-5-*` | same (gobwas supports `{a,b}`) |
+| glob | `claude-sonnet-5-*`, `gpt-5?-codex` | an anchored RE2 regex: `*` → any run of characters (no separators), `?` → one character, `\` escapes the next character |
+| glob alternation | `claude-{sonnet,opus}-5-*` | same: `{a,b}` → `(?:a\|b)`; alternatives may nest; unbalanced braces are a `PatternError` |
 | regex | `re:^gpt-5(\.\d+)?-codex$` | `regexp.Compile` (anchored as written); a compile error is returned as a typed `PatternError`, never a panic |
 | any | `*` | always true |
 | list | `[low, medium]` (YAML list) | any element matches; **order = preference** |
 
 ```go
 type Pattern interface { Match(s string) bool; String() string }
-func Compile(v any) (Pattern, error)        // string or []string; returns typed error for bad glob/regex
+func Compile(v any) (Pattern, error)        // string, []string or v1alpha1.StringOrList; returns typed error for bad glob/regex
 ```
+
+Globs use a small standard-library matcher: the glob is translated to an RE2 regex anchored at both ends, so it matches the whole string. Square brackets are literal: `[...]` is **not** a character class. Why not `gobwas/glob`: it would be an extra dependency for a few lines of code, and it is unmaintained. Matching is case-sensitive. Empty strings, empty lists and invalid UTF-8 are `PatternError`s too.
 
 ## Inputs to resolution
 
@@ -32,13 +34,16 @@ func Resolve(cs []Constraint, req Request, off Offer) (Resolved, error) // ErrNo
 
 ## Algorithm
 
-1. `req.Harness == off.Harness`, and some `c` in `cs` has `c.Harness == req.Harness`; else `ErrNoMatch{reason:"harness"}`.
+1. `req.Harness == off.Harness`, and some `c` in `cs` has `c.Harness == req.Harness` (the first such `c` is used); else `ErrNoMatch{reason:"harness"}`. Empty `cs` is therefore `ErrNoMatch{reason:"harness"}`.
 2. `models = [m in off.Models | c.Models.Match(m) && req.Model.Match(m)]`; empty → `ErrNoMatch{reason:"model"}`.
 3. Choose model:
-   1. first of `req.Prefer` present in `models`;
-   2. else `off.DefaultModel` if in `models`;
-   3. else **highest version**: sort by `versionKey(m)` — extract trailing dotted/dashed numeric groups (`claude-sonnet-5-5` → `[5,5]`, `gpt-5.1-codex` → `[5,1]`), compare lexicographically, ties broken by string order.
-4. Effort: `efforts = [e in off.Efforts | c.Effort.Match(e) && req.Effort.Match(e)]`; if `req.Effort` is a list, pick the first list element present in `efforts`; if `*`, pick the adapter default (`medium` if offered, else first offered); empty → `ErrNoMatch{reason:"effort"}`.
+   1. first of `req.Prefer` present in `models` (`prefer` entries are exact ids, not patterns);
+   2. else, if `req.Model` is a list, keep only the `models` that match its earliest element matching any of them (list order is preference);
+   3. then `off.DefaultModel` if it is still in `models`;
+   4. else **highest version**: `versionKey(m)` is every all-digit group delimited by `-`, `.` or the ends of the id (`claude-sonnet-5-5` → `[5,5]`, `gpt-5.1-codex` → `[5,1]`, `gpt-4o` → `[]`). Keys compare element by element, numerically (leading zeros ignored, no overflow), and a missing element sorts lowest (`gpt-5` < `gpt-5.1`). Ties go to the lexicographically smallest id.
+4. Effort: `efforts = [e in off.Efforts | c.Effort.Match(e) && req.Effort.Match(e)]`, in offer order; empty → `ErrNoMatch{reason:"effort"}`, which includes an offer with no efforts. If `req.Effort` is a list, keep only the `efforts` matching its earliest element that matches any of them. Then pick the adapter default: `medium` if still in `efforts`, else the first of `efforts`. A single pattern (`*` or any other) goes straight to the default rule.
+
+   Resolve works on **normalised** efforts (`low`, `medium`, …); the adapter maps the resolved value to the harness's native one through `AdapterCapabilities.EffortMapping`.
 5. Return `Resolved`.
 
 ## Table tests (must exist)
@@ -55,4 +60,6 @@ func Resolve(cs []Constraint, req Request, off Offer) (Resolved, error) // ErrNo
 
 ## Validation helpers (used by catalog validation)
 
-- `Subsumes(constraint, request) (ok bool, witness string)` — best-effort static check: true if at least one string in the adapter's **known model list** (capabilities file) satisfies both; used to flag requests that can never fit their TaskSpec constraint.
+- `Subsumes(c Constraint, req Request, known []string) (ok bool, witness string)` — best-effort static check: true if at least one string in the adapter's **known model list** satisfies both, returned as `witness`; used to flag requests that can never fit their TaskSpec constraint. `known` is the known model ids, from the adapter capabilities / `KnownModels` (`factory validate --known-models`).
+- `Validate(v any) error` — `Compile` for callers that only check the catalog.
+- Duplicate harness names in one `TaskSpec.harness.allowed` are a catalog validation error ([catalog.md](catalog.md#validation-phases-all-errors-collected-not-fail-fast), phase 8), since Resolve only uses the first.
