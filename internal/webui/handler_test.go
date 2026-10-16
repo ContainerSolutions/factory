@@ -36,6 +36,10 @@ func TestHandler(t *testing.T) {
 		{name: "traversal is cleaned", path: "/../index.html", wantStatus: 200, wantBody: "index", wantCache: "no-cache", wantTypeHTML: true},
 		{name: "api root is not the UI", path: "/api", wantStatus: 404},
 		{name: "api paths are not the UI", path: "/api/v1/agents", wantStatus: 404},
+		{name: "api reached through dot segments is not the UI", path: "/./api/v1/agents", wantStatus: 404},
+		{name: "hooks root is not the UI", path: "/hooks", wantStatus: 404},
+		{name: "unknown hook path is not the UI", path: "/hooks/github-publik", wantStatus: 404},
+		{name: "path merely starting with api is UI", path: "/apiary", wantStatus: 200, wantBody: "index", wantCache: "no-cache", wantTypeHTML: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -73,5 +77,37 @@ func TestHandlerMissingIndex(t *testing.T) {
 	newHandler(fstest.MapFS{}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+}
+
+func TestHandlerRejectsNonReadMethods(t *testing.T) {
+	h := newHandler(testFS())
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		wantStatus int
+		wantAllow  string
+	}{
+		{name: "POST to a client route", method: http.MethodPost, path: "/workitems/wi_1", wantStatus: http.StatusMethodNotAllowed, wantAllow: "GET, HEAD"},
+		{name: "POST to root", method: http.MethodPost, path: "/", wantStatus: http.StatusMethodNotAllowed, wantAllow: "GET, HEAD"},
+		{name: "PUT to an asset", method: http.MethodPut, path: "/assets/app-1.js", wantStatus: http.StatusMethodNotAllowed, wantAllow: "GET, HEAD"},
+		{name: "POST to a mistyped webhook path", method: http.MethodPost, path: "/hooks/github-publik", wantStatus: http.StatusNotFound},
+		{name: "POST to an api path", method: http.MethodPost, path: "/api/v1/commands", wantStatus: http.StatusNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(tt.method, tt.path, nil))
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			if got := rec.Header().Get("Allow"); got != tt.wantAllow {
+				t.Errorf("Allow = %q, want %q", got, tt.wantAllow)
+			}
+			if strings.Contains(rec.Body.String(), "index") {
+				t.Errorf("body served the UI: %q", rec.Body.String())
+			}
+		})
 	}
 }
