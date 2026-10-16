@@ -1,0 +1,1 @@
+rules/work.yaml:6: CAT901 spec.actions[0].effect.labels: label.add needs labels: a list of label names (or a "=" expression)

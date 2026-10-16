@@ -1,0 +1,18 @@
+kind: TaskSpec
+metadata: { name: docs-review }
+spec:
+  description: Review a docs PR or stack for accuracy (against running CCF versions when given), style, versioning and i18n.
+  inputs:
+    target:        { type: string, enum: [pr, stack], default: pr }
+    verifyAgainst: { type: object }               # { train } or { repo, tag } → bring up those versions and check claims
+    checks:        { type: array, default: [style, build] }   # + version-accuracy, versioning, i18n
+  instructions: { template: prompts/docs-review.md.tmpl, headless: true }
+  skills: [{ source: ccf-skills, ref: v0.8.0, use: ["ccf-review:review", docs-style, docs-verify, ccf-test] }]
+  requires: { labels: [] }                        # has-local-stack added at dispatch when verifyAgainst is set
+  harness: { default: { name: claude-code, config: { model: "claude-{sonnet,opus}-5-*", reasoningEffort: high } } }
+  workspace: { checkout: read-only }
+  identity: reviewer
+  permissions: { pull_requests: write, contents: read }
+  effects: { allow: [review.comment, review.request-changes, review.approve, thread.reply] }
+  limits: { maxWallClock: 60m }
+  output: { schema: schemas/results/review.json, outcomes: [approved, changes-requested, commented, needs-human] }

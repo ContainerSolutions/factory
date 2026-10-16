@@ -1,0 +1,1 @@
+rules/x.yaml:1: CAT002 document has no kind: every YAML document outside prompts/, schemas/ and testdata/ must be a catalog object

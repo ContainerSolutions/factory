@@ -1,0 +1,1 @@
+templates/hello.yaml:6: CAT209 spec.bodies.slack.blocks: file "templates/hello.slack.json" does not exist

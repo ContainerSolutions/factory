@@ -1,0 +1,7 @@
+kind: Rule
+metadata: { name: fix-release-docs-review, labels: { pack: release-docs } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [pr.review.submitted]
+  where: "has(item.state.release) && event.review.state == 'changes_requested' && item.count('implement') < 3"
+  actions: [{ dispatch: { taskSpec: implement, queue: poc, inputs: { mode: address-review, target: pr } } }]

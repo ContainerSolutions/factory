@@ -1,0 +1,1 @@
+rulesets/rs2.yaml:6: CAT1200 warning: spec.rules: rule work-on-issue is also selected by RuleSet rs, with overlapping scope and providers: it is evaluated in each RuleSet with its params, and fires at most once per event, through the first RuleSet (by name) whose where passes (rs, then rs2)

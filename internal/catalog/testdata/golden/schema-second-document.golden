@@ -1,0 +1,1 @@
+queues/q.yaml:7: CAT100 spec.concurrency: got string, want integer

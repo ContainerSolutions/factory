@@ -1,0 +1,1 @@
+taskspecs/work.yaml:3: CAT805 spec.harness: the TaskSpec has neither harness.allowed nor harness.default, so no harness may run it

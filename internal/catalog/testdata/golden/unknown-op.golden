@@ -1,0 +1,2 @@
+taskspecs/work.yaml:13: CAT100 spec.effects.allow[1]: value must be one of 'comment', 'pr.comment', 'label.add', 'label.remove', 'create-issue', 'sub-issue.add', 'close', 'link-duplicate', 'pr.open', 'pr.update', 'pr.retarget', 'pr.merge', 'review.comment', 'review.request-changes', 'review.approve', 'thread.reply', 'thread.resolve', 'push-branch', 'stack.push', 'stack.rebase'
+taskspecs/work.yaml:13: CAT900 spec.effects.allow[1]: unknown effect op "force-push"

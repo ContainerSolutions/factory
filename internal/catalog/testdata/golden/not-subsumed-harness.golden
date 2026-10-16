@@ -1,0 +1,1 @@
+rules/work.yaml:7: CAT801 spec.actions[0].dispatch.harness.name: harness "claude-code" is not in TaskSpec work's harness.allowed (codex)

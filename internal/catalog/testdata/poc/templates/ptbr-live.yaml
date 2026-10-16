@@ -1,0 +1,7 @@
+# Stub body for the catalog loader's tests; the real text is CAT-S1 (catalog-poc LLD §Templates).
+kind: Template
+metadata: { name: ptbr-live }
+spec:
+  bodies:
+    github: |
+      PT-BR is live: https://compliance-framework.github.io/docs/pt-BR/

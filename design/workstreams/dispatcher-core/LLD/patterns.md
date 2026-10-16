@@ -24,7 +24,7 @@ Globs use a small standard-library matcher: the glob is translated to an RE2 reg
 ## Inputs to resolution
 
 ```go
-type Constraint struct { Harness string; Models Pattern; Effort Pattern }         // from TaskSpec.harness.allowed (one per harness)
+type Constraint struct { Harness string; Models Pattern; Effort Pattern }         // from TaskSpec.harness.allowed (one per harness), or derived from harness.default when allowed is empty (CompiledTaskSpec.Constraints)
 type Request    struct { Harness string; Model Pattern; Effort Pattern; Prefer []string } // rule/ruleset/TaskSpec default
 type Offer      struct { Harness string; Models []string; Efforts []string; DefaultModel string } // agent probe
 type Resolved   struct { Harness, Model, Effort string }

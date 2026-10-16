@@ -1,0 +1,1 @@
+rules/work.yaml:6: CAT604 warning: spec.where: uses now without a schedule, so the rule isn't deterministic for replays and fixtures

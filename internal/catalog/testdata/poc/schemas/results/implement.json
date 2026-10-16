@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Stub for the catalog loader's tests; the real schema is CAT-S1 (catalog-poc LLD).",
+  "allOf": [{ "$ref": "https://factory.ccf.dev/schemas/v1alpha1/result.schema.json" }],
+  "properties": {
+    "outcome": { "enum": ["pr-opened", "pr-updated", "blocked", "needs-info"] },
+    "data": { "type": "object", "properties": { "branch": { "type": "string" }, "pr": { "type": "string" }, "threadsResolved": { "type": "integer" }, "stack": { "type": "array" } } }
+  }
+}

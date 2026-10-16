@@ -1,0 +1,1 @@
+rules/work.yaml:6: CAT600 spec.where: does not compile: cel.parse: "actor.tier ==": 1:14: Syntax error: mismatched input '<EOF>' expecting {'[', '{', '(', '.', '-', '!', 'true', 'false', 'null', NUM_FLOAT, NUM_INT, NUM_UINT, STRING, BYTES, IDENTIFIER}

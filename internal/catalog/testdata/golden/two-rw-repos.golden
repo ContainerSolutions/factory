@@ -1,0 +1,1 @@
+taskspecs/work.yaml:11: CAT1100 spec.workspace.repos[1].mode: a second rw repo: at most one workspace repo may be rw

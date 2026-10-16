@@ -1,0 +1,1 @@
+rules/work.yaml:6: CAT1001 warning: spec.where: reads item.state.other, which is not in RuleSet rs's stateKeys (work)

@@ -1,0 +1,6 @@
+kind: Rule
+metadata: { name: fix-stack-review, labels: { pack: docs-epic } }
+spec:
+  on: [factory.run.completed]
+  where: "run.spec == 'docs-review' && run.inputs.target == 'stack' && run.outcome == 'changes-requested' && item.count('docs-review') < 3"
+  actions: [{ dispatch: { taskSpec: implement, queue: poc, inputs: { mode: address-review, target: stack } } }]

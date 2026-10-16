@@ -1,0 +1,17 @@
+{{/* Stub for the catalog loader's tests; the real prompt is CAT-S1 (catalog-poc LLD). */}}
+# Task: {{ .task.spec }} for {{ .task.target.repo }}
+
+## Goal
+Decompose the request into ordered, independently reviewable sub-issues.
+
+## Inputs
+{{ range $k, $v := .inputs }}- {{ $k }}: {{ $v }}
+{{ end }}
+## Use these skills
+Use the plan-epic skill.
+
+## Done when
+- The result JSON is written.
+
+## Result
+Write JSON to $FACTORY_RESULT matching the schema; outcome is one of: decomposed, single, needs-info.

@@ -1,0 +1,12 @@
+kind: Rule
+metadata: { name: announce-ptbr-live, labels: { pack: docs-epic } }                 # level-triggered: deploys can finish before or after the merge run
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [deploy.succeeded, factory.run.completed, factory.workitem.resynced]
+  where: >
+    has(item.state.plan) && item.state.merge == 'merged' && !has(item.state.announced) &&
+    item.deploy.state == 'success' && item.deploy.containsMerge
+  actions:
+    - notify: { template: ptbr-live, to: [{ item: primary }] }   # "PT-BR is live: https://compliance-framework.github.io/docs/pt-BR/"
+    - effect: { op: close, target: primary }
+    - set: { announced: true }

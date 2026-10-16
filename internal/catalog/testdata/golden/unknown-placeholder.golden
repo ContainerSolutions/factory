@@ -1,0 +1,1 @@
+rules/work.yaml:9: CAT502 spec.actions[0].dispatch.queue: {{ params.missing }}: no such param

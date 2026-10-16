@@ -1,0 +1,1 @@
+taskspecs/work.yaml:14: CAT208 spec.output.schema: schema "schemas/work.json" does not exist (result schemas are JSON files under schemas/)

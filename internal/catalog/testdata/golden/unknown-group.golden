@@ -1,0 +1,1 @@
+rules/work.yaml:6: CAT203 spec.actions[0].notify.to[0].group: Group "nope" does not exist

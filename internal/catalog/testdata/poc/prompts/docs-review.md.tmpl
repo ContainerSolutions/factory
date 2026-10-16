@@ -1,0 +1,17 @@
+{{/* Stub for the catalog loader's tests; the real prompt is CAT-S1 (catalog-poc LLD). */}}
+# Task: {{ .task.spec }} for {{ .task.target.repo }}
+
+## Goal
+Review the PR or stack for accuracy, style, versioning and i18n.
+
+## Inputs
+{{ range $k, $v := .inputs }}- {{ $k }}: {{ $v }}
+{{ end }}
+## Use these skills
+Use ccf-review:review with the docs-site pack.
+
+## Done when
+- The result JSON is written.
+
+## Result
+Write JSON to $FACTORY_RESULT matching the schema; outcome is one of: approved, changes-requested, commented, needs-human.

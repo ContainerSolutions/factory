@@ -1,0 +1,17 @@
+{{/* Stub for the catalog loader's tests; the real prompt is CAT-S1 (catalog-poc LLD). */}}
+# Task: {{ .task.spec }} for {{ .task.target.repo }}
+
+## Goal
+Implement the issue as a PR, or address the review feedback.
+
+## Inputs
+{{ range $k, $v := .inputs }}- {{ $k }}: {{ $v }}
+{{ end }}
+## Use these skills
+Use the lisa skill one-shot, and resolve for review threads.
+
+## Done when
+- The result JSON is written.
+
+## Result
+Write JSON to $FACTORY_RESULT matching the schema; outcome is one of: pr-opened, pr-updated, blocked, needs-info.

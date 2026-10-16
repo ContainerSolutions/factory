@@ -1,0 +1,17 @@
+kind: Rule
+metadata: { name: review-release-docs, labels: { pack: release-docs } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [pr.opened, pr.updated]
+  where: "actor.isFactory && has(item.state.release)"
+  actions:
+    - cancel: { taskSpec: docs-review }
+    - dispatch:
+        taskSpec: docs-review
+        queue: poc
+        requires: { labels: [has-local-stack] }
+        inputs:
+          target: pr
+          verifyAgainst: "={'train': item.state.train}"
+          checks: [version-accuracy, versioning, style, build]
+    - set: { review: running }

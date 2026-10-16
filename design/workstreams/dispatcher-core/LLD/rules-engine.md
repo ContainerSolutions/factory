@@ -26,13 +26,13 @@ type Rails interface {              // implemented by the runtime; pure fake in 
 type Evaluation struct {
     Event      string
     WorkItem   string
-    Matches    []Match             // every candidate rule with result (matched / not / error / suppressed-by-final)
+    Matches    []Match             // every (RuleSet, rule) candidate with result (matched / not / error / suppressed-by-final / duplicate{firedVia})
     Decisions  []Decision          // ordered actions to apply
     StateAfter map[string]any      // projected state after all set actions
 }
 
 type Decision struct {
-    RuleSet, Rule string
+    RuleSet, Rule string            // RuleSet: the one the rule fired through (its params, its where)
     Action        ActionIntent      // Dispatch{TaskSpec, Queue, Inputs, Harness, Requires, Context, Target} | Set{Key, Value} | Notify{...} | Cancel{TaskSpec} | Link{Ref} | Effect{Op, Args} | Debounce{Key, Until, Then ActionIntent}
     Rail          RailVerdict       // Allowed | Suppressed{reason} | Deferred{reason}
     Inputs        map[string]any    // CEL inputs snapshot for the "why" view (bounded)
@@ -57,12 +57,12 @@ The engine **never** performs I/O: applying decisions (creating Tasks, writing s
 3. state := copy(wi.State); stop := false
    for r in candidates:
        if stop: record Match{suppressed-by-final}; continue
-       if seen[(ev.ID, r.Name)]: record Match{duplicate}; continue      // dedupe across RuleSets
-       seen[(ev.ID, r.Name)] = true                                      // mark first, so every exit below counts
-       act := activation(ev, wi with state, r.Params)
+       if fired[(ev.ID, r.Name)] != "": record Match{duplicate, firedVia: fired[(ev.ID, r.Name)]}; continue   // dedupe on firing
+       act := activation(ev, wi with state, r.Params)   // this RuleSet's merged params
        ok, err := r.Where.EvalBool(act)       // empty where = true
-       if err: record Match{error}; continue
-       if !ok: record Match{not-matched}; continue
+       if err: record Match{error}; continue           // doesn't consume the dedupe
+       if !ok: record Match{not-matched}; continue     // doesn't consume the dedupe: a later RuleSet may still fire it
+       fired[(ev.ID, r.Name)] = set.Name               // the where passed: this RuleSet fires the rule, no other will
        // stage: materialise ALL actions before committing any (atomic per rule)
        staged := []; overlay := copy(state)
        for a in r.Actions:                     // ordered; later actions see the staged overlay
@@ -82,6 +82,7 @@ The engine **never** performs I/O: applying decisions (creating Tasks, writing s
 
 Notes:
 
+- **Dedupe on firing:** each RuleSet that selects a rule evaluates its `where` with that RuleSet's merged params; the rule **fires** at most once per (event, rule), through the first RuleSet (by name, within the priority order) whose `where` passes. A RuleSet whose `where` fails or errors doesn't consume the dedupe. The Decisions carry the RuleSet the rule fired through; the later RuleSets' Matches record `duplicate{firedVia}`. A rule whose `where` passed but whose actions then fail to materialise still counts as fired (`action-error`), so another RuleSet's params can't fire it as a fallback.
 - **Atomicity:** a rule's actions are all-or-nothing at evaluation time: if any action fails to materialise, none of that rule's decisions are emitted (matching the CEL error contract). Rail verdicts are per action at commit time; a suppressed `set` is not applied to `StateAfter`, but later actions in the same rule were already materialised against the staged overlay (documented; fixtures cover it).
 - **Counters** (`item.count`) come from `wi.RunsBySpec`, so a dispatch in the same evaluation does **not** increment them (it's not a run yet).
 - **Debounce:** a rule with `debounce{window, key}` yields `Debounce{Key: eval(key), Until: now+window, Then: <first action>}`; the controller holds one pending intent per key and fires at `Until` (subsequent matches extend nothing — first wins, documented).
@@ -121,9 +122,10 @@ factory rules test --catalog catalog --fixtures catalog/testdata [--update] [--b
 |---|---|
 | [04 cascade](../../../04-flows.md#how-rules-cascade) (4 events) | exact decisions per step |
 | `final` + priority (`autoimplement` vs `request-implement-approval`) | lower rule suppressed |
-| same rule via two RuleSets | one decision, one `duplicate` match |
+| same rule via two RuleSets, both `where`s pass | decisions through the first RuleSet by name only; one `duplicate{firedVia}` match |
+| same rule via two RuleSets, the first's `where` fails (dev/prod params, e.g. `dev-release-docs` and `poc-release-docs` on a prod train) | `not-matched` for the first, decisions through the second |
 | factory event scoping via links | rules from the docs RuleSet fire for a run linked to `docs#57` |
-| `where` runtime error | not matched + error recorded; the rule is still marked seen (a second RuleSet selecting it records `duplicate`) |
+| `where` runtime error | not matched + error recorded; the dedupe isn't consumed (a second RuleSet whose `where` passes fires it) |
 | action materialise error after a valid `set` | **no** decisions from that rule; state unchanged; `action-error` match recorded |
 | `set` then `dispatch` reading new state (`build-stack-next`) | dispatch input uses incremented index |
 | `record-review-outcome` priority 100 before `merge-whole-stack` | merge sees `review == approved` |

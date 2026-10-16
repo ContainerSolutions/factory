@@ -1,0 +1,1 @@
+rulesets/rs.yaml:8: CAT501 warning: spec.defaults.nope: no selected rule declares param "nope", so the default is ignored

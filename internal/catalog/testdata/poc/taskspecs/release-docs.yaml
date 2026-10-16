@@ -1,0 +1,26 @@
+kind: TaskSpec
+metadata: { name: release-docs }
+spec:
+  description: Document every release in a finished release train, in per-repository versioned docs.
+  inputs:                                   # declared inputs; rules pass values via dispatch.inputs
+    train:       { type: string, required: true }        # e.g. compliance-framework/workflows#123
+    depthPolicy: { type: object, default: { patch: notes, minor: full, major: full } }
+  instructions: { template: prompts/release-docs.md.tmpl, headless: true }
+  skills:
+    - { source: ccf-skills, ref: v0.8.0, use: [docs-release, docs-style, docs-gif, ccf-test, sidebyside] }
+  requires: { labels: [has-local-stack, gif-tooling] }      # matched against agent labels
+  harness:
+    allowed: [{ name: codex, models: ["gpt-5*"], reasoningEffort: "*" }, { name: claude-code, models: ["claude-*-5-*"], reasoningEffort: "*" }]
+    default: { name: codex, config: { model: "gpt-5*", reasoningEffort: high } }
+  workspace:
+    repos:
+      - { ref: compliance-framework/docs@main, mode: rw }       # the only writable repo
+      - { ref: compliance-framework/local-dev@main, mode: ro }  # stack bootstrap
+    publicReads: true                                           # released repos are cloned anonymously at their tags
+  identity: author
+  permissions: { contents: write, pull_requests: write, issues: read }
+  effects: { allow: [push-branch, pr.open, pr.comment, label.add] }
+  limits: { maxWallClock: 90m, maxTurns: 200 }
+  output:
+    schema: schemas/results/release-docs.json   # per repo: version, depth, sections written, gifs
+    outcomes: [pr-opened, no-docs-change, blocked]

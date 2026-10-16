@@ -1,0 +1,1 @@
+rules/work.yaml:5: CAT400 spec.on[1]: message.posted is not emitted by RuleSet rs's providers for this rule (gh); emitted by provider types [slack]

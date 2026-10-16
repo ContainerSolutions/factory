@@ -1,0 +1,1 @@
+taskspecs/work.yaml:7: CAT207 spec.instructions.template: prompt "prompts/work.md.tmpl" does not exist (prompts are files under prompts/)

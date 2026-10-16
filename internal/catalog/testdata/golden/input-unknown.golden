@@ -1,0 +1,1 @@
+rules/work.yaml:7: CAT701 spec.actions[0].dispatch.inputs.mode: not a declared input of the TaskSpec (declared: issue, target)

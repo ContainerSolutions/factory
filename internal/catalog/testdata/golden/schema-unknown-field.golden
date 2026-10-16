@@ -1,0 +1,2 @@
+rules/work.yaml:3: CAT100 spec: additional properties 'when' not allowed
+rulesets/rs.yaml:6: CAT301 spec.rules.selector: matches no Rule

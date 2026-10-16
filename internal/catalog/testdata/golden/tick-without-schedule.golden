@@ -1,0 +1,1 @@
+rules/tick.yaml:4: CAT402 spec.on[0]: factory.schedule.tick needs a schedule

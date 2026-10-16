@@ -1,0 +1,2 @@
+taskspecs/work.yaml:9: CAT802 spec.harness.allowed[0].reasoningEffort: harness codex maps none of the efforts allowed here ([minimal]); it maps high, low, medium
+taskspecs/work.yaml:10: CAT801 spec.harness.default.config.reasoningEffort: no effort fits both the request (medium) and TaskSpec work's constraint ([minimal])

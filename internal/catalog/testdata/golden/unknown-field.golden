@@ -1,0 +1,1 @@
+rules/work.yaml:6: CAT602 spec.where: cel.field: "event.release.tagg == 'v1'" at 1:14: unknown field event.release.tagg

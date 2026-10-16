@@ -1,0 +1,14 @@
+kind: Provider
+metadata: { name: github-public, labels: { family: github, network: public } }
+spec:
+  type: github
+  github:
+    apiURL: https://api.github.com
+    webhook: { path: /hooks/github-public, secretRef: { name: github-public-webhook, key: secret } }
+    identities:                                     # new Apps, created and provided for the PoC (Q4)
+      author:   { appID: 1,                      privateKeyRef: { name: ccf-factory-app, key: private-key } }            # changed from the doc: appID <ccf-factory> is a placeholder; an integer is required
+      reviewer: { appID: 2,                      privateKeyRef: { name: ccf-factory-reviewer-app, key: private-key } }   # changed from the doc: appID <ccf-factory-reviewer> is a placeholder; an integer is required
+  scope: { orgs: [compliance-framework] }
+  trust:
+    - { tier: maintainer, group: maintainers }
+    - { tier: anyone }

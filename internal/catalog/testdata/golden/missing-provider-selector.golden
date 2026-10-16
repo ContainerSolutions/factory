@@ -1,0 +1,1 @@
+rules/work.yaml:4: CAT302 spec.on: provider event types need a providerSelector (only factory.*-only rules may omit it)
