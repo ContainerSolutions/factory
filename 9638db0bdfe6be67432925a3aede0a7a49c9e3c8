@@ -1,2 +1,5 @@
 lisa-design:
 No repo .golangci.yml: lint with compliance-framework/workflows/.golangci.yml at the SHA ci.yml pins (CI does it; make lint fetches it). No depguard; the pure packages stay pure by review (owner decision, #6). Workflow pins are bumped by hand until factory is in workflows/repos.yaml.
+
+lisa-addressed:
+ccf-review #6: CORE-DUP-001 (mirrored lint config) and CORE-DOC-001 (ccf-bump comment) fixed.
