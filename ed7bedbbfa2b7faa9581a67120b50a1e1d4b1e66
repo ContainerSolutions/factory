@@ -4,3 +4,6 @@ lisa-design:
 - Model choice: exact prefer entry > earliest request-list element > agent default (HarnessOffer.defaultModel) > highest version (numeric dash/dot groups) > smallest id.
 - Effort: earliest request-list element > medium if candidate > first in agent order; Resolve works on normalised efforts, adapters map them (EffortMapping).
 - Subsumes takes the known model ids explicitly; duplicate harness names in harness.allowed are a catalog error (CAT804, CORE-S1-T03).
+
+lisa-selfreview:
+Pass 1: no findings (glob→RE2 conversion, tie-breaks vs the LLD table, typed no-match).
