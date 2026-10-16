@@ -11,6 +11,7 @@ make lint                       # golangci-lint v2 with the shared CCF config (w
 make generate                   # schemas + the spec's v1alpha1 components + go generate (oapi-codegen server and client)
 make openapi-lint               # vacuum on api/openapi.yaml (ruleset api/vacuum.yaml)
 go test ./internal/webui -run TestHandler   # one test
+go run ./cmd/factory rules test --catalog catalog [--update | --base-catalog <dir>] [--coverage]   # replay catalog/testdata against the rules
 make build-release              # web/ build + go build -tags webui
 ```
 

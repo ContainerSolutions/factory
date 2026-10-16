@@ -139,7 +139,7 @@ func TestDedupeOnFiring(t *testing.T) {
 	})
 	t.Run("a where passes but the actions fail: still fired", func(t *testing.T) {
 		c := loadCatalog(t, "engine")
-		f := readFixture(t, "testdata/cases/engine/set-then-bad-dispatch")
+		f := readFixture(t, "engine/set-then-bad-dispatch")
 		// Select set-then-bad-dispatch through a second RuleSet too: it must not fire there.
 		c2 := withRuleSet(c, "c-again", c.RuleSets["b-loose"])
 		ev, err := (&Engine{}).Evaluate(context.Background(), c2, f.Event, f.WorkItem, AllowAll)
@@ -223,7 +223,7 @@ func TestActionErrorAfterSet(t *testing.T) {
 		{"engine/set-then-bad-dispatch", "b-loose", "set-then-bad-dispatch", "actions[1].dispatch", `"other" is not one of`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := readFixture(t, "testdata/cases/"+tc.name)
+			f := readFixture(t, tc.name)
 			ev := runCase(t, tc.name)
 			m := wantResult(t, ev, tc.set, tc.rule, ActionError)
 			if m.Action != tc.action || !strings.Contains(m.Error, tc.msg) {
@@ -282,29 +282,31 @@ func TestRails(t *testing.T) {
 }
 
 func TestDebounce(t *testing.T) {
+	// Fixtures replay without a clock: now is the event's time.
+	f := readFixture(t, "cascade/debounce-release")
 	ev := runCase(t, "cascade/debounce-release")
 	if len(ev.Decisions) != 1 {
 		t.Fatalf("decisions = %q", decisions(ev))
 	}
 	d := ev.Decisions[0].Action.Debounce
-	if d == nil || d.Key != "docs-on-release/2026-11" || !d.Until.Equal(fixedNow.Add(2*time.Hour)) || len(d.Then) != 1 || d.Then[0].Dispatch == nil {
+	if d == nil || d.Key != "docs-on-release/2026-11" || !d.Until.Equal(f.Event.Time.Add(2*time.Hour)) || len(d.Then) != 1 || d.Then[0].Dispatch == nil {
 		t.Fatalf("debounce = %+v", d)
 	}
 
-	// Without a clock, now is the event's time.
-	f := readFixture(t, "testdata/cases/cascade/debounce-release")
-	ev, err := (&Engine{}).Evaluate(context.Background(), loadCatalog(t, "cascade"), f.Event, f.WorkItem, AllowAll)
+	// With a clock, now is the clock's time.
+	e := &Engine{Clock: ClockFunc(func() time.Time { return fixedNow })}
+	ev, err := e.Evaluate(context.Background(), loadCatalog(t, "cascade"), f.Event, f.WorkItem, AllowAll)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := ev.Decisions[0].Action.Debounce.Until; !got.Equal(f.Event.Time.Add(2 * time.Hour)) {
+	if got := ev.Decisions[0].Action.Debounce.Until; !got.Equal(fixedNow.Add(2 * time.Hour)) {
 		t.Errorf("until = %v", got)
 	}
 }
 
 func TestEvaluateErrors(t *testing.T) {
 	c := loadCatalog(t, "poc")
-	f := readFixture(t, "testdata/cases/poc/plan-maintainer-epics")
+	f := readFixture(t, "poc/plan-maintainer-epics")
 	e := &Engine{}
 	if _, err := e.Evaluate(context.Background(), nil, f.Event, f.WorkItem, AllowAll); err == nil {
 		t.Error("nil catalog accepted")
@@ -322,7 +324,7 @@ func TestEvaluateErrors(t *testing.T) {
 // TestEvaluateLeavesViewAlone: the view's state is read-only, and Evaluate is safe to call
 // concurrently on one catalog.
 func TestEvaluateLeavesViewAlone(t *testing.T) {
-	f := readFixture(t, "testdata/cases/poc/build-stack-next")
+	f := readFixture(t, "poc/build-stack-next")
 	c := loadCatalog(t, "poc")
 	before := map[string]any{}
 	for k, v := range f.WorkItem.State {

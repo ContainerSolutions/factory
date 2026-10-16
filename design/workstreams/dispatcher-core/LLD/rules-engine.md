@@ -121,20 +121,39 @@ Where the sketch above left room, the engine does this:
 ## Fixtures and `factory rules test`
 
 ```text
-catalog/testdata/<case>/
+catalog/testdata/<case>/   # a case is any directory holding an event.json, at any depth
   event.json           # a v1alpha1.Event (normalised) — or webhook.json + provider.json (normalised via the GH normaliser when available)
   workitem.json        # WorkItemView before
-  rails.json           # optional: tripped rails
-  expected.json        # golden Evaluation (Decisions + StateAfter), generated with --update
+  rails.json           # optional: tripped rails (FakeRails); none = every action allowed
+  expected.json        # golden Evaluation (Matches, Decisions, StateAfter), generated with --update
 ```
 
 ```text
-factory rules test --catalog catalog --fixtures catalog/testdata [--update] [--base-catalog path] [--coverage]
+factory rules test [--catalog catalog] [--fixtures <catalog>/testdata] [--update]
+                   [--base-catalog dir [--fail-on-diff]] [--coverage] [--format text|json]
 ```
 
-- Runs every case; diffs `Decisions` and `StateAfter` (stable ordering, inputs redacted to keys).
-- `--base-catalog`: evaluates each case with both catalogs and prints a **decision diff** (for catalog PRs).
-- `--coverage`: lists rules never matched by any fixture (CI fails on uncovered PoC rules — CAT-S1-T04).
+- Runs every case; diffs `Matches`, `Decisions` and `StateAfter` (stable ordering, inputs redacted to keys).
+- Cases replay with an Engine without a Clock, so `now` is the event's time.
+- The runner is `internal/rules` (`LoadFixtures`/`ReadFixture` over an `fs.FS`, `Fixture.Evaluate`, `Golden`/`ParseGolden`, `DiffGolden`). The engine's own tests (`internal/rules/testdata/cases/<catalog>/<case>`) use the same code and format.
+- A mismatch prints a **decision diff** per case, rule by rule and decision by decision (`- expected, + now`), then exits 1:
+
+  ```text
+  FAIL review-human-prs-draft: decisions differ from expected.json (- expected, + now)
+    ~ rule poc-docs-human-review/review-human-prs: not-matched -> matched
+        inputs: [actor item] -> [actor]
+    + decision poc-docs-human-review/review-human-prs: cancel docs-review [allowed]
+        {"cancel":{"taskSpec":"docs-review"}}
+    + decision poc-docs-human-review/review-human-prs: dispatch docs-review → poc [allowed]
+        {"dispatch":{"taskSpec":"docs-review","queue":"poc","inputs":{"checks":["style","build"],"target":"pr"}}}
+  ```
+
+  Rules pair by (RuleSet, rule). Decisions pair by (RuleSet, rule, kind, the TaskSpec/key/template/ref/op they name) and occurrence, so a changed input or rail verdict reads as `~` with the changed fields (`dispatch.inputs.checks: [...] -> [...]`, `[allowed] -> [suppressed kill-switch: …]`). A reorder is one `~ decision order` line. State changes are per top-level key. A missing `expected.json` is a mismatch too.
+- `--update`: rewrites the goldens that differ (or are missing), prints what changed, and exits 0.
+- `--base-catalog`: evaluates each case with both catalogs, and prints the **decision diff** from base to `--catalog` (`- base, + head`) and "N of M cases change their decisions" (for catalog PRs). It doesn't read the goldens, so it doesn't combine with `--update`. It exits 0 unless `--fail-on-diff` is given.
+- `--coverage`: lists rules never matched by any fixture (CI fails on uncovered PoC rules — CAT-S1-T04). Only the rules some RuleSet selects count. The others (e.g. the excluded `merge-*` rules) are listed as not selected. Exit 1 when a selected rule never fires.
+- `--format json`: the report (cases with status `ok|differs|missing|updated|changed` and their structured changes, totals, coverage) on stdout.
+- **Exit codes**, as for `factory validate`: 0 OK; 1 a mismatch or missing golden, a base/head change with `--fail-on-diff`, or an uncovered rule with `--coverage`; 2 a usage error, an unreadable fixture, or a catalog that doesn't load. A catalog that doesn't load prints its diagnostics in `validate`'s format on stderr. When the default `<catalog>/testdata` doesn't exist, it warns and exits 0, so a catalog without fixtures yet doesn't break `make catalog`. An explicit `--fixtures` that doesn't exist is exit 2.
 
 ## Tests (CORE-S1-T04)
 

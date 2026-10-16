@@ -1,0 +1,20 @@
+changed rails-kill-switch (- base, + head)
+  ~ rule poc-docs-human-review/review-human-prs
+      inputs: [actor item] -> [actor]
+  ~ decision poc-docs-human-review/review-human-prs: dispatch docs-review → poc
+      dispatch.inputs.checks: ["style","versioning","build"] -> ["style","build"]
+changed review-human-prs (- base, + head)
+  ~ rule poc-docs-human-review/review-human-prs
+      inputs: [actor item] -> [actor]
+  ~ decision poc-docs-human-review/review-human-prs: dispatch docs-review → poc
+      dispatch.inputs.checks: ["style","versioning","build"] -> ["style","build"]
+changed review-human-prs-draft (- base, + head)
+  ~ rule poc-docs-human-review/review-human-prs: not-matched -> matched
+      inputs: [actor item] -> [actor]
+  + decision poc-docs-human-review/review-human-prs: cancel docs-review [allowed]
+      {"cancel":{"taskSpec":"docs-review"}}
+  + decision poc-docs-human-review/review-human-prs: dispatch docs-review → poc [allowed]
+      {"dispatch":{"taskSpec":"docs-review","queue":"poc","inputs":{"checks":["style","build"],"target":"pr"}}}
+changed review-release-docs (- base, + head)
+  ~ rule poc-docs-human-review/review-human-prs
+      inputs: [actor item] -> [actor]
