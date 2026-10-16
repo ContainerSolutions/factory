@@ -1,0 +1,2 @@
+lisa-addressed:
+ccf-review #12 fixed in c05b2a6: runtime-payloads-opaque (7ee2b93a9191) via generated components + two-way TestGoTypes; CORE-STYLE-001 transcript tags (3145c1992868); osv-scan: kin-openapi v0.149.0, x/net v0.61.0.
