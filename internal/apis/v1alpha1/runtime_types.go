@@ -119,14 +119,18 @@ type RailVerdict struct {
 // TaskPhase is a Task's lifecycle phase.
 type TaskPhase string
 
-// Task phases: Pending → Leased → Running → Succeeded | Failed | Cancelled.
+// Task phases: Pending → Leased → Running → Succeeded | Failed, and
+// Running → Cancelling → Cancelled.
 const (
 	TaskPending   TaskPhase = "Pending"
 	TaskLeased    TaskPhase = "Leased"
 	TaskRunning   TaskPhase = "Running"
 	TaskSucceeded TaskPhase = "Succeeded"
 	TaskFailed    TaskPhase = "Failed"
-	TaskCancelled TaskPhase = "Cancelled"
+	// TaskCancelling is a task being cancelled (the cancel command): its agent is told on the
+	// next heartbeat and the task becomes Cancelled on the agent's ack or on lease expiry.
+	TaskCancelling TaskPhase = "Cancelling"
+	TaskCancelled  TaskPhase = "Cancelled"
 )
 
 // Task is one instantiation of a TaskSpec for a work item.

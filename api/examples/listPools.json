@@ -1,0 +1,36 @@
+{
+  "items": [
+    {
+      "pool": {
+        "kind": "Pool",
+        "metadata": {
+          "name": "maintainer-agents"
+        },
+        "spec": {
+          "mode": "registered",
+          "admission": {
+            "tokenRef": {
+              "name": "maintainer-agents",
+              "key": "join-token"
+            },
+            "owners": "maintainers"
+          },
+          "lease": {
+            "ttl": "2m",
+            "heartbeat": "30s",
+            "maxTasksPerAgent": 1
+          },
+          "require": {
+            "harnesses": [
+              "claude-code",
+              "codex"
+            ]
+          }
+        }
+      },
+      "agents": [
+        "agt_gusfcarvalho-mbp-01"
+      ]
+    }
+  ]
+}

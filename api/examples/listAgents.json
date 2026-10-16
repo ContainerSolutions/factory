@@ -1,0 +1,82 @@
+{
+  "items": [
+    {
+      "kind": "Agent",
+      "metadata": {
+        "name": "agt_gusfcarvalho-mbp-01",
+        "labels": {
+          "owner": "gusfcarvalho"
+        },
+        "resourceVersion": "412",
+        "createdAt": "2026-10-16T08:00:00Z"
+      },
+      "spec": {
+        "pool": "maintainer-agents",
+        "owner": "github-public:gusfcarvalho",
+        "capabilities": {
+          "harnesses": [
+            {
+              "name": "codex",
+              "version": "0.46.0",
+              "auth": "subscription",
+              "models": [
+                "gpt-5-codex"
+              ],
+              "reasoningEffort": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "name": "claude-code",
+              "version": "2.1.3",
+              "auth": "apiKey",
+              "models": [
+                "claude-sonnet-5-5",
+                "claude-opus-5-5"
+              ],
+              "reasoningEffort": [
+                "low",
+                "medium",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "labels": [
+            "has-local-stack",
+            "macos"
+          ]
+        },
+        "lending": {
+          "queues": [
+            "default",
+            "triage",
+            "review"
+          ],
+          "ruleSets": [
+            "docs"
+          ],
+          "harnesses": [
+            "codex",
+            "claude-code"
+          ],
+          "maxConcurrent": 1,
+          "maxRunsPerDay": 30,
+          "maxTokensPerDay": 3000000,
+          "hours": "Mon-Fri 08:00-20:00 Europe/Lisbon"
+        }
+      },
+      "status": {
+        "phase": "Ready",
+        "throttledUntil": null,
+        "lastHeartbeat": "2026-10-16T09:29:30Z",
+        "today": {
+          "runs": 3,
+          "tokens": 412000
+        }
+      }
+    }
+  ]
+}

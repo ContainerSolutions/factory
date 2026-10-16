@@ -1,0 +1,38 @@
+{
+  "items": [
+    {
+      "queue": {
+        "kind": "Queue",
+        "metadata": {
+          "name": "triage"
+        },
+        "spec": {
+          "pool": "maintainer-agents",
+          "concurrency": 4,
+          "priority": 60,
+          "budget": {
+            "daily": {
+              "runs": 80
+            }
+          },
+          "retry": {
+            "max": 1,
+            "on": [
+              "agent-lost",
+              "infra-failure"
+            ]
+          }
+        }
+      },
+      "depth": 1,
+      "running": 1,
+      "pending": [
+        {
+          "task": "tsk_01JAB3Q8R9S0T1V2W3X4Y5Z6AB",
+          "reason": "agent-busy",
+          "since": "2026-10-16T09:31:00Z"
+        }
+      ]
+    }
+  ]
+}

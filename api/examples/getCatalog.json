@@ -1,0 +1,44 @@
+{
+  "repo": "https://github.com/compliance-framework/factory",
+  "ref": "main",
+  "sha": "9f1e2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6",
+  "loadedAt": "2026-10-16T08:00:05Z",
+  "status": "loaded",
+  "objects": [
+    {
+      "kind": "Provider",
+      "name": "github-public",
+      "labels": {
+        "family": "github",
+        "network": "public"
+      }
+    },
+    {
+      "kind": "Group",
+      "name": "maintainers"
+    },
+    {
+      "kind": "RuleSet",
+      "name": "docs"
+    },
+    {
+      "kind": "Rule",
+      "name": "triage-outside-issues",
+      "labels": {
+        "pack": "intake"
+      }
+    },
+    {
+      "kind": "TaskSpec",
+      "name": "triage"
+    },
+    {
+      "kind": "Queue",
+      "name": "triage"
+    },
+    {
+      "kind": "Pool",
+      "name": "maintainer-agents"
+    }
+  ]
+}

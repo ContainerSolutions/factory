@@ -1,0 +1,283 @@
+[
+  {
+    "event": "task.updated",
+    "id": "418",
+    "data": {
+      "kind": "Task",
+      "metadata": {
+        "id": "tsk_01JAB3K7Q2M8V9W4XYZ5N6P7RS",
+        "workItem": "wi_01JAB3J9T1D2E3F4G5H6J7K8LM",
+        "provenance": {
+          "event": "github-public/gh-7f3c2a10-8b1d-11ef-9a6e-0242ac120002",
+          "ruleSet": "docs",
+          "rule": "triage-outside-issues",
+          "catalogSHA": "9f1e2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6"
+        },
+        "resourceVersion": "418",
+        "createdAt": "2026-10-16T09:30:00Z"
+      },
+      "spec": {
+        "taskSpec": {
+          "name": "triage",
+          "digest": "sha256:3b1f6c2e9a8d7f60"
+        },
+        "queue": "triage",
+        "pool": "maintainer-agents",
+        "provider": "github-public",
+        "target": {
+          "provider": "github-public",
+          "repo": "compliance-framework/docs"
+        },
+        "inputs": {
+          "issue": "compliance-framework/docs#42"
+        },
+        "harness": {
+          "request": {
+            "name": "codex",
+            "config": {
+              "model": "gpt-5*",
+              "reasoningEffort": "medium"
+            }
+          },
+          "resolved": {
+            "name": "codex",
+            "version": "0.46.0",
+            "auth": "subscription",
+            "model": "gpt-5-codex",
+            "reasoningEffort": "medium"
+          }
+        },
+        "skills": [
+          {
+            "source": "https://github.com/compliance-framework/ccf-skills",
+            "ref": "v0.7.0",
+            "commit": "1a2b3c4d5e6f",
+            "use": [
+              "bugreport"
+            ]
+          }
+        ],
+        "prompt": {
+          "ref": "api://tasks/tsk_01JAB3K7Q2M8V9W4XYZ5N6P7RS/prompt",
+          "digest": "sha256:5d41402abc4b2a76"
+        },
+        "context": [
+          {
+            "kind": "issue",
+            "provider": "github-public",
+            "ref": "compliance-framework/docs#42",
+            "trust": "untrusted"
+          },
+          {
+            "kind": "repo",
+            "provider": "github-public",
+            "ref": "compliance-framework/docs@main",
+            "mount": "/work/repo"
+          }
+        ],
+        "credentials": {
+          "git": {
+            "provider": "github-public",
+            "identity": "author",
+            "repo": "compliance-framework/docs",
+            "permissions": {
+              "contents": "read",
+              "issues": "write"
+            },
+            "ttl": "30m"
+          },
+          "llm": "agent-local"
+        },
+        "effects": {
+          "allow": [
+            "comment",
+            "label.add",
+            "label.remove",
+            "link-duplicate",
+            "create-issue"
+          ],
+          "labels": [
+            "type/*",
+            "area/*",
+            "needs-info"
+          ]
+        },
+        "limits": {
+          "maxTurns": 40,
+          "maxWallClock": "15m",
+          "maxCostUSD": 1.5
+        },
+        "output": {
+          "schema": "schemas/results/triage.json",
+          "outcomes": [
+            "triaged",
+            "needs-info",
+            "duplicate",
+            "not-actionable",
+            "promote"
+          ]
+        }
+      },
+      "status": {
+        "phase": "Running",
+        "agent": "agt_gusfcarvalho-mbp-01",
+        "attempts": 1,
+        "leaseExpiresAt": "2026-10-16T09:32:30Z"
+      }
+    }
+  },
+  {
+    "event": "progress",
+    "id": "419",
+    "data": {
+      "run": "run_01JAB3M3P4Q5R6S7T8V9W0X1YZ",
+      "task": "tsk_01JAB3K7Q2M8V9W4XYZ5N6P7RS",
+      "event": {
+        "at": "2026-10-16T09:30:40Z",
+        "kind": "phase",
+        "message": "cloning compliance-framework/docs"
+      }
+    }
+  },
+  {
+    "event": "workitem.updated",
+    "id": "420",
+    "data": {
+      "kind": "WorkItem",
+      "metadata": {
+        "name": "wi_01JAB3J9T1D2E3F4G5H6J7K8LM",
+        "resourceVersion": "420",
+        "createdAt": "2026-10-16T09:29:59Z"
+      },
+      "spec": {
+        "links": [
+          {
+            "provider": "github-public",
+            "ref": "compliance-framework/docs#42",
+            "kind": "issue",
+            "primary": true
+          }
+        ]
+      },
+      "status": {
+        "state": {
+          "triage": "running"
+        },
+        "counters": {
+          "triage": 1
+        },
+        "decisions": [
+          {
+            "at": "2026-10-16T09:30:00Z",
+            "event": "github-public/gh-7f3c2a10-8b1d-11ef-9a6e-0242ac120002",
+            "ruleSet": "docs",
+            "rule": "triage-outside-issues",
+            "fired": true,
+            "inputs": {
+              "actor.tier": "contributor"
+            },
+            "rails": [
+              {
+                "rail": "run-cap",
+                "verdict": "Allowed"
+              }
+            ],
+            "actions": [
+              "dispatch",
+              "set"
+            ]
+          }
+        ],
+        "reporter": {
+          "id": "github-public:octocat",
+          "tier": "contributor"
+        }
+      }
+    }
+  },
+  {
+    "event": "agent.updated",
+    "id": "421",
+    "data": {
+      "kind": "Agent",
+      "metadata": {
+        "name": "agt_gusfcarvalho-mbp-01",
+        "labels": {
+          "owner": "gusfcarvalho"
+        },
+        "resourceVersion": "412",
+        "createdAt": "2026-10-16T08:00:00Z"
+      },
+      "spec": {
+        "pool": "maintainer-agents",
+        "owner": "github-public:gusfcarvalho",
+        "capabilities": {
+          "harnesses": [
+            {
+              "name": "codex",
+              "version": "0.46.0",
+              "auth": "subscription",
+              "models": [
+                "gpt-5-codex"
+              ],
+              "reasoningEffort": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "name": "claude-code",
+              "version": "2.1.3",
+              "auth": "apiKey",
+              "models": [
+                "claude-sonnet-5-5",
+                "claude-opus-5-5"
+              ],
+              "reasoningEffort": [
+                "low",
+                "medium",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "labels": [
+            "has-local-stack",
+            "macos"
+          ]
+        },
+        "lending": {
+          "queues": [
+            "default",
+            "triage",
+            "review"
+          ],
+          "ruleSets": [
+            "docs"
+          ],
+          "harnesses": [
+            "codex",
+            "claude-code"
+          ],
+          "maxConcurrent": 1,
+          "maxRunsPerDay": 30,
+          "maxTokensPerDay": 3000000,
+          "hours": "Mon-Fri 08:00-20:00 Europe/Lisbon"
+        }
+      },
+      "status": {
+        "phase": "Busy",
+        "throttledUntil": null,
+        "lastHeartbeat": "2026-10-16T09:30:40Z",
+        "running": [
+          "tsk_01JAB3K7Q2M8V9W4XYZ5N6P7RS"
+        ],
+        "today": {
+          "runs": 4,
+          "tokens": 412000
+        }
+      }
+    }
+  }
+]

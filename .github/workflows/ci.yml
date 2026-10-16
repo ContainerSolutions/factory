@@ -74,7 +74,7 @@ jobs:
     with:
       # gofmt, vet, go mod tidy, go test -race, build and golangci-lint run in the shared
       # workflow; these are the repo's own extra gates (see the Makefile).
-      make-targets: check-generated catalog
+      make-targets: check-generated catalog openapi-lint
     permissions:
       actions: read
       contents: read

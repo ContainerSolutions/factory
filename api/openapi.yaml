@@ -1,0 +1,2866 @@
+openapi: 3.0.3
+info:
+  title: CCF Factory API
+  version: 0.1.0
+  description: |
+    The HTTP contract of the CCF Factory dispatcher (`factory serve`). It is the only coupling
+    between the dispatcher, the agents (`factory-agent`), the web UI and the CLI; see
+    `design/workstreams/foundation/LLD/contracts.md` §HTTP API.
+
+    - Base path `/api/v1`. All bodies are JSON unless an operation says otherwise; times are RFC 3339.
+    - Errors are `application/problem+json` (RFC 9457) with a machine-readable `code`.
+    - Lists paginate with `?cursor=` (pass the previous page's `nextCursor`) and filter with
+      `?labelSelector=`.
+    - Components marked `x-go-type` are the `internal/apis/v1alpha1` Go types. Their schemas here
+      describe the envelope and the fields clients rely on; the Go types (and the generated
+      `schemas/*.schema.json` for config kinds) are authoritative, and every example is strictly
+      decoded into them by `api/spec_test.go`.
+    - `getTranscript` and `uploadTranscript` carry `application/gzip` (gzip-compressed JSON Lines).
+    - Webhooks (`/hooks/{provider}`) are served outside `/api/v1` and are handled by the provider
+      adapter (`Conn.Handler()`), not by the generated server.
+    - The ops routes (`/healthz`, `/readyz`, `/metrics`, tag `ops`) are served only on the
+      localhost ops listener (`--ops-addr`, default `127.0.0.1:9090`), never on the public address.
+      They are documented here and excluded from code generation.
+    - Additive changes only during the PoC; a breaking change moves to `/api/v2`.
+  contact:
+    name: compliance-framework maintainers
+    url: https://github.com/compliance-framework/factory
+  license:
+    name: AGPL-3.0-only
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+servers:
+  - url: /api/v1
+    description: The dispatcher's public listener (`--addr`).
+tags:
+  - name: agents
+    description: Agent registration, status and deregistration.
+  - name: leases
+    description: Long-poll leases, heartbeats, completion and abandonment.
+  - name: tasks
+    description: Leased task data for agents (task, prompt, context, transcript).
+  - name: effects
+    description: The Effector API, the only way agents write to providers.
+  - name: resources
+    description: Read models for the web UI.
+  - name: dry-run
+    description: Catalog evaluation without side effects.
+  - name: commands
+    description: Operator commands (pause, resume, cancel, redispatch, dispatch, resync-catalog).
+  - name: events
+    description: Server-sent events for live UI updates.
+  - name: auth
+    description: GitHub OAuth for the web UI and device-flow configuration for agents.
+  - name: webhooks
+    description: Provider webhooks, verified and handled by the provider adapter. Not generated.
+  - name: ops
+    description: Health and metrics, only on the localhost ops listener. Not generated.
+
+paths:
+  # ---- agents ------------------------------------------------------------------------------
+  /agents:
+    post:
+      operationId: registerAgent
+      tags: [agents]
+      summary: Register an agent
+      description: |
+        Registers (or re-registers) an agent in a pool. The caller presents the pool's join token
+        and a short-lived GitHub user token of the owner from the device flow; the owner token is
+        exchanged for a login and discarded, never stored or logged. The owner must be a member of
+        the pool's `admission.owners` Group and the capabilities must meet `Pool.spec.require`.
+        The agent is named `agt_<owner>-<host>`; registering again replaces it.
+      security:
+        - joinToken: []
+          ownerToken: []
+      requestBody:
+        description: The agent's pool, host and capabilities.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterAgentRequest'
+      responses:
+        '201':
+          description: Registered. The agent token is returned only here.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRegistration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listAgents
+      tags: [resources]
+      summary: List agents
+      description: Registered agents with their capabilities, lending and status.
+      security:
+        - uiSession: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/LabelSelector'
+      responses:
+        '200':
+          description: A page of agents.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /agents/{id}:
+    parameters:
+      - $ref: '#/components/parameters/AgentID'
+    patch:
+      operationId: updateAgent
+      tags: [agents]
+      summary: Update an agent's status or lending
+      description: |
+        The agent reports its phase (`Ready`, `Throttled` with `until`, `Draining`, `Offline`)
+        and re-sends its lending after a local config reload. Only the agent itself may call it.
+      security:
+        - agentToken: []
+      requestBody:
+        description: The new phase and/or lending.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentUpdate'
+      responses:
+        '200':
+          description: The updated agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deregisterAgent
+      tags: [agents]
+      summary: Deregister an agent
+      description: Revokes the agent token and marks the agent `Offline`. Running leases are abandoned.
+      security:
+        - agentToken: []
+      responses:
+        '204':
+          description: Deregistered.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---- leases ------------------------------------------------------------------------------
+  /agents/{id}/lease:
+    parameters:
+      - $ref: '#/components/parameters/AgentID'
+    get:
+      operationId: leaseTask
+      tags: [leases]
+      summary: Long-poll for a task
+      description: |
+        Parks the request for up to `wait` while the scheduler looks for a task this agent may
+        take. Returns the lease, the task (with its resolved harness) and a scoped git credential;
+        the credential appears only in this response and is never stored. `204` when nothing
+        matched in time.
+      security:
+        - agentToken: []
+      parameters:
+        - name: wait
+          in: query
+          description: How long to wait for a task, in seconds (`30s`). At most `60s`.
+          schema:
+            type: string
+            pattern: '^[0-9]{1,2}s$'
+            default: 30s
+            example: 30s
+      responses:
+        '200':
+          description: A task was leased.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lease'
+        '204':
+          description: No task within `wait`; poll again.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /leases/{id}/heartbeat:
+    parameters:
+      - $ref: '#/components/parameters/LeaseID'
+    post:
+      operationId: heartbeatLease
+      tags: [leases]
+      summary: Extend a lease and report progress
+      description: |
+        Sent every `pool.lease.heartbeat`. Carries the progress events since the last heartbeat
+        (appended to the Run and broadcast on SSE) and token usage **deltas**. The response says
+        whether to cancel the run and may carry a refreshed git credential. `404` or `409` means
+        the lease is gone: the agent must stop the run.
+      security:
+        - agentToken: []
+      requestBody:
+        description: Progress and usage since the last heartbeat.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HeartbeatRequest'
+      responses:
+        '200':
+          description: The lease was extended.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HeartbeatResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        default:
+          $ref: '#/components/responses/Error'
+  /leases/{id}/complete:
+    parameters:
+      - $ref: '#/components/parameters/LeaseID'
+    post:
+      operationId: completeLease
+      tags: [leases]
+      summary: Complete a lease with a Result
+      description: |
+        Ends the run with its Result (validated against the TaskSpec's output schema; an invalid
+        Result fails the task with `invalid-result`) and the transcript reference returned by
+        `PUT /runs/{id}/transcript`.
+      security:
+        - agentToken: []
+      requestBody:
+        description: The Result and transcript reference.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteRequest'
+      responses:
+        '204':
+          description: Completed.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        default:
+          $ref: '#/components/responses/Error'
+  /leases/{id}/abandon:
+    parameters:
+      - $ref: '#/components/parameters/LeaseID'
+    post:
+      operationId: abandonLease
+      tags: [leases]
+      summary: Hand a leased task back
+      description: |
+        Returns the task to `Pending`. `throttled` (with `until`) doesn't consume an attempt and
+        marks the agent `Throttled`; `agent-error` and `shutdown` follow the queue's retry policy.
+      security:
+        - agentToken: []
+      requestBody:
+        description: Why the task is handed back.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AbandonRequest'
+      responses:
+        '204':
+          description: Abandoned.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---- tasks -------------------------------------------------------------------------------
+  /tasks:
+    get:
+      operationId: listTasks
+      tags: [resources]
+      summary: List tasks
+      description: Tasks, newest first.
+      security:
+        - uiSession: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/LabelSelector'
+      responses:
+        '200':
+          description: A page of tasks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /tasks/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TaskID'
+    get:
+      operationId: getTask
+      tags: [tasks]
+      summary: Get a task
+      description: The full Task. An agent may read only a task it holds the active lease of.
+      security:
+        - agentToken: []
+        - uiSession: []
+      responses:
+        '200':
+          description: The task.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /tasks/{id}/prompt:
+    parameters:
+      - $ref: '#/components/parameters/TaskID'
+    get:
+      operationId: getTaskPrompt
+      tags: [tasks]
+      summary: Get a task's rendered prompt
+      description: |
+        The prompt rendered from the TaskSpec's instructions template with the task's inputs.
+        It refers to context items by index; it never inlines untrusted bodies.
+      security:
+        - agentToken: []
+      responses:
+        '200':
+          description: The rendered prompt.
+          headers:
+            Digest:
+              description: The prompt's digest, as in `spec.prompt.digest` (`sha256:<hex>`).
+              schema:
+                type: string
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /tasks/{id}/context/{n}:
+    parameters:
+      - $ref: '#/components/parameters/TaskID'
+      - name: n
+        in: path
+        required: true
+        description: The 0-based index into `spec.context`.
+        schema:
+          type: integer
+          minimum: 0
+    get:
+      operationId: getTaskContext
+      tags: [tasks]
+      summary: Get one fetched context item
+      description: |
+        Context item `n` of the task, fetched by the dispatcher and labelled with its trust.
+        Untrusted content is returned fenced; the agent wraps it in `<untrusted>` before handing
+        it to the harness.
+      security:
+        - agentToken: []
+      responses:
+        '200':
+          description: The context item.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskContext'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /runs/{id}/transcript:
+    parameters:
+      - $ref: '#/components/parameters/RunID'
+    get:
+      operationId: getTranscript
+      tags: [resources]
+      summary: Download a run's transcript
+      description: |
+        The stored transcript exactly as uploaded: the harness transcript as gzip-compressed
+        JSON Lines. The UI loads it lazily for the run view; an agent may read the transcript of
+        a run of its own active lease. `404` when none was uploaded.
+      security:
+        - uiSession: []
+        - agentToken: []
+      responses:
+        '200':
+          description: The transcript.
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: uploadTranscript
+      tags: [tasks]
+      summary: Upload a run's transcript
+      description: |
+        The harness transcript as gzip-compressed JSON Lines, at most 20 MB. Uploading again
+        replaces it. `getTranscript` serves it back unchanged.
+      security:
+        - agentToken: []
+      requestBody:
+        description: The gzip-compressed JSON Lines transcript.
+        required: true
+        content:
+          application/gzip:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Stored. Pass `transcriptRef` to `complete`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscriptUpload'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---- effects -----------------------------------------------------------------------------
+  /tasks/{id}/effects:
+    parameters:
+      - $ref: '#/components/parameters/TaskID'
+    post:
+      operationId: createEffect
+      tags: [effects]
+      summary: Apply (or record) an effect
+      description: |
+        The Effector API. The agent must hold the task's active lease. The op must be in the
+        task's `effects.allow`, label ops must match `effects.labels`, and the target must be the
+        task's target or its linked objects (`403 effect-not-allowed`). `idempotencyKey` is
+        required (`400 idempotency-key-required`): a repeated key returns the stored effect with
+        `200`. Rate limits answer `429`. Git-side ops (`push-branch`, `stack.*`) are recorded,
+        not applied.
+      security:
+        - agentToken: []
+      requestBody:
+        description: The effect to apply or record.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EffectRequest'
+      responses:
+        '200':
+          description: Applied (or replayed for a known idempotency key).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EffectResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---- resources ---------------------------------------------------------------------------
+  /workitems:
+    get:
+      operationId: listWorkItems
+      tags: [resources]
+      summary: List work items
+      description: Work items, most recently updated first.
+      security:
+        - uiSession: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/LabelSelector'
+      responses:
+        '200':
+          description: A page of work items.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkItemList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /workitems/{id}:
+    parameters:
+      - $ref: '#/components/parameters/WorkItemID'
+    get:
+      operationId: getWorkItem
+      tags: [resources]
+      summary: Get a work item with its timeline
+      description: The work item and the events, tasks, runs and effects of its timeline.
+      security:
+        - uiSession: []
+      responses:
+        '200':
+          description: The work item.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkItemDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /runs/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RunID'
+    get:
+      operationId: getRun
+      tags: [resources]
+      summary: Get a run with its effects
+      description: The run (progress, result, usage) and the effects it made.
+      security:
+        - uiSession: []
+      responses:
+        '200':
+          description: The run.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+  /queues:
+    get:
+      operationId: listQueues
+      tags: [resources]
+      summary: List queues with their depth
+      description: Each queue with its running tasks and its pending tasks and why they wait.
+      security:
+        - uiSession: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/LabelSelector'
+      responses:
+        '200':
+          description: A page of queues.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /pools:
+    get:
+      operationId: listPools
+      tags: [resources]
+      summary: List pools with their agents
+      description: Each pool with the agents registered in it.
+      security:
+        - uiSession: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/LabelSelector'
+      responses:
+        '200':
+          description: A page of pools.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PoolList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /providers:
+    get:
+      operationId: listProviders
+      tags: [resources]
+      summary: List providers with their health
+      description: Each configured provider instance and its connection health.
+      security:
+        - uiSession: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/LabelSelector'
+      responses:
+        '200':
+          description: A page of providers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /catalog:
+    get:
+      operationId: getCatalog
+      tags: [resources]
+      summary: Get the loaded catalog
+      description: The loaded catalog's commit, load status and errors, and the objects it holds.
+      security:
+        - uiSession: []
+      responses:
+        '200':
+          description: The catalog summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /catalog/{kind}/{name}:
+    parameters:
+      - name: kind
+        in: path
+        required: true
+        description: A config kind.
+        schema:
+          $ref: '#/components/schemas/CatalogKind'
+      - name: name
+        in: path
+        required: true
+        description: The object's `metadata.name`.
+        schema:
+          type: string
+          minLength: 1
+    get:
+      operationId: getCatalogObject
+      tags: [resources]
+      summary: Get one catalog object
+      description: The object as loaded (templates substituted), in its v1alpha1 shape.
+      security:
+        - uiSession: []
+      responses:
+        '200':
+          description: The object.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---- dry-run -----------------------------------------------------------------------------
+  /catalog/dry-run:
+    post:
+      operationId: dryRunCatalog
+      tags: [dry-run]
+      summary: Evaluate an event against the catalog
+      description: |
+        Runs the rule engine on the event (against the named work item's current state, or an
+        empty one) and returns the Evaluation. Nothing is stored and no action is applied.
+      security:
+        - uiSession: []
+      requestBody:
+        description: The event to evaluate.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DryRunRequest'
+      responses:
+        '200':
+          description: The evaluation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Evaluation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---- commands ----------------------------------------------------------------------------
+  /commands:
+    post:
+      operationId: postCommand
+      tags: [commands]
+      summary: Run an operator command
+      description: |
+        `pause`/`resume` take `target: {scope, name}`; `cancel` takes `target: {task}`;
+        `redispatch` takes `target: {task}` and optional `args: {harness}`; `dispatch` takes
+        `args: {event}`; `resync-catalog` takes nothing. A UI session must belong to the
+        `maintainers` Group; the CLI token is a full admin. The command becomes a
+        `factory.command.*` event or an injected event.
+      security:
+        - uiSession: []
+        - cliToken: []
+      requestBody:
+        description: The command.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Command'
+      responses:
+        '202':
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandAccepted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---- events ------------------------------------------------------------------------------
+  /stream:
+    get:
+      operationId: streamEvents
+      tags: [events]
+      summary: Subscribe to live updates
+      description: |
+        Server-sent events. Event names and their JSON `data`: `progress` (StreamProgress),
+        `workitem.updated` (WorkItem), `task.updated` (Task), `agent.updated` (Agent). Each
+        event's `id:` is the store version; reconnect with `Last-Event-ID` to resume (run
+        progress is backfilled from the run's ring buffer). A keep-alive comment is sent every
+        15 s.
+      security:
+        - uiSession: []
+      parameters:
+        - name: topics
+          in: query
+          required: true
+          description: 'Comma-separated topics: `runs/<id>`, `workitems`, `workitems/<id>`, `tasks`, `agents`.'
+          style: form
+          explode: false
+          schema:
+            type: array
+            minItems: 1
+            items:
+              type: string
+              pattern: '^(runs/[^/,]+|workitems(/[^/,]+)?|tasks|agents)$'
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: The `id` of the last event received, to resume after a reconnect.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The event stream. It stays open until the client disconnects.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  `event: <name>` / `id: <version>` / `data: <JSON>` frames. The data shapes are
+                  the `x-sse-events` components below.
+              x-sse-events:
+                progress:
+                  $ref: '#/components/schemas/StreamProgress'
+                workitem.updated:
+                  $ref: '#/components/schemas/WorkItem'
+                task.updated:
+                  $ref: '#/components/schemas/Task'
+                agent.updated:
+                  $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---- auth --------------------------------------------------------------------------------
+  /auth/login:
+    get:
+      operationId: login
+      tags: [auth]
+      summary: Start the GitHub OAuth login
+      description: Redirects to GitHub's authorize page with a `state` bound to a short-lived cookie.
+      security: []
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          description: A same-origin path to return to after login.
+          schema:
+            type: string
+            pattern: '^/'
+      responses:
+        '302':
+          description: Redirect to GitHub.
+          headers:
+            Location:
+              description: GitHub's authorize URL.
+              schema:
+                type: string
+                format: uri
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/callback:
+    get:
+      operationId: authCallback
+      tags: [auth]
+      summary: Finish the GitHub OAuth login
+      description: Checks `state`, exchanges `code`, sets the session cookie and redirects to the UI.
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          description: The authorization code from GitHub.
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          description: The state given at login.
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Signed in; redirect to `returnTo` (or `/`).
+          headers:
+            Location:
+              description: Where the UI continues.
+              schema:
+                type: string
+            Set-Cookie:
+              description: The session cookie (`HttpOnly`, `Secure`, `SameSite=Lax`, 12 h).
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Sign out
+      description: Clears the session. Succeeds without a session too.
+      security: []
+      responses:
+        '204':
+          description: Signed out.
+          headers:
+            Set-Cookie:
+              description: Expires the session cookie.
+              schema:
+                type: string
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Who am I
+      description: The signed-in user. `401` when there is no session (the UI redirects to login).
+      security:
+        - uiSession: []
+      responses:
+        '200':
+          description: The user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /auth/device-config:
+    get:
+      operationId: getDeviceConfig
+      tags: [auth]
+      summary: Device-flow configuration for agent owners
+      description: The OAuth client ID and scopes `factory-agent register` uses for the owner's device-flow login.
+      security: []
+      responses:
+        '200':
+          description: The device-flow configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceConfig'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---- webhooks (not under /api/v1; handled by Conn.Handler) -------------------------------
+  /hooks/{provider}:
+    servers:
+      - url: /
+        description: Served at the root of the public listener, outside `/api/v1`.
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        description: The provider instance's `metadata.name` (its `spec.github.webhook.path`).
+        schema:
+          type: string
+    post:
+      operationId: receiveWebhook
+      tags: [webhooks]
+      summary: Receive a provider webhook
+      description: |
+        Delegated to the provider adapter's `Conn.Handler()` (mounted with `echo.WrapHandler`),
+        which verifies the signature, persists the delivery and only then acknowledges. The body
+        is the provider's own payload and is not described here.
+      security:
+        - providerSignature: []
+      requestBody:
+        required: true
+        description: The provider's payload, opaque to this contract.
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '202':
+          description: Verified and persisted.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---- ops (localhost ops listener only) ---------------------------------------------------
+  /healthz:
+    servers:
+      - url: http://127.0.0.1:9090
+        description: The localhost ops listener (`--ops-addr`).
+    get:
+      operationId: getHealthz
+      tags: [ops]
+      summary: Liveness
+      description: The process is up.
+      security: []
+      responses:
+        '200':
+          description: Alive.
+          content:
+            text/plain:
+              schema:
+                type: string
+        default:
+          $ref: '#/components/responses/Error'
+  /readyz:
+    servers:
+      - url: http://127.0.0.1:9090
+        description: The localhost ops listener (`--ops-addr`).
+    get:
+      operationId: getReadyz
+      tags: [ops]
+      summary: Readiness
+      description: The catalog is loaded and the startup rebuild is done.
+      security: []
+      responses:
+        '200':
+          description: Ready.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /metrics:
+    servers:
+      - url: http://127.0.0.1:9090
+        description: The localhost ops listener (`--ops-addr`).
+    get:
+      operationId: getMetrics
+      tags: [ops]
+      summary: Prometheus metrics
+      description: Metrics in the Prometheus text exposition format.
+      security: []
+      responses:
+        '200':
+          description: The metrics.
+          content:
+            text/plain:
+              schema:
+                type: string
+        default:
+          $ref: '#/components/responses/Error'
+
+components:
+  securitySchemes:
+    agentToken:
+      type: http
+      scheme: bearer
+      description: |
+        The agent token from `registerAgent` (random, stored hashed, 24 h, renewed by heartbeats).
+        Lease and task routes also require the lease to belong to the agent.
+    joinToken:
+      type: apiKey
+      in: header
+      name: X-Factory-Join-Token
+      description: The pool's join token (`Pool.spec.admission.tokenRef`), given to owners out of band.
+    ownerToken:
+      type: apiKey
+      in: header
+      name: X-Factory-Owner-Token
+      description: |
+        A short-lived GitHub user token of the agent's owner, from the device flow against the
+        dispatcher's OAuth client (`getDeviceConfig`). Exchanged for the login, then discarded.
+    uiSession:
+      type: apiKey
+      in: cookie
+      name: factory_session
+      description: |
+        The web UI's server-side session (GitHub OAuth web flow; `HttpOnly`, `Secure`,
+        `SameSite=Lax`, 12 h). Any org member may read; commands need the `maintainers` Group.
+    cliToken:
+      type: http
+      scheme: bearer
+      description: The static CLI admin token (`FACTORY_CLI_TOKEN`), for `factory dispatch`.
+    providerSignature:
+      type: apiKey
+      in: header
+      name: X-Hub-Signature-256
+      description: |
+        The provider's HMAC signature of the body, verified by the provider adapter (GitHub:
+        `X-Hub-Signature-256`). Documented only; not checked by generated code.
+
+  parameters:
+    AgentID:
+      name: id
+      in: path
+      required: true
+      description: The agent's name (`agt_<owner>-<host>`).
+      schema:
+        type: string
+        minLength: 1
+    LeaseID:
+      name: id
+      in: path
+      required: true
+      description: The lease id from `leaseTask`.
+      schema:
+        type: string
+        minLength: 1
+    TaskID:
+      name: id
+      in: path
+      required: true
+      description: The task id (`tsk_…`).
+      schema:
+        type: string
+        minLength: 1
+    RunID:
+      name: id
+      in: path
+      required: true
+      description: The run's name (`run_…`).
+      schema:
+        type: string
+        minLength: 1
+    WorkItemID:
+      name: id
+      in: path
+      required: true
+      description: The work item's name (`wi_…`).
+      schema:
+        type: string
+        minLength: 1
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: The `nextCursor` of the previous page. Opaque.
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: The page size.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 100
+    LabelSelector:
+      name: labelSelector
+      in: query
+      required: false
+      description: 'A Kubernetes-style label selector on `metadata.labels`: `pack=intake,env!=prod,owner`.'
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: The request is malformed or fails validation (`code` says which rule).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Missing or invalid credentials.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Authenticated but not allowed (e.g. `effect-not-allowed`, `not-lease-holder`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: No such object.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: The object changed state (e.g. the lease expired or was cancelled).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PayloadTooLarge:
+      description: The body is over the limit (1 MB; transcripts 20 MB).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    TooManyRequests:
+      description: A rate limit was hit. `Retry-After` says when to retry.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ServiceUnavailable:
+      description: Not ready, or at capacity (e.g. the SSE subscriber limit).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Error:
+      description: Any other error.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+  schemas:
+    # ---- errors ------------------------------------------------------------------------------
+    Problem:
+      type: object
+      description: An RFC 9457 problem detail.
+      required: [title, status]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          description: A URI identifying the problem type; `about:blank` when only `code` matters.
+          default: about:blank
+        title:
+          type: string
+          description: A short summary of the problem type.
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+          description: The HTTP status code.
+        detail:
+          type: string
+          description: This occurrence's explanation.
+        instance:
+          type: string
+          description: The request id of this occurrence.
+        code:
+          type: string
+          description: 'A stable machine-readable code: `idempotency-key-required`, `effect-not-allowed`, `lease-expired`, ….'
+        errors:
+          type: array
+          description: Field-level validation errors.
+          items:
+            $ref: '#/components/schemas/FieldError'
+    FieldError:
+      type: object
+      description: One invalid field.
+      required: [field, message]
+      properties:
+        field:
+          type: string
+          description: The field's path, e.g. `capabilities.harnesses[0].name`.
+        message:
+          type: string
+          description: What is wrong with it.
+
+    # ---- v1alpha1 value types ----------------------------------------------------------------
+    ObjectMeta:
+      x-go-type: v1alpha1.ObjectMeta
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: Metadata of every kind except Task and Event.
+      required: [name]
+      properties:
+        name:
+          type: string
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        resourceVersion:
+          type: string
+          description: Runtime kinds only.
+        createdAt:
+          type: string
+          format: date-time
+    TaskMeta:
+      x-go-type: v1alpha1.TaskMeta
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: A Task's metadata. Tasks are named by id and carry their provenance.
+      required: [id, workItem]
+      properties:
+        id:
+          type: string
+        workItem:
+          type: string
+        provenance:
+          type: object
+          description: The event, RuleSet, rule and catalog commit that created the task.
+          properties:
+            event:
+              type: string
+            ruleSet:
+              type: string
+            rule:
+              type: string
+            catalogSHA:
+              type: string
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        resourceVersion:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    EventType:
+      x-go-type: v1alpha1.EventType
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: string
+      description: The event vocabulary (contracts.md §Event vocabulary).
+      enum:
+        - issue.opened
+        - issue.commented
+        - issue.labeled
+        - issue.closed
+        - pr.opened
+        - pr.updated
+        - pr.ready_for_review
+        - pr.labeled
+        - pr.review.submitted
+        - pr.checks.completed
+        - pr.merged
+        - pr.closed
+        - release.published
+        - deploy.succeeded
+        - deploy.failed
+        - message.posted
+        - message.mention
+        - factory.run.completed
+        - factory.run.failed
+        - factory.approval.granted
+        - factory.approval.denied
+        - factory.approval.expired
+        - factory.schedule.tick
+        - factory.workitem.resynced
+        - factory.command.pause
+        - factory.command.resume
+        - factory.command.redispatch
+        - factory.command.cancel
+    EffectOp:
+      x-go-type: v1alpha1.EffectOp
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: string
+      description: The effect ops (contracts.md §Effect ops).
+      enum:
+        - comment
+        - pr.comment
+        - label.add
+        - label.remove
+        - create-issue
+        - sub-issue.add
+        - close
+        - link-duplicate
+        - pr.open
+        - pr.update
+        - pr.retarget
+        - pr.merge
+        - review.comment
+        - review.request-changes
+        - review.approve
+        - thread.reply
+        - thread.resolve
+        - push-branch
+        - stack.push
+        - stack.rebase
+    TaskPhase:
+      x-go-type: v1alpha1.TaskPhase
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: string
+      description: 'A Task''s lifecycle phase: Pending → Leased → Running → Succeeded | Failed, and Running → Cancelling → Cancelled.'
+      enum: [Pending, Leased, Running, Succeeded, Failed, Cancelling, Cancelled]
+    AgentPhase:
+      x-go-type: v1alpha1.AgentPhase
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: string
+      description: A registered agent's state.
+      enum: [Ready, Busy, Throttled, Draining, Offline]
+    ProgressEvent:
+      x-go-type: v1alpha1.ProgressEvent
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: One progress line streamed by the agent.
+      required: [at, kind]
+      properties:
+        at:
+          type: string
+          format: date-time
+        kind:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+    HarnessOffer:
+      x-go-type: v1alpha1.HarnessOffer
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: What the agent can run with one harness. Concrete values, not patterns.
+      required: [name]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        auth:
+          type: string
+          description: '`subscription`, `apiKey`, `accessToken` or `cloud`.'
+        models:
+          type: array
+          items:
+            type: string
+        reasoningEffort:
+          type: array
+          items:
+            type: string
+    AgentCapabilities:
+      x-go-type: v1alpha1.AgentCapabilities
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: The agent's harness offers and labels.
+      properties:
+        harnesses:
+          type: array
+          items:
+            $ref: '#/components/schemas/HarnessOffer'
+        labels:
+          type: array
+          items:
+            type: string
+    Lending:
+      x-go-type: v1alpha1.Lending
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: The owner's consent. `unlimited` means any queue, any hour, no daily cap.
+      properties:
+        unlimited:
+          type: boolean
+        queues:
+          type: array
+          items:
+            type: string
+        ruleSets:
+          type: array
+          items:
+            type: string
+        harnesses:
+          type: array
+          items:
+            type: string
+        maxConcurrent:
+          type: integer
+        maxRunsPerDay:
+          type: integer
+        maxTokensPerDay:
+          type: integer
+          format: int64
+        hours:
+          type: string
+          example: Mon-Fri 08:00-20:00 Europe/Lisbon
+    HarnessRequest:
+      x-go-type: v1alpha1.HarnessRequest
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: A harness and config request. Strings are patterns.
+      required: [name]
+      properties:
+        name:
+          type: string
+        config:
+          type: object
+          properties:
+            model:
+              $ref: '#/components/schemas/StringOrList'
+            reasoningEffort:
+              $ref: '#/components/schemas/StringOrList'
+            prefer:
+              type: array
+              items:
+                type: string
+    StringOrList:
+      x-go-type: v1alpha1.StringOrList
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: A string or a list of strings (harness patterns).
+      oneOf:
+        - type: string
+        - type: array
+          items:
+            type: string
+    Result:
+      x-go-type: v1alpha1.Result
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: What an agent reports when a run completes. Schema `schemas/result.schema.json`.
+      required: [task, status]
+      properties:
+        task:
+          type: string
+        status:
+          type: string
+          enum: [done, failed, needs_input, noop]
+        outcome:
+          type: string
+        summary:
+          type: string
+        verdict:
+          type: object
+          additionalProperties: true
+        artifacts:
+          type: array
+          items:
+            type: object
+            required: [kind]
+            properties:
+              kind:
+                type: string
+              url:
+                type: string
+              ref:
+                type: string
+        suggest:
+          type: array
+          items:
+            type: object
+            required: [taskSpec]
+            properties:
+              taskSpec:
+                type: string
+              reason:
+                type: string
+              inputs:
+                type: object
+                additionalProperties: true
+        question:
+          type: string
+          nullable: true
+          description: Set when `status` is `needs_input`.
+        harness:
+          type: object
+          description: The harness that ran, its effective config and cumulative usage.
+          properties:
+            name:
+              type: string
+            version:
+              type: string
+            auth:
+              type: string
+            effectiveConfig:
+              type: object
+              properties:
+                model:
+                  type: string
+                reasoningEffort:
+                  type: string
+            usage:
+              type: object
+              properties:
+                inputTokens:
+                  type: integer
+                  format: int64
+                outputTokens:
+                  type: integer
+                  format: int64
+                turns:
+                  type: integer
+                wallClock:
+                  type: string
+                costUSD:
+                  type: number
+                  nullable: true
+                  description: '`null` for subscription runs.'
+        data:
+          type: object
+          additionalProperties: true
+          description: Spec-specific fields, validated by the TaskSpec's output schema.
+
+    # ---- v1alpha1 runtime kinds ----------------------------------------------------------------
+    Event:
+      x-go-type: v1alpha1.Event
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: A normalised provider event, shaped as a CloudEvent.
+      required: [kind, id, source, type, time, data]
+      properties:
+        apiVersion:
+          type: string
+          enum: [factory.ccf.dev/v1alpha1]
+        kind:
+          type: string
+          enum: [Event]
+        id:
+          type: string
+        source:
+          type: string
+          description: The provider instance, or `factory`.
+        type:
+          $ref: '#/components/schemas/EventType'
+        subject:
+          type: string
+        time:
+          type: string
+          format: date-time
+        data:
+          type: object
+          required: [provider]
+          properties:
+            provider:
+              type: string
+            actor:
+              type: object
+              required: [id]
+              properties:
+                id:
+                  type: string
+                tier:
+                  type: string
+                isBot:
+                  type: boolean
+                isFactory:
+                  type: boolean
+                identity:
+                  type: string
+            object:
+              type: object
+              required: [ref]
+              properties:
+                provider:
+                  type: string
+                kind:
+                  type: string
+                ref:
+                  type: string
+            repo:
+              type: string
+            contentRef:
+              type: string
+            facts:
+              type: object
+              additionalProperties: true
+            raw:
+              type: object
+              additionalProperties: true
+              description: The provider payload, kept for audit; never shown to rules.
+        workItem:
+          type: string
+          description: Set on `factory.*` events.
+    WorkItem:
+      x-go-type: v1alpha1.WorkItem
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: The provider objects that are about one piece of work, and its state.
+      required: [kind, metadata, spec]
+      properties:
+        apiVersion:
+          type: string
+          enum: [factory.ccf.dev/v1alpha1]
+        kind:
+          type: string
+          enum: [WorkItem]
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          type: object
+          properties:
+            links:
+              type: array
+              items:
+                type: object
+                required: [provider, ref]
+                properties:
+                  provider:
+                    type: string
+                  ref:
+                    type: string
+                  kind:
+                    type: string
+                  primary:
+                    type: boolean
+        status:
+          type: object
+          description: State keys, counters, approvals, decisions (newest 200) and reporter.
+          properties:
+            state:
+              type: object
+              additionalProperties: true
+            counters:
+              type: object
+              additionalProperties:
+                type: integer
+            approvals:
+              type: array
+              items:
+                type: object
+            decisions:
+              type: array
+              items:
+                type: object
+            reporter:
+              type: object
+    Task:
+      x-go-type: v1alpha1.Task
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: One instantiation of a TaskSpec for a work item.
+      required: [kind, metadata, spec]
+      properties:
+        apiVersion:
+          type: string
+          enum: [factory.ccf.dev/v1alpha1]
+        kind:
+          type: string
+          enum: [Task]
+        metadata:
+          $ref: '#/components/schemas/TaskMeta'
+        spec:
+          type: object
+          description: The TaskSpec resolved for this work item (v1alpha1.TaskRunSpec).
+          required: [taskSpec, queue]
+          properties:
+            taskSpec:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                digest:
+                  type: string
+            queue:
+              type: string
+            pool:
+              type: string
+            provider:
+              type: string
+            target:
+              type: object
+            inputs:
+              type: object
+              additionalProperties: true
+            harness:
+              type: object
+              properties:
+                request:
+                  $ref: '#/components/schemas/HarnessRequest'
+                resolved:
+                  type: object
+                  nullable: true
+                  description: Null until leased.
+            skills:
+              type: array
+              items:
+                type: object
+            prompt:
+              type: object
+            context:
+              type: array
+              items:
+                type: object
+                required: [kind, ref]
+                properties:
+                  kind:
+                    type: string
+                  provider:
+                    type: string
+                  ref:
+                    type: string
+                  trust:
+                    type: string
+                  mount:
+                    type: string
+            credentials:
+              type: object
+            effects:
+              type: object
+            limits:
+              type: object
+            output:
+              type: object
+        status:
+          type: object
+          required: [phase]
+          properties:
+            phase:
+              $ref: '#/components/schemas/TaskPhase'
+            agent:
+              type: string
+              nullable: true
+              description: Null until leased.
+            reason:
+              type: string
+            attempts:
+              type: integer
+            leaseExpiresAt:
+              type: string
+              format: date-time
+    Run:
+      x-go-type: v1alpha1.Run
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: One attempt at a Task by one agent.
+      required: [kind, metadata, spec]
+      properties:
+        apiVersion:
+          type: string
+          enum: [factory.ccf.dev/v1alpha1]
+        kind:
+          type: string
+          enum: [Run]
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          type: object
+          required: [task, attempt, agent]
+          properties:
+            task:
+              type: string
+            attempt:
+              type: integer
+            agent:
+              type: string
+            owner:
+              type: string
+        status:
+          type: object
+          properties:
+            startedAt:
+              type: string
+              format: date-time
+            endedAt:
+              type: string
+              format: date-time
+            progress:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProgressEvent'
+            result:
+              $ref: '#/components/schemas/Result'
+            transcriptRef:
+              type: string
+            usage:
+              type: object
+    Agent:
+      x-go-type: v1alpha1.Agent
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: A registered worker.
+      required: [kind, metadata, spec]
+      properties:
+        apiVersion:
+          type: string
+          enum: [factory.ccf.dev/v1alpha1]
+        kind:
+          type: string
+          enum: [Agent]
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          type: object
+          required: [pool, owner, capabilities]
+          properties:
+            pool:
+              type: string
+            owner:
+              type: string
+            capabilities:
+              $ref: '#/components/schemas/AgentCapabilities'
+            lending:
+              $ref: '#/components/schemas/Lending'
+        status:
+          type: object
+          required: [phase]
+          properties:
+            phase:
+              $ref: '#/components/schemas/AgentPhase'
+            throttledUntil:
+              type: string
+              nullable: true
+              format: date-time
+            lastHeartbeat:
+              type: string
+              format: date-time
+            running:
+              type: array
+              items:
+                type: string
+            today:
+              type: object
+              properties:
+                runs:
+                  type: integer
+                tokens:
+                  type: integer
+                  format: int64
+    Effect:
+      x-go-type: v1alpha1.Effect
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: The audit record of one provider write.
+      required: [kind, metadata, spec]
+      properties:
+        apiVersion:
+          type: string
+          enum: [factory.ccf.dev/v1alpha1]
+        kind:
+          type: string
+          enum: [Effect]
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          type: object
+          required: [task, op, target, idempotencyKey]
+          properties:
+            task:
+              type: string
+            op:
+              $ref: '#/components/schemas/EffectOp'
+            target:
+              type: object
+              required: [ref]
+              properties:
+                provider:
+                  type: string
+                kind:
+                  type: string
+                ref:
+                  type: string
+            idempotencyKey:
+              type: string
+            identity:
+              type: string
+            request:
+              type: object
+              additionalProperties: true
+        status:
+          type: object
+          properties:
+            result:
+              type: object
+              properties:
+                url:
+                  type: string
+                error:
+                  type: string
+            at:
+              type: string
+              format: date-time
+
+    # ---- v1alpha1 config kinds (shapes: schemas/<kind>.schema.json) ---------------------------
+    CatalogKind:
+      type: string
+      description: A config kind.
+      enum: [Provider, Group, Template, Rule, RuleSet, TaskSpec, Queue, Pool]
+    Provider:
+      x-go-type: v1alpha1.Provider
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: How to connect to one provider instance. Spec in `schemas/provider.schema.json`.
+      required: [kind, metadata, spec]
+      properties:
+        apiVersion:
+          type: string
+          enum: [factory.ccf.dev/v1alpha1]
+        kind:
+          type: string
+          enum: [Provider]
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          type: object
+          required: [type]
+          properties:
+            type:
+              type: string
+              enum: [github, slack]
+    Group:
+      x-go-type: v1alpha1.Group
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: A named set of people. Spec in `schemas/group.schema.json`.
+      required: [kind, metadata, spec]
+      properties:
+        apiVersion:
+          type: string
+          enum: [factory.ccf.dev/v1alpha1]
+        kind:
+          type: string
+          enum: [Group]
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          type: object
+    Template:
+      x-go-type: v1alpha1.Template
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: A notification template. Spec in `schemas/template.schema.json`.
+      required: [kind, metadata, spec]
+      properties:
+        apiVersion:
+          type: string
+          enum: [factory.ccf.dev/v1alpha1]
+        kind:
+          type: string
+          enum: [Template]
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          type: object
+    Rule:
+      x-go-type: v1alpha1.Rule
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: A rule. Spec in `schemas/rule.schema.json`.
+      required: [kind, metadata, spec]
+      properties:
+        apiVersion:
+          type: string
+          enum: [factory.ccf.dev/v1alpha1]
+        kind:
+          type: string
+          enum: [Rule]
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          type: object
+    RuleSet:
+      x-go-type: v1alpha1.RuleSet
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: A RuleSet. Spec in `schemas/ruleset.schema.json`.
+      required: [kind, metadata, spec]
+      properties:
+        apiVersion:
+          type: string
+          enum: [factory.ccf.dev/v1alpha1]
+        kind:
+          type: string
+          enum: [RuleSet]
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          type: object
+    TaskSpec:
+      x-go-type: v1alpha1.TaskSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: A task spec. Spec in `schemas/taskspec.schema.json`.
+      required: [kind, metadata, spec]
+      properties:
+        apiVersion:
+          type: string
+          enum: [factory.ccf.dev/v1alpha1]
+        kind:
+          type: string
+          enum: [TaskSpec]
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          type: object
+    Queue:
+      x-go-type: v1alpha1.Queue
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: A queue. Spec in `schemas/queue.schema.json`.
+      required: [kind, metadata, spec]
+      properties:
+        apiVersion:
+          type: string
+          enum: [factory.ccf.dev/v1alpha1]
+        kind:
+          type: string
+          enum: [Queue]
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          type: object
+          required: [pool]
+          properties:
+            pool:
+              type: string
+            concurrency:
+              type: integer
+            priority:
+              type: integer
+    Pool:
+      x-go-type: v1alpha1.Pool
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      type: object
+      description: A pool of agents. Spec in `schemas/pool.schema.json`.
+      required: [kind, metadata, spec]
+      properties:
+        apiVersion:
+          type: string
+          enum: [factory.ccf.dev/v1alpha1]
+        kind:
+          type: string
+          enum: [Pool]
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          type: object
+          required: [mode]
+          properties:
+            mode:
+              type: string
+              enum: [registered, ephemeral]
+    CatalogObject:
+      description: One config object, by kind.
+      oneOf:
+        - $ref: '#/components/schemas/Provider'
+        - $ref: '#/components/schemas/Group'
+        - $ref: '#/components/schemas/Template'
+        - $ref: '#/components/schemas/Rule'
+        - $ref: '#/components/schemas/RuleSet'
+        - $ref: '#/components/schemas/TaskSpec'
+        - $ref: '#/components/schemas/Queue'
+        - $ref: '#/components/schemas/Pool'
+      discriminator:
+        propertyName: kind
+        mapping:
+          Provider: '#/components/schemas/Provider'
+          Group: '#/components/schemas/Group'
+          Template: '#/components/schemas/Template'
+          Rule: '#/components/schemas/Rule'
+          RuleSet: '#/components/schemas/RuleSet'
+          TaskSpec: '#/components/schemas/TaskSpec'
+          Queue: '#/components/schemas/Queue'
+          Pool: '#/components/schemas/Pool'
+
+    # ---- agents and leases (API-only) --------------------------------------------------------
+    RegisterAgentRequest:
+      type: object
+      description: The agent's pool, host and offer. The credentials travel in the security headers.
+      required: [pool, host, agentVersion, capabilities]
+      properties:
+        pool:
+          type: string
+          minLength: 1
+          description: The Pool to join.
+        host:
+          type: string
+          minLength: 1
+          pattern: '^[a-z0-9][a-z0-9-]*$'
+          description: The worker's host name; the agent is named `agt_<owner>-<host>`.
+        agentVersion:
+          type: string
+          minLength: 1
+          description: The `factory-agent` version.
+        capabilities:
+          $ref: '#/components/schemas/AgentCapabilities'
+        lending:
+          $ref: '#/components/schemas/Lending'
+    AgentRegistration:
+      type: object
+      description: The agent's id and its bearer token.
+      required: [agentId, agentToken, expiresAt]
+      properties:
+        agentId:
+          type: string
+        agentToken:
+          type: string
+          description: Keep in memory only; re-register on restart.
+        expiresAt:
+          type: string
+          format: date-time
+    AgentUpdate:
+      type: object
+      description: A status report and/or a lending update. At least one field.
+      minProperties: 1
+      properties:
+        phase:
+          type: string
+          enum: [Ready, Throttled, Draining, Offline]
+          x-go-type: v1alpha1.AgentPhase
+          x-go-type-import:
+            path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        until:
+          type: string
+          format: date-time
+          description: Required with `Throttled`.
+        lending:
+          $ref: '#/components/schemas/Lending'
+    Lease:
+      type: object
+      description: A leased task, its lease and a scoped git credential.
+      required: [lease, task, gitCredential]
+      properties:
+        lease:
+          $ref: '#/components/schemas/LeaseInfo'
+        task:
+          $ref: '#/components/schemas/Task'
+        gitCredential:
+          $ref: '#/components/schemas/GitCredential'
+    LeaseInfo:
+      type: object
+      description: The lease itself.
+      required: [id, agent, task, expiresAt, heartbeatEvery]
+      properties:
+        id:
+          type: string
+        agent:
+          type: string
+        task:
+          type: string
+        run:
+          type: string
+          description: The Run created for this attempt.
+        expiresAt:
+          type: string
+          format: date-time
+        heartbeatEvery:
+          type: string
+          description: The heartbeat interval (`pool.lease.heartbeat`), e.g. `30s`.
+    GitCredential:
+      type: object
+      description: A scoped installation token for the task's repo. Never stored by the dispatcher.
+      required: [provider, host, username, token, expiresAt, repo]
+      properties:
+        provider:
+          type: string
+        host:
+          type: string
+          description: The git host, e.g. `github.com`.
+        username:
+          type: string
+          description: The username to present with the token (`x-access-token`).
+        token:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        repo:
+          type: string
+          description: The read-write (or read-only) task repo, `owner/name`.
+        readRepos:
+          type: array
+          description: Further repos the token may read.
+          items:
+            type: string
+        permissions:
+          type: object
+          additionalProperties:
+            type: string
+    HeartbeatRequest:
+      type: object
+      description: Progress events and usage deltas since the previous heartbeat.
+      properties:
+        progress:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProgressEvent'
+        usage:
+          $ref: '#/components/schemas/UsageDelta'
+    UsageDelta:
+      type: object
+      description: Usage since the previous heartbeat. `costUSD` is null for subscription runs.
+      properties:
+        inputTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        outputTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        costUSD:
+          type: number
+          nullable: true
+          minimum: 0
+    HeartbeatResponse:
+      type: object
+      description: The new expiry, whether to cancel, and maybe a refreshed credential.
+      required: [expiresAt, cancel]
+      properties:
+        expiresAt:
+          type: string
+          format: date-time
+        cancel:
+          type: boolean
+          description: Cancel the run now (the task is being cancelled).
+        refreshedGitCredential:
+          $ref: '#/components/schemas/GitCredential'
+    CompleteRequest:
+      type: object
+      description: The run's Result and its transcript.
+      required: [result]
+      properties:
+        result:
+          $ref: '#/components/schemas/Result'
+        transcriptRef:
+          type: string
+          description: From `uploadTranscript`.
+    AbandonRequest:
+      type: object
+      description: Why the task is handed back.
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          enum: [throttled, agent-error, shutdown]
+        until:
+          type: string
+          format: date-time
+          description: With `throttled`, when the harness's limit resets.
+        message:
+          type: string
+    TaskContext:
+      type: object
+      description: One fetched context item, labelled with its trust.
+      required: [index, kind, ref, trust, content]
+      properties:
+        index:
+          type: integer
+          minimum: 0
+        kind:
+          type: string
+        provider:
+          type: string
+        ref:
+          type: string
+        trust:
+          type: string
+          description: '`trusted` or `untrusted`.'
+        mediaType:
+          type: string
+          default: text/markdown
+        content:
+          type: string
+          description: The fetched content. Untrusted content is fenced and hidden parts are marked, not stripped.
+    TranscriptUpload:
+      type: object
+      description: Where the transcript was stored.
+      required: [transcriptRef, bytes]
+      properties:
+        transcriptRef:
+          type: string
+        bytes:
+          type: integer
+          format: int64
+    EffectRequest:
+      type: object
+      description: One effect. The dispatcher maps the catalog's inline effect fields to `args`.
+      required: [op, idempotencyKey]
+      properties:
+        op:
+          $ref: '#/components/schemas/EffectOp'
+        target:
+          type: string
+          description: The object to act on; defaults to the task's primary object.
+        args:
+          type: object
+          additionalProperties: true
+          description: Op-specific arguments (`body`, `labels`, `title`, `ref`, `sha`, …).
+        idempotencyKey:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: '`<taskID>/<op>/<seq>`, or a skill-chosen key. A repeated key replays the stored effect.'
+    EffectResponse:
+      type: object
+      description: The stored effect and, for API ops, the URL of what it made.
+      required: [effectId]
+      properties:
+        effectId:
+          type: string
+        url:
+          type: string
+
+    # ---- read models (API-only) --------------------------------------------------------------
+    WorkItemList:
+      type: object
+      description: A page of work items.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkItem'
+        nextCursor:
+          type: string
+          description: Absent on the last page.
+    WorkItemDetail:
+      type: object
+      description: A work item and its timeline.
+      required: [workItem, events, tasks, runs, effects]
+      properties:
+        workItem:
+          $ref: '#/components/schemas/WorkItem'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Task'
+        runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Run'
+        effects:
+          type: array
+          items:
+            $ref: '#/components/schemas/Effect'
+    TaskList:
+      type: object
+      description: A page of tasks.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Task'
+        nextCursor:
+          type: string
+          description: Absent on the last page.
+    RunDetail:
+      type: object
+      description: A run and its effects.
+      required: [run, effects]
+      properties:
+        run:
+          $ref: '#/components/schemas/Run'
+        effects:
+          type: array
+          items:
+            $ref: '#/components/schemas/Effect'
+    AgentList:
+      type: object
+      description: A page of agents.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Agent'
+        nextCursor:
+          type: string
+          description: Absent on the last page.
+    QueueList:
+      type: object
+      description: A page of queues.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/QueueView'
+        nextCursor:
+          type: string
+          description: Absent on the last page.
+    QueueView:
+      type: object
+      description: A queue and its depth.
+      required: [queue, depth, running, pending]
+      properties:
+        queue:
+          $ref: '#/components/schemas/Queue'
+        depth:
+          type: integer
+          minimum: 0
+          description: Pending tasks.
+        running:
+          type: integer
+          minimum: 0
+          description: Leased or running tasks.
+        pending:
+          type: array
+          description: The pending tasks and why each waits.
+          items:
+            $ref: '#/components/schemas/PendingTask'
+    PendingTask:
+      type: object
+      description: A pending task and the first matching check it failed.
+      required: [task]
+      properties:
+        task:
+          type: string
+        reason:
+          type: string
+          description: '`queue-full`, `budget`, `agent-busy`, `agent-throttled`, `lending`, `no-capable-agent`, `anti-affinity`.'
+        since:
+          type: string
+          format: date-time
+    PoolList:
+      type: object
+      description: A page of pools.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PoolView'
+        nextCursor:
+          type: string
+          description: Absent on the last page.
+    PoolView:
+      type: object
+      description: A pool and its agents.
+      required: [pool, agents]
+      properties:
+        pool:
+          $ref: '#/components/schemas/Pool'
+        agents:
+          type: array
+          description: The names of the agents registered in the pool.
+          items:
+            type: string
+    ProviderList:
+      type: object
+      description: A page of providers.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderView'
+        nextCursor:
+          type: string
+          description: Absent on the last page.
+    ProviderView:
+      type: object
+      description: A provider and its health.
+      required: [provider, health]
+      properties:
+        provider:
+          $ref: '#/components/schemas/Provider'
+        health:
+          $ref: '#/components/schemas/ProviderHealth'
+    ProviderHealth:
+      type: object
+      description: A provider connection's health (`Conn.Health()`).
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, down, unknown]
+        message:
+          type: string
+        checkedAt:
+          type: string
+          format: date-time
+    CatalogSummary:
+      type: object
+      description: The loaded catalog.
+      required: [ref, sha, status, objects]
+      properties:
+        repo:
+          type: string
+          description: The catalog repo URL, or empty for `--catalog-dir`.
+        ref:
+          type: string
+        sha:
+          type: string
+        loadedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [loaded, loading, error]
+          description: '`error` keeps serving the last good catalog.'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogError'
+        objects:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogObjectRef'
+    CatalogError:
+      type: object
+      description: One catalog load error.
+      required: [message]
+      properties:
+        code:
+          type: string
+        file:
+          type: string
+        line:
+          type: integer
+        message:
+          type: string
+    CatalogObjectRef:
+      type: object
+      description: One object in the catalog.
+      required: [kind, name]
+      properties:
+        kind:
+          $ref: '#/components/schemas/CatalogKind'
+        name:
+          type: string
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+
+    # ---- dry-run (API-only) ------------------------------------------------------------------
+    DryRunRequest:
+      type: object
+      description: An event to evaluate, optionally against an existing work item.
+      required: [event]
+      properties:
+        event:
+          $ref: '#/components/schemas/Event'
+        workItem:
+          type: string
+          description: Evaluate against this work item's state; an empty one when absent.
+    Evaluation:
+      type: object
+      description: What the rule engine decided for an event (internal/rules Evaluation).
+      required: [event, matches, decisions]
+      properties:
+        event:
+          type: string
+        workItem:
+          type: string
+        matches:
+          type: array
+          description: Every candidate rule and its result.
+          items:
+            $ref: '#/components/schemas/RuleMatch'
+        decisions:
+          type: array
+          description: The ordered actions that would be applied.
+          items:
+            $ref: '#/components/schemas/EvaluationDecision'
+        stateAfter:
+          type: object
+          additionalProperties: true
+          description: The projected work item state after all `set` actions.
+    RuleMatch:
+      type: object
+      description: One candidate rule's result.
+      required: [ruleSet, rule, result]
+      properties:
+        ruleSet:
+          type: string
+        rule:
+          type: string
+        result:
+          type: string
+          enum: [matched, not-matched, error, action-error, suppressed-by-final, duplicate]
+        actionIndex:
+          type: integer
+          description: With `action-error`, the failing action.
+        error:
+          type: string
+    EvaluationDecision:
+      type: object
+      description: One action a rule would take, with its rail verdict and the inputs `where` saw.
+      required: [ruleSet, rule, action, rail]
+      properties:
+        ruleSet:
+          type: string
+        rule:
+          type: string
+        action:
+          $ref: '#/components/schemas/ActionIntent'
+        rail:
+          $ref: '#/components/schemas/RailVerdict'
+        inputs:
+          type: object
+          additionalProperties: true
+    ActionIntent:
+      type: object
+      description: A materialised action; the fields besides `type` depend on it.
+      required: [type]
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+          enum: [dispatch, set, notify, cancel, link, effect, debounce, unsupported]
+    RailVerdict:
+      type: object
+      description: A safety rail's verdict on an action.
+      required: [verdict]
+      properties:
+        verdict:
+          type: string
+          enum: [Allowed, Suppressed, Deferred]
+        reason:
+          type: string
+
+    # ---- commands (API-only) -----------------------------------------------------------------
+    Command:
+      type: object
+      description: An operator command (api-server.md §Commands).
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [pause, resume, cancel, redispatch, dispatch, resync-catalog]
+        target:
+          $ref: '#/components/schemas/CommandTarget'
+        args:
+          $ref: '#/components/schemas/CommandArgs'
+    CommandTarget:
+      type: object
+      description: '`{scope, name}` for pause/resume; `{task}` for cancel/redispatch.'
+      properties:
+        scope:
+          type: string
+          enum: [global, provider, queue, workitem]
+        name:
+          type: string
+        task:
+          type: string
+    CommandArgs:
+      type: object
+      description: '`{harness}` for redispatch; `{event}` for dispatch.'
+      properties:
+        harness:
+          $ref: '#/components/schemas/HarnessRequest'
+        event:
+          $ref: '#/components/schemas/Event'
+    CommandAccepted:
+      type: object
+      description: The accepted command and the event it became, if any.
+      required: [type]
+      properties:
+        type:
+          type: string
+        event:
+          type: string
+          description: The id of the `factory.command.*` or injected event.
+
+    # ---- events (API-only) -------------------------------------------------------------------
+    StreamProgress:
+      type: object
+      description: The data of a `progress` event.
+      required: [run, event]
+      properties:
+        run:
+          type: string
+        task:
+          type: string
+        event:
+          $ref: '#/components/schemas/ProgressEvent'
+
+    # ---- auth (API-only) ---------------------------------------------------------------------
+    Me:
+      type: object
+      description: The signed-in user.
+      required: [login, isAdmin]
+      properties:
+        login:
+          type: string
+        name:
+          type: string
+        avatarUrl:
+          type: string
+          format: uri
+        isAdmin:
+          type: boolean
+          description: Member of the `maintainers` Group; may send commands.
+    DeviceConfig:
+      type: object
+      description: The OAuth client the agent's device flow uses.
+      required: [clientId, scopes]
+      properties:
+        clientId:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string

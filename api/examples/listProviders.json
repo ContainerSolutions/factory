@@ -1,0 +1,59 @@
+{
+  "items": [
+    {
+      "provider": {
+        "kind": "Provider",
+        "metadata": {
+          "name": "github-public",
+          "labels": {
+            "family": "github",
+            "network": "public"
+          }
+        },
+        "spec": {
+          "type": "github",
+          "github": {
+            "apiURL": "https://api.github.com",
+            "webhook": {
+              "path": "/hooks/github-public",
+              "secretRef": {
+                "name": "github-public-webhook",
+                "key": "secret"
+              }
+            },
+            "identities": {
+              "author": {
+                "appID": 123456,
+                "privateKeyRef": {
+                  "name": "ccf-factory-app",
+                  "key": "private-key"
+                }
+              }
+            }
+          },
+          "scope": {
+            "orgs": [
+              "compliance-framework"
+            ]
+          },
+          "trust": [
+            {
+              "tier": "maintainer",
+              "group": "maintainers"
+            },
+            {
+              "tier": "anyone"
+            }
+          ],
+          "resync": {
+            "every": "10m"
+          }
+        }
+      },
+      "health": {
+        "status": "ok",
+        "checkedAt": "2026-10-16T09:29:00Z"
+      }
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "event": "github-public/gh-7f3c2a10-8b1d-11ef-9a6e-0242ac120002",
+  "workItem": "wi_01JAB3J9T1D2E3F4G5H6J7K8LM",
+  "matches": [
+    {
+      "ruleSet": "docs",
+      "rule": "triage-outside-issues",
+      "result": "matched"
+    },
+    {
+      "ruleSet": "docs",
+      "rule": "triage-maintainer-issues",
+      "result": "not-matched"
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "docs",
+      "rule": "triage-outside-issues",
+      "action": {
+        "type": "dispatch",
+        "taskSpec": "triage",
+        "queue": "triage",
+        "harness": {
+          "name": "codex",
+          "config": {
+            "model": "gpt-5*",
+            "reasoningEffort": "medium"
+          }
+        },
+        "context": [
+          "compliance-framework/docs#42"
+        ]
+      },
+      "rail": {
+        "verdict": "Allowed"
+      },
+      "inputs": {
+        "actor.tier": "contributor",
+        "actor.isBot": false
+      }
+    },
+    {
+      "ruleSet": "docs",
+      "rule": "triage-outside-issues",
+      "action": {
+        "type": "set",
+        "key": "triage",
+        "value": "running"
+      },
+      "rail": {
+        "verdict": "Allowed"
+      },
+      "inputs": {
+        "actor.tier": "contributor",
+        "actor.isBot": false
+      }
+    }
+  ],
+  "stateAfter": {
+    "triage": "running"
+  }
+}

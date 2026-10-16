@@ -536,7 +536,7 @@ spec:
   limits: { maxTurns: 40, maxWallClock: 15m, maxCostUSD: 1.50 }
   output: { schema: schemas/results/triage.json }
 status:
-  phase: Pending              # Pending → Leased → Running → Succeeded | Failed | Cancelled
+  phase: Pending              # Pending → Leased → Running → Succeeded | Failed; Running → Cancelling → Cancelled
   agent: null
 ```
 

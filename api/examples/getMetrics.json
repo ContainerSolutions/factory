@@ -1,0 +1,1 @@
+"# HELP factory_tasks Tasks by phase.\n# TYPE factory_tasks gauge\nfactory_tasks{phase=\"Pending\"} 1\nfactory_tasks{phase=\"Running\"} 1\n"

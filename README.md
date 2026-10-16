@@ -13,6 +13,8 @@ GitHub events (a finished release train, an issue, a pull request) go to a centr
 |---|---|
 | `cmd/factory` | The dispatcher binary |
 | `cmd/factory-agent` | The agent binary (registered workers) |
+| `cmd/factory-mock` | A mock dispatcher serving the HTTP contract's examples, for agent and UI development |
+| `api/` | The HTTP contract (`openapi.yaml`) and one example per operation |
 | `internal/` | Go packages (see [repo-layout LLD](design/workstreams/foundation/LLD/repo-layout.md)) |
 | `web/` | The Factory UI (Vue), built separately and embedded with `go:embed` |
 | `catalog/` | The factory's configuration: providers, rules, task specs, queues, pools |
@@ -21,9 +23,11 @@ GitHub events (a finished release train, an issue, a pull request) go to a centr
 ## Build
 
 ```sh
-make build           # bin/factory, bin/factory-agent with a placeholder UI (no Node needed)
+make build           # bin/factory, bin/factory-agent, bin/factory-mock with a placeholder UI (no Node needed)
 make test            # go test -race
 make reviewable      # what CI runs for Go
+make openapi-lint    # lint the HTTP contract, api/openapi.yaml
+bin/factory-mock     # serve the HTTP contract with canned examples on 127.0.0.1:8081
 make build-release   # builds web/ and embeds it (-tags webui); needs web/ (WEB-S0-T01)
 ```
 
