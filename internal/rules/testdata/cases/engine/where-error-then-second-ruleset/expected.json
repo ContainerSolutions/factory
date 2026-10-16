@@ -1,0 +1,77 @@
+{
+  "event": "gh-40/0",
+  "workItem": "wi-5",
+  "matches": [
+    {
+      "ruleSet": "b-loose",
+      "rule": "final-guard",
+      "priority": 5,
+      "result": "not-matched",
+      "inputs": [
+        "event"
+      ]
+    },
+    {
+      "ruleSet": "a-strict",
+      "rule": "guarded-work",
+      "result": "error",
+      "error": "cel.eval: \"event.label == 'factory:work' && item.count('work') < params.limit\" at 1:53: no such overload",
+      "inputs": [
+        "event",
+        "item",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "b-loose",
+      "rule": "guarded-work",
+      "result": "matched",
+      "inputs": [
+        "event",
+        "item",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "b-loose",
+      "rule": "link-and-label",
+      "result": "not-matched",
+      "inputs": [
+        "event"
+      ]
+    },
+    {
+      "ruleSet": "b-loose",
+      "rule": "set-then-bad-dispatch",
+      "result": "not-matched",
+      "inputs": [
+        "event"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "b-loose",
+      "rule": "guarded-work",
+      "action": {
+        "dispatch": {
+          "taskSpec": "work",
+          "queue": "q",
+          "inputs": {
+            "issue": "org/repo#5"
+          }
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "event",
+        "item",
+        "params"
+      ]
+    }
+  ],
+  "stateAfter": {}
+}

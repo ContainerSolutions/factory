@@ -1,0 +1,44 @@
+{
+  "event": "gh-10/0",
+  "workItem": "wi-train",
+  "matches": [
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "fix-release-docs-review",
+      "result": "matched",
+      "inputs": [
+        "event",
+        "item"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "fix-release-docs-review",
+      "action": {
+        "dispatch": {
+          "taskSpec": "implement",
+          "queue": "poc",
+          "inputs": {
+            "mode": "address-review",
+            "target": "pr"
+          }
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "event",
+        "item"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "release": "drafting",
+    "review": "running",
+    "train": "compliance-framework/workflows#123"
+  }
+}

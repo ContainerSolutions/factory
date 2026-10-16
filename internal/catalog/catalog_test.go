@@ -79,8 +79,9 @@ func TestPoCCompiledView(t *testing.T) {
 	// Selection: selector ∪ shared pack, minus exclude; priority desc then name.
 	if got, want := effectiveNames(c.RuleSets["poc-docs-epic"]), []string{
 		"record-merge-outcome", "record-review-outcome", // priority 100
+		"review-whole-stack", // priority 50: reads stackNext before build-stack-next increments it
 		"announce-ptbr-live", "build-stack-next", "build-stack-start", "escalate-needs-human",
-		"fix-stack-review", "plan-maintainer-epics", "review-whole-stack",
+		"fix-stack-review", "plan-maintainer-epics",
 	}; !slices.Equal(got, want) {
 		t.Errorf("poc-docs-epic rules = %v, want %v", got, want)
 	}

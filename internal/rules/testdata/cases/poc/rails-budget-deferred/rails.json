@@ -1,0 +1,9 @@
+{
+  "trips": [
+    {
+      "rail": "budget",
+      "action": "dispatch",
+      "queue": "poc"
+    }
+  ]
+}

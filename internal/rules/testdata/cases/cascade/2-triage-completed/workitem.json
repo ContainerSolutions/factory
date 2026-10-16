@@ -1,0 +1,18 @@
+{
+  "id": "wi-42",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#42",
+      "kind": "issue",
+      "primary": true
+    }
+  ],
+  "reporter": {
+    "id": "github-public:someone",
+    "tier": "anyone"
+  },
+  "state": {
+    "triage": "running"
+  }
+}

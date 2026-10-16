@@ -1,0 +1,16 @@
+{
+  "event": "gh-35/0",
+  "workItem": "wi-rel",
+  "matches": [
+    {
+      "ruleSet": "docs-releases",
+      "rule": "docs-on-release",
+      "result": "not-matched",
+      "inputs": [
+        "event"
+      ]
+    }
+  ],
+  "decisions": [],
+  "stateAfter": {}
+}

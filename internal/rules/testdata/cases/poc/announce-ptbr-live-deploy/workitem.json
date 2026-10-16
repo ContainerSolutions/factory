@@ -1,0 +1,38 @@
+{
+  "id": "wi-epic",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#70",
+      "kind": "issue",
+      "primary": true
+    }
+  ],
+  "state": {
+    "plan": [
+      {
+        "issue": "compliance-framework/docs#71"
+      },
+      {
+        "issue": "compliance-framework/docs#72"
+      },
+      {
+        "issue": "compliance-framework/docs#73"
+      }
+    ],
+    "stackNext": 2,
+    "stackTotal": 3,
+    "review": "approved",
+    "merge": "merged"
+  },
+  "reporter": {
+    "id": "github-public:admin",
+    "tier": "maintainer"
+  },
+  "deploy": {
+    "state": "success",
+    "sha": "abc123",
+    "url": "https://compliance-framework.github.io/docs/",
+    "containsMerge": true
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "wi-other",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/api#9",
+      "kind": "issue",
+      "primary": true
+    }
+  ],
+  "reporter": {
+    "id": "github-public:someone",
+    "tier": "anyone"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "kind": "Event",
+  "id": "gh-2/0",
+  "source": "github-public",
+  "type": "issue.opened",
+  "time": "2026-10-16T11:00:00Z",
+  "data": {
+    "provider": "github-public",
+    "actor": {
+      "id": "github-public:someone",
+      "tier": "anyone"
+    },
+    "object": {
+      "provider": "github-public",
+      "kind": "issue",
+      "ref": "compliance-framework/docs#80"
+    },
+    "facts": {
+      "issue": {
+        "title": "Typo",
+        "labels": []
+      }
+    }
+  }
+}

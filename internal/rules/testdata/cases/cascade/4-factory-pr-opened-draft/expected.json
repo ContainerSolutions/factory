@@ -1,0 +1,20 @@
+{
+  "event": "gh-32/0",
+  "workItem": "wi-42",
+  "matches": [
+    {
+      "ruleSet": "docs",
+      "rule": "review-factory-prs",
+      "result": "not-matched",
+      "inputs": [
+        "actor",
+        "item"
+      ]
+    }
+  ],
+  "decisions": [],
+  "stateAfter": {
+    "implement": "running",
+    "triage": "triaged"
+  }
+}

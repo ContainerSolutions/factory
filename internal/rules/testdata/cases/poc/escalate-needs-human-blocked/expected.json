@@ -1,0 +1,163 @@
+{
+  "event": "factory-run-9",
+  "workItem": "wi-epic",
+  "matches": [
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "record-merge-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "record-review-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "review-whole-stack",
+      "priority": 50,
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "announce-ptbr-live",
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "build-stack-next",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "build-stack-start",
+      "result": "not-matched",
+      "inputs": [
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "escalate-needs-human",
+      "result": "matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "fix-stack-review",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-human-review",
+      "rule": "escalate-needs-human",
+      "result": "duplicate",
+      "firedVia": "poc-docs-epic",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "announce-release-docs",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "escalate-needs-human",
+      "result": "duplicate",
+      "firedVia": "poc-docs-epic",
+      "inputs": []
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "escalate-needs-human",
+      "action": {
+        "effect": {
+          "op": "label.add",
+          "target": "primary",
+          "args": {
+            "labels": [
+              "needs-human"
+            ]
+          }
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "escalate-needs-human",
+      "action": {
+        "notify": {
+          "template": "needs-human",
+          "to": [
+            {
+              "item": "primary"
+            }
+          ]
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "item",
+        "run"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "plan": [
+      {
+        "issue": "compliance-framework/docs#71"
+      },
+      {
+        "issue": "compliance-framework/docs#72"
+      },
+      {
+        "issue": "compliance-framework/docs#73"
+      }
+    ],
+    "stackNext": 0,
+    "stackTotal": 3
+  }
+}

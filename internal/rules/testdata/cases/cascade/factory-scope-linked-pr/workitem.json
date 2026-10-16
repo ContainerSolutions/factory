@@ -1,0 +1,15 @@
+{
+  "id": "wi-57",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#57",
+      "kind": "pr",
+      "primary": true
+    }
+  ],
+  "reporter": {
+    "id": "github-public:someone",
+    "tier": "anyone"
+  }
+}

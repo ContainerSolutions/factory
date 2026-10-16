@@ -1,0 +1,9 @@
+kind: TaskSpec
+metadata: { name: implement }
+spec:
+  instructions: { template: prompts/implement.md.tmpl }
+  harness: { default: { name: codex, config: { model: "gpt-5*", reasoningEffort: medium } } }
+  workspace: { repos: [{ ref: "=task.target.repo + '@main'", mode: rw }] }
+  identity: author
+  effects: { allow: [push-branch, pr.open, pr.update] }
+  output: { schema: schemas/implement.json, outcomes: [pr-opened, pr-updated, blocked] }

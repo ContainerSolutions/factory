@@ -1,0 +1,92 @@
+{
+  "id": "wi-epic",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#70",
+      "kind": "issue",
+      "primary": true
+    }
+  ],
+  "state": {
+    "plan": [
+      {
+        "issue": "compliance-framework/docs#71"
+      },
+      {
+        "issue": "compliance-framework/docs#72"
+      },
+      {
+        "issue": "compliance-framework/docs#73"
+      }
+    ],
+    "stackNext": 2,
+    "stackTotal": 3,
+    "review": "approved"
+  },
+  "reporter": {
+    "id": "github-public:admin",
+    "tier": "maintainer"
+  },
+  "prs": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#81",
+      "author": {
+        "isFactory": true
+      },
+      "draft": false,
+      "head": "a1",
+      "labels": [],
+      "checks": {
+        "state": "success",
+        "settled": true
+      },
+      "approvedBy": [
+        {
+          "identity": "reviewer",
+          "commit": "a1"
+        }
+      ]
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#82",
+      "author": {
+        "isFactory": true
+      },
+      "draft": false,
+      "head": "a2",
+      "labels": [],
+      "checks": {
+        "state": "success",
+        "settled": true
+      },
+      "approvedBy": [
+        {
+          "identity": "reviewer",
+          "commit": "a2"
+        }
+      ]
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#83",
+      "author": {
+        "isFactory": true
+      },
+      "draft": false,
+      "head": "a3",
+      "labels": [],
+      "checks": {
+        "state": "pending"
+      },
+      "approvedBy": [
+        {
+          "identity": "reviewer",
+          "commit": "a3"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "kind": "Event",
+  "id": "factory-run-9",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-16T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-impl-5",
+        "spec": "implement",
+        "outcome": "blocked",
+        "status": "done",
+        "inputs": {
+          "mode": "new",
+          "target": "pr",
+          "issue": "compliance-framework/docs#71"
+        },
+        "result": {}
+      }
+    }
+  },
+  "workItem": "wi-epic"
+}

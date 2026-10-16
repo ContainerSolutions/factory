@@ -1,0 +1,28 @@
+{
+  "kind": "Event",
+  "id": "gh-22/0",
+  "source": "github-public",
+  "type": "pr.review.submitted",
+  "time": "2026-10-16T11:00:00Z",
+  "data": {
+    "provider": "github-public",
+    "actor": {
+      "id": "github-public:ccf-factory-reviewer[bot]",
+      "tier": "anyone",
+      "isBot": true,
+      "isFactory": true,
+      "identity": "reviewer"
+    },
+    "object": {
+      "provider": "github-public",
+      "kind": "pr",
+      "ref": "compliance-framework/docs#90"
+    },
+    "facts": {
+      "review": {
+        "state": "approved",
+        "commit": "f00e"
+      }
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "event": "factory-approval-30",
+  "workItem": "wi-42",
+  "matches": [
+    {
+      "ruleSet": "docs",
+      "rule": "implement-on-approval",
+      "result": "matched",
+      "inputs": [
+        "approval"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "docs",
+      "rule": "implement-on-approval",
+      "action": {
+        "dispatch": {
+          "taskSpec": "implement",
+          "queue": "default"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "approval"
+      ]
+    },
+    {
+      "ruleSet": "docs",
+      "rule": "implement-on-approval",
+      "action": {
+        "set": {
+          "key": "implement",
+          "value": "running"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "approval"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "implement": "running",
+    "triage": "triaged"
+  }
+}

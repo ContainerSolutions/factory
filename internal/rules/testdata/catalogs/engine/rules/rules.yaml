@@ -1,0 +1,49 @@
+# Selected by both RuleSets; a-strict's limit is a string, so its where errors (int < string)
+# and b-loose, whose where passes, fires the rule: an erroring where doesn't consume the
+# dedupe.
+kind: Rule
+metadata: { name: guarded-work, labels: { pack: engine } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [issue.labeled]
+  where: "event.label == 'factory:work' && item.count('work') < params.limit"
+  params: { limit: 3 }
+  actions: [{ dispatch: { taskSpec: work, queue: q, inputs: { issue: "=event.object.ref" } } }]
+---
+# Link, effect and notify with "=" values.
+kind: Rule
+metadata: { name: link-and-label, labels: { pack: engine } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [issue.labeled]
+  where: "event.label == 'factory:link'"
+  actions:
+    - link: { from: "={'provider': 'gh', 'kind': 'pr', 'ref': event.repo + '#7'}" }
+    - effect: { op: label.add, target: primary, labels: ["=event.label + ':seen'"] }
+    - notify: { template: hello, to: [{ item: primary }] }
+---
+# A set, then a dispatch whose inputs fail the TaskSpec's input schema when the label isn't
+# a target: no decision from the rule, and the set is not applied.
+kind: Rule
+metadata: { name: set-then-bad-dispatch, labels: { pack: engine } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [issue.labeled]
+  where: "event.label.startsWith('target:')"
+  actions:
+    - set: { work: started }
+    - dispatch: { taskSpec: work, queue: q, inputs: { issue: "=event.object.ref", target: "=event.label == 'target:stack' ? 'stack' : 'other'" } }
+---
+# A final rule whose where passes but whose actions fail: it still counts as fired, so the
+# lower rules are suppressed (final fails closed).
+kind: Rule
+metadata: { name: final-guard, labels: { pack: engine } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [issue.labeled]
+  priority: 5
+  final: true
+  where: "event.label == 'factory:final'"
+  actions:
+    - set: { work: final }
+    - dispatch: { taskSpec: work, queue: q, inputs: { issue: "=event.object.ref", target: "=event.label" } }

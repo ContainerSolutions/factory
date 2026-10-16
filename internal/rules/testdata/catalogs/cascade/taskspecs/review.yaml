@@ -1,0 +1,9 @@
+kind: TaskSpec
+metadata: { name: review }
+spec:
+  instructions: { template: prompts/review.md.tmpl }
+  harness: { default: { name: claude-code, config: { model: "claude-{sonnet,opus}-5-*", reasoningEffort: high } } }
+  workspace: { checkout: read-only }
+  identity: reviewer
+  effects: { allow: [review.comment, review.request-changes, review.approve] }
+  output: { schema: schemas/review.json, outcomes: [approved, changes-requested, needs-human] }

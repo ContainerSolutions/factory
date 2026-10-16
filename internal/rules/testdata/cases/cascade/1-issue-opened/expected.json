@@ -1,0 +1,53 @@
+{
+  "event": "gh-30/0",
+  "workItem": "wi-42",
+  "matches": [
+    {
+      "ruleSet": "docs",
+      "rule": "triage-outside-issues",
+      "result": "matched",
+      "inputs": [
+        "actor"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "docs",
+      "rule": "triage-outside-issues",
+      "action": {
+        "dispatch": {
+          "taskSpec": "triage",
+          "queue": "triage"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor"
+      ]
+    },
+    {
+      "ruleSet": "docs",
+      "rule": "triage-outside-issues",
+      "action": {
+        "set": {
+          "key": "triage",
+          "value": "running"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "triage": "running"
+  }
+}

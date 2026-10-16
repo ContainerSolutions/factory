@@ -1,0 +1,11 @@
+# design/04-flows.md §implement: skips the approval for trusted, small work.
+kind: Rule
+metadata: { name: autoimplement-small-maintainer-issues, labels: { pack: implement } }
+spec:
+  on: [factory.run.completed]
+  priority: 10
+  final: true
+  where: >
+    run.spec == 'triage' && run.outcome == 'triaged' &&
+    item.reporter.tier == 'maintainer' && run.result.verdict.size in ['xs', 's']
+  actions: [{ dispatch: { taskSpec: implement, queue: default } }, { set: { implement: running } }]

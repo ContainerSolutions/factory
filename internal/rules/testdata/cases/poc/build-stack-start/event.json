@@ -1,0 +1,33 @@
+{
+  "kind": "Event",
+  "id": "factory-run-1",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-16T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-plan-1",
+        "spec": "plan-epic",
+        "outcome": "decomposed",
+        "status": "done",
+        "inputs": {},
+        "result": {
+          "plan": [
+            {
+              "issue": "compliance-framework/docs#71"
+            },
+            {
+              "issue": "compliance-framework/docs#72"
+            },
+            {
+              "issue": "compliance-framework/docs#73"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "workItem": "wi-epic"
+}

@@ -1,0 +1,21 @@
+{
+  "event": "gh-11/0",
+  "workItem": "wi-train",
+  "matches": [
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "fix-release-docs-review",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "item"
+      ]
+    }
+  ],
+  "decisions": [],
+  "stateAfter": {
+    "release": "drafting",
+    "review": "running",
+    "train": "compliance-framework/workflows#123"
+  }
+}

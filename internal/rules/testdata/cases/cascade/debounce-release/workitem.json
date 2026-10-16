@@ -1,0 +1,11 @@
+{
+  "id": "wi-rel",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/api#v1.4.0",
+      "kind": "release",
+      "primary": true
+    }
+  ]
+}

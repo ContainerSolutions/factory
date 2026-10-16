@@ -2,6 +2,7 @@ kind: Rule
 metadata: { name: review-whole-stack, labels: { pack: docs-epic } }
 spec:
   on: [factory.run.completed]
+  priority: 50                                             # before build-stack-next, so it reads stackNext before the increment
   where: >
     (run.spec == 'implement' && run.inputs.mode == 'new' && run.outcome == 'pr-opened' && item.state.stackNext + 1 == item.state.stackTotal) ||
     (run.spec == 'implement' && run.inputs.target == 'stack' && run.outcome == 'pr-updated')

@@ -1,0 +1,72 @@
+{
+  "event": "gh-14/0",
+  "workItem": "wi-95",
+  "matches": [
+    {
+      "ruleSet": "poc-docs-human-review",
+      "rule": "review-human-prs",
+      "result": "matched",
+      "inputs": [
+        "actor",
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "review-release-docs",
+      "result": "not-matched",
+      "inputs": [
+        "actor",
+        "item"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "poc-docs-human-review",
+      "rule": "review-human-prs",
+      "action": {
+        "cancel": {
+          "taskSpec": "docs-review"
+        }
+      },
+      "rail": {
+        "rail": "kill-switch",
+        "verdict": "suppressed",
+        "reason": "item has factory:stop"
+      },
+      "inputs": [
+        "actor",
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-human-review",
+      "rule": "review-human-prs",
+      "action": {
+        "dispatch": {
+          "taskSpec": "docs-review",
+          "queue": "poc",
+          "inputs": {
+            "checks": [
+              "style",
+              "versioning",
+              "build"
+            ],
+            "target": "pr"
+          }
+        }
+      },
+      "rail": {
+        "rail": "kill-switch",
+        "verdict": "suppressed",
+        "reason": "item has factory:stop"
+      },
+      "inputs": [
+        "actor",
+        "item"
+      ]
+    }
+  ],
+  "stateAfter": {}
+}

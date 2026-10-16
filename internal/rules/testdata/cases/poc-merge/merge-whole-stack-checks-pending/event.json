@@ -1,0 +1,25 @@
+{
+  "kind": "Event",
+  "id": "gh-20/0",
+  "source": "github-public",
+  "type": "pr.checks.completed",
+  "time": "2026-10-16T11:00:00Z",
+  "data": {
+    "provider": "github-public",
+    "actor": {
+      "id": "github-public:github-actions[bot]",
+      "tier": "anyone",
+      "isBot": true
+    },
+    "object": {
+      "provider": "github-public",
+      "kind": "pr",
+      "ref": "compliance-framework/docs#82"
+    },
+    "facts": {
+      "checks": {
+        "state": "success"
+      }
+    }
+  }
+}

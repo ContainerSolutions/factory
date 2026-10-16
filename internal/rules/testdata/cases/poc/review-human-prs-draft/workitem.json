@@ -1,0 +1,43 @@
+{
+  "id": "wi-95",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#95",
+      "kind": "pr",
+      "primary": true
+    }
+  ],
+  "reporter": {
+    "id": "github-public:someone",
+    "tier": "anyone"
+  },
+  "pr": {
+    "provider": "github-public",
+    "ref": "compliance-framework/docs#95",
+    "author": {
+      "isFactory": false
+    },
+    "draft": true,
+    "head": "beef",
+    "labels": [],
+    "checks": {
+      "state": "pending"
+    }
+  },
+  "prs": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#95",
+      "author": {
+        "isFactory": false
+      },
+      "draft": true,
+      "head": "beef",
+      "labels": [],
+      "checks": {
+        "state": "pending"
+      }
+    }
+  ]
+}

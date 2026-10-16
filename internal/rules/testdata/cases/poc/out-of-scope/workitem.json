@@ -1,0 +1,11 @@
+{
+  "id": "wi-api-1",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/api#1",
+      "kind": "issue",
+      "primary": true
+    }
+  ]
+}

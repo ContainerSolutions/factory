@@ -15,4 +15,4 @@ spec:
         queue: poc
         target: { repo: "{{ params.docsRepo }}" }
         inputs: { train: "=event.object.ref" }
-    - set: { release: drafting, train: "=event.object.ref" }
+    - set: { release: drafting, train: "=event.object.ref", manifest: "=event.train.manifest" }   # binds the item to this RuleSet's trains

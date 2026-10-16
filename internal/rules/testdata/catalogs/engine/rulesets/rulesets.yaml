@@ -1,0 +1,16 @@
+kind: RuleSet
+metadata: { name: a-strict }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  scope: { repos: ["org/*"] }
+  rules: { refs: [guarded-work] }
+  overrides:
+    guarded-work: { limit: "three" }
+---
+kind: RuleSet
+metadata: { name: b-loose }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  scope: { repos: ["org/*"] }
+  rules: { selector: { matchLabels: { pack: engine } } }
+  stateKeys: [work]

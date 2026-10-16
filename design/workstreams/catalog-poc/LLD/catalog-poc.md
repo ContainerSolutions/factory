@@ -76,7 +76,7 @@ Same rules, different targets — selected by RuleSet, never by editing rules.
 | RuleSet | Scope | Trigger difference (via params/overrides) | Target |
 |---|---|---|---|
 | `poc-release-docs` | `workflows`, `docs` | `docs-on-release-train.where` includes `event.train.manifest == 'repos.yaml' && !event.train.dryRun` (param `trainManifest: repos.yaml`) | `docsRepo: compliance-framework/docs` |
-| `dev-release-docs` | `workflows`, `mock-docs`, `mock-*` | `trainManifest: repos.mock.yaml`, `allowDryRun: true` | `docsRepo: compliance-framework/mock-docs` |
+| `dev-release-docs` | `workflows`, `mock-docs`, `mock-*` | `trainManifest: repos.mock.yaml` (`docs-on-release-train`, `announce-release-docs`), `allowDryRun: true` | `docsRepo: compliance-framework/mock-docs` |
 | `poc-docs-epic` / `dev-docs-epic` | `docs` / `mock-docs` | — | same repo |
 | `poc-docs-human-review` | `docs` | — | — |
 
@@ -89,6 +89,8 @@ where: >
   (('train:done' in event.issue.labels && !event.train.dryRun) ||
    (params.allowDryRun && 'train:dry-run' in event.issue.labels))
 ```
+
+Both RuleSets scope `workflows`, so `factory.*` events on a train item would reach both. `docs-on-release-train` therefore sets `manifest: "=event.train.manifest"` (a state key of both RuleSets), and `announce-release-docs`, the pack's `factory.*` rule, declares the same `trainManifest` param and requires `item.state.manifest == params.trainManifest`.
 
 Every RuleSet selects its own pack **plus the `shared` pack**, so `escalate-needs-human` applies everywhere:
 

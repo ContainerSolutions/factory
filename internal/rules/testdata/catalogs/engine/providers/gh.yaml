@@ -1,0 +1,18 @@
+# Test-only catalog for the rule engine's edge cases (rules-engine LLD §Tests): a where that
+# errors in one RuleSet only, link/effect/notify materialisation, invalid dispatch inputs.
+kind: Provider
+metadata: { name: gh, labels: { family: github } }
+spec:
+  type: github
+  github:
+    webhook: { path: /hooks/gh, secretRef: { name: s, key: k } }
+    identities:
+      author: { appID: 1, privateKeyRef: { name: a, key: k } }
+  trust:
+    - { tier: maintainer, group: maintainers }
+    - { tier: anyone }
+---
+kind: Group
+metadata: { name: maintainers }
+spec:
+  members: [{ provider: gh, users: [octocat] }]

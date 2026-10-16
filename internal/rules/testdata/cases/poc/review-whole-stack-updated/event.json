@@ -1,0 +1,24 @@
+{
+  "kind": "Event",
+  "id": "factory-run-6",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-16T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-impl-4",
+        "spec": "implement",
+        "outcome": "pr-updated",
+        "status": "done",
+        "inputs": {
+          "mode": "address-review",
+          "target": "stack"
+        },
+        "result": {}
+      }
+    }
+  },
+  "workItem": "wi-epic"
+}

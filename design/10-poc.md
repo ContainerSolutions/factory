@@ -412,7 +412,7 @@ String values starting with `=` are **CEL, evaluated at runtime** (`"=event.obje
         queue: poc
         target: { repo: "{{ params.docsRepo }}" }
         inputs: { train: "=event.object.ref" }
-    - set: { release: drafting, train: "=event.object.ref" }
+    - set: { release: drafting, train: "=event.object.ref", manifest: "=event.train.manifest" }   # binds the item to this RuleSet's trains
 
 # Alternative, one PR per release: swap the rule above for this one in the RuleSet.
 # - name: docs-on-release
@@ -456,7 +456,10 @@ String values starting with `=` are **CEL, evaluated at runtime** (`"=event.obje
 
 - name: announce-release-docs
   on: [factory.run.completed]
-  where: "run.spec == 'merge' && run.outcome == 'merged' && has(item.state.release)"
+  params: { trainManifest: repos.yaml }    # dev RuleSet overrides it, as for docs-on-release-train
+  where: >
+    run.spec == 'merge' && run.outcome == 'merged' && has(item.state.release) &&
+    has(item.state.manifest) && item.state.manifest == params.trainManifest
   actions:
     - notify: { template: release-docs-published, to: [{ item: all }] }   # the docs PR and the (closed) train issue
     - set: { release: published }
@@ -491,6 +494,7 @@ String values starting with `=` are **CEL, evaluated at runtime** (`"=event.obje
 
 - name: review-whole-stack
   on: [factory.run.completed]
+  priority: 50                             # before build-stack-next, so it reads stackNext before the increment
   where: >
     (run.spec == 'implement' && run.inputs.mode == 'new' && run.outcome == 'pr-opened' && item.state.stackNext + 1 == item.state.stackTotal) ||
     (run.spec == 'implement' && run.inputs.target == 'stack' && run.outcome == 'pr-updated')
@@ -528,8 +532,8 @@ String values starting with `=` are **CEL, evaluated at runtime** (`"=event.obje
   providerSelector: { matchLabels: { family: github } }
   on: [deploy.succeeded, factory.run.completed, factory.workitem.resynced]
   where: >
-    has(item.state.plan) && item.state.merge == 'merged' && !has(item.state.announced) &&
-    item.deploy.state == 'success' && item.deploy.containsMerge
+    has(item.state.plan) && has(item.state.merge) && item.state.merge == 'merged' && !has(item.state.announced) &&
+    has(item.deploy) && item.deploy.state == 'success' && item.deploy.containsMerge
   actions:
     - notify: { template: ptbr-live, to: [{ item: primary }] }   # "PT-BR is live: https://compliance-framework.github.io/docs/pt-BR/"
     - effect: { op: close, target: primary }
@@ -563,7 +567,7 @@ spec:
   rules:
     selector: { matchExpressions: [{ key: pack, operator: In, values: [release-docs, shared] }] }
     exclude: [merge-release-docs]          # remove this line once everything else is trusted (Q10)
-  stateKeys: [release, train, review, merge]
+  stateKeys: [release, train, manifest, review, merge]
 ---
 kind: RuleSet
 metadata: { name: poc-docs-epic }
@@ -583,7 +587,7 @@ spec:
   rules: { selector: { matchExpressions: [{ key: pack, operator: In, values: [review-human, shared] }] } }
 ```
 
-**Dev RuleSets** (`dev-release-docs`, `dev-docs-epic`) select the same packs but target **`mock-docs`** and mock trains: they override `trainManifest: repos.mock.yaml`, `allowDryRun: true` and `docsRepo: compliance-framework/mock-docs`. Full table: [catalog-poc.md §Dev and prod RuleSets](workstreams/catalog-poc/LLD/catalog-poc.md#dev-and-prod-rulesets).
+**Dev RuleSets** (`dev-release-docs`, `dev-docs-epic`) select the same packs but target **`mock-docs`** and mock trains: they override `trainManifest: repos.mock.yaml` (for `docs-on-release-train` and `announce-release-docs`), `allowDryRun: true` and `docsRepo: compliance-framework/mock-docs`. Both release-docs RuleSets scope `workflows`, so `docs-on-release-train` records the train's `manifest` in the item's state, and the pack's `factory.*` rules require `item.state.manifest == params.trainManifest`: a prod train item fires only through `poc-release-docs`, a dev one only through `dev-release-docs`. Full table: [catalog-poc.md §Dev and prod RuleSets](workstreams/catalog-poc/LLD/catalog-poc.md#dev-and-prod-rulesets).
 
 The packs coexist on `docs` PRs:
 
