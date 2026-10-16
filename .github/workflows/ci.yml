@@ -1,0 +1,155 @@
+# CI for the factory repo. Go uses the shared go-service CI from compliance-framework/workflows,
+# pinned to a release commit that ccf-bump moves; the web app (web/) has its own local job.
+# Each runs only when its side of the repo changed. The one status check to require is
+# `ci / required`, which reports on every PR, including when a side is skipped.
+name: ci
+
+on:
+  pull_request:
+    # closed: notify marks the PR's needs-human card handled and closes its CI incident.
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled, closed]
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  changes:
+    name: changes
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.state == 'closed') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      go: ${{ steps.diff.outputs.go }}
+      web: ${{ steps.diff.outputs.web }}
+      web-app: ${{ steps.diff.outputs.web-app }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the base branch or the pushed range must be in the clone
+          persist-credentials: false
+      - name: Find what changed
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          range=""
+          if [ "$EVENT" = "pull_request" ]; then
+            range="origin/$BASE_REF...HEAD"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
+              && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            range="$BEFORE...HEAD"
+          fi
+          if [ -z "$range" ]; then
+            echo "No base to compare with; treating everything as changed."
+            go=true; web=true
+          else
+            files="$(git diff --name-only "$range")"
+            printf 'Changed files:\n%s\n' "$files"
+            go=false; web=false
+            # Workflow changes run both sides, so a CI edit is always exercised.
+            if grep -qE '^(cmd/|internal/|api/|schemas/|catalog/|go\.mod$|go\.sum$|Makefile$|\.golangci\.yml$|\.github/workflows/)' <<< "$files"; then go=true; fi
+            if grep -qE '^(web/|api/openapi\.yaml$|api/examples/|\.github/workflows/)' <<< "$files"; then web=true; fi
+          fi
+          web_app=false
+          if [ -f web/package.json ]; then web_app=true; fi
+          echo "go=$go web=$web web-app=$web_app"
+          {
+            echo "go=$go"
+            echo "web=$web"
+            echo "web-app=$web_app"
+          } >> "$GITHUB_OUTPUT"
+
+  go:
+    needs: changes
+    if: ${{ needs.changes.outputs.go == 'true' }}
+    uses: compliance-framework/workflows/.github/workflows/ci-go-service.yml@e85d35af2af2ddfcd4b92061d2063e665c1831f6 # v1.7.0
+    with:
+      # gofmt, vet, go mod tidy, go test -race, build and golangci-lint run in the shared
+      # workflow; these are the repo's own extra gates (see the Makefile).
+      make-targets: check-generated catalog
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      security-events: write
+
+  web:
+    name: web
+    needs: changes
+    # Skipped until WEB-S0-T01 adds web/package.json.
+    if: ${{ needs.changes.outputs.web == 'true' && needs.changes.outputs.web-app == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Choose the Node version
+        id: node
+        run: |
+          if [ -f .nvmrc ]; then
+            echo "Using web/.nvmrc."
+            echo "file=web/.nvmrc" >> "$GITHUB_OUTPUT"
+          else
+            echo "No web/.nvmrc; using Node 20."
+            echo "version=20" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # One of the two is empty; setup-node prefers node-version when both are set.
+          node-version: ${{ steps.node.outputs.version }}
+          node-version-file: ${{ steps.node.outputs.file }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: npm ci
+        run: npm ci
+      - name: reviewable
+        run: npm run reviewable
+
+  required:
+    name: required
+    needs: [changes, go, web]
+    # Skipped, not failed, on a closed PR, like the jobs above.
+    if: ${{ always() && !(github.event_name == 'pull_request' && github.event.pull_request.state == 'closed') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      # A side that didn't change is skipped, which is fine; a failed or cancelled job is not.
+      - name: Check the results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          failed="$(jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | "\(.key): \(.value.result)"' <<< "$NEEDS")"
+          if [ -n "$failed" ]; then
+            echo "::error::required jobs did not succeed:"
+            echo "$failed"
+            exit 1
+          fi
+          if [ "$(jq -r '.changes.result' <<< "$NEEDS")" != "success" ]; then
+            echo "::error::the changes job did not succeed"
+            exit 1
+          fi
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$NEEDS"
+          echo "All required jobs succeeded or were skipped."
+
+  notify:
+    needs: [go, web]
+    if: always()
+    uses: compliance-framework/workflows/.github/workflows/notify-failure.yml@e85d35af2af2ddfcd4b92061d2063e665c1831f6 # v1.7.0
+    with:
+      needs: ${{ toJSON(needs) }}
+    permissions:
+      contents: read
+    secrets: inherit

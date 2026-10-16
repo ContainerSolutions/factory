@@ -7,7 +7,7 @@ Guidance for coding agents (and humans) working in this repo. The design lives i
 ```sh
 make reviewable                 # generated-code check + lint + tests + catalog checks: what CI runs for Go
 make test                       # go test -race -count=1 ./...
-make lint                       # golangci-lint v2
+make lint                       # golangci-lint v2: the shared CCF base config (workflows/.golangci.yml) + depguard
 make generate                   # oapi-codegen + go generate + schemas
 go test ./internal/webui -run TestHandler   # one test
 make build-release              # web/ build + go build -tags webui

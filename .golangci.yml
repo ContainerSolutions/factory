@@ -1,10 +1,29 @@
-# golangci-lint v2. Same linter set as compliance-framework/api (the v2 defaults),
-# plus depguard keeping the pure packages free of I/O (repo-layout LLD).
+# golangci-lint v2. Mirrors the shared CCF base config, which the shared CI uses for repos
+# without their own config (e.g. api): keep in sync with
+# compliance-framework/workflows/.golangci.yml @ v1.7.0.
+# On top of it: depguard keeps the pure packages free of I/O (repo-layout LLD), and
+# gofmt/goimports as formatters.
 version: "2"
 
+run:
+  # Exclusion paths are relative to go.mod (as in the shared config).
+  relative-path-mode: gomod
+
 linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
   enable:
+    # From the shared base config.
+    - bodyclose
+    - errorlint
+    - misspell
+    - unconvert
+    # Factory-specific.
     - depguard
+  exclusions:
+    generated: lax
+    presets:
+      - common-false-positives
+      - std-error-handling
   settings:
     depguard:
       rules:
