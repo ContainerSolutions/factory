@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"sigs.k8s.io/yaml"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestDurationParse(t *testing.T) {
@@ -62,7 +62,7 @@ func TestStringOrListRoundTrip(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var h holder
-			if err := yaml.UnmarshalStrict([]byte(tt.in), &h); err != nil {
+			if err := unmarshalYAML([]byte(tt.in), &h); err != nil {
 				t.Fatal(err)
 			}
 			if h.V.IsList() != tt.isList || len(h.V.Values) != len(tt.want) {
@@ -73,7 +73,7 @@ func TestStringOrListRoundTrip(t *testing.T) {
 					t.Fatalf("decoded %v, want %v", h.V.Values, tt.want)
 				}
 			}
-			out, err := yaml.Marshal(h)
+			out, err := marshalYAML(h)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -92,10 +92,10 @@ func TestStringOrListRoundTrip(t *testing.T) {
 		})
 	}
 	var h holder
-	if err := yaml.UnmarshalStrict([]byte(`v: { a: b }`), &h); err == nil {
+	if err := unmarshalYAML([]byte(`v: { a: b }`), &h); err == nil {
 		t.Error("accepted an object")
 	}
-	if err := yaml.UnmarshalStrict([]byte(`v: [1, [2]]`), &h); err == nil {
+	if err := unmarshalYAML([]byte(`v: [1, [2]]`), &h); err == nil {
 		t.Error("accepted a nested list")
 	}
 	if got, _ := json.Marshal(List("a")); string(got) != `["a"]` {

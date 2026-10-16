@@ -134,7 +134,7 @@ jobs:
 | Purpose | Library |
 |---|---|
 | CEL | `github.com/google/cel-go` |
-| YAML | `sigs.k8s.io/yaml` (strict via `yaml.UnmarshalStrict`) |
+| YAML | `go.yaml.in/yaml/v3` (YAML 1.2; strict decoding goes YAML → JSON → `encoding/json` with `DisallowUnknownFields`) |
 | JSON Schema gen / validate | `github.com/invopop/jsonschema` / `github.com/santhosh-tekuri/jsonschema/v6` |
 | HTTP server (real dispatcher) | `github.com/labstack/echo/v4` (v4.13.x, the same line as `api`); `factory-mock` uses plain `net/http` |
 | OpenAPI codegen | `github.com/oapi-codegen/oapi-codegen/v2` (Echo strict server + client) |

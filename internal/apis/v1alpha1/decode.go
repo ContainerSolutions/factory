@@ -1,12 +1,9 @@
 package v1alpha1
 
 import (
-	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
-
-	"sigs.k8s.io/yaml"
 )
 
 // Decoding errors, wrapped by DocumentError.
@@ -20,7 +17,8 @@ var (
 type DocumentError struct {
 	// Index is the 0-based index of the document among the non-empty documents.
 	Index int
-	// Line is the 1-based line where the document starts.
+	// Line is the 1-based line of the document's root node; 0 when unknown (YAML syntax errors
+	// carry their line in Err).
 	Line int
 	// Kind is the document's kind, when it could be read.
 	Kind string
@@ -31,6 +29,9 @@ func (e *DocumentError) Error() string {
 	kind := e.Kind
 	if kind == "" {
 		kind = "?"
+	}
+	if e.Line == 0 {
+		return fmt.Sprintf("document[%d] (kind %s): %v", e.Index, kind, e.Err)
 	}
 	return fmt.Sprintf("document[%d] (line %d, kind %s): %v", e.Index, e.Line, kind, e.Err)
 }
@@ -66,14 +67,23 @@ func prefixField(prefix string, err error) error {
 
 type validator interface{ Validate() error }
 
-// Decode decodes a YAML stream of one or more documents separated by `---` lines. Each
-// document is decoded strictly into the type of its kind: unknown fields, unknown kinds and
-// an apiVersion other than APIVersion are errors. A missing apiVersion is accepted. Empty
-// documents are skipped.
+// Decode decodes a YAML 1.2 stream of one or more documents (separated by `---`, optionally
+// ended by `...`). Each document is decoded strictly into the type of its kind: unknown
+// fields, duplicate keys, non-string keys, unknown kinds and an apiVersion other than
+// APIVersion are errors. A missing apiVersion is accepted. Empty documents are skipped.
 func Decode(data []byte) ([]Object, error) {
-	var out []Object
-	for i, doc := range splitDocuments(data) {
-		obj, err := decodeOne(doc.body)
+	docs, err := yamlDocuments(data)
+	if err != nil {
+		de := &DocumentError{Index: len(docs), Err: err}
+		var le *lineError
+		if errors.As(err, &le) {
+			de.Line, de.Err = le.line, le.err
+		}
+		return nil, de
+	}
+	out := make([]Object, 0, len(docs))
+	for i, doc := range docs {
+		obj, err := decodeOne(doc.json)
 		if err != nil {
 			de := &DocumentError{Index: i, Line: doc.line, Err: err}
 			var ke *kindError
@@ -102,15 +112,16 @@ func DecodeOne(data []byte) (Object, error) {
 // DecodeResult strictly decodes a Result (JSON or YAML).
 func DecodeResult(data []byte) (*Result, error) {
 	var r Result
-	if err := yaml.UnmarshalStrict(data, &r); err != nil {
+	if err := unmarshalYAML(data, &r); err != nil {
 		return nil, fmt.Errorf("result: %w", err)
 	}
 	return &r, nil
 }
 
-// Encode marshals an object to YAML. It writes apiVersion only when the object has one.
+// Encode marshals an object to block-style YAML. It writes apiVersion only when the object
+// has one.
 func Encode(obj Object) ([]byte, error) {
-	b, err := yaml.Marshal(obj)
+	b, err := marshalYAML(obj)
 	if err != nil {
 		return nil, fmt.Errorf("encode %s %q: %w", obj.GetTypeMeta().Kind, obj.GetName(), err)
 	}
@@ -125,10 +136,11 @@ type kindError struct {
 func (e *kindError) Error() string { return e.err.Error() }
 func (e *kindError) Unwrap() error { return e.err }
 
+// decodeOne decodes one document, already converted to JSON.
 func decodeOne(doc []byte) (Object, error) {
 	var tm TypeMeta
-	if err := yaml.Unmarshal(doc, &tm); err != nil {
-		return nil, err
+	if err := json.Unmarshal(doc, &tm); err != nil {
+		return nil, fmt.Errorf("want a mapping with kind: %w", err)
 	}
 	if tm.Kind == "" {
 		return nil, ErrMissingKind
@@ -140,7 +152,7 @@ func decodeOne(doc []byte) (Object, error) {
 	if err != nil {
 		return nil, &kindError{tm.Kind, err}
 	}
-	if err := yaml.UnmarshalStrict(doc, obj); err != nil {
+	if err := strictJSON(doc, obj); err != nil {
 		return nil, &kindError{tm.Kind, err}
 	}
 	if v, ok := obj.(validator); ok {
@@ -149,55 +161,4 @@ func decodeOne(doc []byte) (Object, error) {
 		}
 	}
 	return obj, nil
-}
-
-type document struct {
-	line int
-	body []byte
-}
-
-// splitDocuments splits a YAML stream on `---` lines (a separator may carry content after a
-// space, e.g. `--- # comment`). Documents with no content are dropped.
-func splitDocuments(data []byte) []document {
-	var (
-		docs  []document
-		cur   bytes.Buffer
-		start = 1
-		line  = 0
-	)
-	flush := func() {
-		body := append([]byte(nil), cur.Bytes()...)
-		if hasContent(body) {
-			docs = append(docs, document{line: start, body: body})
-		}
-		cur.Reset()
-	}
-	for _, text := range strings.Split(string(data), "\n") {
-		line++
-		text = strings.TrimSuffix(text, "\r")
-		if text == "---" || strings.HasPrefix(text, "--- ") || strings.HasPrefix(text, "---\t") {
-			flush()
-			start = line
-			text = strings.TrimSpace(text[3:])
-			if text == "" || strings.HasPrefix(text, "#") {
-				start = line + 1
-				continue
-			}
-		}
-		cur.WriteString(text)
-		cur.WriteByte('\n')
-	}
-	flush()
-	return docs
-}
-
-// hasContent reports whether a document has anything but blank lines and comments.
-func hasContent(doc []byte) bool {
-	for _, l := range strings.Split(string(doc), "\n") {
-		l = strings.TrimSpace(l)
-		if l != "" && !strings.HasPrefix(l, "#") {
-			return true
-		}
-	}
-	return false
 }

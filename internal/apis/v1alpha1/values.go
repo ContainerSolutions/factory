@@ -195,23 +195,3 @@ func strictJSON(data []byte, v any) error {
 	}
 	return nil
 }
-
-// yaml11On handles the objects that have an `on` field (RuleSpec, RetryPolicy).
-// sigs.k8s.io/yaml reads YAML 1.1, where an unquoted `on` key is the boolean true, so it
-// reaches JSON as "true". No v1alpha1 field is named "true": the key is read as "on".
-func yaml11On(data []byte) ([]byte, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return nil, err
-	}
-	v, ok := fields["true"]
-	if !ok {
-		return data, nil
-	}
-	if _, dup := fields["on"]; dup {
-		return nil, errors.New(`both "on" and an unquoted YAML 1.1 boolean key (read as "on") are set`)
-	}
-	delete(fields, "true")
-	fields["on"] = v
-	return json.Marshal(fields)
-}

@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
-	"sigs.k8s.io/yaml"
+	"go.yaml.in/yaml/v3"
 )
 
 // The examples are every YAML/JSON example in design/03-domain-model.md and design/10-poc.md,
@@ -46,7 +46,7 @@ func TestExamplesRoundTrip(t *testing.T) {
 				if err != nil {
 					t.Fatalf("decode: %v", err)
 				}
-				if out, err = yaml.Marshal(r); err != nil {
+				if out, err = marshalYAML(r); err != nil {
 					t.Fatalf("marshal: %v", err)
 				}
 				if _, err := DecodeResult(out); err != nil {
@@ -166,32 +166,21 @@ func schemaInstance(t *testing.T, v any) any {
 	return inst
 }
 
-// genericYAML decodes YAML into generic maps, the way sigs.k8s.io/yaml reads it, then reads
-// every "true" key as "on": YAML 1.1 parses an unquoted `on` key as a boolean (see yaml11On),
-// and no field or example key is really named "true".
+// genericYAML decodes one YAML document into generic values (YAML 1.2), normalised through
+// JSON so that numbers compare the same way on both sides (int vs float64).
 func genericYAML(t *testing.T, data []byte) any {
 	t.Helper()
 	var v any
 	if err := yaml.Unmarshal(data, &v); err != nil {
 		t.Fatal(err)
 	}
-	return renameOn(v)
-}
-
-func renameOn(v any) any {
-	switch v := v.(type) {
-	case map[string]any:
-		if on, ok := v["true"]; ok {
-			delete(v, "true")
-			v["on"] = on
-		}
-		for k, e := range v {
-			v[k] = renameOn(e)
-		}
-	case []any:
-		for i, e := range v {
-			v[i] = renameOn(e)
-		}
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return v
+	var out any
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }

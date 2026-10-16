@@ -10,7 +10,8 @@ const ruleDoc = `kind: Rule
 metadata: { name: r }
 spec:
   on: [issue.opened]
-  actions: [{ set: { triage: running } }]
+  actions:
+    - set: { triage: running }
 `
 
 func TestDecodeErrors(t *testing.T) {
@@ -48,7 +49,7 @@ func TestDecodeErrors(t *testing.T) {
 		{
 			name:     "error names the document index and line",
 			in:       ruleDoc + "---\n# second\nkind: Queue\nmetadata: { name: q }\nspec: { pool: p, concurency: 2 }\n",
-			contains: []string{"document[1] (line 7, kind Queue)", `unknown field "concurency"`},
+			contains: []string{"document[1] (line 9, kind Queue)", `unknown field "concurency"`},
 		},
 		{
 			name:     "unknown kind",
@@ -71,7 +72,32 @@ func TestDecodeErrors(t *testing.T) {
 		{
 			name:     "duplicate key",
 			in:       "kind: Queue\nmetadata: { name: q }\nspec: { pool: p, pool: r }\n",
-			contains: []string{"kind Queue", "pool"},
+			contains: []string{"document[0] (line 1", `line 3: mapping key "pool" already defined at line 3`},
+		},
+		{
+			name:     "duplicate key in a free-form map",
+			in:       ruleDoc + "  params:\n    queue: a\n    queue: b\n",
+			contains: []string{`line 9: mapping key "queue" already defined at line 8`},
+		},
+		{
+			name:     "non-string key",
+			in:       ruleDoc + "  params: { 1: a }\n",
+			contains: []string{`line 7: mapping key "1" (!!int) is not a string; quote it`},
+		},
+		{
+			name:     "merge key",
+			in:       "base: &b { pool: p }\nkind: Queue\nmetadata: { name: q }\nspec: { <<: *b }\n",
+			contains: []string{"merge keys (<<) are not supported"},
+		},
+		{
+			name:     "YAML syntax error",
+			in:       ruleDoc + "---\nkind: Queue\nspec: [\n",
+			contains: []string{"document[1] (kind ?)", "yaml:"},
+		},
+		{
+			name:     "yes is a string, not a boolean, so a bool field rejects it",
+			in:       "kind: Provider\nmetadata: { name: p }\nspec: { type: slack, trust: [{ tier: anyone, workspaceMember: yes }] }\n",
+			contains: []string{"kind Provider", "cannot unmarshal string"},
 		},
 		{
 			name:     "action with no member",
@@ -89,9 +115,34 @@ func TestDecodeErrors(t *testing.T) {
 			contains: []string{"spec.inlineRules[0].spec.actions[0]", "2 members"},
 		},
 		{
-			name:     "on given twice through YAML 1.1",
+			name:     "on given twice",
 			in:       "kind: Rule\nmetadata: { name: r }\nspec: { on: [issue.opened], \"on\": [pr.opened], actions: [{ set: {} }] }\n",
-			contains: []string{`both "on"`},
+			contains: []string{`mapping key "on" already defined`},
+		},
+		{
+			name:     "group member with two sources",
+			in:       "kind: Group\nmetadata: { name: g }\nspec: { members: [{ provider: p, team: a/b }, { provider: p, team: a/b, users: [x] }] }\n",
+			contains: []string{"kind Group", "spec.members[1]: member source sets [team users]"},
+		},
+		{
+			name:     "group member with no source",
+			in:       "kind: Group\nmetadata: { name: g }\nspec: { members: [{ provider: p }] }\n",
+			contains: []string{"spec.members[0]: member source sets none of [team orgRole users userGroup]"},
+		},
+		{
+			name:     "destination with two targets",
+			in:       ruleDoc + "    - notify: { template: t, to: [{ item: all }, { group: maintainers, via: slack-ccf, item: primary }] }\n",
+			contains: []string{"spec.actions[1].notify.to[1]: destination sets [group item]"},
+		},
+		{
+			name:     "destination with no target",
+			in:       ruleDoc + "    - notify: { template: t, to: [{ via: slack-ccf, as: dm }] }\n",
+			contains: []string{"spec.actions[1].notify.to[0]: destination sets none of [group channel item]"},
+		},
+		{
+			name:     "inline rule destination",
+			in:       "kind: RuleSet\nmetadata: { name: rs }\nspec:\n  providerSelector: {}\n  rules: {}\n  inlineRules: [{ metadata: { name: r }, spec: { on: [pr.opened], actions: [{ notify: { template: t, to: [{}] } }] } }]\n",
+			contains: []string{"spec.inlineRules[0].spec.actions[0].notify.to[0]"},
 		},
 		{
 			name:     "template body object without blocks",
@@ -230,5 +281,69 @@ func TestNewEveryKind(t *testing.T) {
 	}
 	if IsConfigKind(KindTask) || !IsConfigKind(KindTaskSpec) {
 		t.Error("IsConfigKind is wrong")
+	}
+}
+
+// TestYAML12 checks that documents are read as YAML 1.2: on/yes/no/off are strings, in typed
+// fields and in free-form maps alike.
+func TestYAML12(t *testing.T) {
+	in := `kind: Rule
+metadata: { name: r }
+spec:
+  on: [issue.opened]
+  where: no
+  params: { on: yes, off: n, when: 2026-10-15, enabled: true }
+  actions:
+    - set: { on: on }
+...
+---
+kind: Queue
+metadata: { name: q }
+spec: { pool: yes, retry: { max: 1, on: [agent-lost] } }
+...
+`
+	objs, err := Decode([]byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(objs) != 2 {
+		t.Fatalf("decoded %d documents, want 2", len(objs))
+	}
+	r := objs[0].(*Rule)
+	if len(r.Spec.On) != 1 || r.Spec.Where != "no" {
+		t.Errorf("spec = %+v", r.Spec)
+	}
+	wantParams := map[string]any{"on": "yes", "off": "n", "when": "2026-10-15", "enabled": true}
+	for k, want := range wantParams {
+		if got := r.Spec.Params[k]; got != want {
+			t.Errorf("params[%q] = %#v, want %#v", k, got, want)
+		}
+	}
+	if got := r.Spec.Actions[0].Set["on"]; got != "on" {
+		t.Errorf(`set["on"] = %#v, want "on"`, got)
+	}
+	q := objs[1].(*Queue)
+	if q.Spec.Pool != "yes" || q.Spec.Retry == nil || len(q.Spec.Retry.On) != 1 {
+		t.Errorf("queue spec = %+v", q.Spec)
+	}
+
+	out, err := Encode(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// YAML 1.2 output: on/yes/no are plain strings; only values that would read back as
+	// another type (a date here) are quoted.
+	text := string(out)
+	for _, want := range []string{"\n  on:\n", "\n    on: yes\n", "\n  where: no\n", "\n    when: \"2026-10-15\"\n", "\n        on: on\n"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("encoded output lacks %q:\n%s", want, text)
+		}
+	}
+	back, err := DecodeOne(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := back.(*Rule).Spec.Params["on"]; got != "yes" {
+		t.Errorf(`re-decoded params["on"] = %#v`, got)
 	}
 }

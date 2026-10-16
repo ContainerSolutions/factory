@@ -130,9 +130,27 @@
       ]
     },
     "Destination": {
+      "oneOf": [
+        {
+          "required": [
+            "group"
+          ]
+        },
+        {
+          "required": [
+            "channel"
+          ]
+        },
+        {
+          "required": [
+            "item"
+          ]
+        }
+      ],
       "properties": {
         "group": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "via": {
           "type": "string"

@@ -19,12 +19,35 @@
       ]
     },
     "GroupSource": {
+      "oneOf": [
+        {
+          "required": [
+            "team"
+          ]
+        },
+        {
+          "required": [
+            "orgRole"
+          ]
+        },
+        {
+          "required": [
+            "users"
+          ]
+        },
+        {
+          "required": [
+            "userGroup"
+          ]
+        }
+      ],
       "properties": {
         "provider": {
           "type": "string"
         },
         "team": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "orgRole": {
           "$ref": "#/$defs/OrgRole"
@@ -36,7 +59,8 @@
           "type": "array"
         },
         "userGroup": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         }
       },
       "additionalProperties": false,

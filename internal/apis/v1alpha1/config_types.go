@@ -105,6 +105,16 @@ type Group struct {
 // GetName returns metadata.name.
 func (g *Group) GetName() string { return g.Metadata.Name }
 
+// Validate checks that each member source sets exactly one source.
+func (g *Group) Validate() error {
+	for i := range g.Spec.Members {
+		if err := g.Spec.Members[i].Validate(); err != nil {
+			return prefixField(fmt.Sprintf("spec.members[%d]", i), err)
+		}
+	}
+	return nil
+}
+
 // GroupSpec is the spec of a Group.
 type GroupSpec struct {
 	Members []GroupSource `json:"members"`
@@ -114,11 +124,23 @@ type GroupSpec struct {
 // GroupSource is one source of members on one provider. Set exactly one of the sources.
 type GroupSource struct {
 	Provider  string   `json:"provider"`
-	Team      string   `json:"team,omitzero"`
+	Team      string   `json:"team,omitzero" jsonschema:"minLength=1"`
 	OrgRole   *OrgRole `json:"orgRole,omitzero"`
 	Users     []string `json:"users,omitzero"`
-	UserGroup string   `json:"userGroup,omitzero"`
+	UserGroup string   `json:"userGroup,omitzero" jsonschema:"minLength=1"`
 }
+
+// groupSources are the member names of GroupSource that are sources, in order.
+var groupSources = []string{"team", "orgRole", "users", "userGroup"}
+
+// Validate checks that exactly one source is set.
+func (g *GroupSource) Validate() error {
+	return exactlyOne("member source", groupSources,
+		g.Team != "", g.OrgRole != nil, g.Users != nil, g.UserGroup != "")
+}
+
+// JSONSchemaExtend requires exactly one source.
+func (GroupSource) JSONSchemaExtend(s *jsonschema.Schema) { s.OneOf = requiredOneOf(groupSources) }
 
 // OrgRole selects the members of an org with a role, e.g. the admins.
 type OrgRole struct {
@@ -247,16 +269,6 @@ type RuleSpec struct {
 	Schedule string `json:"schedule,omitzero"`
 }
 
-// UnmarshalJSON decodes strictly, reading a YAML 1.1 `on` key (see yaml11On).
-func (s *RuleSpec) UnmarshalJSON(data []byte) error {
-	type plain RuleSpec
-	data, err := yaml11On(data)
-	if err != nil {
-		return err
-	}
-	return strictJSON(data, (*plain)(s))
-}
-
 func (s *RuleSpec) validate(path string) error {
 	for i := range s.Actions {
 		if err := s.Actions[i].Validate(); err != nil {
@@ -312,16 +324,50 @@ func (a *Action) members() []string {
 	return set
 }
 
-// Validate checks that exactly one member is set.
+// Validate checks that exactly one member is set, and the notify destinations.
 func (a *Action) Validate() error {
 	switch set := a.members(); len(set) {
 	case 1:
-		return nil
 	case 0:
 		return &ValidationError{Message: fmt.Sprintf("action has no member: set exactly one of %v", ActionTypes)}
 	default:
 		return &ValidationError{Message: fmt.Sprintf("action has %d members %v: set exactly one", len(set), set)}
 	}
+	if a.Notify != nil {
+		for i := range a.Notify.To {
+			if err := a.Notify.To[i].Validate(); err != nil {
+				return prefixField(fmt.Sprintf("notify.to[%d]", i), err)
+			}
+		}
+	}
+	return nil
+}
+
+// exactlyOne returns a *ValidationError unless exactly one of set is true; names labels them.
+func exactlyOne(what string, names []string, set ...bool) error {
+	var got []string
+	for i, ok := range set {
+		if ok {
+			got = append(got, names[i])
+		}
+	}
+	switch len(got) {
+	case 1:
+		return nil
+	case 0:
+		return &ValidationError{Message: fmt.Sprintf("%s sets none of %v: set exactly one", what, names)}
+	default:
+		return &ValidationError{Message: fmt.Sprintf("%s sets %v: set exactly one of %v", what, got, names)}
+	}
+}
+
+// requiredOneOf is a schema oneOf that is satisfied when exactly one of names is present.
+func requiredOneOf(names []string) []*jsonschema.Schema {
+	out := make([]*jsonschema.Schema, len(names))
+	for i, n := range names {
+		out[i] = &jsonschema.Schema{Required: []string{n}}
+	}
+	return out
 }
 
 // JSONSchemaExtend enforces the one-of in the schema: every property is a member and
@@ -352,12 +398,25 @@ type NotifyAction struct {
 
 // Destination is one recipient of a notification. Set one of group, channel or item.
 type Destination struct {
-	Group   string      `json:"group,omitzero"`
+	Group   string      `json:"group,omitzero" jsonschema:"minLength=1"`
 	Via     string      `json:"via,omitzero"`
 	As      string      `json:"as,omitzero" jsonschema:"enum=mention,enum=dm"`
 	Channel *ChannelRef `json:"channel,omitzero"`
 	// Item comments on, or replies in, the work item's linked objects.
 	Item string `json:"item,omitzero" jsonschema:"enum=primary,enum=threads,enum=all"`
+}
+
+// destinationTargets are the member names of Destination that pick the recipient.
+var destinationTargets = []string{"group", "channel", "item"}
+
+// Validate checks that exactly one of group, channel or item is set.
+func (d *Destination) Validate() error {
+	return exactlyOne("destination", destinationTargets, d.Group != "", d.Channel != nil, d.Item != "")
+}
+
+// JSONSchemaExtend requires exactly one of group, channel or item.
+func (Destination) JSONSchemaExtend(s *jsonschema.Schema) {
+	s.OneOf = requiredOneOf(destinationTargets)
 }
 
 // ChannelRef is a channel on a provider.
@@ -615,16 +674,6 @@ const (
 type RetryPolicy struct {
 	Max int           `json:"max"`
 	On  []RetryReason `json:"on,omitzero"`
-}
-
-// UnmarshalJSON decodes strictly, reading a YAML 1.1 `on` key (see yaml11On).
-func (r *RetryPolicy) UnmarshalJSON(data []byte) error {
-	type plain RetryPolicy
-	data, err := yaml11On(data)
-	if err != nil {
-		return err
-	}
-	return strictJSON(data, (*plain)(r))
 }
 
 // PoolMode is how a pool gets agents.

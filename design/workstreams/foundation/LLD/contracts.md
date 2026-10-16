@@ -19,7 +19,7 @@ type ObjectMeta struct {
 
 Optional fields use `omitzero`, so an explicitly empty list or map (`labels: []`, `inputs: {}`) survives a round trip. Pointers mark optional structs and the few fields where `false` or `null` must be kept (`publicReads`, `headless`, and the nullable runtime fields below).
 
-**Decoding** (`Decode`, `DecodeOne`, `DecodeResult`, `Encode`): a YAML stream is split on `---` lines; each document's `kind` picks the type and the document is decoded with `yaml.UnmarshalStrict` (sigs.k8s.io/yaml). Unknown fields, duplicate keys, an unknown kind and an `apiVersion` other than `APIVersion` are errors (`*DocumentError{Index, Line, Kind}` wrapping `ErrUnknownKind`, `ErrMissingKind`, `ErrAPIVersion` or a `*ValidationError{Field}`). sigs.k8s.io/yaml reads YAML 1.1, where an unquoted `on` key is the boolean `true`; the two types with an `on` field (`RuleSpec`, `RetryPolicy`) read that key as `on`, and `Encode` writes `"on"` quoted.
+**Decoding** (`Decode`, `DecodeOne`, `DecodeResult`, `Encode`) uses YAML 1.2 (`go.yaml.in/yaml/v3`), so `on`, `yes` and `no` are strings and only `true`/`false` are booleans, in typed fields and free-form maps alike. A stream is read document by document (`---`, `...`, comments and directives handled by the parser; empty documents skipped). Each document becomes a generic value (keys must be strings; duplicate keys, merge keys and unknown tags are errors; timestamps stay as written), then JSON, which is decoded with `encoding/json` and `DisallowUnknownFields`, so the `json` tags are the only field names. The document's `kind` picks the type. Unknown fields, an unknown kind and an `apiVersion` other than `APIVersion` are errors: `*DocumentError{Index, Line, Kind}` wrapping `ErrUnknownKind`, `ErrMissingKind`, `ErrAPIVersion` or a `*ValidationError{Field}` from the kind's `Validate()`. `Encode` goes through JSON too: struct field order, block style, quoting only where a plain scalar would read back as another type.
 
 **Value types:**
 
@@ -38,7 +38,7 @@ Each is `{TypeMeta, Metadata ObjectMeta, Spec <Kind>Spec}`.
 | Kind | Spec fields (Go) | Source of truth |
 |---|---|---|
 | `Provider` | `Type ProviderType` (`github`\|`slack`); `GitHub *GitHubProviderSpec` (`APIURL`, `Webhook{Path, SecretRef}`, `Identities map[string]AppIdentity{AppID int64, PrivateKeyRef}`); `Slack *SlackProviderSpec{Mode, AppTokenRef, BotTokenRef}` (future); `Scope *ProviderScope{Orgs, Channels}`; `Trust []TrustRule{Tier, Group, AuthorAssociation, Bots, WorkspaceMember}`; `Resync *ResyncPolicy{Every Duration}` | [03 §Provider](../../../03-domain-model.md#provider) |
-| `Group` | `Members []GroupSource{Provider, Team, OrgRole *OrgRole{Org, Role}, Users, UserGroup}`; `Cache *GroupCache{TTL Duration}` | [03 §Group](../../../03-domain-model.md#group) |
+| `Group` | `Members []GroupSource{Provider, Team, OrgRole *OrgRole{Org, Role}, Users, UserGroup}` (exactly one of team \| orgRole \| users \| userGroup); `Cache *GroupCache{TTL Duration}` | [03 §Group](../../../03-domain-model.md#group) |
 | `Template` | `Bodies map[ProviderType]TemplateBody` (`TemplateBody` = text \| `{Blocks}`) | [03 §Template](../../../03-domain-model.md#template) |
 | `Rule` | `RuleSet string`; `ProviderSelector *LabelSelector`; `On []EventType`; `Where string`; `Params map[string]any`; `Actions []Action`; `Priority int`; `Final bool`; `Debounce *Debounce{Window, Key}`; `Schedule string` | [03 §Rule](../../../03-domain-model.md#rule) |
 | `RuleSet` | `ProviderSelector LabelSelector`; `Scope *Scope{Repos, Exclude, Channels, Branches}`; `Rules RuleSelection{Refs, Selector *LabelSelector, Exclude}`; `Overrides map[string]map[string]any`; `Defaults map[string]any`; `Budget *Budget{Daily *BudgetLimit{Runs, Tokens, USD}}`; `StateKeys []string`; inline rules `InlineRules []InlineRule{Metadata, Spec RuleSpec}` (`inlineRules`) | [03 §RuleSet](../../../03-domain-model.md#ruleset-mandatory) |
@@ -46,13 +46,13 @@ Each is `{TypeMeta, Metadata ObjectMeta, Spec <Kind>Spec}`.
 | `Queue` | `Pool string`; `Concurrency int`; `Priority int`; `Budget *Budget`; `Retry *RetryPolicy{Max, On []RetryReason}` | [03 §Queue and Pool](../../../03-domain-model.md#queue-and-pool) |
 | `Pool` | `Mode PoolMode` (`registered`\|`ephemeral`); `Admission *Admission{TokenRef, Owners}`; `Lease *LeasePolicy{TTL, Heartbeat, MaxTasksPerAgent}`; `Require *PoolRequirements{Harnesses}`; `Fairness string`; ephemeral: `Backend *PoolBackend{Type, GitHubActions{ProviderRef, Repo, Workflow}}`, `Image`, `Scaling *Scaling{Min, Max}`, `LLMAuth *LLMAuth{APIKeyRef}` | same |
 
-`Action` is a tagged union — exactly one member. The decoder calls `Rule.Validate()` / `RuleSet.Validate()`, which reject zero or several members with a `*ValidationError` naming `spec.actions[i]`; the schema says the same with `minProperties: 1, maxProperties: 1`.
+`Action` is a tagged union — exactly one member. The decoder calls `Rule.Validate()` / `RuleSet.Validate()`, which reject zero or several members with a `*ValidationError` naming `spec.actions[i]` (and `spec.actions[i].notify.to[j]` for a destination that doesn't set exactly one of group, channel, item); the schema says the same with `minProperties: 1, maxProperties: 1`. `Group.Validate()` likewise names `spec.members[i]`.
 
 ```go
 type Action struct {
     Dispatch        *DispatchAction `json:"dispatch,omitzero"`        // TaskSpec, Queue, Inputs map[string]any, Harness *ExprOr[HarnessRequest], Requires *Requires, Context []string, Target *Target{Provider, Repo, Ref}
     Set             map[string]any  `json:"set,omitzero"`             // values: literal or "=CEL"
-    Notify          *NotifyAction   `json:"notify,omitzero"`          // Template, To []Destination{Group, Via, As, Channel *ChannelRef{Provider, Name}, Item}
+    Notify          *NotifyAction   `json:"notify,omitzero"`          // Template, To []Destination{Group, Via, As, Channel *ChannelRef{Provider, Name}, Item}: exactly one of group | channel | item
     RequestApproval *ApprovalSpec   `json:"requestApproval,omitzero"` // future (Q18): the Approval's spec; accepted by schema, engine returns Unsupported in PoC
     Cancel          *CancelAction   `json:"cancel,omitzero"`          // TaskSpec
     Link            *LinkAction     `json:"link,omitzero"`            // From string (CEL)
@@ -94,7 +94,7 @@ type HarnessOffer struct { Name, Version, Auth string; Models, ReasoningEffort [
 
 ### JSON Schemas
 
-`make schemas` runs `internal/apis/v1alpha1/schemagen`, which writes `schemas/<kind>.schema.json` for each config kind (`provider`, `group`, `template`, `rule`, `ruleset`, `taskspec`, `queue`, `pool`) and `schemas/result.schema.json` (draft 2020-12, `$id` `https://factory.ccf.dev/schemas/v1alpha1/<file>`). They are reflected from the types (invopop/jsonschema), so they match strict decoding: objects have `additionalProperties: false`, `kind` and `apiVersion` are `const`, `EventType` and `EffectOp` are enums of the vocabulary below, `Action` allows exactly one property. Output is deterministic; CI (`make check-generated`) fails when the committed files are stale.
+`make schemas` runs `internal/apis/v1alpha1/schemagen`, which writes `schemas/<kind>.schema.json` for each config kind (`provider`, `group`, `template`, `rule`, `ruleset`, `taskspec`, `queue`, `pool`) and `schemas/result.schema.json` (draft 2020-12, `$id` `https://factory.ccf.dev/schemas/v1alpha1/<file>`). They are reflected from the types (invopop/jsonschema), so they match strict decoding: objects have `additionalProperties: false`, `kind` and `apiVersion` are `const`, `EventType` and `EffectOp` are enums of the vocabulary below, `Action` allows exactly one property, and `GroupSource` / `Destination` require exactly one of their sources / targets (`oneOf` of `required`). Output is deterministic; CI (`make check-generated`) fails when the committed files are stale.
 
 ## Event vocabulary
 
