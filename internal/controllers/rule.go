@@ -253,12 +253,13 @@ func (r *RuleController) workItemFor(ctx context.Context, cat *catalog.Catalog, 
 
 // process evaluates and applies one event for one work item under the item's lock.
 func (r *RuleController) process(ctx context.Context, cat *catalog.Catalog, ev v1alpha1.Event, wiID string) error {
-	unlock, err := r.s.Lock(ctx, "wi/"+wiID, r.opts.LockTTL)
-	if err != nil {
-		return fmt.Errorf("lock work item %s: %w", wiID, err)
-	}
-	defer unlock.Unlock()
+	return withItemLock(ctx, r.s, wiID, r.opts.LockTTL, func(ctx context.Context) error {
+		return r.processLocked(ctx, cat, ev, wiID)
+	})
+}
 
+// processLocked is process with the work item's lock held.
+func (r *RuleController) processLocked(ctx context.Context, cat *catalog.Catalog, ev v1alpha1.Event, wiID string) error {
 	var wi v1alpha1.WorkItem
 	switch err := r.s.Get(ctx, store.Key{Kind: v1alpha1.KindWorkItem, Name: wiID}, &wi); {
 	case errors.Is(err, store.ErrNotFound):

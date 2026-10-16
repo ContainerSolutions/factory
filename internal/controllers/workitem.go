@@ -345,11 +345,17 @@ func (w *WorkItemController) lastActivity(ctx context.Context, wi *v1alpha1.Work
 // retire deletes an idle, closed work item under its lock, re-checking that nothing happened
 // to it in between.
 func (w *WorkItemController) retire(ctx context.Context, id string, last time.Time) (bool, error) {
-	unlock, err := w.s.Lock(ctx, "wi/"+id, w.opts.LockTTL)
-	if err != nil {
-		return false, fmt.Errorf("lock work item %s: %w", id, err)
-	}
-	defer unlock.Unlock()
+	var retired bool
+	err := withItemLock(ctx, w.s, id, w.opts.LockTTL, func(ctx context.Context) error {
+		var err error
+		retired, err = w.retireLocked(ctx, id, last)
+		return err
+	})
+	return retired, err
+}
+
+// retireLocked is retire with the work item's lock held.
+func (w *WorkItemController) retireLocked(ctx context.Context, id string, last time.Time) (bool, error) {
 	var wi v1alpha1.WorkItem
 	switch err := w.s.Get(ctx, store.Key{Kind: v1alpha1.KindWorkItem, Name: id}, &wi); {
 	case errors.Is(err, store.ErrNotFound):

@@ -512,11 +512,13 @@ type finish struct {
 // safe: the run (result, end), the work item's counters (only when this call ended the run),
 // the task's phase, then the factory.run.* event (deduplicated by the run's name).
 func (r *RunController) finish(ctx context.Context, t *v1alpha1.Task, run *v1alpha1.Run, f finish) error {
-	unlock, err := r.s.Lock(ctx, "wi/"+t.Metadata.WorkItem, r.opts.LockTTL)
-	if err != nil {
-		return fmt.Errorf("lock work item %s: %w", t.Metadata.WorkItem, err)
-	}
-	defer unlock.Unlock()
+	return withItemLock(ctx, r.s, t.Metadata.WorkItem, r.opts.LockTTL, func(ctx context.Context) error {
+		return r.finishLocked(ctx, t, run, f)
+	})
+}
+
+// finishLocked is finish with the work item's lock held.
+func (r *RunController) finishLocked(ctx context.Context, t *v1alpha1.Task, run *v1alpha1.Run, f finish) error {
 	now := r.opts.Clock.Now()
 
 	if run != nil && !ended(run) {
@@ -570,7 +572,7 @@ func (r *RunController) finish(ctx context.Context, t *v1alpha1.Task, run *v1alp
 	if f.phase == v1alpha1.TaskSucceeded {
 		reason = ""
 	}
-	_, err = r.factory.Emit(ctx, FactoryEvent{
+	_, err := r.factory.Emit(ctx, FactoryEvent{
 		Type: typ, WorkItem: t.Metadata.WorkItem, Key: "run/" + run.Metadata.Name, Facts: runFacts(sum, reason),
 	})
 	return err

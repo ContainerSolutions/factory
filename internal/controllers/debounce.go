@@ -67,13 +67,14 @@ func (d *DebounceController) Reconcile(ctx context.Context, name string) (Result
 }
 
 func (d *DebounceController) fire(ctx context.Context, cat *catalog.Catalog, rec *DebounceRecord) error {
-	r := d.rule
-	unlock, err := r.s.Lock(ctx, "wi/"+rec.Spec.WorkItem, r.opts.LockTTL)
-	if err != nil {
-		return fmt.Errorf("lock work item %s: %w", rec.Spec.WorkItem, err)
-	}
-	defer unlock.Unlock()
+	return withItemLock(ctx, d.rule.s, rec.Spec.WorkItem, d.rule.opts.LockTTL, func(ctx context.Context) error {
+		return d.fireLocked(ctx, cat, rec)
+	})
+}
 
+// fireLocked is fire with the work item's lock held.
+func (d *DebounceController) fireLocked(ctx context.Context, cat *catalog.Catalog, rec *DebounceRecord) error {
+	r := d.rule
 	var wi v1alpha1.WorkItem
 	switch err := r.s.Get(ctx, store.Key{Kind: v1alpha1.KindWorkItem, Name: rec.Spec.WorkItem}, &wi); {
 	case errors.Is(err, store.ErrNotFound):
