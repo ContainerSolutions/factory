@@ -1,0 +1,7 @@
+lisa-design:
+- store.Object = v1alpha1.Object with metadata accessors; Event keeps version/creation beside the object (unconditional Update).
+- Records are immutable JSON blobs: every read decodes a fresh copy; List decodes after releasing the lock.
+- Watch fan-out under the write lock with non-blocking sends; a full buffer expires the watcher (ErrWatchExpired) so writers never block; selector transitions are Added/Deleted (Kubernetes-style); SinceVersion replays from a 10k-change ring.
+- Locks: owner tokens (idempotent, stale Unlock can't release a new holder), Renew, expired lease = ErrLockLost; waiters poll ≤20ms because the fake clock wakes nobody.
+- Label-selector matching lives on v1alpha1.LabelSelector (Matches/Validate), shared by store and catalog.
+- WorkItem retention is owned by the work-item controller (the store can't see link state).
