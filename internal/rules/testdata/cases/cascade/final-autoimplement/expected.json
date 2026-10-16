@@ -1,0 +1,64 @@
+{
+  "event": "factory-run-31",
+  "workItem": "wi-44",
+  "matches": [
+    {
+      "ruleSet": "docs",
+      "rule": "autoimplement-small-maintainer-issues",
+      "priority": 10,
+      "result": "matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "docs",
+      "rule": "request-implement-approval",
+      "result": "suppressed-by-final",
+      "inputs": []
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "docs",
+      "rule": "autoimplement-small-maintainer-issues",
+      "action": {
+        "dispatch": {
+          "taskSpec": "implement",
+          "queue": "default"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "docs",
+      "rule": "autoimplement-small-maintainer-issues",
+      "action": {
+        "set": {
+          "key": "implement",
+          "value": "running"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "item",
+        "run"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "implement": "running",
+    "triage": "running"
+  }
+}

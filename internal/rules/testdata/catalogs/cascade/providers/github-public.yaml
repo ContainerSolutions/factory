@@ -1,0 +1,20 @@
+# Test-only catalog for the rule engine: the rules of design/04-flows.md (§How rules cascade
+# and the example packs) that are not in the PoC catalog.
+kind: Provider
+metadata: { name: github-public, labels: { family: github, network: public } }
+spec:
+  type: github
+  github:
+    webhook: { path: /hooks/github-public, secretRef: { name: webhook, key: secret } }
+    identities:
+      author:   { appID: 1, privateKeyRef: { name: author, key: private-key } }
+      reviewer: { appID: 2, privateKeyRef: { name: reviewer, key: private-key } }
+  scope: { orgs: [compliance-framework] }
+  trust:
+    - { tier: maintainer, group: maintainers }
+    - { tier: anyone }
+---
+kind: Group
+metadata: { name: maintainers }
+spec:
+  members: [{ provider: github-public, users: [octocat] }]

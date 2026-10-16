@@ -235,7 +235,7 @@ A rule is **when** and **what**, and it's **reusable**. It has **no scope**: whe
 | `where` | CEL over `event`, `actor`, `item`, `run`, `approval`, `provider`, `params`, `now` |
 | `params` | Declared parameters with defaults (e.g. `harness`, `queue`, `maxImplementRuns`). A RuleSet can override them per rule. |
 | `actions` | Ordered list from: `dispatch`, `set`, `notify`, `requestApproval`, `cancel`, `link`, `effect`. String values starting with `=` are CEL evaluated at runtime; `{{ params.x }}` is substituted at catalog load. |
-| `priority`, `final` | Order among matching rules; `final` stops lower-priority matches for this event and work item |
+| `priority`, `final` | Order among matching rules; `final` stops lower-priority matches for this event and work item, across RuleSets, once its `where` passes (even if its actions then fail) |
 | `debounce` | `{ window, key }`: collapse bursts into one action |
 | `schedule` | Cron. Only with `on: [factory.schedule.tick]`. |
 
@@ -274,7 +274,7 @@ spec:
 2. Find the **RuleSets in scope**:
    - For provider events: the RuleSet binds that provider instance, and its `scope` matches the event's object.
    - For `factory.*` events: the RuleSet's `scope` matches **any object linked to the work item**. That's how `factory.run.completed` for a triage on `docs#42` reaches the `docs` RuleSet.
-3. Within each RuleSet, take its selected rules, filter by `on`, then evaluate `where` in `priority` order, respecting `final`. A rule sees state written by higher-priority rules for the same event.
+3. Take each RuleSet's selected rules and filter them by `on`. Evaluate the candidates of all the RuleSets in one order, `priority` (highest first), then RuleSet name, then rule name, respecting `final`: once a final rule's `where` passes, every later candidate is suppressed, even when the final rule's actions fail to materialise (it fails closed). A rule sees state written by earlier rules for the same event.
 4. **Deduplicate firing per (event, rule).** If two RuleSets select the same rule for the same object, each evaluates its `where` with its own params, and the rule fires at most once, through the first RuleSet (by name) whose `where` passes; a RuleSet whose `where` fails doesn't use up the dedupe. The decision records that RuleSet, and catalog CI flags the overlap (warning).
 5. Check the **safety rails** ([02](02-architecture.md#safety-rails-the-only-engine-invariants)), then execute the actions.
 6. Record the decision on the work item: RuleSet, rule, `where` inputs and rail verdicts. The UI shows this as "why did this happen?".

@@ -1,0 +1,9 @@
+kind: TaskSpec
+metadata: { name: triage }
+spec:
+  instructions: { template: prompts/triage.md.tmpl }
+  harness: { default: { name: codex, config: { model: "gpt-5*", reasoningEffort: low } } }
+  workspace: { checkout: read-only }
+  identity: author
+  effects: { allow: [comment, label.add] }
+  output: { schema: schemas/triage.json, outcomes: [triaged, needs-info, promote] }

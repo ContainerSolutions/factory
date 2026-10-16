@@ -1,0 +1,49 @@
+{
+  "event": "gh-34/0",
+  "workItem": "wi-rel",
+  "matches": [
+    {
+      "ruleSet": "docs-releases",
+      "rule": "docs-on-release",
+      "result": "matched",
+      "inputs": [
+        "event"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "docs-releases",
+      "rule": "docs-on-release",
+      "action": {
+        "debounce": {
+          "key": "docs-on-release/2026-11",
+          "until": "2026-10-16T14:00:00Z",
+          "then": [
+            {
+              "dispatch": {
+                "taskSpec": "release-docs",
+                "queue": "default",
+                "context": [
+                  "event.release.notes",
+                  "event.release.compare"
+                ],
+                "target": {
+                  "repo": "compliance-framework/docs"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "event"
+      ]
+    }
+  ],
+  "stateAfter": {}
+}

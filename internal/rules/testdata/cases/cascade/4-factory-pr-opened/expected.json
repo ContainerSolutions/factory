@@ -1,0 +1,63 @@
+{
+  "event": "gh-31/0",
+  "workItem": "wi-42",
+  "matches": [
+    {
+      "ruleSet": "docs",
+      "rule": "review-factory-prs",
+      "result": "matched",
+      "inputs": [
+        "actor",
+        "item"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "docs",
+      "rule": "review-factory-prs",
+      "action": {
+        "cancel": {
+          "taskSpec": "review"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor",
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "docs",
+      "rule": "review-factory-prs",
+      "action": {
+        "dispatch": {
+          "taskSpec": "review",
+          "queue": "default",
+          "harness": {
+            "name": "claude-code",
+            "config": {
+              "model": "claude-sonnet-5-*",
+              "reasoningEffort": "high"
+            }
+          }
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor",
+        "item"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "implement": "running",
+    "triage": "triaged"
+  }
+}

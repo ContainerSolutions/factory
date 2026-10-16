@@ -1,0 +1,16 @@
+{
+  "event": "gh-33/0",
+  "workItem": "wi-43",
+  "matches": [
+    {
+      "ruleSet": "docs",
+      "rule": "triage-outside-issues",
+      "result": "not-matched",
+      "inputs": [
+        "actor"
+      ]
+    }
+  ],
+  "decisions": [],
+  "stateAfter": {}
+}

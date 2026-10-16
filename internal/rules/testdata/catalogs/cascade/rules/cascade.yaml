@@ -1,0 +1,46 @@
+# design/04-flows.md §How rules cascade: triage → approve triage → implement → review.
+kind: Rule
+metadata: { name: triage-outside-issues, labels: { pack: intake } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [issue.opened]
+  where: "actor.tier in ['anyone', 'contributor'] && !actor.isBot"
+  params: { queue: triage }
+  actions:
+    - dispatch: { taskSpec: triage, queue: "{{ params.queue }}" }
+    - set: { triage: running }
+---
+kind: Rule
+metadata: { name: request-implement-approval, labels: { pack: implement } }
+spec:
+  on: [factory.run.completed]
+  where: "run.spec == 'triage' && run.outcome == 'triaged'"
+  actions:
+    - set: { triage: "=run.outcome" }
+    - requestApproval:
+        name: implement
+        approvers: maintainers
+        via: [ui, slack, github]
+        template: approve-implement
+        expires: 7d
+---
+kind: Rule
+metadata: { name: implement-on-approval, labels: { pack: implement } }
+spec:
+  on: [factory.approval.granted]
+  where: "approval.name == 'implement'"
+  actions:
+    - dispatch: { taskSpec: implement, queue: default }
+    - set: { implement: running }
+---
+kind: Rule
+metadata: { name: review-factory-prs, labels: { pack: review } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [pr.opened, pr.updated]
+  where: "actor.isFactory && !item.pr.draft"
+  params:
+    harness: { name: claude-code, config: { model: "claude-sonnet-5-*", reasoningEffort: high } }
+  actions:
+    - cancel: { taskSpec: review }
+    - dispatch: { taskSpec: review, queue: default, harness: "{{ params.harness }}" }

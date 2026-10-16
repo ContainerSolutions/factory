@@ -1,0 +1,27 @@
+{
+  "kind": "Event",
+  "id": "gh-42/0",
+  "source": "gh",
+  "type": "issue.labeled",
+  "time": "2026-10-16T11:00:00Z",
+  "data": {
+    "provider": "gh",
+    "actor": {
+      "id": "gh:octocat",
+      "tier": "maintainer"
+    },
+    "object": {
+      "provider": "gh",
+      "kind": "issue",
+      "ref": "org/repo#5"
+    },
+    "facts": {
+      "label": "target:other",
+      "issue": {
+        "labels": [
+          "target:other"
+        ]
+      }
+    }
+  }
+}

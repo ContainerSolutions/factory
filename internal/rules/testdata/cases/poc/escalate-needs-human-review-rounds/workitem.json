@@ -1,0 +1,53 @@
+{
+  "id": "wi-epic",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#70",
+      "kind": "issue",
+      "primary": true
+    }
+  ],
+  "state": {
+    "plan": [
+      {
+        "issue": "compliance-framework/docs#71"
+      },
+      {
+        "issue": "compliance-framework/docs#72"
+      },
+      {
+        "issue": "compliance-framework/docs#73"
+      }
+    ],
+    "stackNext": 2,
+    "stackTotal": 3,
+    "review": "running"
+  },
+  "reporter": {
+    "id": "github-public:admin",
+    "tier": "maintainer"
+  },
+  "runsBySpec": {
+    "docs-review": [
+      {
+        "id": "run-docs-review-1",
+        "spec": "docs-review",
+        "outcome": "changes-requested",
+        "status": "done"
+      },
+      {
+        "id": "run-docs-review-2",
+        "spec": "docs-review",
+        "outcome": "changes-requested",
+        "status": "done"
+      },
+      {
+        "id": "run-docs-review-3",
+        "spec": "docs-review",
+        "outcome": "changes-requested",
+        "status": "done"
+      }
+    ]
+  }
+}

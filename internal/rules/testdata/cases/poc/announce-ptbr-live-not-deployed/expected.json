@@ -1,0 +1,32 @@
+{
+  "event": "gh-4/0",
+  "workItem": "wi-epic",
+  "matches": [
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "announce-ptbr-live",
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    }
+  ],
+  "decisions": [],
+  "stateAfter": {
+    "merge": "merged",
+    "plan": [
+      {
+        "issue": "compliance-framework/docs#71"
+      },
+      {
+        "issue": "compliance-framework/docs#72"
+      },
+      {
+        "issue": "compliance-framework/docs#73"
+      }
+    ],
+    "review": "approved",
+    "stackNext": 2,
+    "stackTotal": 3
+  }
+}

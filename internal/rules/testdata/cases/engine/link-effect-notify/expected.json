@@ -1,0 +1,117 @@
+{
+  "event": "gh-41/0",
+  "workItem": "wi-5",
+  "matches": [
+    {
+      "ruleSet": "b-loose",
+      "rule": "final-guard",
+      "priority": 5,
+      "result": "not-matched",
+      "inputs": [
+        "event"
+      ]
+    },
+    {
+      "ruleSet": "a-strict",
+      "rule": "guarded-work",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "item",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "b-loose",
+      "rule": "guarded-work",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "item",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "b-loose",
+      "rule": "link-and-label",
+      "result": "matched",
+      "inputs": [
+        "event"
+      ]
+    },
+    {
+      "ruleSet": "b-loose",
+      "rule": "set-then-bad-dispatch",
+      "result": "not-matched",
+      "inputs": [
+        "event"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "b-loose",
+      "rule": "link-and-label",
+      "action": {
+        "link": {
+          "ref": {
+            "provider": "gh",
+            "kind": "pr",
+            "ref": "org/repo#7"
+          }
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "event"
+      ]
+    },
+    {
+      "ruleSet": "b-loose",
+      "rule": "link-and-label",
+      "action": {
+        "effect": {
+          "op": "label.add",
+          "target": "primary",
+          "args": {
+            "labels": [
+              "factory:link:seen"
+            ]
+          }
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "event"
+      ]
+    },
+    {
+      "ruleSet": "b-loose",
+      "rule": "link-and-label",
+      "action": {
+        "notify": {
+          "template": "hello",
+          "to": [
+            {
+              "item": "primary"
+            }
+          ]
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "event"
+      ]
+    }
+  ],
+  "stateAfter": {}
+}

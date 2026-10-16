@@ -1,0 +1,75 @@
+{
+  "event": "factory-run-32",
+  "workItem": "wi-57",
+  "matches": [
+    {
+      "ruleSet": "docs",
+      "rule": "autoimplement-small-maintainer-issues",
+      "priority": 10,
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "docs",
+      "rule": "request-implement-approval",
+      "result": "matched",
+      "inputs": [
+        "run"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "docs",
+      "rule": "request-implement-approval",
+      "action": {
+        "set": {
+          "key": "triage",
+          "value": "triaged"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "docs",
+      "rule": "request-implement-approval",
+      "action": {
+        "unsupported": {
+          "action": "requestApproval",
+          "reason": "requestApproval is not supported in the PoC (Q18)",
+          "requestApproval": {
+            "name": "implement",
+            "approvers": "maintainers",
+            "via": [
+              "ui",
+              "slack",
+              "github"
+            ],
+            "template": "approve-implement",
+            "expires": "7d"
+          }
+        }
+      },
+      "rail": {
+        "rail": "engine",
+        "verdict": "unsupported",
+        "reason": "requestApproval is not supported in the PoC (Q18)"
+      },
+      "inputs": [
+        "run"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "triage": "triaged"
+  }
+}

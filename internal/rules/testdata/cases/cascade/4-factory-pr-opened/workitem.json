@@ -1,0 +1,52 @@
+{
+  "id": "wi-42",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#42",
+      "kind": "issue",
+      "primary": true
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#57",
+      "kind": "pr"
+    }
+  ],
+  "reporter": {
+    "id": "github-public:someone",
+    "tier": "anyone"
+  },
+  "state": {
+    "triage": "triaged",
+    "implement": "running"
+  },
+  "pr": {
+    "provider": "github-public",
+    "ref": "compliance-framework/docs#57",
+    "author": {
+      "isFactory": true
+    },
+    "draft": false,
+    "head": "c0ffee",
+    "labels": [],
+    "checks": {
+      "state": "pending"
+    }
+  },
+  "prs": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#57",
+      "author": {
+        "isFactory": true
+      },
+      "draft": false,
+      "head": "c0ffee",
+      "labels": [],
+      "checks": {
+        "state": "pending"
+      }
+    }
+  ]
+}

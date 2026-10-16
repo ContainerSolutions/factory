@@ -1,0 +1,12 @@
+kind: TaskSpec
+metadata: { name: work }
+spec:
+  inputs:
+    target: { type: string, enum: [pr, stack], default: pr }
+    issue:  { type: string, required: true }
+  instructions: { template: prompts/work.md.tmpl }
+  harness: { default: { name: codex, config: { model: "gpt-5*", reasoningEffort: medium } } }
+  workspace: { repos: [{ ref: "=task.target.repo + '@main'", mode: rw }] }
+  identity: author
+  effects: { allow: [push-branch, pr.open, label.add] }
+  output: { schema: schemas/work.json, outcomes: [done] }

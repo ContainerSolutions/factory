@@ -1,0 +1,51 @@
+{
+  "event": "gh-21/0",
+  "workItem": "wi-train",
+  "matches": [
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "fix-release-docs-review",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "merge-release-docs",
+      "result": "matched",
+      "inputs": [
+        "item"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "merge-release-docs",
+      "action": {
+        "dispatch": {
+          "taskSpec": "merge",
+          "queue": "poc",
+          "inputs": {
+            "requiredCheck": "ci / required",
+            "target": "pr"
+          }
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "item"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "release": "drafting",
+    "review": "running",
+    "train": "compliance-framework/workflows#123"
+  }
+}

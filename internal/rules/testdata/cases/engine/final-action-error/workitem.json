@@ -1,0 +1,21 @@
+{
+  "id": "wi-5",
+  "links": [
+    {
+      "provider": "gh",
+      "ref": "org/repo#5",
+      "kind": "issue",
+      "primary": true
+    }
+  ],
+  "runsBySpec": {
+    "work": [
+      {
+        "id": "run-work-1",
+        "spec": "work",
+        "outcome": "changes-requested",
+        "status": "done"
+      }
+    ]
+  }
+}

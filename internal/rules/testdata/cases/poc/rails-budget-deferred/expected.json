@@ -1,0 +1,54 @@
+{
+  "event": "gh-15/0",
+  "workItem": "wi-epic",
+  "matches": [
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "plan-maintainer-epics",
+      "result": "matched",
+      "inputs": [
+        "actor"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "plan-maintainer-epics",
+      "action": {
+        "dispatch": {
+          "taskSpec": "plan-epic",
+          "queue": "poc"
+        }
+      },
+      "rail": {
+        "rail": "budget",
+        "verdict": "deferred",
+        "reason": "budget"
+      },
+      "inputs": [
+        "actor"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "plan-maintainer-epics",
+      "action": {
+        "set": {
+          "key": "plan",
+          "value": "planning"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "plan": "planning"
+  }
+}

@@ -10,4 +10,5 @@ spec:
     exclude: [merge-release-docs]
   overrides:
     docs-on-release-train: { trainManifest: repos.mock.yaml, allowDryRun: true, docsRepo: compliance-framework/mock-docs }
-  stateKeys: [release, train, review, merge]
+    announce-release-docs: { trainManifest: repos.mock.yaml }
+  stateKeys: [release, train, manifest, review, merge]

@@ -1,0 +1,7 @@
+kind: Queue
+metadata: { name: triage }
+spec: { pool: local }
+---
+kind: Queue
+metadata: { name: default }
+spec: { pool: local }

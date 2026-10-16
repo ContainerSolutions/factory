@@ -1,0 +1,29 @@
+{
+  "kind": "Event",
+  "id": "factory-run-7",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-16T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-review-1",
+        "spec": "docs-review",
+        "outcome": "changes-requested",
+        "status": "done",
+        "inputs": {
+          "target": "stack",
+          "checks": [
+            "i18n",
+            "versioning",
+            "style",
+            "build"
+          ]
+        },
+        "result": {}
+      }
+    }
+  },
+  "workItem": "wi-epic"
+}

@@ -1,0 +1,8 @@
+{
+  "trips": [
+    {
+      "rail": "kill-switch",
+      "reason": "item has factory:stop"
+    }
+  ]
+}

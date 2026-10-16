@@ -208,7 +208,7 @@ The **rule** decides *whether* to try a merge. The **`merge` task spec** decides
 - name: docs-on-release
   providerSelector: { matchLabels: { family: github } }
   on: [release.published]
-  where: "event.release.conclusion == 'success' && !event.release.prerelease"
+  where: "event.release.conclusion == 'success' && !event.release.semver.prerelease"
   debounce: { window: 2h, key: "event.release.train" }    # one docs PR per release train
   params: { docsRepo: compliance-framework/docs }
   actions:
@@ -235,7 +235,7 @@ Because the *event* comes from the releasing repo and the *work* happens in `doc
   params: { issueRepo: compliance-framework/docs, issueProvider: github-public }
   actions:
     - effect: { op: create-issue, provider: "{{ params.issueProvider }}", repo: "{{ params.issueRepo }}", from: run.result.issueDraft }
-    - link: { from: effect.result }
+    - link: { from: "=effect.result" }
     - notify: { template: tracked-as, to: [{ item: threads }] }
 ```
 

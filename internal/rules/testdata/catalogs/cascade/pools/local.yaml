@@ -1,0 +1,3 @@
+kind: Pool
+metadata: { name: local }
+spec: { mode: registered, admission: { tokenRef: { name: t, key: k }, owners: maintainers }, lease: { ttl: 2m } }

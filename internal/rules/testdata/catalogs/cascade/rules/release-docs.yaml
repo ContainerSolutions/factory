@@ -1,0 +1,15 @@
+# design/04-flows.md §release-docs.
+kind: Rule
+metadata: { name: docs-on-release, labels: { pack: release-docs } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [release.published]
+  where: "event.release.conclusion == 'success' && !event.release.semver.prerelease"
+  debounce: { window: 2h, key: "event.release.train" }
+  params: { docsRepo: compliance-framework/docs }
+  actions:
+    - dispatch:
+        taskSpec: release-docs
+        queue: default
+        target: { repo: "{{ params.docsRepo }}" }
+        context: [event.release.notes, event.release.compare]

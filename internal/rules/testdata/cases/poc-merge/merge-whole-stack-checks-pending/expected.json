@@ -1,0 +1,39 @@
+{
+  "event": "gh-20/0",
+  "workItem": "wi-epic",
+  "matches": [
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "merge-whole-stack",
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "merge-release-docs",
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    }
+  ],
+  "decisions": [],
+  "stateAfter": {
+    "plan": [
+      {
+        "issue": "compliance-framework/docs#71"
+      },
+      {
+        "issue": "compliance-framework/docs#72"
+      },
+      {
+        "issue": "compliance-framework/docs#73"
+      }
+    ],
+    "review": "approved",
+    "stackNext": 2,
+    "stackTotal": 3
+  }
+}

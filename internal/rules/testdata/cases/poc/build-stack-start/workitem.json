@@ -1,0 +1,28 @@
+{
+  "id": "wi-epic",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#70",
+      "kind": "issue",
+      "primary": true
+    }
+  ],
+  "state": {
+    "plan": "planning"
+  },
+  "reporter": {
+    "id": "github-public:admin",
+    "tier": "maintainer"
+  },
+  "runsBySpec": {
+    "plan-epic": [
+      {
+        "id": "run-plan-1",
+        "spec": "plan-epic",
+        "outcome": "decomposed",
+        "status": "done"
+      }
+    ]
+  }
+}

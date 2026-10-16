@@ -1,0 +1,9 @@
+{
+  "trips": [
+    {
+      "rail": "kill-switch",
+      "action": "set",
+      "key": "stackNext"
+    }
+  ]
+}

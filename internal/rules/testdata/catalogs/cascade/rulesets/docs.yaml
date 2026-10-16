@@ -1,0 +1,15 @@
+kind: RuleSet
+metadata: { name: docs }
+spec:
+  providerSelector: { matchLabels: { family: github, network: public } }
+  scope: { repos: ["compliance-framework/docs"] }
+  rules:
+    selector: { matchExpressions: [{ key: pack, operator: In, values: [intake, implement, review] }] }
+  stateKeys: [triage, implement, review, merge]
+---
+kind: RuleSet
+metadata: { name: docs-releases }
+spec:
+  providerSelector: { matchLabels: { family: github, network: public } }
+  scope: { repos: ["compliance-framework/{api,ui,agent,helm-charts}", "compliance-framework/plugin-*"] }
+  rules: { refs: [docs-on-release] }

@@ -1,0 +1,10 @@
+# Overlay on internal/catalog/testdata/poc: the RuleSet with its merge rule selected (the
+# exclude line removed, as 10-poc says to do once everything else is trusted, Q10).
+kind: RuleSet
+metadata: { name: poc-docs-epic }
+spec:
+  providerSelector: { matchLabels: { family: github, network: public } }
+  scope: { repos: ["compliance-framework/docs"] }
+  rules:
+    selector: { matchExpressions: [{ key: pack, operator: In, values: [docs-epic, shared] }] }
+  stateKeys: [plan, stackNext, stackTotal, review, merge, announced]

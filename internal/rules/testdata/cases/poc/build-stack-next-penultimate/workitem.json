@@ -1,0 +1,30 @@
+{
+  "id": "wi-epic",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#70",
+      "kind": "issue",
+      "primary": true
+    }
+  ],
+  "state": {
+    "plan": [
+      {
+        "issue": "compliance-framework/docs#71"
+      },
+      {
+        "issue": "compliance-framework/docs#72"
+      },
+      {
+        "issue": "compliance-framework/docs#73"
+      }
+    ],
+    "stackNext": 1,
+    "stackTotal": 3
+  },
+  "reporter": {
+    "id": "github-public:admin",
+    "tier": "maintainer"
+  }
+}

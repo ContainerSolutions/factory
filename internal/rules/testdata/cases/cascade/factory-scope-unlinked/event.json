@@ -1,0 +1,26 @@
+{
+  "kind": "Event",
+  "id": "factory-run-33",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-16T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-triage-1",
+        "spec": "triage",
+        "outcome": "triaged",
+        "status": "done",
+        "inputs": {},
+        "result": {
+          "verdict": {
+            "intent": "genuine",
+            "size": "m"
+          }
+        }
+      }
+    }
+  },
+  "workItem": "wi-other"
+}
