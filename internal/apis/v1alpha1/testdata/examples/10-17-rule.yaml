@@ -1,0 +1,9 @@
+# Source: design/10-poc.md §Rules, use case 2 (`pack: docs-epic`).
+# Converted from the shorthand rule list: name → metadata.name, the other keys under spec (values verbatim).
+kind: Rule
+metadata: { name: plan-maintainer-epics }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [issue.opened]
+  where: "actor.tier == 'maintainer'"
+  actions: [{ dispatch: { taskSpec: plan-epic, queue: poc } }, { set: { plan: planning } }]

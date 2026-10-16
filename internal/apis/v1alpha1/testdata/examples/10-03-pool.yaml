@@ -1,0 +1,7 @@
+# Source: design/10-poc.md §Provider, Group, Pool, Queue (document 3 of 4).
+kind: Pool
+metadata: { name: local }
+spec:
+  mode: registered
+  admission: { tokenRef: { name: local-pool, key: join-token }, owners: maintainers }
+  lease: { ttl: 2m, heartbeat: 30s, maxTasksPerAgent: 1 }

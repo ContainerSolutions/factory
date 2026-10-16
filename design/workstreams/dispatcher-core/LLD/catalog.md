@@ -49,7 +49,7 @@ type Options struct { Capabilities []v1alpha1.AdapterCapabilities; KnownModels m
 ```
 
 1. **Object discovery:** walk every `*.yaml`/`*.yml` file **except** under `prompts/`, `schemas/` and `testdata/` (directory names are otherwise conventions; **kind** decides). **Assets** are loaded separately and never decoded as objects: `prompts/**` → `Catalog.Assets.Prompts` (raw templates, parsed with `text/template` at load), `schemas/**/*.json` → `Catalog.Assets.Schemas` (compiled JSON Schemas). A YAML document without `apiVersion`/`kind` outside those dirs is error `CAT002`.
-2. Split multi-document YAML; decode **strictly** (`UnmarshalStrict`) into the kind's type; record `file:line` per document.
+2. Split multi-document YAML; decode **strictly** with `v1alpha1.Decode` (YAML 1.2, unknown fields are errors) into the kind's type; record `file:line` per document.
 3. Duplicate `(kind, name)` → error `CAT001`.
 
 ## Validation phases (all errors collected, not fail-fast)

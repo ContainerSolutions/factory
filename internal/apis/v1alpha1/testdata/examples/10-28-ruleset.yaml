@@ -1,0 +1,10 @@
+# Source: design/10-poc.md §RuleSets (document 2 of 3).
+kind: RuleSet
+metadata: { name: poc-docs-epic }
+spec:
+  providerSelector: { matchLabels: { family: github, network: public } }
+  scope: { repos: ["compliance-framework/docs"] }
+  rules:
+    selector: { matchExpressions: [{ key: pack, operator: In, values: [docs-epic, shared] }] }
+    exclude: [merge-whole-stack]           # same
+  stateKeys: [plan, stackNext, stackTotal, review, merge, announced]

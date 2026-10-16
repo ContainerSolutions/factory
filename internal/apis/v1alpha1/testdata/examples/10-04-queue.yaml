@@ -1,0 +1,8 @@
+# Source: design/10-poc.md §Provider, Group, Pool, Queue (document 4 of 4).
+kind: Queue
+metadata: { name: poc }
+spec:
+  pool: local
+  concurrency: 2
+  budget: { daily: { runs: 40 } }
+  retry: { max: 1, on: [agent-lost, infra-failure] }   # throttling never consumes an attempt

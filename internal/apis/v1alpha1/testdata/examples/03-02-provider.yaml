@@ -1,0 +1,11 @@
+# Source: design/03-domain-model.md §Provider (document 2 of 3).
+kind: Provider
+metadata: { name: github-enterprise, labels: { family: github, network: enterprise } }
+spec:
+  type: github
+  github:
+    apiURL: https://ghe.example.internal/api/v3   # same adapter type, different endpoint and apps
+    webhook: { path: /hooks/github-enterprise, secretRef: { name: ghe-webhook, key: secret } }
+    identities: { author: { appID: 42, privateKeyRef: { name: ghe-factory-app, key: private-key } } }
+  scope: { orgs: [ccf-internal] }
+  trust: [{ tier: maintainer, group: maintainers }, { tier: anyone }]

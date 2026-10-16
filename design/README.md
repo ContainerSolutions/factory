@@ -58,4 +58,4 @@ flowchart LR
 
 - Markdown plus Mermaid only (it renders on GitHub, and in VS Code or JetBrains with a Mermaid plugin).
 - ADRs are numbered, never renumbered, and superseded rather than edited once accepted.
-- The YAML in these docs is *illustrative*. The schemas in `catalog/schemas/` will be authoritative once they exist.
+- The YAML in these docs is *illustrative*. The JSON Schemas in `schemas/` at the repo root (generated from the Go types with `make schemas`) are authoritative.

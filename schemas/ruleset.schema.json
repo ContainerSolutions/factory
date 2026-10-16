@@ -1,0 +1,666 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.ccf.dev/schemas/v1alpha1/ruleset.schema.json",
+  "$defs": {
+    "Action": {
+      "properties": {
+        "dispatch": {
+          "$ref": "#/$defs/DispatchAction"
+        },
+        "set": {
+          "type": "object"
+        },
+        "notify": {
+          "$ref": "#/$defs/NotifyAction"
+        },
+        "requestApproval": {
+          "$ref": "#/$defs/ApprovalSpec"
+        },
+        "cancel": {
+          "$ref": "#/$defs/CancelAction"
+        },
+        "link": {
+          "$ref": "#/$defs/LinkAction"
+        },
+        "effect": {
+          "$ref": "#/$defs/EffectAction"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "maxProperties": 1,
+      "minProperties": 1
+    },
+    "ApprovalSpec": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "approvers": {
+          "type": "string"
+        },
+        "quorum": {
+          "type": "integer"
+        },
+        "via": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "template": {
+          "type": "string"
+        },
+        "expires": {
+          "$ref": "#/$defs/Duration"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "approvers"
+      ]
+    },
+    "Budget": {
+      "properties": {
+        "daily": {
+          "$ref": "#/$defs/BudgetLimit"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "BudgetLimit": {
+      "properties": {
+        "runs": {
+          "type": "integer"
+        },
+        "tokens": {
+          "type": "integer"
+        },
+        "usd": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "CancelAction": {
+      "properties": {
+        "taskSpec": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "taskSpec"
+      ]
+    },
+    "ChannelRef": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider",
+        "name"
+      ]
+    },
+    "Debounce": {
+      "properties": {
+        "window": {
+          "$ref": "#/$defs/Duration"
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "window"
+      ]
+    },
+    "Destination": {
+      "oneOf": [
+        {
+          "required": [
+            "group"
+          ]
+        },
+        {
+          "required": [
+            "channel"
+          ]
+        },
+        {
+          "required": [
+            "item"
+          ]
+        }
+      ],
+      "properties": {
+        "group": {
+          "type": "string",
+          "minLength": 1
+        },
+        "via": {
+          "type": "string"
+        },
+        "as": {
+          "type": "string",
+          "enum": [
+            "mention",
+            "dm"
+          ]
+        },
+        "channel": {
+          "$ref": "#/$defs/ChannelRef"
+        },
+        "item": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "threads",
+            "all"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "DispatchAction": {
+      "properties": {
+        "taskSpec": {
+          "type": "string"
+        },
+        "queue": {
+          "type": "string"
+        },
+        "inputs": {
+          "type": "object"
+        },
+        "harness": {
+          "$ref": "#/$defs/ExprOrHarnessRequest"
+        },
+        "requires": {
+          "$ref": "#/$defs/Requires"
+        },
+        "context": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "target": {
+          "$ref": "#/$defs/Target"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "taskSpec",
+        "queue"
+      ]
+    },
+    "Duration": {
+      "type": "string",
+      "description": "A Go duration (\"90s\", \"15m\", \"1h30m\"), optionally prefixed by whole days (\"7d\", \"1d12h\")."
+    },
+    "EffectAction": {
+      "not": {
+        "required": [
+          "args"
+        ]
+      },
+      "properties": {
+        "op": {
+          "$ref": "#/$defs/EffectOp"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true,
+      "type": "object",
+      "required": [
+        "op"
+      ],
+      "description": "A direct provider effect: op, an optional target, and the op-specific fields inline (e.g. labels for label.add). The catalog loader checks those fields per op."
+    },
+    "EffectOp": {
+      "type": "string",
+      "enum": [
+        "comment",
+        "pr.comment",
+        "label.add",
+        "label.remove",
+        "create-issue",
+        "sub-issue.add",
+        "close",
+        "link-duplicate",
+        "pr.open",
+        "pr.update",
+        "pr.retarget",
+        "pr.merge",
+        "review.comment",
+        "review.request-changes",
+        "review.approve",
+        "thread.reply",
+        "thread.resolve",
+        "push-branch",
+        "stack.push",
+        "stack.rebase"
+      ]
+    },
+    "EventType": {
+      "type": "string",
+      "enum": [
+        "issue.opened",
+        "issue.commented",
+        "issue.labeled",
+        "issue.closed",
+        "pr.opened",
+        "pr.updated",
+        "pr.ready_for_review",
+        "pr.labeled",
+        "pr.review.submitted",
+        "pr.checks.completed",
+        "pr.merged",
+        "pr.closed",
+        "release.published",
+        "deploy.succeeded",
+        "deploy.failed",
+        "message.posted",
+        "message.mention",
+        "factory.run.completed",
+        "factory.run.failed",
+        "factory.approval.granted",
+        "factory.approval.denied",
+        "factory.approval.expired",
+        "factory.schedule.tick",
+        "factory.workitem.resynced",
+        "factory.command.pause",
+        "factory.command.resume",
+        "factory.command.redispatch",
+        "factory.command.cancel"
+      ]
+    },
+    "ExprOrHarnessRequest": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^=|\\{\\{[\\s\\S]*\\}\\}",
+          "description": "An expression: \"{{ params.x }}\" (substituted at catalog load) or \"=CEL\" (evaluated at runtime)."
+        },
+        {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "config": {
+              "properties": {
+                "model": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  ]
+                },
+                "reasoningEffort": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  ]
+                },
+                "prefer": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "additionalProperties": false,
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "name"
+          ]
+        }
+      ]
+    },
+    "InlineRule": {
+      "properties": {
+        "metadata": {
+          "$ref": "#/$defs/ObjectMeta"
+        },
+        "spec": {
+          "$ref": "#/$defs/RuleSpec"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "metadata",
+        "spec"
+      ]
+    },
+    "LabelSelector": {
+      "properties": {
+        "matchLabels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "matchExpressions": {
+          "items": {
+            "$ref": "#/$defs/LabelSelectorRequirement"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "LabelSelectorRequirement": {
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "operator": {
+          "type": "string",
+          "enum": [
+            "In",
+            "NotIn",
+            "Exists",
+            "DoesNotExist"
+          ]
+        },
+        "values": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "key",
+        "operator"
+      ]
+    },
+    "LinkAction": {
+      "properties": {
+        "from": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "from"
+      ]
+    },
+    "NotifyAction": {
+      "properties": {
+        "template": {
+          "type": "string"
+        },
+        "to": {
+          "items": {
+            "$ref": "#/$defs/Destination"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "template",
+        "to"
+      ]
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "resourceVersion": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "Requires": {
+      "properties": {
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RuleSelection": {
+      "properties": {
+        "refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "selector": {
+          "$ref": "#/$defs/LabelSelector"
+        },
+        "exclude": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RuleSetSpec": {
+      "properties": {
+        "providerSelector": {
+          "$ref": "#/$defs/LabelSelector"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "rules": {
+          "$ref": "#/$defs/RuleSelection"
+        },
+        "overrides": {
+          "additionalProperties": {
+            "type": "object"
+          },
+          "type": "object"
+        },
+        "defaults": {
+          "type": "object"
+        },
+        "budget": {
+          "$ref": "#/$defs/Budget"
+        },
+        "stateKeys": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "inlineRules": {
+          "items": {
+            "$ref": "#/$defs/InlineRule"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "providerSelector",
+        "rules"
+      ]
+    },
+    "RuleSpec": {
+      "properties": {
+        "ruleSet": {
+          "type": "string"
+        },
+        "providerSelector": {
+          "$ref": "#/$defs/LabelSelector"
+        },
+        "on": {
+          "items": {
+            "$ref": "#/$defs/EventType"
+          },
+          "type": "array"
+        },
+        "where": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/Action"
+          },
+          "type": "array"
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "final": {
+          "type": "boolean"
+        },
+        "debounce": {
+          "$ref": "#/$defs/Debounce"
+        },
+        "schedule": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "on",
+        "actions"
+      ]
+    },
+    "Scope": {
+      "properties": {
+        "repos": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "exclude": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "channels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "branches": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Target": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "factory.ccf.dev/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "RuleSet"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/RuleSetSpec"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "title": "RuleSet"
+}

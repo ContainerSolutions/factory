@@ -1,0 +1,10 @@
+# Source: design/03-domain-model.md §Group.
+kind: Group
+metadata: { name: maintainers }
+spec:
+  members:
+    - { provider: github-public, orgRole: { org: compliance-framework, role: admin } }   # PoC: the CCF org admins (Q17)
+    # other sources: { provider, team: org/slug } · { provider, users: [...] } · { provider: slack-ccf, userGroup: "@…" }
+    - { provider: github-enterprise, team: ccf-internal/maintainers }
+    - { provider: slack-ccf, userGroup: "@ccf-maintainers" }
+  cache: { ttl: 10m }       # resolved by the provider adapters, cached by the dispatcher

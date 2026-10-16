@@ -1,0 +1,16 @@
+# Source: design/03-domain-model.md §Result (JSON; this file is YAML only so it can carry comments).
+{
+  "task": "tsk_01JA…",
+  "status": "done",   # changed from the doc: "done | failed | needs_input | noop" lists the allowed values; one is required
+  "outcome": "triaged",
+  "summary": "Docs page for OSCAL import is missing the --profile flag introduced in api v1.8.",
+  "verdict": { "intent": "genuine", "useful": true, "size": "s", "confidence": "high" },
+  "artifacts": [{ "kind": "comment", "url": "https://github.com/compliance-framework/docs/issues/42#issuecomment-…" }],
+  "suggest": [{ "taskSpec": "implement", "reason": "small, well-scoped docs change" }],
+  "question": null,
+  "harness": {
+    "name": "codex", "version": "0.x", "auth": "subscription",
+    "effectiveConfig": { "model": "gpt-5-codex", "reasoningEffort": "medium" },
+    "usage": { "inputTokens": 120400, "outputTokens": 6100, "turns": 17, "wallClock": "3m12s", "costUSD": null }
+  }
+}

@@ -1,0 +1,14 @@
+# Source: design/10-poc.md §Rules, use case 1 (`pack: release-docs`).
+# Converted from the shorthand rule list: name → metadata.name, the other keys under spec (values verbatim).
+kind: Rule
+metadata: { name: merge-release-docs }                 # excluded from the RuleSet until everything else is trusted (Q10)
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [pr.review.submitted, pr.checks.completed]
+  where: >
+    has(item.state.release) &&
+    item.pr.approvedBy.exists(a, a.identity == 'reviewer' && a.commit == item.pr.head) &&
+    item.pr.checks.state == 'success' &&
+    !item.pr.labels.exists(l, l in ['do-not-merge', 'factory:hold', 'factory:stop'])
+  params: { requiredCheck: "ci / required" }
+  actions: [{ dispatch: { taskSpec: merge, queue: poc, inputs: { target: pr, requiredCheck: "{{ params.requiredCheck }}" } } }]

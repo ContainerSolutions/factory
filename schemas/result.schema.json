@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.ccf.dev/schemas/v1alpha1/result.schema.json",
+  "$defs": {
+    "Artifact": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind"
+      ]
+    },
+    "Duration": {
+      "type": "string",
+      "description": "A Go duration (\"90s\", \"15m\", \"1h30m\"), optionally prefixed by whole days (\"7d\", \"1d12h\")."
+    },
+    "EffectiveConfig": {
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "reasoningEffort": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "model"
+      ]
+    },
+    "ResultHarness": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "auth": {
+          "type": "string"
+        },
+        "effectiveConfig": {
+          "$ref": "#/$defs/EffectiveConfig"
+        },
+        "usage": {
+          "$ref": "#/$defs/Usage"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "effectiveConfig",
+        "usage"
+      ]
+    },
+    "Suggestion": {
+      "properties": {
+        "taskSpec": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "inputs": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "taskSpec"
+      ]
+    },
+    "Usage": {
+      "properties": {
+        "inputTokens": {
+          "type": "integer"
+        },
+        "outputTokens": {
+          "type": "integer"
+        },
+        "turns": {
+          "type": "integer"
+        },
+        "wallClock": {
+          "$ref": "#/$defs/Duration"
+        },
+        "costUSD": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "inputTokens",
+        "outputTokens",
+        "costUSD"
+      ]
+    }
+  },
+  "properties": {
+    "task": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "done",
+        "failed",
+        "needs_input",
+        "noop"
+      ]
+    },
+    "outcome": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "verdict": {
+      "type": "object"
+    },
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/Artifact"
+      },
+      "type": "array"
+    },
+    "suggest": {
+      "items": {
+        "$ref": "#/$defs/Suggestion"
+      },
+      "type": "array"
+    },
+    "question": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "harness": {
+      "$ref": "#/$defs/ResultHarness"
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "task",
+    "status",
+    "question"
+  ],
+  "title": "Result"
+}

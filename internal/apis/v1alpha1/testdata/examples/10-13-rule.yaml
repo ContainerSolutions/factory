@@ -1,0 +1,19 @@
+# Source: design/10-poc.md §Rules, use case 1 (`pack: release-docs`).
+# Converted from the shorthand rule list: name → metadata.name, the other keys under spec (values verbatim).
+kind: Rule
+metadata: { name: review-release-docs }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [pr.opened, pr.updated]
+  where: "actor.isFactory && has(item.state.release)"
+  actions:
+    - cancel: { taskSpec: docs-review }
+    - dispatch:
+        taskSpec: docs-review
+        queue: poc
+        requires: { labels: [has-local-stack] }
+        inputs:
+          target: pr
+          verifyAgainst: "={'train': item.state.train}"
+          checks: [version-accuracy, versioning, style, build]
+    - set: { review: running }

@@ -1,0 +1,26 @@
+# Source: design/03-domain-model.md §TaskSpec.
+kind: TaskSpec
+metadata: { name: triage }
+spec:
+  description: Classify, de-duplicate and enrich an incoming issue or thread.
+  instructions: { template: prompts/triage.md.tmpl, headless: true }
+  skills: [{ source: ccf-skills, ref: v0.7.0, use: [bugreport] }]
+  harness:
+    allowed:                                  # constraints; dispatch requests must fall inside them
+      - { name: codex, models: ["gpt-5*"], reasoningEffort: [low, medium, high] }
+      - { name: claude-code, models: ["claude-{sonnet,haiku}-5-*"], reasoningEffort: "*" }
+    default: { name: codex, config: { model: "gpt-5*", reasoningEffort: medium } }
+  inputs: {}                                # declared, typed inputs that dispatch.inputs must satisfy (see the PoC task specs)
+  requires: { labels: [] }                  # agent labels needed, e.g. has-local-stack
+  workspace:
+    repos: [{ ref: "=task.target.repo + '@main'", mode: ro }]   # several repos allowed; at most one rw
+    publicReads: false                      # true: may also clone public repos anonymously at runtime
+  identity: author
+  permissions: { issues: write, contents: read, pull_requests: read }
+  effects:
+    allow: [comment, label.add, label.remove, link-duplicate, create-issue]
+    labels: ["type/*", "area/*", "needs-info", "good-first-issue"]
+  limits: { maxTurns: 40, maxWallClock: 15m, maxCostUSD: 1.50 }
+  output:
+    schema: schemas/results/triage.json
+    outcomes: [triaged, needs-info, duplicate, not-actionable, promote]

@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.ccf.dev/schemas/v1alpha1/provider.schema.json",
+  "$defs": {
+    "AppIdentity": {
+      "properties": {
+        "appID": {
+          "type": "integer"
+        },
+        "privateKeyRef": {
+          "$ref": "#/$defs/SecretRef"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "appID",
+        "privateKeyRef"
+      ]
+    },
+    "Duration": {
+      "type": "string",
+      "description": "A Go duration (\"90s\", \"15m\", \"1h30m\"), optionally prefixed by whole days (\"7d\", \"1d12h\")."
+    },
+    "GitHubProviderSpec": {
+      "properties": {
+        "apiURL": {
+          "type": "string"
+        },
+        "webhook": {
+          "$ref": "#/$defs/Webhook"
+        },
+        "identities": {
+          "additionalProperties": {
+            "$ref": "#/$defs/AppIdentity"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "webhook",
+        "identities"
+      ]
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "resourceVersion": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "ProviderScope": {
+      "properties": {
+        "orgs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "channels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ProviderSpec": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "github",
+            "slack"
+          ]
+        },
+        "github": {
+          "$ref": "#/$defs/GitHubProviderSpec"
+        },
+        "slack": {
+          "$ref": "#/$defs/SlackProviderSpec"
+        },
+        "scope": {
+          "$ref": "#/$defs/ProviderScope"
+        },
+        "trust": {
+          "items": {
+            "$ref": "#/$defs/TrustRule"
+          },
+          "type": "array"
+        },
+        "resync": {
+          "$ref": "#/$defs/ResyncPolicy"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "ResyncPolicy": {
+      "properties": {
+        "every": {
+          "$ref": "#/$defs/Duration"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "every"
+      ]
+    },
+    "SecretRef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "key"
+      ]
+    },
+    "SlackProviderSpec": {
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "appTokenRef": {
+          "$ref": "#/$defs/SecretRef"
+        },
+        "botTokenRef": {
+          "$ref": "#/$defs/SecretRef"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "TrustRule": {
+      "properties": {
+        "tier": {
+          "type": "string"
+        },
+        "group": {
+          "type": "string"
+        },
+        "authorAssociation": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "bots": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "workspaceMember": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "tier"
+      ]
+    },
+    "Webhook": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "secretRef": {
+          "$ref": "#/$defs/SecretRef"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path",
+        "secretRef"
+      ]
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "factory.ccf.dev/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Provider"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/ProviderSpec"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "title": "Provider"
+}

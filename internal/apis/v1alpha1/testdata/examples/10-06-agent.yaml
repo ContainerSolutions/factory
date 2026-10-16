@@ -1,0 +1,16 @@
+# Source: design/10-poc.md §Provider, Group, Pool, Queue, PoC agents (document 2 of 2).
+kind: Agent
+metadata: { name: agt_maintainer-2 }
+spec:
+  pool: local
+  owner: "github-public:<maintainer>"
+  capabilities:
+    harnesses: [{ name: codex, auth: subscription, models: [gpt-5-codex], reasoningEffort: [low, medium, high] }]
+    labels: []
+  lending:
+    queues: [poc]
+    harnesses: [codex]                           # lend Codex only
+    maxConcurrent: 1
+    maxRunsPerDay: 10
+    maxTokensPerDay: 2000000
+    hours: "Mon-Fri 09:00-18:00 Europe/London"

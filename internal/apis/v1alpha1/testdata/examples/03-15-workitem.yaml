@@ -1,0 +1,13 @@
+# Source: design/03-domain-model.md §WorkItem.
+kind: WorkItem
+metadata: { name: wi_01JA… }
+spec:
+  links:
+    - { provider: slack-ccf, ref: "C0123/1697040000.000100", kind: thread }
+    - { provider: github-public, ref: "compliance-framework/docs#61", kind: issue, primary: true }
+    - { provider: github-public, ref: "compliance-framework/docs#63", kind: pr }
+status:
+  state: { triage: triaged, implement: done, review: approved }   # keys set only by rules
+  counters: { triage: 1, implement: 2, review: 2 }               # runs per task spec (derived)
+  approvals: [{ name: implement, phase: Granted }]
+  decisions: [{ at: "2026-10-15T12:00:00Z", event: "github-public/gh-7f3c…", ruleSet: docs, rule: triage-outside-issues, fired: true }]   # changed from the doc: "[ … ]" is a placeholder; one concrete Decision

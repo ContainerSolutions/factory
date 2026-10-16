@@ -1,0 +1,10 @@
+# Source: design/10-poc.md §RuleSets (document 1 of 3).
+kind: RuleSet
+metadata: { name: poc-release-docs }
+spec:
+  providerSelector: { matchLabels: { family: github, network: public } }
+  scope: { repos: ["compliance-framework/workflows", "compliance-framework/docs"] }   # the train issue + the docs PR it produces
+  rules:
+    selector: { matchExpressions: [{ key: pack, operator: In, values: [release-docs, shared] }] }
+    exclude: [merge-release-docs]          # remove this line once everything else is trusted (Q10)
+  stateKeys: [release, train, review, merge]

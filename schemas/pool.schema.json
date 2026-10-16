@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factory.ccf.dev/schemas/v1alpha1/pool.schema.json",
+  "$defs": {
+    "Admission": {
+      "properties": {
+        "tokenRef": {
+          "$ref": "#/$defs/SecretRef"
+        },
+        "owners": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "tokenRef",
+        "owners"
+      ]
+    },
+    "Duration": {
+      "type": "string",
+      "description": "A Go duration (\"90s\", \"15m\", \"1h30m\"), optionally prefixed by whole days (\"7d\", \"1d12h\")."
+    },
+    "GitHubActionsBackend": {
+      "properties": {
+        "providerRef": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "workflow": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "providerRef",
+        "repo",
+        "workflow"
+      ]
+    },
+    "LLMAuth": {
+      "properties": {
+        "apiKeyRef": {
+          "$ref": "#/$defs/SecretRef"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "LeasePolicy": {
+      "properties": {
+        "ttl": {
+          "$ref": "#/$defs/Duration"
+        },
+        "heartbeat": {
+          "$ref": "#/$defs/Duration"
+        },
+        "maxTasksPerAgent": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "resourceVersion": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "PoolBackend": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "githubActions": {
+          "$ref": "#/$defs/GitHubActionsBackend"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "PoolRequirements": {
+      "properties": {
+        "harnesses": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PoolSpec": {
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "registered",
+            "ephemeral"
+          ]
+        },
+        "admission": {
+          "$ref": "#/$defs/Admission"
+        },
+        "lease": {
+          "$ref": "#/$defs/LeasePolicy"
+        },
+        "require": {
+          "$ref": "#/$defs/PoolRequirements"
+        },
+        "fairness": {
+          "type": "string"
+        },
+        "backend": {
+          "$ref": "#/$defs/PoolBackend"
+        },
+        "image": {
+          "type": "string"
+        },
+        "scaling": {
+          "$ref": "#/$defs/Scaling"
+        },
+        "llmAuth": {
+          "$ref": "#/$defs/LLMAuth"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mode"
+      ]
+    },
+    "Scaling": {
+      "properties": {
+        "min": {
+          "type": "integer"
+        },
+        "max": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "min",
+        "max"
+      ]
+    },
+    "SecretRef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "key"
+      ]
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "factory.ccf.dev/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Pool"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/PoolSpec"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "title": "Pool"
+}

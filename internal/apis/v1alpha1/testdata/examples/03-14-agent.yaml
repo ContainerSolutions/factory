@@ -1,0 +1,32 @@
+# Source: design/03-domain-model.md §Agent (registered).
+kind: Agent
+metadata: { name: agt_gus-mbp-01, labels: { owner: gusfcarvalho } }
+spec:
+  pool: maintainer-agents
+  owner: "github-public:gusfcarvalho"            # must be in the pool's owners Group
+  capabilities:
+    harnesses:
+      - name: claude-code
+        version: "2.x"
+        auth: apiKey                             # subscription | apiKey | cloud (Bedrock/Vertex)
+        models: [claude-sonnet-5-5, claude-haiku-5-5, claude-opus-5-5]
+        reasoningEffort: [low, medium, high, max]
+      - name: codex
+        version: "0.x"
+        auth: subscription
+        models: [gpt-5-codex]
+        reasoningEffort: [low, medium, high]
+    labels: [has-local-stack, macos]
+  lending:                                       # the owner's consent, set in the worker's local config (no catalog PR)
+    queues: [default, triage, review, validation]   # beyond the PoC, claude-code (API key) takes validation only
+    ruleSets: [docs]
+    harnesses: [codex, claude-code]
+    maxConcurrent: 1
+    maxRunsPerDay: 30
+    maxTokensPerDay: 3000000
+    hours: "Mon-Fri 08:00-20:00 Europe/Lisbon"
+    # or: unlimited: true   (full throttle)
+status:
+  phase: Ready                                   # Ready | Busy | Throttled | Offline
+  throttledUntil: null                           # set when the harness reports plan limits
+  lastHeartbeat: "2026-10-15T12:00:00Z"          # changed from the doc: "…" is a placeholder; a timestamp is required

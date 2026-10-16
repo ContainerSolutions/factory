@@ -1,0 +1,12 @@
+# Source: design/10-poc.md §Rules, use case 2 (`pack: docs-epic`).
+# Converted from the shorthand rule list: name → metadata.name, the other keys under spec (values verbatim).
+kind: Rule
+metadata: { name: review-whole-stack }
+spec:
+  on: [factory.run.completed]
+  where: >
+    (run.spec == 'implement' && run.inputs.mode == 'new' && run.outcome == 'pr-opened' && item.state.stackNext + 1 == item.state.stackTotal) ||
+    (run.spec == 'implement' && run.inputs.target == 'stack' && run.outcome == 'pr-updated')
+  actions:
+    - dispatch: { taskSpec: docs-review, queue: poc, inputs: { target: stack, checks: [i18n, versioning, style, build] } }
+    - set: { review: running }

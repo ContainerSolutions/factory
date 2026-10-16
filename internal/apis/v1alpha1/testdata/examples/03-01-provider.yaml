@@ -1,0 +1,21 @@
+# Source: design/03-domain-model.md §Provider (document 1 of 3).
+apiVersion: factory.ccf.dev/v1alpha1
+kind: Provider
+metadata:
+  name: github-public
+  labels: { family: github, network: public }
+spec:
+  type: github
+  github:
+    apiURL: https://api.github.com
+    webhook: { path: /hooks/github-public, secretRef: { name: github-public-webhook, key: secret } }
+    identities:                               # GitHub Apps this provider can act as
+      author:   { appID: 123456, privateKeyRef: { name: ccf-factory-app, key: private-key } }
+      reviewer: { appID: 234567, privateKeyRef: { name: ccf-factory-reviewer-app, key: private-key } }
+  scope: { orgs: [compliance-framework] }     # outer bound; RuleSets can only narrow it
+  trust:                                      # how actor.tier is resolved, first match wins
+    - { tier: maintainer, group: maintainers }
+    - { tier: contributor, authorAssociation: [CONTRIBUTOR, COLLABORATOR] }
+    - { tier: bot, bots: ["dependabot[bot]", "release-please[bot]"] }
+    - { tier: anyone }
+  resync: { every: 10m }

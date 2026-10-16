@@ -1,0 +1,11 @@
+# Source: design/10-poc.md §Rules, use case 2 (`pack: docs-epic`).
+# Converted from the shorthand rule list: name → metadata.name, the other keys under spec (values verbatim).
+kind: Rule
+metadata: { name: build-stack-start }
+spec:
+  on: [factory.run.completed]
+  where: "run.spec == 'plan-epic' && run.outcome == 'decomposed'"
+  actions:
+    - set: { plan: "=run.result.plan", stackNext: 0, stackTotal: "=size(run.result.plan)" }
+    - notify: { template: epic-plan, to: [{ item: primary }] }
+    - dispatch: { taskSpec: implement, queue: poc, inputs: { mode: new, target: pr, issue: "=item.state.plan[0].issue", base: main } }

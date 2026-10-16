@@ -7,7 +7,7 @@ Every concept is a **resource** with the Kubernetes shape `apiVersion` / `kind` 
 - **Config kinds** live in git under `catalog/` and are synced by the catalog-sync controller (ADR-0006).
 - **Runtime kinds** live in the dispatcher's DB.
 
-The YAML here is illustrative until `catalog/schemas/` exists.
+The YAML here is illustrative. The authoritative shapes are the JSON Schemas in `schemas/` at the repo root, generated from the Go types with `make schemas`.
 
 ```mermaid
 classDiagram
@@ -108,7 +108,7 @@ catalog/
 ├── queues/
 ├── pools/
 ├── harnesses/        # harness defaults per adapter (models, effort)
-├── schemas/          # JSON Schemas for all kinds + Task/Result
+├── schemas/          # TaskSpec result schemas (schemas/results/*); the kind schemas are generated at the repo root (schemas/)
 └── testdata/         # recorded events for `factory rules test`
 ```
 
