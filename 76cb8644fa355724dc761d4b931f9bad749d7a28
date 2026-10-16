@@ -1,0 +1,4 @@
+lisa-design:
+- Real dispatcher server = Echo v4 (same line as api); factory-mock = plain net/http with no Echo dependency (decided by Gustavo 2026-10-16).
+- UI and provider webhook handlers stay plain http.Handler, mounted with echo.WrapHandler, so they remain framework-agnostic and testable.
+- Ops listener is a second minimal Echo instance (one middleware story), still bound to localhost only.
