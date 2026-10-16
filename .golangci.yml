@@ -1,0 +1,31 @@
+# golangci-lint v2. Same linter set as compliance-framework/api (the v2 defaults),
+# plus depguard keeping the pure packages free of I/O (repo-layout LLD).
+version: "2"
+
+linters:
+  enable:
+    - depguard
+  settings:
+    depguard:
+      rules:
+        pure-packages:
+          files:
+            - "**/internal/rules/**"
+            - "**/internal/cel/**"
+            - "**/internal/patterns/**"
+            - "**/internal/catalog/**"
+            - "!$test"
+          deny:
+            - pkg: "net/http"
+              desc: "pure package: no network I/O (see AGENTS.md)"
+            - pkg: "os/exec"
+              desc: "pure package: no processes"
+            - pkg: "github.com/compliance-framework/factory/internal/store"
+              desc: "pure package: no store access"
+            - pkg: "github.com/compliance-framework/factory/internal/provider"
+              desc: "pure package: no provider access"
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
