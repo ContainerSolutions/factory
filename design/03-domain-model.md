@@ -296,7 +296,7 @@ spec:
   overrides:                                  # per-rule params
     review-factory-prs: { harness: { name: claude-code, config: { model: "claude-{sonnet,opus}-5-*", reasoningEffort: high } } }   # reviewer on a different harness from the author
     implement-review-feedback: { maxImplementRuns: 3 }
-  defaults:                                   # params applied to every selected rule unless the rule overrides
+  defaults:                                   # params for every selected rule: replace the rule's own defaults; overrides[rule] win over both
     queue: default
   budget: { daily: { usd: 25, runs: 60 } }
   stateKeys: [triage, implement, review, merge]
