@@ -6,3 +6,6 @@ lisa-design:
 - Internal store kinds: EventStatus (processed mark), Debounce, TaskPrompt (prompt.ref api://tasks/<id>/prompt).
 - Rails implemented here: factory:stop, run cap 20, single active run per spec, queue daily budget defer; RuleSet budgets at lease time (RT-S2-T02); pause kill-switches with RT-S2-T03.
 - TaskRunSpec.requires and RunStatus.end (contract fields added in #21) replace label workarounds.
+
+lisa-selfreview:
+Pass 1: no blocking findings; ccf-review to raise lock lease vs reconcile duration.
