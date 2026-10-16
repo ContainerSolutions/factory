@@ -142,7 +142,7 @@ Every PR gets `/ccf-review:review <PR URL>` before merge, and `--again` after ne
 - `Makefile` with the targets in the LLD (`build`, `test`, `lint`, `reviewable`, `generate`, `web`, `build-release`).
 - `.golangci.yml` with the same linters as `api`.
 - `internal/webui` with the two build-tagged embed files and the committed placeholder page.
-- `web/.gitkeep`, `LICENSE` (AGPL-3.0 full text), `README.md`, `AGENTS.md` and `CLAUDE.md` (pointing at `AGENTS.md`), and `.gitignore`.
+- `web/.gitkeep`, `LICENSE` (AGPL-3.0 full text), `README.md`, `AGENTS.md` and `CLAUDE.md` (pointing at `AGENTS.md`), and `.gitignore` (must ignore `deploy/poc/.env`, `.env*` except `*.env.example`, `internal/webui/dist/`, `web/node_modules/`, `bin/`). The dispatcher host already has secrets in `deploy/poc/.env`, protected today by an untracked local `.gitignore`: remove that local file before pulling this scaffold.
 
 **Done when:** `make reviewable` passes locally, and both binaries build with and without `-tags webui` (the latter after `mkdir -p internal/webui/dist && cp internal/webui/placeholder/index.html internal/webui/dist/`).
 
@@ -813,13 +813,13 @@ Review and merge [compliance-framework/factory#1](https://github.com/compliance-
 
 ### RUN-S0-T02 `[human]` create and install the factory GitHub Apps
 
-- **Who:** org owner (Gustavo)
+- **Who:** org owner (Gustavo) · **Status:** ✅ done 2026-10-16 (both Apps, permissions, device flow, webhook to the ngrok tunnel; secrets in `deploy/poc/.env` on the dispatcher host)
 
 Create `ccf-factory` (author; **the only App with a webhook**) and `ccf-factory-reviewer` (reviewer), with the permissions and events in [rollout.md §GitHub Apps](poc-rollout/LLD/rollout.md#github-apps). Install them on `docs`, `mock-docs`, `workflows` (read) and the mock repos. Hand over the App IDs, private keys and webhook secret through the secret store named in the LLD, never in chat or git.
 
 ### RUN-S0-T03 `[human]` create mock-docs
 
-- **Who:** org owner
+- **Who:** org owner · **Status:** repo created 2026-10-16; initial commit pushed; Pages source still to be set to GitHub Actions
 
 Create the public repo `compliance-framework/mock-docs` with an initial commit on `main`, and enable GitHub Pages (Actions).
 
@@ -829,7 +829,7 @@ Create the public repo `compliance-framework/mock-docs` with an initial commit o
 
 **Spec.** `deploy/poc/` per [rollout.md §Hosting](poc-rollout/LLD/rollout.md#dispatcher-hosting):
 
-- an `.env.example` (names only), a `run.sh` (build with `-tags webui`, start `factory serve`), tunnel instructions (`cloudflared`), the webhook URL setup, and `factory-agent` install and onboarding steps;
+- an `.env.example` (names only), a `run.sh` (build with `-tags webui`, start `factory serve`), tunnel instructions (ngrok, stable domain), the webhook URL setup, and `factory-agent` install and onboarding steps;
 - a `Makefile` target `poc-up`.
 
 **Done when:** a maintainer can follow the README to a running dispatcher and a registered agent.

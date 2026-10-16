@@ -41,9 +41,9 @@ Stored in the operator's password manager / a local `deploy/poc/.env` (gitignore
 
 ## Dispatcher hosting
 
-PoC: Gustavo's machine (or a small VM) running `factory serve` (built with `make build-release`), exposed with **Cloudflare Tunnel** (`cloudflared tunnel run factory`, stable hostname) — only `/hooks/*`, `/api/*` and the UI are routed; no inbound ports. Long term: Cloud Run (Q12).
+PoC: Gustavo's machine (or a small VM) running `factory serve` (built with `make build-release`), exposed with an **ngrok** tunnel on a stable `ngrok-free.dev` domain, forwarding to `localhost:8080` (set up 2026-10-16; the hostname lives in `deploy/poc/.env` as `FACTORY_PUBLIC_URL`, not in this public repo). No inbound ports. Webhooks are unaffected by ngrok's free-plan browser warning page; the UI login shows it once per browser. Long term: Cloud Run (Q12).
 
-`deploy/poc/` (RUN-S1-T01): `README.md`, `.env.example` (names only), `run.sh` (loads `.env`, `exec factory serve --public-url … --catalog-repo … --retention 2160h`), `cloudflared.yml.example`, `agent.yaml.example`.
+`deploy/poc/` (RUN-S1-T01): `README.md`, `.env.example` (names only), `run.sh` (loads `.env`, `exec factory serve --public-url "$FACTORY_PUBLIC_URL" --catalog-repo … --retention 2160h`), ngrok instructions (`ngrok http --url=$FACTORY_PUBLIC_URL 8080`), `agent.yaml.example`. `deploy/poc/.env` is gitignored and `0600`.
 
 ## Agent onboarding (RUN-S2-T01)
 
