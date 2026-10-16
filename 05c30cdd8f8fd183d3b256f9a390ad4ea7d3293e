@@ -5,3 +5,6 @@ lisa-design:
 - ActionIntent is a tagged struct (readable goldens, FakeRails matching); requestApproval -> Unsupported without consulting rails.
 - now = injected Clock, else the event time (deterministic replays); run/approval come from event.data.facts on factory.* events.
 - PoC rule fixes: review-whole-stack priority 50; announce-ptbr-live guarded with has(); release-docs items bound to params.trainManifest via item.state.manifest.
+
+lisa-selfreview:
+Pass 1: no findings (evaluation loop vs dedupe-on-firing/final/priority; staging and commit of actions).
