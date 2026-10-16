@@ -5,8 +5,12 @@
 
 ## Server
 
-- Std `net/http` + `ServeMux`; handlers implement the oapi-codegen **strict** server interface (`internal/apiserver/gen`).
-- Middleware chain: request ID → structured access log (no bodies) → recover → auth (per route group) → body limit (1 MB; transcripts 20 MB) → handler.
+- **Echo v4** (`github.com/labstack/echo/v4`, the same line as `compliance-framework/api`); handlers implement the oapi-codegen **Echo strict** server interface (`internal/apiserver/gen`), registered with its generated `RegisterHandlers`.
+- Middleware chain, as Echo middleware: request ID → structured access log via `slog` (no bodies) → recover → auth (per route group: `/api/v1` agent routes, UI routes, CLI) → body limit (1 MB; transcripts 20 MB) → handler.
+- One `HTTPErrorHandler` renders every error as `application/problem+json`.
+- Plain `http.Handler`s are mounted with `echo.WrapHandler`: the embedded UI (`internal/webui.Handler()`) as the catch-all `GET /*` and `HEAD /*`, and each provider's `Conn.Handler(sink)` at its webhook path. They stay framework-agnostic so they're testable without Echo.
+- SSE (`/stream`) and lease long-polls write to the underlying `http.ResponseWriter` (`c.Response()`), flushing per event; request contexts carry cancellation.
+- The ops listener (`--ops-addr`) is a second, minimal Echo instance (recover + access log only), so both listeners share one middleware story.
 - Routes outside the contract: `/hooks/{provider}` (provider `Handler()`), `/` (embedded UI via `internal/webui.Handler()`), and, **on a separate ops listener** (`--ops-addr`, default `127.0.0.1:9090`, never the public `--addr`): `/healthz`, `/readyz` (catalog loaded + rebuild done), `/metrics` (Prometheus text). The ops routes have no auth, so they must not be reachable through the public tunnel; binding them to localhost guarantees it.
 
 ## Auth

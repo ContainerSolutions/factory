@@ -166,6 +166,6 @@ type Projection struct {
 | **webhooks** | `POST /hooks/{provider}` | provider HMAC | delegated to `Conn.Handler()` (not in OpenAPI body schemas; documented as opaque) |
 | **ops** | `GET /healthz`, `GET /readyz`, `GET /metrics` | none — served only on the localhost ops listener (`--ops-addr`), never on the public address | — |
 
-Codegen: `oapi-codegen` strict-server for `internal/apiserver/gen`, client for `internal/apiclient`; web uses `openapi-typescript`. `api/examples/*.json` hold one example per operation response; `factory-mock` and MSW serve them.
+Codegen: `oapi-codegen` **Echo strict server** (`echo-server` + `strict-server`) for `internal/apiserver/gen`, client for `internal/apiclient`; web uses `openapi-typescript`. `api/examples/*.json` hold one example per operation response; `factory-mock` and MSW serve them. `factory-mock` is a small `net/http` server that matches each request to its operation in `api/openapi.yaml` and answers with that operation's example; it doesn't use the generated server, so it has no Echo dependency.
 
 **Contract versioning:** additive changes only during the PoC; a breaking change bumps the path to `/api/v2` — not expected in the PoC.

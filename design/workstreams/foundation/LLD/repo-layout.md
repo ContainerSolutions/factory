@@ -137,7 +137,8 @@ jobs:
 | CEL | `github.com/google/cel-go` |
 | YAML | `sigs.k8s.io/yaml` (strict via `yaml.UnmarshalStrict`) |
 | JSON Schema gen / validate | `github.com/invopop/jsonschema` / `github.com/santhosh-tekuri/jsonschema/v6` |
-| OpenAPI codegen | `github.com/oapi-codegen/oapi-codegen/v2` (strict server, std `net/http`) |
+| HTTP server (real dispatcher) | `github.com/labstack/echo/v4` (v4.13.x, the same line as `api`); `factory-mock` uses plain `net/http` |
+| OpenAPI codegen | `github.com/oapi-codegen/oapi-codegen/v2` (Echo strict server + client) |
 | GitHub REST/GraphQL | `github.com/google/go-github/v7x`, `github.com/shurcooL/githubv4` |
 | App auth | `github.com/bradleyfalzon/ghinstallation/v2` |
 | Globs | `github.com/gobwas/glob` |
