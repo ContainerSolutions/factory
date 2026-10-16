@@ -1,0 +1,17 @@
+{{/* Stub for the catalog loader's tests; the real prompt is CAT-S1 (catalog-poc LLD). */}}
+# Task: {{ .task.spec }} for {{ .task.target.repo }}
+
+## Goal
+Re-verify the gates and merge the PR, or the stack bottom-up.
+
+## Inputs
+{{ range $k, $v := .inputs }}- {{ $k }}: {{ $v }}
+{{ end }}
+## Use these skills
+Use the merge skill.
+
+## Done when
+- The result JSON is written.
+
+## Result
+Write JSON to $FACTORY_RESULT matching the schema; outcome is one of: merged, labelled-for-merge, rebased-with-conflicts, blocked, needs-human.

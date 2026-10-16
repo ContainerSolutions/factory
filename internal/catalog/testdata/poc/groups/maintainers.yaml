@@ -1,0 +1,5 @@
+kind: Group
+metadata: { name: maintainers }
+spec:
+  members:
+    - { provider: github-public, orgRole: { org: compliance-framework, role: admin } }   # the CCF org admins (Q17)

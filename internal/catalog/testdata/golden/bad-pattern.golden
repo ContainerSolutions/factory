@@ -1,0 +1,1 @@
+taskspecs/work.yaml:9: CAT800 spec.harness.allowed[0].models: invalid pattern "re:gpt-(5": bad regex

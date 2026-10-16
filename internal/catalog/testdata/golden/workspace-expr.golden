@@ -1,0 +1,2 @@
+taskspecs/work.yaml:11: CAT1101 spec.workspace.repos[0].ref: "event.repo + '@' + inputs.branch" uses event; TaskSpec fields may only use inputs and task
+taskspecs/work.yaml:11: CAT1101 spec.workspace.repos[0].ref: "event.repo + '@' + inputs.branch" uses inputs.branch, which the TaskSpec doesn't declare

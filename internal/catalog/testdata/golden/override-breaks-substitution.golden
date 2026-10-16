@@ -1,0 +1,1 @@
+rules/work.yaml:9: CAT201 spec.actions[0].dispatch.queue: Queue "elsewhere" does not exist (with RuleSet rs's params)

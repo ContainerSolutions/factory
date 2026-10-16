@@ -1,0 +1,2 @@
+rulesets/rs.yaml:6: CAT301 spec.rules.selector: matches no Rule
+rulesets/rs.yaml:6: CAT303 spec.rules.selector.matchExpressions[0].values: operator In needs at least one value

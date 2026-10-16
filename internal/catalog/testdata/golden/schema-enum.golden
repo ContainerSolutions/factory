@@ -1,0 +1,1 @@
+pools/local.yaml:3: CAT100 spec.mode: value must be one of 'registered', 'ephemeral'

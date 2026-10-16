@@ -1,0 +1,15 @@
+kind: TaskSpec
+metadata: { name: plan-epic }
+spec:
+  description: Decompose a large docs request into ordered, independently reviewable sub-issues.
+  instructions: { template: prompts/plan-epic.md.tmpl, headless: true }
+  skills: [{ source: ccf-skills, ref: v0.8.0, use: [plan-epic, docs-style] }]
+  harness: { default: { name: codex, config: { model: "gpt-5*", reasoningEffort: high } } }
+  workspace: { repos: [{ ref: compliance-framework/docs@main, mode: ro }] }
+  identity: author
+  permissions: { issues: write, contents: read }
+  effects: { allow: [create-issue, sub-issue.add, comment, label.add] }
+  limits: { maxWallClock: 20m }
+  output:
+    schema: schemas/results/plan-epic.json        # { plan: [{ issue, title, dependsOn }] }
+    outcomes: [decomposed, single, needs-info]

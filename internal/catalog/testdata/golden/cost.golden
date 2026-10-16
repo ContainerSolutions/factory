@@ -1,0 +1,1 @@
+rules/work.yaml:6: CAT603 spec.where: "event.labels.all(a, event.labels.all(b, event.labels.all(c, a == b && b == c)))": estimated cost 27060603 is over the limit 10000

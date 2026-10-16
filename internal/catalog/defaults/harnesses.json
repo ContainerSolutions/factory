@@ -1,0 +1,18 @@
+{
+  "capabilities": [
+    {
+      "harness": "codex",
+      "effortMapping": { "low": "low", "medium": "medium", "high": "high" },
+      "features": ["structured-output", "mcp", "skills-dir"]
+    },
+    {
+      "harness": "claude-code",
+      "effortMapping": { "low": "low", "medium": "medium", "high": "high", "max": "max" },
+      "features": ["structured-output", "mcp", "plugins"]
+    }
+  ],
+  "knownModels": {
+    "codex": ["gpt-5-codex"],
+    "claude-code": ["claude-sonnet-5-5", "claude-opus-5-5"]
+  }
+}

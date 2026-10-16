@@ -1,0 +1,2 @@
+rulesets/rs.yaml:6: CAT205 spec.rules.exclude[0]: Rule "gone" does not exist
+rulesets/rs.yaml:6: CAT205 spec.rules.refs[0]: Rule "nope" does not exist

@@ -1,0 +1,1 @@
+rules/tick.yaml:5: CAT402 spec.schedule: schedule "0 * *": want 5 cron fields (minute hour day month weekday), got 3

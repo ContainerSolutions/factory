@@ -1,0 +1,1 @@
+rules/work.yaml:7: CAT703 spec.actions[0].dispatch.requires.labels[0]: "has local stack" is not a valid agent label

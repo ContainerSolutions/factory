@@ -1,0 +1,7 @@
+kind: Rule
+metadata: { name: plan-maintainer-epics, labels: { pack: docs-epic } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [issue.opened]
+  where: "actor.tier == 'maintainer'"
+  actions: [{ dispatch: { taskSpec: plan-epic, queue: poc } }, { set: { plan: planning } }]

@@ -1,0 +1,1 @@
+templates/hello.yaml:3: CAT004 spec.bodies.github: body is not a valid text/template: template: hello:1: unclosed action

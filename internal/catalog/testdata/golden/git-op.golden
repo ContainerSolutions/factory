@@ -1,0 +1,1 @@
+taskspecs/work.yaml:13: CAT903 spec.effects.allow[0]: push-branch needs a writable workspace: a rw repo, or a checkout other than read-only

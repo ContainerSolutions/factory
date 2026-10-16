@@ -1,0 +1,13 @@
+# Dev RuleSet (design/10-poc.md §RuleSets; catalog-poc LLD §Dev and prod RuleSets): the
+# release-docs pack against mock trains and mock-docs.
+kind: RuleSet
+metadata: { name: dev-release-docs }
+spec:
+  providerSelector: { matchLabels: { family: github, network: public } }
+  scope: { repos: ["compliance-framework/workflows", "compliance-framework/mock-docs", "compliance-framework/mock-*"] }
+  rules:
+    selector: { matchExpressions: [{ key: pack, operator: In, values: [release-docs, shared] }] }
+    exclude: [merge-release-docs]
+  overrides:
+    docs-on-release-train: { trainManifest: repos.mock.yaml, allowDryRun: true, docsRepo: compliance-framework/mock-docs }
+  stateKeys: [release, train, review, merge]

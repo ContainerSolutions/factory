@@ -275,7 +275,7 @@ spec:
    - For provider events: the RuleSet binds that provider instance, and its `scope` matches the event's object.
    - For `factory.*` events: the RuleSet's `scope` matches **any object linked to the work item**. That's how `factory.run.completed` for a triage on `docs#42` reaches the `docs` RuleSet.
 3. Within each RuleSet, take its selected rules, filter by `on`, then evaluate `where` in `priority` order, respecting `final`. A rule sees state written by higher-priority rules for the same event.
-4. **Deduplicate per (event, rule).** If two RuleSets select the same rule for the same object, it fires once, and catalog CI flags the overlap.
+4. **Deduplicate firing per (event, rule).** If two RuleSets select the same rule for the same object, each evaluates its `where` with its own params, and the rule fires at most once, through the first RuleSet (by name) whose `where` passes; a RuleSet whose `where` fails doesn't use up the dedupe. The decision records that RuleSet, and catalog CI flags the overlap (warning).
 5. Check the **safety rails** ([02](02-architecture.md#safety-rails-the-only-engine-invariants)), then execute the actions.
 6. Record the decision on the work item: RuleSet, rule, `where` inputs and rail verdicts. The UI shows this as "why did this happen?".
 

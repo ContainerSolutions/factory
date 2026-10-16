@@ -1,0 +1,2 @@
+rules/work.yaml:7: CAT702 spec.actions[0].dispatch.inputs.issue: want string, got 42
+rules/work.yaml:7: CAT702 spec.actions[0].dispatch.inputs.target: "tree" is not one of ["pr","stack"]

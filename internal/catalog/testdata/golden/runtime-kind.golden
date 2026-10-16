@@ -1,0 +1,1 @@
+rules/x.yaml:1: CAT002 kind Event is a runtime kind; the catalog holds Provider, Group, Template, Rule, RuleSet, TaskSpec, Queue, Pool

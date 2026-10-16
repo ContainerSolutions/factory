@@ -1,0 +1,1 @@
+providers/factory.yaml:2: CAT401 metadata.name: "factory" is the built-in provider, the only source of factory.* events; a catalog Provider can't use the name

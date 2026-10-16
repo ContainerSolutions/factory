@@ -1,0 +1,1 @@
+rules/work.yaml:6: CAT402 spec.schedule: schedule is only allowed with on: [factory.schedule.tick]

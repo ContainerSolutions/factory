@@ -1,0 +1,8 @@
+# Stub body for the catalog loader's tests; the real text is CAT-S1 (catalog-poc LLD §Templates).
+kind: Template
+metadata: { name: epic-plan }
+spec:
+  bodies:
+    github: |
+      Plan: {{ range $i, $p := .run.result.plan }}{{ $i }}. {{ $p.issue }} {{ end }}
+      Stop the factory with the `factory:stop` label.

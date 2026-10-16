@@ -1,0 +1,1 @@
+rules/work.yaml:6: CAT200 spec.actions[0].cancel.taskSpec: TaskSpec "nope" does not exist

@@ -1,0 +1,1 @@
+schemas/work.json: CAT004 JSON Schema: "schemas/work.json#" is not valid against metaschema: jsonschema validation failed with 'https://json-schema.org/draft/2020-12/schema#'; at '': 'allOf' failed; at '/type': 'anyOf' failed; at '/type': value must be one of 'array', 'boolean', 'integer', 'null', 'number', 'object', 'string'; at '/type': got number, want array

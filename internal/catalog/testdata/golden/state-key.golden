@@ -1,0 +1,1 @@
+rules/work.yaml:10: CAT1000 spec.actions[1].set.other: state key "other" is not in RuleSet rs's stateKeys (work)

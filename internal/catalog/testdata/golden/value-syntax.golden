@@ -1,0 +1,1 @@
+rules/work.yaml:9: CAT601 spec.actions[0].dispatch.inputs.issue: does not compile: cel.parse: "event.object.ref +": 1:19: Syntax error: mismatched input '<EOF>' expecting {'[', '{', '(', '.', '-', '!', 'true', 'false', 'null', NUM_FLOAT, NUM_INT, NUM_UINT, STRING, BYTES, IDENTIFIER}

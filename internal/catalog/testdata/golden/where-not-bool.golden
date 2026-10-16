@@ -1,0 +1,1 @@
+rules/work.yaml:6: CAT600 spec.where: does not compile: cel.check: "size(event.labels)": where must return bool, not int

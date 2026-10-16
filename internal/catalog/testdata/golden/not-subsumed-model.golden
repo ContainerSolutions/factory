@@ -1,0 +1,1 @@
+rules/work.yaml:7: CAT801 spec.actions[0].dispatch.harness.config.model: no known codex model fits both the request (claude-*) and TaskSpec work's constraint ([gpt-5*]); known models: gpt-5-codex

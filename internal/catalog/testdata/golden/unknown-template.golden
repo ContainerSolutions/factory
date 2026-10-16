@@ -1,0 +1,1 @@
+rules/work.yaml:6: CAT202 spec.actions[0].notify.template: Template "nope" does not exist

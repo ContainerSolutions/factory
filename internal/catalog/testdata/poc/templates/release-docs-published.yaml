@@ -1,0 +1,7 @@
+# Stub body for the catalog loader's tests; the real text is CAT-S1 (catalog-poc LLD §Templates).
+kind: Template
+metadata: { name: release-docs-published }
+spec:
+  bodies:
+    github: |
+      📚 Docs for {{ .item.state.train }} are live: {{ .links.ui }}

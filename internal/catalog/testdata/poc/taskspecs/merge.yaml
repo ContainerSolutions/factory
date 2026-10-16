@@ -1,0 +1,16 @@
+kind: TaskSpec
+metadata: { name: merge }
+spec:
+  description: Re-verify gates and merge a PR, or a whole stack bottom-up. If the reviewer App's approval doesn't count toward required reviews, add the merge label instead (Q5).
+  inputs:
+    target:        { type: string, enum: [pr, stack], default: pr }
+    requiredCheck: { type: string, default: "ci / required" }   # "build" (push-only "Test Build" workflow) until docs is on the shared workflows (DWF)
+  instructions: { template: prompts/merge.md.tmpl, headless: true }
+  skills: [{ source: ccf-skills, ref: v0.8.0, use: [merge] }]
+  harness: { default: { name: codex, config: { model: "gpt-5*", reasoningEffort: low } } }
+  workspace: { checkout: rebase-only }
+  identity: reviewer
+  permissions: { contents: write, pull_requests: write }
+  effects: { allow: [pr.merge, pr.retarget, stack.rebase, stack.push, pr.comment, label.add] }
+  limits: { maxWallClock: 20m }
+  output: { schema: schemas/results/merge.json, outcomes: [merged, labelled-for-merge, rebased-with-conflicts, blocked, needs-human] }

@@ -1,0 +1,1 @@
+taskspecs/work.yaml:9: CAT804 spec.harness.allowed[1].name: harness "codex" is already allowed at harness.allowed[0]; resolution only uses the first

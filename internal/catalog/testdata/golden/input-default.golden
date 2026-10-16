@@ -1,0 +1,1 @@
+taskspecs/work.yaml:5: CAT702 spec.inputs.target.default: "tree" is not one of ["pr","stack"]

@@ -1,0 +1,12 @@
+# Not spelled out in design/10-poc.md, which only names it ("Shared safety nets live in each
+# pack: an escalate-needs-human rule"); written from the catalog-poc LLD for the loader's tests.
+kind: Rule
+metadata: { name: escalate-needs-human, labels: { pack: shared } }
+spec:
+  on: [factory.run.completed]
+  where: >
+    run.outcome in ['needs-human', 'blocked'] ||
+    (run.spec == 'docs-review' && run.outcome == 'changes-requested' && item.count('docs-review') >= 3)
+  actions:
+    - effect: { op: label.add, target: primary, labels: [needs-human] }
+    - notify: { template: needs-human, to: [{ item: primary }] }

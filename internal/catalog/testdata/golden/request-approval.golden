@@ -1,0 +1,1 @@
+rules/work.yaml:6: CAT904 warning: spec.actions[0].requestApproval: requestApproval is accepted but not supported in the PoC (Q18): the engine records it as Unsupported
