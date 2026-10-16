@@ -6,3 +6,6 @@ lisa-design:
 - Registration credentials are headers (X-Factory-Join-Token, X-Factory-Owner-Token) so they are real security schemes; scheduler-and-pools.md updated.
 - vacuum runs via go run at a pinned version (not a go.mod tool: its dependency tree would move shared deps); recommended rules minus three justified in api/vacuum.yaml.
 - Added the Cancelling task phase and GET /runs/{id}/transcript (gzip JSON Lines, same as PUT): both were used by RT/WEB LLDs but missing from the contract.
+
+lisa-selfreview:
+Pass 1: no blocker/must-fix. Deferred nit: PUT /runs/{id}/transcript is tagged tasks, GET is tagged resources.
