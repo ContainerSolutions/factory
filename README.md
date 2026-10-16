@@ -24,7 +24,7 @@ GitHub events (a finished release train, an issue, a pull request) go to a centr
 make build           # bin/factory, bin/factory-agent with a placeholder UI (no Node needed)
 make test            # go test -race
 make reviewable      # what CI runs for Go
-make build-release   # builds web/ and embeds it (-tags webui)
+make build-release   # builds web/ and embeds it (-tags webui); needs web/ (WEB-S0-T01)
 ```
 
 Requires Go 1.26 and golangci-lint v2. The UI needs Node 20.
