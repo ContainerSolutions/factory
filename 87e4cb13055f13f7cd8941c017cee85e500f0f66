@@ -1,0 +1,6 @@
+lisa-design:
+- One fixture runner (internal/rules/fixture.go, fs.FS only) shared by the engine tests and the CLI; cases are any dir with event.json, at any depth.
+- Fixtures replay at the event's time (no clock), per the LLD; one cascade golden changed accordingly.
+- Decision diff pairs rules by (RuleSet, rule) and decisions by (RuleSet, rule, kind, named target) + occurrence; reorders reported once; state per top-level key.
+- Exit codes: 0 ok, 1 mismatch/missing golden/uncovered rule (--coverage), 2 usage/IO/catalog load. --base-catalog diffs two catalogs (exit 1 only with --fail-on-diff).
+- A missing default <catalog>/testdata warns and exits 0 so make catalog works before CAT-S1-T04 adds fixtures; an explicit missing --fixtures is exit 2.
