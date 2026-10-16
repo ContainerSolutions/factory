@@ -1,0 +1,23 @@
+# Secrets: never commit. deploy/poc/.env holds the PoC dispatcher's credentials.
+deploy/poc/.env
+.env
+.env.*
+*.env
+!*.env.example
+!.env.example
+
+# Build outputs
+/bin/
+/dist/
+internal/webui/dist/
+/coverage*.out
+*.coverprofile
+
+# Web (WEB workstream)
+web/node_modules/
+web/dist/
+
+# Local tooling
+go.work
+go.work.sum
+.DS_Store
