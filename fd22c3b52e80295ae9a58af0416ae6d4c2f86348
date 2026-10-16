@@ -1,2 +1,10 @@
 lisa-selfreview:
 Pass 1: security (should-fix+) gitsource read the checkout via os.DirFS, which follows a symlinked catalog dir out of the repo; fixed with os.Root + TestLoadRefusesSymlinkEscape. No other findings.
+
+lisa-design:
+- LoadDir is pure (fs.FS only, skips symlinks and hidden dirs); git lives in catalog/gitsource (exec git with GIT_ALLOW_PROTOCOL, -- before args, reads through os.Root).
+- All phases collect errors (no fail-fast); stable CAT codes; file:line from padded multi-doc segments plus field paths; LoadDir returns a nil Catalog when there are errors; Strict turns warnings into errors.
+- Two parses per document: raw value vs JSON Schema (all violations with paths), then v1alpha1.Decode for the typed object.
+- Empty harness.allowed derives one constraint from harness.default (CAT805 when neither exists).
+- Dedupe on firing (owner decision): a rule fires at most once per event, through the first RuleSet by name whose where passes; a where that passes but whose actions fail still counts as fired.
+- Embedded default capabilities (codex, claude-code from 10-poc) until AGT's adapter descriptors replace them.
