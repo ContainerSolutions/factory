@@ -39,6 +39,7 @@ factory/
 │   ├── openapi.yaml          # THE HTTP contract (FND)
 │   ├── examples/             # example payloads used by factory-mock and MSW
 │   ├── vacuum.yaml           # OpenAPI lint ruleset (make openapi-lint)
+│   ├── componentsgen/        # writes the v1alpha1 components into openapi.yaml (make generate)
 │   └── *.go                  # package api: embeds the spec and examples; spec_test.go checks them
 ├── schemas/                  # generated JSON Schemas for catalog kinds (FND)
 ├── catalog/                  # PoC catalog (CAT)
@@ -88,7 +89,7 @@ func Handler() http.Handler // serves assets under root; SPA fallback to index.h
 | `build` | `go build ./cmd/...` (placeholder UI; `factory`, `factory-agent`, `factory-mock`) |
 | `test` | `go test -race -count=1 ./...` |
 | `lint` | `golangci-lint run` with the shared CCF config at the workflows SHA `ci.yml` pins (as `api`; `new-from-merge-base` in CI) |
-| `generate` | `make schemas`, then `go generate ./...` (runs `go tool oapi-codegen` for the server and the client) |
+| `generate` | `make schemas`, `make openapi-components` (the v1alpha1 components in `api/openapi.yaml`), then `go generate ./...` (runs `go tool oapi-codegen` for the server and the client) |
 | `schemas` | generate `schemas/*.schema.json` from `internal/apis/v1alpha1` |
 | `check-generated` | `make generate` then `git diff --exit-code` |
 | `catalog` | `go run ./cmd/factory validate --dir catalog && go run ./cmd/factory rules test --catalog catalog --fixtures catalog/testdata` |

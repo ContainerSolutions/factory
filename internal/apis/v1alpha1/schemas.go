@@ -56,13 +56,27 @@ func Schemas() (map[string][]byte, error) {
 	return out, nil
 }
 
-func reflectSchema(v any) *jsonschema.Schema {
-	r := &jsonschema.Reflector{
+func reflectSchema(v any) *jsonschema.Schema { return NewReflector().Reflect(v) }
+
+// NewReflector returns the JSON Schema reflector Schemas uses: anonymous (no $id), the root
+// struct expanded, other named types under $defs, generic types named without their package
+// paths (ExprOr[…v1alpha1.HarnessRequest] → ExprOrHarnessRequest). Other generators (the
+// OpenAPI components in api/) use it so their schemas match these.
+func NewReflector() *jsonschema.Reflector {
+	return &jsonschema.Reflector{
 		Anonymous:      true,
 		ExpandedStruct: true,
 		Namer:          schemaTypeName,
 	}
-	return r.Reflect(v)
+}
+
+// enumSchema is a string enum of the given values, in order.
+func enumSchema[T ~string](values []T) *jsonschema.Schema {
+	enum := make([]any, len(values))
+	for i, v := range values {
+		enum[i] = string(v)
+	}
+	return &jsonschema.Schema{Type: "string", Enum: enum}
 }
 
 func marshalSchema(s *jsonschema.Schema, file string) ([]byte, error) {

@@ -15,41 +15,66 @@ import (
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/invopop/jsonschema"
 
 	"github.com/compliance-framework/factory/api"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
-// goTypes maps every x-go-type in the spec to a constructor of that type. A new x-go-type
-// must be added here, so its examples are strictly decoded and its declared fields checked.
-var goTypes = map[string]func() any{
-	"v1alpha1.ObjectMeta":        func() any { return new(v1alpha1.ObjectMeta) },
-	"v1alpha1.TaskMeta":          func() any { return new(v1alpha1.TaskMeta) },
-	"v1alpha1.EventType":         func() any { return new(v1alpha1.EventType) },
-	"v1alpha1.EffectOp":          func() any { return new(v1alpha1.EffectOp) },
-	"v1alpha1.TaskPhase":         func() any { return new(v1alpha1.TaskPhase) },
-	"v1alpha1.AgentPhase":        func() any { return new(v1alpha1.AgentPhase) },
-	"v1alpha1.ProgressEvent":     func() any { return new(v1alpha1.ProgressEvent) },
-	"v1alpha1.HarnessOffer":      func() any { return new(v1alpha1.HarnessOffer) },
-	"v1alpha1.AgentCapabilities": func() any { return new(v1alpha1.AgentCapabilities) },
-	"v1alpha1.Lending":           func() any { return new(v1alpha1.Lending) },
-	"v1alpha1.HarnessRequest":    func() any { return new(v1alpha1.HarnessRequest) },
-	"v1alpha1.StringOrList":      func() any { return new(v1alpha1.StringOrList) },
-	"v1alpha1.Result":            func() any { return new(v1alpha1.Result) },
-	"v1alpha1.Event":             func() any { return new(v1alpha1.Event) },
-	"v1alpha1.WorkItem":          func() any { return new(v1alpha1.WorkItem) },
-	"v1alpha1.Task":              func() any { return new(v1alpha1.Task) },
-	"v1alpha1.Run":               func() any { return new(v1alpha1.Run) },
-	"v1alpha1.Agent":             func() any { return new(v1alpha1.Agent) },
-	"v1alpha1.Effect":            func() any { return new(v1alpha1.Effect) },
-	"v1alpha1.Provider":          func() any { return new(v1alpha1.Provider) },
-	"v1alpha1.Group":             func() any { return new(v1alpha1.Group) },
-	"v1alpha1.Template":          func() any { return new(v1alpha1.Template) },
-	"v1alpha1.Rule":              func() any { return new(v1alpha1.Rule) },
-	"v1alpha1.RuleSet":           func() any { return new(v1alpha1.RuleSet) },
-	"v1alpha1.TaskSpec":          func() any { return new(v1alpha1.TaskSpec) },
-	"v1alpha1.Queue":             func() any { return new(v1alpha1.Queue) },
-	"v1alpha1.Pool":              func() any { return new(v1alpha1.Pool) },
+// kinds are the v1alpha1 kinds the API carries (api/componentsgen's roots). goTypes, the Go
+// type of every x-go-type, is every v1alpha1 struct (not embedded) or type with its own
+// JSONSchema reachable from them: the types the reflector puts in $defs. Other named types
+// (string enums declared with jsonschema tags) are inlined.
+var kinds = []any{
+	v1alpha1.Event{}, v1alpha1.WorkItem{}, v1alpha1.Task{}, v1alpha1.Run{}, v1alpha1.Agent{}, v1alpha1.Effect{},
+	v1alpha1.Provider{}, v1alpha1.Group{}, v1alpha1.Template{}, v1alpha1.Rule{}, v1alpha1.RuleSet{},
+	v1alpha1.TaskSpec{}, v1alpha1.Queue{}, v1alpha1.Pool{},
+}
+
+var goTypes = func() map[string]reflect.Type {
+	out := map[string]reflect.Type{}
+	var walk func(t reflect.Type, embedded bool)
+	walk = func(t reflect.Type, embedded bool) {
+		t = elem(t)
+		if name := goExpr(t); name != "" && !embedded && (t.Kind() == reflect.Struct || hasSchema(t)) {
+			if _, seen := out[name]; seen {
+				return
+			}
+			out[name] = t
+		}
+		if t.Kind() != reflect.Struct || hasSchema(t) || t.Implements(marshalerType) {
+			return
+		}
+		for i := range t.NumField() {
+			if f := t.Field(i); f.IsExported() || f.Anonymous {
+				walk(f.Type, f.Anonymous && f.Tag.Get("json") == "")
+			}
+		}
+	}
+	for _, k := range kinds {
+		walk(reflect.TypeOf(k), false)
+	}
+	return out
+}()
+
+// elem strips pointers, slices, arrays and maps down to the element type.
+func elem(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Array || t.Kind() == reflect.Map {
+		if t == reflect.TypeOf(json.RawMessage(nil)) {
+			return t
+		}
+		t = t.Elem()
+	}
+	return t
+}
+
+// goExpr is the x-go-type of a named v1alpha1 type (v1alpha1.ExprOr[v1alpha1.HarnessRequest]),
+// or "" for any other type.
+func goExpr(t reflect.Type) string {
+	if t.PkgPath() != v1alpha1Import || t.Name() == "" {
+		return ""
+	}
+	return "v1alpha1." + strings.ReplaceAll(t.Name(), v1alpha1Import+".", "v1alpha1.")
 }
 
 const v1alpha1Import = "github.com/compliance-framework/factory/internal/apis/v1alpha1"
@@ -286,11 +311,11 @@ func decodeGoTypes(doc *openapi3.T, ref *openapi3.SchemaRef, raw json.RawMessage
 	}
 	s := ref.Value
 	if name, ok := s.Extensions["x-go-type"].(string); ok {
-		newT, ok := goTypes[name]
+		goT, ok := goTypes[name]
 		if !ok {
-			return fmt.Errorf("%s: x-go-type %s is not in goTypes", at, name)
+			return fmt.Errorf("%s: x-go-type %s is not a v1alpha1 type the API carries", at, name)
 		}
-		if err := strictDecode(raw, newT()); err != nil {
+		if err := strictDecode(raw, reflect.New(goT).Interface()); err != nil {
 			return fmt.Errorf("%s (%s): %w", at, name, err)
 		}
 		return nil
@@ -366,93 +391,119 @@ func strictDecode(raw []byte, v any) error {
 	return nil
 }
 
-// TestGoTypes checks every x-go-type schema: it is registered in goTypes, imports v1alpha1,
-// and every property it declares is a JSON field of the Go type (recursively), with required
-// properties never omitted on output. This keeps the described envelope from drifting from
-// the Go types, which stay authoritative.
+// TestGoTypes checks every x-go-type component against its Go type, both ways: every JSON
+// field of the type is a property and every property a JSON field; a property is required
+// exactly when the field is never omitted, and nullable when it is an always-written
+// pointer; a field of a named v1alpha1 type is a $ref to that type's component. Types with
+// their own JSON or schema (StringOrList, ExprOr, TemplateBody, EffectAction, Duration, the
+// enums) are checked by the v1alpha1 schema tests instead. Every v1alpha1 type the kinds reach
+// must be a component.
 func TestGoTypes(t *testing.T) {
 	doc, _ := load(t)
-	seen := map[*openapi3.Schema]bool{}
-	var walk func(ref *openapi3.SchemaRef, at string)
-	walk = func(ref *openapi3.SchemaRef, at string) {
-		// A $ref is checked as its own component, so errors name the component.
-		if ref == nil || ref.Value == nil || seen[ref.Value] || (ref.Ref != "" && strings.ContainsAny(at, ".[{")) {
-			return
+	byGoType := map[string]string{}
+	for name, ref := range doc.Components.Schemas {
+		goType, ok := ref.Value.Extensions["x-go-type"].(string)
+		if !ok {
+			continue
 		}
-		s := ref.Value
-		seen[s] = true
-		if name, ok := s.Extensions["x-go-type"].(string); ok {
-			imp, _ := s.Extensions["x-go-type-import"].(map[string]any)
-			if imp["path"] != v1alpha1Import {
-				t.Errorf("%s: x-go-type-import.path = %v, want %s", at, imp["path"], v1alpha1Import)
-			}
-			newT, ok := goTypes[name]
-			if !ok {
-				t.Errorf("%s: x-go-type %s is not in goTypes", at, name)
-			} else {
-				for _, e := range checkFields(reflect.TypeOf(newT()), s, at) {
-					t.Error(e)
-				}
-			}
+		imp, _ := ref.Value.Extensions["x-go-type-import"].(map[string]any)
+		if imp["path"] != v1alpha1Import {
+			t.Errorf("%s: x-go-type-import.path = %v, want %s", name, imp["path"], v1alpha1Import)
 		}
-		for name, p := range s.Properties {
-			walk(p, at+"."+name)
+		byGoType[goType] = name
+		goT, ok := goTypes[goType]
+		if !ok {
+			t.Errorf("%s: x-go-type %s is not a v1alpha1 type the API carries", name, goType)
+			continue
 		}
-		walk(s.Items, at+"[]")
-		for i, one := range s.OneOf {
-			walk(one, fmt.Sprintf("%s.oneOf[%d]", at, i))
-		}
-		if s.AdditionalProperties.Schema != nil {
-			walk(s.AdditionalProperties.Schema, at+"{}")
+		for _, e := range checkComponent(doc, goT, ref.Value, name) {
+			t.Error(e)
 		}
 	}
-	names := make([]string, 0, len(doc.Components.Schemas))
-	for name := range doc.Components.Schemas {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		walk(doc.Components.Schemas[name], name)
+	for goType := range goTypes {
+		if _, ok := byGoType[goType]; !ok {
+			t.Errorf("%s has no component", goType)
+		}
 	}
 }
 
-func checkFields(t reflect.Type, s *openapi3.Schema, at string) []string {
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	if s == nil {
+var (
+	marshalerType  = reflect.TypeOf((*json.Marshaler)(nil)).Elem()
+	schemaFuncType = reflect.TypeOf((*interface{ JSONSchema() *jsonschema.Schema })(nil)).Elem()
+)
+
+func hasSchema(t reflect.Type) bool {
+	return t.Implements(schemaFuncType) || reflect.PointerTo(t).Implements(schemaFuncType)
+}
+
+func checkComponent(doc *openapi3.T, t reflect.Type, s *openapi3.Schema, at string) []string {
+	if t.Kind() != reflect.Struct || t.Implements(marshalerType) || hasSchema(t) {
 		return nil
 	}
 	var errs []string
-	switch t.Kind() {
-	case reflect.Struct:
-		if len(s.Properties) == 0 {
-			return nil
+	fields := jsonFields(t)
+	required := map[string]bool{}
+	for _, r := range s.Required {
+		required[r] = true
+	}
+	for name, f := range fields {
+		p, ok := s.Properties[name]
+		if !ok {
+			errs = append(errs, fmt.Sprintf("%s: JSON field %q of %s is not a property", at, name, t))
+			continue
 		}
-		fields := jsonFields(t)
-		for name, p := range s.Properties {
-			f, ok := fields[name]
-			if !ok {
-				errs = append(errs, fmt.Sprintf("%s.%s: not a JSON field of %s", at, name, t))
-				continue
-			}
-			errs = append(errs, checkFields(f.typ, p.Value, at+"."+name)...)
+		if required[name] == f.omitted {
+			errs = append(errs, fmt.Sprintf("%s.%s: required=%v, but %s omits it when empty=%v", at, name, required[name], t, f.omitted))
 		}
-		for _, name := range s.Required {
-			if f, ok := fields[name]; ok && f.omitted {
-				errs = append(errs, fmt.Sprintf("%s.%s: required, but %s omits it when empty", at, name, t))
-			}
+		if f.typ.Kind() == reflect.Pointer && !f.omitted && !p.Value.Nullable {
+			errs = append(errs, fmt.Sprintf("%s.%s: %s always writes the pointer, so it must be nullable", at, name, t))
 		}
-	case reflect.Slice, reflect.Array:
-		if s.Items != nil && t != reflect.TypeOf(json.RawMessage(nil)) {
-			errs = append(errs, checkFields(t.Elem(), s.Items.Value, at+"[]")...)
-		}
-	case reflect.Map:
-		if s.AdditionalProperties.Schema != nil {
-			errs = append(errs, checkFields(t.Elem(), s.AdditionalProperties.Schema.Value, at+"{}")...)
+		errs = append(errs, checkType(doc, f.typ, p, at+"."+name)...)
+	}
+	for name := range s.Properties {
+		if _, ok := fields[name]; !ok {
+			errs = append(errs, fmt.Sprintf("%s.%s: not a JSON field of %s", at, name, t))
 		}
 	}
 	return errs
+}
+
+// checkType checks that a property's schema refers to the component of a named v1alpha1
+// field type, through pointers, slices and maps.
+func checkType(doc *openapi3.T, t reflect.Type, ref *openapi3.SchemaRef, at string) []string {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if ref == nil || ref.Value == nil {
+		return []string{at + ": no schema"}
+	}
+	target := ref.Ref
+	if target == "" && ref.Value.Nullable && len(ref.Value.AllOf) == 1 {
+		target = ref.Value.AllOf[0].Ref
+	}
+	if want := goExpr(t); goTypes[want] != nil {
+		name, ok := strings.CutPrefix(target, "#/components/schemas/")
+		if !ok {
+			return []string{fmt.Sprintf("%s: a %s, so it must $ref its component", at, want)}
+		}
+		if got, _ := doc.Components.Schemas[name].Value.Extensions["x-go-type"].(string); got != want {
+			return []string{fmt.Sprintf("%s: $ref %s is %s, want %s", at, name, got, want)}
+		}
+		return nil
+	}
+	switch {
+	case t == reflect.TypeOf(json.RawMessage(nil)):
+	case t.Kind() == reflect.Slice || t.Kind() == reflect.Array:
+		if ref.Value.Items == nil {
+			return []string{at + ": a list without items"}
+		}
+		return checkType(doc, t.Elem(), ref.Value.Items, at+"[]")
+	case t.Kind() == reflect.Map:
+		if s := ref.Value.AdditionalProperties.Schema; s != nil {
+			return checkType(doc, t.Elem(), s, at+"{}")
+		}
+	}
+	return nil
 }
 
 type jsonField struct {

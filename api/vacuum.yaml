@@ -12,3 +12,7 @@ rules:
   # Uniform shapes repeat their wording on purpose: every list page's nextCursor, every
   # x-go-type import, the "A page of …" descriptions.
   description-duplication: off
+  # OpenAPI 3.0 says "any JSON value" only by leaving out type. The generated v1alpha1
+  # components have a few, from Go's any and json.RawMessage: EventData.raw (the provider
+  # payload), InputSpec.default/enum, EffectAction's inline op fields and its `not`.
+  oas-missing-type: off

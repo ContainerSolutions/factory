@@ -195,6 +195,27 @@ func (e CommandTargetScope) Valid() bool {
 	}
 }
 
+// Defines values for EvaluationRailVerdict.
+const (
+	EvaluationRailVerdictAllowed    EvaluationRailVerdict = "Allowed"
+	EvaluationRailVerdictDeferred   EvaluationRailVerdict = "Deferred"
+	EvaluationRailVerdictSuppressed EvaluationRailVerdict = "Suppressed"
+)
+
+// Valid indicates whether the value is a known member of the EvaluationRailVerdict enum.
+func (e EvaluationRailVerdict) Valid() bool {
+	switch e {
+	case EvaluationRailVerdictAllowed:
+		return true
+	case EvaluationRailVerdictDeferred:
+		return true
+	case EvaluationRailVerdictSuppressed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProviderHealthStatus.
 const (
 	ProviderHealthStatusDegraded ProviderHealthStatus = "degraded"
@@ -213,27 +234,6 @@ func (e ProviderHealthStatus) Valid() bool {
 	case ProviderHealthStatusOk:
 		return true
 	case ProviderHealthStatusUnknown:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for RailVerdictVerdict.
-const (
-	RailVerdictVerdictAllowed    RailVerdictVerdict = "Allowed"
-	RailVerdictVerdictDeferred   RailVerdictVerdict = "Deferred"
-	RailVerdictVerdictSuppressed RailVerdictVerdict = "Suppressed"
-)
-
-// Valid indicates whether the value is a known member of the RailVerdictVerdict enum.
-func (e RailVerdictVerdict) Valid() bool {
-	switch e {
-	case RailVerdictVerdictAllowed:
-		return true
-	case RailVerdictVerdictDeferred:
-		return true
-	case RailVerdictVerdictSuppressed:
 		return true
 	default:
 		return false
@@ -282,6 +282,9 @@ type AbandonRequest struct {
 // AbandonRequestReason defines model for AbandonRequest.Reason.
 type AbandonRequestReason string
 
+// Action Action is a tagged union: exactly one member is set.
+type Action = v1alpha1.Action
+
 // ActionIntent A materialised action; the fields besides `type` depend on it.
 type ActionIntent struct {
 	Type                 ActionIntentType       `json:"type"`
@@ -291,10 +294,16 @@ type ActionIntent struct {
 // ActionIntentType defines model for ActionIntent.Type.
 type ActionIntentType string
 
-// Agent A registered worker.
+// Actor Actor is who caused an event.
+type Actor = v1alpha1.Actor
+
+// Admission Admission is how registered agents join.
+type Admission = v1alpha1.Admission
+
+// Agent Agent is a registered worker.
 type Agent = v1alpha1.Agent
 
-// AgentCapabilities The agent's harness offers and labels.
+// AgentCapabilities AgentCapabilities are the agent's harness offers and labels.
 type AgentCapabilities = v1alpha1.AgentCapabilities
 
 // AgentList A page of agents.
@@ -305,7 +314,7 @@ type AgentList struct {
 	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
-// AgentPhase A registered agent's state.
+// AgentPhase AgentPhase is a registered agent's state.
 type AgentPhase = v1alpha1.AgentPhase
 
 // AgentRegistration The agent's id and its bearer token.
@@ -317,15 +326,48 @@ type AgentRegistration struct {
 	ExpiresAt  time.Time `json:"expiresAt"`
 }
 
+// AgentSpec AgentSpec is what the agent offers and what its owner lends.
+type AgentSpec = v1alpha1.AgentSpec
+
+// AgentStatus AgentStatus is the agent's state.
+type AgentStatus = v1alpha1.AgentStatus
+
 // AgentUpdate A status report and/or a lending update. At least one field.
 type AgentUpdate struct {
-	// Lending The owner's consent. `unlimited` means any queue, any hour, no daily cap.
+	// Lending Lending is the owner's consent: what the agent may take.
 	Lending *Lending             `json:"lending,omitempty"`
 	Phase   *v1alpha1.AgentPhase `json:"phase,omitempty"`
 
 	// Until Required with `Throttled`.
 	Until *time.Time `json:"until,omitempty"`
 }
+
+// AgentUsage AgentUsage is the agent's usage today, checked against its lending.
+type AgentUsage = v1alpha1.AgentUsage
+
+// AppIdentity AppIdentity is a GitHub App.
+type AppIdentity = v1alpha1.AppIdentity
+
+// ApprovalPhase ApprovalPhase is an Approval's state: Pending → Granted | Denied | Expired.
+type ApprovalPhase = v1alpha1.ApprovalPhase
+
+// ApprovalRef ApprovalRef is an approval's name and phase, as shown on the work item.
+type ApprovalRef = v1alpha1.ApprovalRef
+
+// ApprovalSpec ApprovalSpec is what is asked, of whom.
+type ApprovalSpec = v1alpha1.ApprovalSpec
+
+// Artifact Artifact is something the run produced.
+type Artifact = v1alpha1.Artifact
+
+// Budget Budget caps spend.
+type Budget = v1alpha1.Budget
+
+// BudgetLimit BudgetLimit is one budget window's limits; an unset limit is unlimited.
+type BudgetLimit = v1alpha1.BudgetLimit
+
+// CancelAction CancelAction cancels the active tasks of a task spec for the work item.
+type CancelAction = v1alpha1.CancelAction
 
 // CatalogError One catalog load error.
 type CatalogError struct {
@@ -369,6 +411,9 @@ type CatalogSummary struct {
 // CatalogSummaryStatus `error` keeps serving the last good catalog.
 type CatalogSummaryStatus string
 
+// ChannelRef ChannelRef is a channel on a provider.
+type ChannelRef = v1alpha1.ChannelRef
+
 // Command An operator command (api-server.md §Commands).
 type Command struct {
 	// Args `{harness}` for redispatch; `{event}` for dispatch.
@@ -391,10 +436,10 @@ type CommandAccepted struct {
 
 // CommandArgs `{harness}` for redispatch; `{event}` for dispatch.
 type CommandArgs struct {
-	// Event A normalised provider event, shaped as a CloudEvent.
+	// Event Event is a normalised provider event, shaped as a CloudEvent: its identity is (Source = provider instance or "factory", Type).
 	Event *Event `json:"event,omitempty"`
 
-	// Harness A harness and config request. Strings are patterns.
+	// Harness HarnessRequest asks for a harness and config.
 	Harness *HarnessRequest `json:"harness,omitempty"`
 }
 
@@ -410,12 +455,24 @@ type CommandTargetScope string
 
 // CompleteRequest The run's Result and its transcript.
 type CompleteRequest struct {
-	// Result What an agent reports when a run completes. Schema `schemas/result.schema.json`.
+	// Result Result is what an agent reports when a run completes.
 	Result Result `json:"result"`
 
 	// TranscriptRef From `uploadTranscript`.
 	TranscriptRef *string `json:"transcriptRef,omitempty"`
 }
+
+// ContextItem ContextItem is something the agent is given, with its trust label.
+type ContextItem = v1alpha1.ContextItem
+
+// Debounce Debounce collapses bursts of events into one action.
+type Debounce = v1alpha1.Debounce
+
+// Decision Decision records why a rule did (or didn't) act: the UI's "why did this happen?".
+type Decision = v1alpha1.Decision
+
+// Destination Destination is one recipient of a notification.
+type Destination = v1alpha1.Destination
 
 // DeviceConfig The OAuth client the agent's device flow uses.
 type DeviceConfig struct {
@@ -423,19 +480,28 @@ type DeviceConfig struct {
 	Scopes   []string `json:"scopes"`
 }
 
+// DispatchAction DispatchAction creates a Task (Pending) in a queue.
+type DispatchAction = v1alpha1.DispatchAction
+
 // DryRunRequest An event to evaluate, optionally against an existing work item.
 type DryRunRequest struct {
-	// Event A normalised provider event, shaped as a CloudEvent.
+	// Event Event is a normalised provider event, shaped as a CloudEvent: its identity is (Source = provider instance or "factory", Type).
 	Event Event `json:"event"`
 
 	// WorkItem Evaluate against this work item's state; an empty one when absent.
 	WorkItem *string `json:"workItem,omitempty"`
 }
 
-// Effect The audit record of one provider write.
+// Duration A Go duration ("90s", "15m", "1h30m"), optionally prefixed by whole days ("7d", "1d12h").
+type Duration = v1alpha1.Duration
+
+// Effect Effect is an audit record of one provider write.
 type Effect = v1alpha1.Effect
 
-// EffectOp The effect ops (contracts.md §Effect ops).
+// EffectAction A direct provider effect: op, an optional target, and the op-specific fields inline (e.g. labels for label.add). The catalog loader checks those fields per op.
+type EffectAction = v1alpha1.EffectAction
+
+// EffectOp EffectOp is a provider effect, as named in TaskSpec effects.allow and the effect action.
 type EffectOp = v1alpha1.EffectOp
 
 // EffectRequest One effect. The dispatcher maps the catalog's inline effect fields to `args`.
@@ -446,7 +512,7 @@ type EffectRequest struct {
 	// IdempotencyKey `<taskID>/<op>/<seq>`, or a skill-chosen key. A repeated key replays the stored effect.
 	IdempotencyKey string `json:"idempotencyKey"`
 
-	// Op The effect ops (contracts.md §Effect ops).
+	// Op EffectOp is a provider effect, as named in TaskSpec effects.allow and the effect action.
 	Op EffectOp `json:"op"`
 
 	// Target The object to act on; defaults to the task's primary object.
@@ -458,6 +524,21 @@ type EffectResponse struct {
 	EffectId string  `json:"effectId"`
 	Url      *string `json:"url,omitempty"`
 }
+
+// EffectResult EffectResult is the outcome of an effect.
+type EffectResult = v1alpha1.EffectResult
+
+// EffectSpec EffectSpec is what was asked.
+type EffectSpec = v1alpha1.EffectSpec
+
+// EffectStatus EffectStatus is what happened.
+type EffectStatus = v1alpha1.EffectStatus
+
+// EffectiveConfig EffectiveConfig is the exact config the harness ran with.
+type EffectiveConfig = v1alpha1.EffectiveConfig
+
+// EffectsPolicy EffectsPolicy is what a task may do.
+type EffectsPolicy = v1alpha1.EffectsPolicy
 
 // Evaluation What the rule engine decided for an event (internal/rules Evaluation).
 type Evaluation struct {
@@ -479,17 +560,32 @@ type EvaluationDecision struct {
 	Action ActionIntent           `json:"action"`
 	Inputs map[string]interface{} `json:"inputs,omitempty"`
 
-	// Rail A safety rail's verdict on an action.
-	Rail    RailVerdict `json:"rail"`
-	Rule    string      `json:"rule"`
-	RuleSet string      `json:"ruleSet"`
+	// Rail A safety rail's verdict on an action (the rule engine's RailVerdict).
+	Rail    EvaluationRail `json:"rail"`
+	Rule    string         `json:"rule"`
+	RuleSet string         `json:"ruleSet"`
 }
 
-// Event A normalised provider event, shaped as a CloudEvent.
+// EvaluationRail A safety rail's verdict on an action (the rule engine's RailVerdict).
+type EvaluationRail struct {
+	Reason  *string               `json:"reason,omitempty"`
+	Verdict EvaluationRailVerdict `json:"verdict"`
+}
+
+// EvaluationRailVerdict defines model for EvaluationRail.Verdict.
+type EvaluationRailVerdict string
+
+// Event Event is a normalised provider event, shaped as a CloudEvent: its identity is (Source = provider instance or "factory", Type).
 type Event = v1alpha1.Event
 
-// EventType The event vocabulary (contracts.md §Event vocabulary).
+// EventData EventData is the event's payload.
+type EventData = v1alpha1.EventData
+
+// EventType EventType is a normalised event type.
 type EventType = v1alpha1.EventType
+
+// ExprOrHarnessRequest ExprOr holds either an expression string or a typed value.
+type ExprOrHarnessRequest = v1alpha1.ExprOr[v1alpha1.HarnessRequest]
 
 // FieldError One invalid field.
 type FieldError struct {
@@ -520,14 +616,44 @@ type GitCredential struct {
 	Username string `json:"username"`
 }
 
-// Group A named set of people. Spec in `schemas/group.schema.json`.
+// GitCredentialSpec GitCredentialSpec describes the scoped git token minted for a task.
+type GitCredentialSpec = v1alpha1.GitCredentialSpec
+
+// GitHubActionsBackend GitHubActionsBackend runs agents as a workflow.
+type GitHubActionsBackend = v1alpha1.GitHubActionsBackend
+
+// GitHubProviderSpec GitHubProviderSpec is the connection to a GitHub (or GHE) instance.
+type GitHubProviderSpec = v1alpha1.GitHubProviderSpec
+
+// Group Group is a named set of people, resolved per provider.
 type Group = v1alpha1.Group
 
-// HarnessOffer What the agent can run with one harness. Concrete values, not patterns.
+// GroupCache GroupCache says how long resolved members are cached.
+type GroupCache = v1alpha1.GroupCache
+
+// GroupSource GroupSource is one source of members on one provider.
+type GroupSource = v1alpha1.GroupSource
+
+// GroupSpec GroupSpec is the spec of a Group.
+type GroupSpec = v1alpha1.GroupSpec
+
+// HarnessConfig HarnessConfig is a requested harness config.
+type HarnessConfig = v1alpha1.HarnessConfig
+
+// HarnessConstraint HarnessConstraint bounds what a harness may run.
+type HarnessConstraint = v1alpha1.HarnessConstraint
+
+// HarnessOffer HarnessOffer is what one agent can actually run with one harness (from the agent's Probe and local config): concrete values, not patterns.
 type HarnessOffer = v1alpha1.HarnessOffer
 
-// HarnessRequest A harness and config request. Strings are patterns.
+// HarnessPolicy HarnessPolicy is a TaskSpec's harness constraints and default request.
+type HarnessPolicy = v1alpha1.HarnessPolicy
+
+// HarnessRequest HarnessRequest asks for a harness and config.
 type HarnessRequest = v1alpha1.HarnessRequest
+
+// HarnessResolved HarnessResolved is the concrete harness config chosen when an agent leased the task.
+type HarnessResolved = v1alpha1.HarnessResolved
 
 // HeartbeatRequest Progress events and usage deltas since the previous heartbeat.
 type HeartbeatRequest struct {
@@ -547,6 +673,24 @@ type HeartbeatResponse struct {
 	RefreshedGitCredential *GitCredential `json:"refreshedGitCredential,omitempty"`
 }
 
+// InlineRule InlineRule is a Rule without its TypeMeta, embedded in a RuleSet.
+type InlineRule = v1alpha1.InlineRule
+
+// InputSpec InputSpec declares one TaskSpec input.
+type InputSpec = v1alpha1.InputSpec
+
+// Instructions Instructions is the prompt template.
+type Instructions = v1alpha1.Instructions
+
+// LLMAuth LLMAuth is the LLM credential ephemeral agents use.
+type LLMAuth = v1alpha1.LLMAuth
+
+// LabelSelector LabelSelector selects objects by their labels, as in Kubernetes.
+type LabelSelector = v1alpha1.LabelSelector
+
+// LabelSelectorRequirement LabelSelectorRequirement is one matchExpressions entry.
+type LabelSelectorRequirement = v1alpha1.LabelSelectorRequirement
+
 // Lease A leased task, its lease and a scoped git credential.
 type Lease struct {
 	// GitCredential A scoped installation token for the task's repo. Never stored by the dispatcher.
@@ -555,7 +699,7 @@ type Lease struct {
 	// Lease The lease itself.
 	Lease LeaseInfo `json:"lease"`
 
-	// Task One instantiation of a TaskSpec for a work item.
+	// Task Task is one instantiation of a TaskSpec for a work item.
 	Task Task `json:"task"`
 }
 
@@ -573,8 +717,20 @@ type LeaseInfo struct {
 	Task string  `json:"task"`
 }
 
-// Lending The owner's consent. `unlimited` means any queue, any hour, no daily cap.
+// LeasePolicy LeasePolicy sets lease timing.
+type LeasePolicy = v1alpha1.LeasePolicy
+
+// Lending Lending is the owner's consent: what the agent may take.
 type Lending = v1alpha1.Lending
+
+// Limits Limits bound a run.
+type Limits = v1alpha1.Limits
+
+// Link Link is a provider object that belongs to the work item.
+type Link = v1alpha1.Link
+
+// LinkAction LinkAction adds a provider object to the work item.
+type LinkAction = v1alpha1.LinkAction
 
 // Me The signed-in user.
 type Me struct {
@@ -586,8 +742,20 @@ type Me struct {
 	Name    *string `json:"name,omitempty"`
 }
 
-// ObjectMeta Metadata of every kind except Task and Event.
+// NotifyAction NotifyAction sends a templated message through the providers; no LLM involved.
+type NotifyAction = v1alpha1.NotifyAction
+
+// ObjectMeta ObjectMeta is the metadata of every kind except Task (TaskMeta) and Event (CloudEvents attributes).
 type ObjectMeta = v1alpha1.ObjectMeta
+
+// ObjectRef ObjectRef identifies a provider object, e.g.
+type ObjectRef = v1alpha1.ObjectRef
+
+// OrgRole OrgRole selects the members of an org with a role, e.g.
+type OrgRole = v1alpha1.OrgRole
+
+// OutputSpec OutputSpec is the expected Result: its spec-specific schema and outcomes.
+type OutputSpec = v1alpha1.OutputSpec
 
 // PendingTask A pending task and the first matching check it failed.
 type PendingTask struct {
@@ -597,8 +765,11 @@ type PendingTask struct {
 	Task   string     `json:"task"`
 }
 
-// Pool A pool of agents. Spec in `schemas/pool.schema.json`.
+// Pool Pool is who takes tasks out of queues and how capacity scales.
 type Pool = v1alpha1.Pool
+
+// PoolBackend PoolBackend runs ephemeral agents.
+type PoolBackend = v1alpha1.PoolBackend
 
 // PoolList A page of pools.
 type PoolList struct {
@@ -608,12 +779,18 @@ type PoolList struct {
 	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
+// PoolRequirements PoolRequirements is the minimum an agent must offer to join.
+type PoolRequirements = v1alpha1.PoolRequirements
+
+// PoolSpec PoolSpec is the spec of a Pool.
+type PoolSpec = v1alpha1.PoolSpec
+
 // PoolView A pool and its agents.
 type PoolView struct {
 	// Agents The names of the agents registered in the pool.
 	Agents []string `json:"agents"`
 
-	// Pool A pool of agents. Spec in `schemas/pool.schema.json`.
+	// Pool Pool is who takes tasks out of queues and how capacity scales.
 	Pool Pool `json:"pool"`
 }
 
@@ -641,10 +818,16 @@ type Problem struct {
 	Type *string `json:"type,omitempty"`
 }
 
-// ProgressEvent One progress line streamed by the agent.
+// ProgressEvent ProgressEvent is one progress line streamed by the agent.
 type ProgressEvent = v1alpha1.ProgressEvent
 
-// Provider How to connect to one provider instance. Spec in `schemas/provider.schema.json`.
+// PromptRef PromptRef is where the agent fetches the rendered prompt.
+type PromptRef = v1alpha1.PromptRef
+
+// Provenance Provenance is the event, RuleSet, rule and catalog commit that created a task.
+type Provenance = v1alpha1.Provenance
+
+// Provider Provider says how to connect to one provider instance.
 type Provider = v1alpha1.Provider
 
 // ProviderHealth A provider connection's health (`Conn.Health()`).
@@ -665,16 +848,22 @@ type ProviderList struct {
 	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
+// ProviderScope ProviderScope bounds what a provider instance covers.
+type ProviderScope = v1alpha1.ProviderScope
+
+// ProviderSpec ProviderSpec is the spec of a Provider.
+type ProviderSpec = v1alpha1.ProviderSpec
+
 // ProviderView A provider and its health.
 type ProviderView struct {
 	// Health A provider connection's health (`Conn.Health()`).
 	Health ProviderHealth `json:"health"`
 
-	// Provider How to connect to one provider instance. Spec in `schemas/provider.schema.json`.
+	// Provider Provider says how to connect to one provider instance.
 	Provider Provider `json:"provider"`
 }
 
-// Queue A queue. Spec in `schemas/queue.schema.json`.
+// Queue Queue holds tasks until a pool's agents take them.
 type Queue = v1alpha1.Queue
 
 // QueueList A page of queues.
@@ -685,6 +874,9 @@ type QueueList struct {
 	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
+// QueueSpec QueueSpec is the spec of a Queue.
+type QueueSpec = v1alpha1.QueueSpec
+
 // QueueView A queue and its depth.
 type QueueView struct {
 	// Depth Pending tasks.
@@ -693,44 +885,53 @@ type QueueView struct {
 	// Pending The pending tasks and why each waits.
 	Pending []PendingTask `json:"pending"`
 
-	// Queue A queue. Spec in `schemas/queue.schema.json`.
+	// Queue Queue holds tasks until a pool's agents take them.
 	Queue Queue `json:"queue"`
 
 	// Running Leased or running tasks.
 	Running int `json:"running"`
 }
 
-// RailVerdict A safety rail's verdict on an action.
-type RailVerdict struct {
-	Reason  *string            `json:"reason,omitempty"`
-	Verdict RailVerdictVerdict `json:"verdict"`
-}
-
-// RailVerdictVerdict defines model for RailVerdict.Verdict.
-type RailVerdictVerdict string
+// RailVerdict RailVerdict is one safety rail's verdict on a decision.
+type RailVerdict = v1alpha1.RailVerdict
 
 // RegisterAgentRequest The agent's pool, host and offer. The credentials travel in the security headers.
 type RegisterAgentRequest struct {
 	// AgentVersion The `factory-agent` version.
 	AgentVersion string `json:"agentVersion"`
 
-	// Capabilities The agent's harness offers and labels.
+	// Capabilities AgentCapabilities are the agent's harness offers and labels.
 	Capabilities AgentCapabilities `json:"capabilities"`
 
 	// Host The worker's host name; the agent is named `agt_<owner>-<host>`.
 	Host string `json:"host"`
 
-	// Lending The owner's consent. `unlimited` means any queue, any hour, no daily cap.
+	// Lending Lending is the owner's consent: what the agent may take.
 	Lending *Lending `json:"lending,omitempty"`
 
 	// Pool The Pool to join.
 	Pool string `json:"pool"`
 }
 
-// Result What an agent reports when a run completes. Schema `schemas/result.schema.json`.
+// RepoMount RepoMount is one repo in the workspace.
+type RepoMount = v1alpha1.RepoMount
+
+// Requires Requires lists the agent labels a task needs.
+type Requires = v1alpha1.Requires
+
+// Result Result is what an agent reports when a run completes.
 type Result = v1alpha1.Result
 
-// Rule A rule. Spec in `schemas/rule.schema.json`.
+// ResultHarness ResultHarness is the harness that ran, its effective config and usage.
+type ResultHarness = v1alpha1.ResultHarness
+
+// ResyncPolicy ResyncPolicy says how often the provider's objects are re-observed.
+type ResyncPolicy = v1alpha1.ResyncPolicy
+
+// RetryPolicy RetryPolicy says how often, and on what, a task is retried.
+type RetryPolicy = v1alpha1.RetryPolicy
+
+// Rule Rule is when and what.
 type Rule = v1alpha1.Rule
 
 // RuleMatch One candidate rule's result.
@@ -746,24 +947,60 @@ type RuleMatch struct {
 // RuleMatchResult defines model for RuleMatch.Result.
 type RuleMatchResult string
 
-// RuleSet A RuleSet. Spec in `schemas/ruleset.schema.json`.
+// RuleSelection RuleSelection picks rules: refs ∪ selector, minus exclude.
+type RuleSelection = v1alpha1.RuleSelection
+
+// RuleSet RuleSet is where rules apply: it binds provider instances, sets the scope, selects rules and overrides their params.
 type RuleSet = v1alpha1.RuleSet
 
-// Run One attempt at a Task by one agent.
+// RuleSetSpec RuleSetSpec is the spec of a RuleSet.
+type RuleSetSpec = v1alpha1.RuleSetSpec
+
+// RuleSpec RuleSpec is the spec of a Rule.
+type RuleSpec = v1alpha1.RuleSpec
+
+// Run Run is one attempt at a Task by one agent.
 type Run = v1alpha1.Run
 
 // RunDetail A run and its effects.
 type RunDetail struct {
 	Effects []Effect `json:"effects"`
 
-	// Run One attempt at a Task by one agent.
+	// Run Run is one attempt at a Task by one agent.
 	Run Run `json:"run"`
 }
 
-// StringOrList A string or a list of strings (harness patterns).
+// RunSpec RunSpec is a Run's spec.
+type RunSpec = v1alpha1.RunSpec
+
+// RunStatus RunStatus is a Run's status.
+type RunStatus = v1alpha1.RunStatus
+
+// Scaling Scaling bounds an ephemeral pool's size.
+type Scaling = v1alpha1.Scaling
+
+// Scope Scope narrows a RuleSet to repos (globs) or channels.
+type Scope = v1alpha1.Scope
+
+// SecretRef SecretRef points at a secret held outside the catalog.
+type SecretRef = v1alpha1.SecretRef
+
+// SkillRef SkillRef pins skills from a skills repo.
+type SkillRef = v1alpha1.SkillRef
+
+// SlackProviderSpec SlackProviderSpec is the connection to a Slack workspace (future).
+type SlackProviderSpec = v1alpha1.SlackProviderSpec
+
+// StringOrList StringOrList is a field that takes one string (often a pattern, e.g.
 type StringOrList = v1alpha1.StringOrList
 
-// Task One instantiation of a TaskSpec for a work item.
+// Suggestion Suggestion is a follow-up the agent proposes; rules decide.
+type Suggestion = v1alpha1.Suggestion
+
+// Target Target says which repo or object the work happens on, when it isn't the event's object.
+type Target = v1alpha1.Target
+
+// Task Task is one instantiation of a TaskSpec for a work item.
 type Task = v1alpha1.Task
 
 // TaskContext One fetched context item, labelled with its trust.
@@ -780,6 +1017,12 @@ type TaskContext struct {
 	Trust string `json:"trust"`
 }
 
+// TaskCredentials TaskCredentials are the credentials a task gets.
+type TaskCredentials = v1alpha1.TaskCredentials
+
+// TaskHarness TaskHarness is the requested harness and, once leased, the resolved one (null until then).
+type TaskHarness = v1alpha1.TaskHarness
+
 // TaskList A page of tasks.
 type TaskList struct {
 	Items []Task `json:"items"`
@@ -788,23 +1031,47 @@ type TaskList struct {
 	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
-// TaskMeta A Task's metadata. Tasks are named by id and carry their provenance.
+// TaskMeta TaskMeta is a Task's metadata: tasks are named by id and carry their provenance.
 type TaskMeta = v1alpha1.TaskMeta
 
-// TaskPhase A Task's lifecycle phase: Pending → Leased → Running → Succeeded | Failed, and Running → Cancelling → Cancelled.
+// TaskPhase TaskPhase is a Task's lifecycle phase.
 type TaskPhase = v1alpha1.TaskPhase
 
-// TaskSpec A task spec. Spec in `schemas/taskspec.schema.json`.
+// TaskRunSpec TaskRunSpec is a Task's spec: the TaskSpec resolved for this work item.
+type TaskRunSpec = v1alpha1.TaskRunSpec
+
+// TaskSpec TaskSpec is what and how for one role, with no triggers or transitions.
 type TaskSpec = v1alpha1.TaskSpec
 
-// Template A notification template. Spec in `schemas/template.schema.json`.
+// TaskSpecRef TaskSpecRef is the TaskSpec a task was made from, by name and digest.
+type TaskSpecRef = v1alpha1.TaskSpecRef
+
+// TaskSpecSpec TaskSpecSpec is the spec of a TaskSpec.
+type TaskSpecSpec = v1alpha1.TaskSpecSpec
+
+// TaskStatus TaskStatus is a Task's status.
+type TaskStatus = v1alpha1.TaskStatus
+
+// Template Template is the text of notifications and approval prompts, one body per provider type.
 type Template = v1alpha1.Template
+
+// TemplateBody TemplateBody is either an inline Go text/template (written as a string) or, for Slack, a Block Kit file ({blocks: path}).
+type TemplateBody = v1alpha1.TemplateBody
+
+// TemplateSpec TemplateSpec is the spec of a Template.
+type TemplateSpec = v1alpha1.TemplateSpec
 
 // TranscriptUpload Where the transcript was stored.
 type TranscriptUpload struct {
 	Bytes         int64  `json:"bytes"`
 	TranscriptRef string `json:"transcriptRef"`
 }
+
+// TrustRule TrustRule maps actors to a trust tier.
+type TrustRule = v1alpha1.TrustRule
+
+// Usage Usage is what a run consumed.
+type Usage = v1alpha1.Usage
 
 // UsageDelta Usage since the previous heartbeat. `costUSD` is null for subscription runs.
 type UsageDelta struct {
@@ -813,7 +1080,10 @@ type UsageDelta struct {
 	OutputTokens *int64   `json:"outputTokens,omitempty"`
 }
 
-// WorkItem The provider objects that are about one piece of work, and its state.
+// Webhook Webhook is where the provider's webhook is mounted, and the secret that signs it.
+type Webhook = v1alpha1.Webhook
+
+// WorkItem WorkItem groups the provider objects that are about one piece of work.
 type WorkItem = v1alpha1.WorkItem
 
 // WorkItemDetail A work item and its timeline.
@@ -823,7 +1093,7 @@ type WorkItemDetail struct {
 	Runs    []Run    `json:"runs"`
 	Tasks   []Task   `json:"tasks"`
 
-	// WorkItem The provider objects that are about one piece of work, and its state.
+	// WorkItem WorkItem groups the provider objects that are about one piece of work.
 	WorkItem WorkItem `json:"workItem"`
 }
 
@@ -835,14 +1105,23 @@ type WorkItemList struct {
 	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
+// WorkItemSpec WorkItemSpec is the spec of a WorkItem.
+type WorkItemSpec = v1alpha1.WorkItemSpec
+
+// WorkItemStatus WorkItemStatus is the work item's state, set only by rules and controllers.
+type WorkItemStatus = v1alpha1.WorkItemStatus
+
+// Workspace Workspace says what the agent checks out.
+type Workspace = v1alpha1.Workspace
+
 // AgentID defines model for AgentID.
 type AgentID = string
 
 // Cursor defines model for Cursor.
 type Cursor = string
 
-// LabelSelector defines model for LabelSelector.
-type LabelSelector = string
+// LabelSelectorParam defines model for LabelSelectorParam.
+type LabelSelectorParam = string
 
 // LeaseID defines model for LeaseID.
 type LeaseID = string
@@ -913,7 +1192,7 @@ type ListAgentsParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// LabelSelector A Kubernetes-style label selector on `metadata.labels`: `pack=intake,env!=prod,owner`.
-	LabelSelector *LabelSelector `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+	LabelSelector *LabelSelectorParam `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 }
 
 // LeaseTaskParams defines parameters for LeaseTask.
@@ -946,7 +1225,7 @@ type ListPoolsParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// LabelSelector A Kubernetes-style label selector on `metadata.labels`: `pack=intake,env!=prod,owner`.
-	LabelSelector *LabelSelector `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+	LabelSelector *LabelSelectorParam `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 }
 
 // ListProvidersParams defines parameters for ListProviders.
@@ -958,7 +1237,7 @@ type ListProvidersParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// LabelSelector A Kubernetes-style label selector on `metadata.labels`: `pack=intake,env!=prod,owner`.
-	LabelSelector *LabelSelector `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+	LabelSelector *LabelSelectorParam `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 }
 
 // ListQueuesParams defines parameters for ListQueues.
@@ -970,7 +1249,7 @@ type ListQueuesParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// LabelSelector A Kubernetes-style label selector on `metadata.labels`: `pack=intake,env!=prod,owner`.
-	LabelSelector *LabelSelector `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+	LabelSelector *LabelSelectorParam `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 }
 
 // StreamEventsParams defines parameters for StreamEvents.
@@ -991,7 +1270,7 @@ type ListTasksParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// LabelSelector A Kubernetes-style label selector on `metadata.labels`: `pack=intake,env!=prod,owner`.
-	LabelSelector *LabelSelector `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+	LabelSelector *LabelSelectorParam `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 }
 
 // ListWorkItemsParams defines parameters for ListWorkItems.
@@ -1003,7 +1282,7 @@ type ListWorkItemsParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// LabelSelector A Kubernetes-style label selector on `metadata.labels`: `pack=intake,env!=prod,owner`.
-	LabelSelector *LabelSelector `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+	LabelSelector *LabelSelectorParam `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 }
 
 // RegisterAgentJSONRequestBody defines body for RegisterAgent for application/json ContentType.

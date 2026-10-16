@@ -35,8 +35,12 @@ $(LINT_CONFIG):
 	mv $@.tmp $@
 
 .PHONY: generate
-generate: schemas ## Regenerate code: schemas, then go generate ./... (oapi-codegen server and client from api/openapi.yaml)
+generate: schemas openapi-components ## Regenerate code: schemas, the spec's v1alpha1 components, then go generate ./... (oapi-codegen)
 	go generate ./...
+
+.PHONY: openapi-components
+openapi-components: ## Write the v1alpha1 components into api/openapi.yaml (between its GENERATED markers)
+	go run ./api/componentsgen -spec api/openapi.yaml
 
 .PHONY: schemas
 schemas: ## Generate schemas/*.schema.json from internal/apis/v1alpha1 (once the types exist)
@@ -44,7 +48,7 @@ schemas: ## Generate schemas/*.schema.json from internal/apis/v1alpha1 (once the
 
 .PHONY: check-generated
 check-generated: generate ## Fail if generated files are stale
-	@out=$$(git status --porcelain -- schemas internal/apiserver/gen internal/apiclient); \
+	@out=$$(git status --porcelain -- schemas api/openapi.yaml internal/apiserver/gen internal/apiclient); \
 	if [ -n "$$out" ]; then echo "$$out"; echo "generated files are stale or uncommitted: run make generate and commit"; exit 1; fi
 
 .PHONY: openapi-lint

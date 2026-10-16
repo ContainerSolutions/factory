@@ -11,10 +11,9 @@ info:
     - Errors are `application/problem+json` (RFC 9457) with a machine-readable `code`.
     - Lists paginate with `?cursor=` (pass the previous page's `nextCursor`) and filter with
       `?labelSelector=`.
-    - Components marked `x-go-type` are the `internal/apis/v1alpha1` Go types. Their schemas here
-      describe the envelope and the fields clients rely on; the Go types (and the generated
-      `schemas/*.schema.json` for config kinds) are authoritative, and every example is strictly
-      decoded into them by `api/spec_test.go`.
+    - Components marked `x-go-type` are the `internal/apis/v1alpha1` Go types, in full. They are
+      generated from the Go types (`api/componentsgen`, between the GENERATED markers at the end
+      of this file), and every example is strictly decoded into them by `api/spec_test.go`.
     - `getTranscript` and `uploadTranscript` carry `application/gzip` (gzip-compressed JSON Lines).
     - Webhooks (`/hooks/{provider}`) are served outside `/api/v1` and are handled by the provider
       adapter (`Conn.Handler()`), not by the generated server.
@@ -37,7 +36,7 @@ tags:
   - name: leases
     description: Long-poll leases, heartbeats, completion and abandonment.
   - name: tasks
-    description: Leased task data for agents (task, prompt, context, transcript).
+    description: Task data (task, prompt, context, run transcript), for the agent holding the lease and, where noted, the UI.
   - name: effects
     description: The Effector API, the only way agents write to providers.
   - name: resources
@@ -103,7 +102,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/LabelSelector'
+        - $ref: '#/components/parameters/LabelSelectorParam'
       responses:
         '200':
           description: A page of agents.
@@ -337,7 +336,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/LabelSelector'
+        - $ref: '#/components/parameters/LabelSelectorParam'
       responses:
         '200':
           description: A page of tasks.
@@ -449,7 +448,7 @@ paths:
       - $ref: '#/components/parameters/RunID'
     get:
       operationId: getTranscript
-      tags: [resources]
+      tags: [tasks]
       summary: Download a run's transcript
       description: |
         The stored transcript exactly as uploaded: the harness transcript as gzip-compressed
@@ -567,7 +566,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/LabelSelector'
+        - $ref: '#/components/parameters/LabelSelectorParam'
       responses:
         '200':
           description: A page of work items.
@@ -638,7 +637,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/LabelSelector'
+        - $ref: '#/components/parameters/LabelSelectorParam'
       responses:
         '200':
           description: A page of queues.
@@ -663,7 +662,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/LabelSelector'
+        - $ref: '#/components/parameters/LabelSelectorParam'
       responses:
         '200':
           description: A page of pools.
@@ -688,7 +687,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/LabelSelector'
+        - $ref: '#/components/parameters/LabelSelectorParam'
       responses:
         '200':
           description: A page of providers.
@@ -1210,7 +1209,7 @@ components:
         minimum: 1
         maximum: 500
         default: 100
-    LabelSelector:
+    LabelSelectorParam:
       name: labelSelector
       in: query
       required: false
@@ -1325,885 +1324,11 @@ components:
           type: string
           description: What is wrong with it.
 
-    # ---- v1alpha1 value types ----------------------------------------------------------------
-    ObjectMeta:
-      x-go-type: v1alpha1.ObjectMeta
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: Metadata of every kind except Task and Event.
-      required: [name]
-      properties:
-        name:
-          type: string
-        labels:
-          type: object
-          additionalProperties:
-            type: string
-        resourceVersion:
-          type: string
-          description: Runtime kinds only.
-        createdAt:
-          type: string
-          format: date-time
-    TaskMeta:
-      x-go-type: v1alpha1.TaskMeta
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: A Task's metadata. Tasks are named by id and carry their provenance.
-      required: [id, workItem]
-      properties:
-        id:
-          type: string
-        workItem:
-          type: string
-        provenance:
-          type: object
-          description: The event, RuleSet, rule and catalog commit that created the task.
-          properties:
-            event:
-              type: string
-            ruleSet:
-              type: string
-            rule:
-              type: string
-            catalogSHA:
-              type: string
-        labels:
-          type: object
-          additionalProperties:
-            type: string
-        resourceVersion:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-    EventType:
-      x-go-type: v1alpha1.EventType
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: string
-      description: The event vocabulary (contracts.md §Event vocabulary).
-      enum:
-        - issue.opened
-        - issue.commented
-        - issue.labeled
-        - issue.closed
-        - pr.opened
-        - pr.updated
-        - pr.ready_for_review
-        - pr.labeled
-        - pr.review.submitted
-        - pr.checks.completed
-        - pr.merged
-        - pr.closed
-        - release.published
-        - deploy.succeeded
-        - deploy.failed
-        - message.posted
-        - message.mention
-        - factory.run.completed
-        - factory.run.failed
-        - factory.approval.granted
-        - factory.approval.denied
-        - factory.approval.expired
-        - factory.schedule.tick
-        - factory.workitem.resynced
-        - factory.command.pause
-        - factory.command.resume
-        - factory.command.redispatch
-        - factory.command.cancel
-    EffectOp:
-      x-go-type: v1alpha1.EffectOp
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: string
-      description: The effect ops (contracts.md §Effect ops).
-      enum:
-        - comment
-        - pr.comment
-        - label.add
-        - label.remove
-        - create-issue
-        - sub-issue.add
-        - close
-        - link-duplicate
-        - pr.open
-        - pr.update
-        - pr.retarget
-        - pr.merge
-        - review.comment
-        - review.request-changes
-        - review.approve
-        - thread.reply
-        - thread.resolve
-        - push-branch
-        - stack.push
-        - stack.rebase
-    TaskPhase:
-      x-go-type: v1alpha1.TaskPhase
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: string
-      description: 'A Task''s lifecycle phase: Pending → Leased → Running → Succeeded | Failed, and Running → Cancelling → Cancelled.'
-      enum: [Pending, Leased, Running, Succeeded, Failed, Cancelling, Cancelled]
-    AgentPhase:
-      x-go-type: v1alpha1.AgentPhase
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: string
-      description: A registered agent's state.
-      enum: [Ready, Busy, Throttled, Draining, Offline]
-    ProgressEvent:
-      x-go-type: v1alpha1.ProgressEvent
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: One progress line streamed by the agent.
-      required: [at, kind]
-      properties:
-        at:
-          type: string
-          format: date-time
-        kind:
-          type: string
-        message:
-          type: string
-        data:
-          type: object
-          additionalProperties: true
-    HarnessOffer:
-      x-go-type: v1alpha1.HarnessOffer
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: What the agent can run with one harness. Concrete values, not patterns.
-      required: [name]
-      properties:
-        name:
-          type: string
-        version:
-          type: string
-        auth:
-          type: string
-          description: '`subscription`, `apiKey`, `accessToken` or `cloud`.'
-        models:
-          type: array
-          items:
-            type: string
-        reasoningEffort:
-          type: array
-          items:
-            type: string
-    AgentCapabilities:
-      x-go-type: v1alpha1.AgentCapabilities
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: The agent's harness offers and labels.
-      properties:
-        harnesses:
-          type: array
-          items:
-            $ref: '#/components/schemas/HarnessOffer'
-        labels:
-          type: array
-          items:
-            type: string
-    Lending:
-      x-go-type: v1alpha1.Lending
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: The owner's consent. `unlimited` means any queue, any hour, no daily cap.
-      properties:
-        unlimited:
-          type: boolean
-        queues:
-          type: array
-          items:
-            type: string
-        ruleSets:
-          type: array
-          items:
-            type: string
-        harnesses:
-          type: array
-          items:
-            type: string
-        maxConcurrent:
-          type: integer
-        maxRunsPerDay:
-          type: integer
-        maxTokensPerDay:
-          type: integer
-          format: int64
-        hours:
-          type: string
-          example: Mon-Fri 08:00-20:00 Europe/Lisbon
-    HarnessRequest:
-      x-go-type: v1alpha1.HarnessRequest
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: A harness and config request. Strings are patterns.
-      required: [name]
-      properties:
-        name:
-          type: string
-        config:
-          type: object
-          properties:
-            model:
-              $ref: '#/components/schemas/StringOrList'
-            reasoningEffort:
-              $ref: '#/components/schemas/StringOrList'
-            prefer:
-              type: array
-              items:
-                type: string
-    StringOrList:
-      x-go-type: v1alpha1.StringOrList
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      description: A string or a list of strings (harness patterns).
-      oneOf:
-        - type: string
-        - type: array
-          items:
-            type: string
-    Result:
-      x-go-type: v1alpha1.Result
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: What an agent reports when a run completes. Schema `schemas/result.schema.json`.
-      required: [task, status]
-      properties:
-        task:
-          type: string
-        status:
-          type: string
-          enum: [done, failed, needs_input, noop]
-        outcome:
-          type: string
-        summary:
-          type: string
-        verdict:
-          type: object
-          additionalProperties: true
-        artifacts:
-          type: array
-          items:
-            type: object
-            required: [kind]
-            properties:
-              kind:
-                type: string
-              url:
-                type: string
-              ref:
-                type: string
-        suggest:
-          type: array
-          items:
-            type: object
-            required: [taskSpec]
-            properties:
-              taskSpec:
-                type: string
-              reason:
-                type: string
-              inputs:
-                type: object
-                additionalProperties: true
-        question:
-          type: string
-          nullable: true
-          description: Set when `status` is `needs_input`.
-        harness:
-          type: object
-          description: The harness that ran, its effective config and cumulative usage.
-          properties:
-            name:
-              type: string
-            version:
-              type: string
-            auth:
-              type: string
-            effectiveConfig:
-              type: object
-              properties:
-                model:
-                  type: string
-                reasoningEffort:
-                  type: string
-            usage:
-              type: object
-              properties:
-                inputTokens:
-                  type: integer
-                  format: int64
-                outputTokens:
-                  type: integer
-                  format: int64
-                turns:
-                  type: integer
-                wallClock:
-                  type: string
-                costUSD:
-                  type: number
-                  nullable: true
-                  description: '`null` for subscription runs.'
-        data:
-          type: object
-          additionalProperties: true
-          description: Spec-specific fields, validated by the TaskSpec's output schema.
-
-    # ---- v1alpha1 runtime kinds ----------------------------------------------------------------
-    Event:
-      x-go-type: v1alpha1.Event
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: A normalised provider event, shaped as a CloudEvent.
-      required: [kind, id, source, type, time, data]
-      properties:
-        apiVersion:
-          type: string
-          enum: [factory.ccf.dev/v1alpha1]
-        kind:
-          type: string
-          enum: [Event]
-        id:
-          type: string
-        source:
-          type: string
-          description: The provider instance, or `factory`.
-        type:
-          $ref: '#/components/schemas/EventType'
-        subject:
-          type: string
-        time:
-          type: string
-          format: date-time
-        data:
-          type: object
-          required: [provider]
-          properties:
-            provider:
-              type: string
-            actor:
-              type: object
-              required: [id]
-              properties:
-                id:
-                  type: string
-                tier:
-                  type: string
-                isBot:
-                  type: boolean
-                isFactory:
-                  type: boolean
-                identity:
-                  type: string
-            object:
-              type: object
-              required: [ref]
-              properties:
-                provider:
-                  type: string
-                kind:
-                  type: string
-                ref:
-                  type: string
-            repo:
-              type: string
-            contentRef:
-              type: string
-            facts:
-              type: object
-              additionalProperties: true
-            raw:
-              type: object
-              additionalProperties: true
-              description: The provider payload, kept for audit; never shown to rules.
-        workItem:
-          type: string
-          description: Set on `factory.*` events.
-    WorkItem:
-      x-go-type: v1alpha1.WorkItem
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: The provider objects that are about one piece of work, and its state.
-      required: [kind, metadata, spec]
-      properties:
-        apiVersion:
-          type: string
-          enum: [factory.ccf.dev/v1alpha1]
-        kind:
-          type: string
-          enum: [WorkItem]
-        metadata:
-          $ref: '#/components/schemas/ObjectMeta'
-        spec:
-          type: object
-          properties:
-            links:
-              type: array
-              items:
-                type: object
-                required: [provider, ref]
-                properties:
-                  provider:
-                    type: string
-                  ref:
-                    type: string
-                  kind:
-                    type: string
-                  primary:
-                    type: boolean
-        status:
-          type: object
-          description: State keys, counters, approvals, decisions (newest 200) and reporter.
-          properties:
-            state:
-              type: object
-              additionalProperties: true
-            counters:
-              type: object
-              additionalProperties:
-                type: integer
-            approvals:
-              type: array
-              items:
-                type: object
-            decisions:
-              type: array
-              items:
-                type: object
-            reporter:
-              type: object
-    Task:
-      x-go-type: v1alpha1.Task
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: One instantiation of a TaskSpec for a work item.
-      required: [kind, metadata, spec]
-      properties:
-        apiVersion:
-          type: string
-          enum: [factory.ccf.dev/v1alpha1]
-        kind:
-          type: string
-          enum: [Task]
-        metadata:
-          $ref: '#/components/schemas/TaskMeta'
-        spec:
-          type: object
-          description: The TaskSpec resolved for this work item (v1alpha1.TaskRunSpec).
-          required: [taskSpec, queue]
-          properties:
-            taskSpec:
-              type: object
-              required: [name]
-              properties:
-                name:
-                  type: string
-                digest:
-                  type: string
-            queue:
-              type: string
-            pool:
-              type: string
-            provider:
-              type: string
-            target:
-              type: object
-            inputs:
-              type: object
-              additionalProperties: true
-            harness:
-              type: object
-              properties:
-                request:
-                  $ref: '#/components/schemas/HarnessRequest'
-                resolved:
-                  type: object
-                  nullable: true
-                  description: Null until leased.
-            skills:
-              type: array
-              items:
-                type: object
-            prompt:
-              type: object
-            context:
-              type: array
-              items:
-                type: object
-                required: [kind, ref]
-                properties:
-                  kind:
-                    type: string
-                  provider:
-                    type: string
-                  ref:
-                    type: string
-                  trust:
-                    type: string
-                  mount:
-                    type: string
-            credentials:
-              type: object
-            effects:
-              type: object
-            limits:
-              type: object
-            output:
-              type: object
-        status:
-          type: object
-          required: [phase]
-          properties:
-            phase:
-              $ref: '#/components/schemas/TaskPhase'
-            agent:
-              type: string
-              nullable: true
-              description: Null until leased.
-            reason:
-              type: string
-            attempts:
-              type: integer
-            leaseExpiresAt:
-              type: string
-              format: date-time
-    Run:
-      x-go-type: v1alpha1.Run
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: One attempt at a Task by one agent.
-      required: [kind, metadata, spec]
-      properties:
-        apiVersion:
-          type: string
-          enum: [factory.ccf.dev/v1alpha1]
-        kind:
-          type: string
-          enum: [Run]
-        metadata:
-          $ref: '#/components/schemas/ObjectMeta'
-        spec:
-          type: object
-          required: [task, attempt, agent]
-          properties:
-            task:
-              type: string
-            attempt:
-              type: integer
-            agent:
-              type: string
-            owner:
-              type: string
-        status:
-          type: object
-          properties:
-            startedAt:
-              type: string
-              format: date-time
-            endedAt:
-              type: string
-              format: date-time
-            progress:
-              type: array
-              items:
-                $ref: '#/components/schemas/ProgressEvent'
-            result:
-              $ref: '#/components/schemas/Result'
-            transcriptRef:
-              type: string
-            usage:
-              type: object
-    Agent:
-      x-go-type: v1alpha1.Agent
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: A registered worker.
-      required: [kind, metadata, spec]
-      properties:
-        apiVersion:
-          type: string
-          enum: [factory.ccf.dev/v1alpha1]
-        kind:
-          type: string
-          enum: [Agent]
-        metadata:
-          $ref: '#/components/schemas/ObjectMeta'
-        spec:
-          type: object
-          required: [pool, owner, capabilities]
-          properties:
-            pool:
-              type: string
-            owner:
-              type: string
-            capabilities:
-              $ref: '#/components/schemas/AgentCapabilities'
-            lending:
-              $ref: '#/components/schemas/Lending'
-        status:
-          type: object
-          required: [phase]
-          properties:
-            phase:
-              $ref: '#/components/schemas/AgentPhase'
-            throttledUntil:
-              type: string
-              nullable: true
-              format: date-time
-            lastHeartbeat:
-              type: string
-              format: date-time
-            running:
-              type: array
-              items:
-                type: string
-            today:
-              type: object
-              properties:
-                runs:
-                  type: integer
-                tokens:
-                  type: integer
-                  format: int64
-    Effect:
-      x-go-type: v1alpha1.Effect
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: The audit record of one provider write.
-      required: [kind, metadata, spec]
-      properties:
-        apiVersion:
-          type: string
-          enum: [factory.ccf.dev/v1alpha1]
-        kind:
-          type: string
-          enum: [Effect]
-        metadata:
-          $ref: '#/components/schemas/ObjectMeta'
-        spec:
-          type: object
-          required: [task, op, target, idempotencyKey]
-          properties:
-            task:
-              type: string
-            op:
-              $ref: '#/components/schemas/EffectOp'
-            target:
-              type: object
-              required: [ref]
-              properties:
-                provider:
-                  type: string
-                kind:
-                  type: string
-                ref:
-                  type: string
-            idempotencyKey:
-              type: string
-            identity:
-              type: string
-            request:
-              type: object
-              additionalProperties: true
-        status:
-          type: object
-          properties:
-            result:
-              type: object
-              properties:
-                url:
-                  type: string
-                error:
-                  type: string
-            at:
-              type: string
-              format: date-time
-
-    # ---- v1alpha1 config kinds (shapes: schemas/<kind>.schema.json) ---------------------------
+    # ---- catalog (API-only; the kinds themselves are generated below) --------------------------
     CatalogKind:
       type: string
       description: A config kind.
       enum: [Provider, Group, Template, Rule, RuleSet, TaskSpec, Queue, Pool]
-    Provider:
-      x-go-type: v1alpha1.Provider
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: How to connect to one provider instance. Spec in `schemas/provider.schema.json`.
-      required: [kind, metadata, spec]
-      properties:
-        apiVersion:
-          type: string
-          enum: [factory.ccf.dev/v1alpha1]
-        kind:
-          type: string
-          enum: [Provider]
-        metadata:
-          $ref: '#/components/schemas/ObjectMeta'
-        spec:
-          type: object
-          required: [type]
-          properties:
-            type:
-              type: string
-              enum: [github, slack]
-    Group:
-      x-go-type: v1alpha1.Group
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: A named set of people. Spec in `schemas/group.schema.json`.
-      required: [kind, metadata, spec]
-      properties:
-        apiVersion:
-          type: string
-          enum: [factory.ccf.dev/v1alpha1]
-        kind:
-          type: string
-          enum: [Group]
-        metadata:
-          $ref: '#/components/schemas/ObjectMeta'
-        spec:
-          type: object
-    Template:
-      x-go-type: v1alpha1.Template
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: A notification template. Spec in `schemas/template.schema.json`.
-      required: [kind, metadata, spec]
-      properties:
-        apiVersion:
-          type: string
-          enum: [factory.ccf.dev/v1alpha1]
-        kind:
-          type: string
-          enum: [Template]
-        metadata:
-          $ref: '#/components/schemas/ObjectMeta'
-        spec:
-          type: object
-    Rule:
-      x-go-type: v1alpha1.Rule
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: A rule. Spec in `schemas/rule.schema.json`.
-      required: [kind, metadata, spec]
-      properties:
-        apiVersion:
-          type: string
-          enum: [factory.ccf.dev/v1alpha1]
-        kind:
-          type: string
-          enum: [Rule]
-        metadata:
-          $ref: '#/components/schemas/ObjectMeta'
-        spec:
-          type: object
-    RuleSet:
-      x-go-type: v1alpha1.RuleSet
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: A RuleSet. Spec in `schemas/ruleset.schema.json`.
-      required: [kind, metadata, spec]
-      properties:
-        apiVersion:
-          type: string
-          enum: [factory.ccf.dev/v1alpha1]
-        kind:
-          type: string
-          enum: [RuleSet]
-        metadata:
-          $ref: '#/components/schemas/ObjectMeta'
-        spec:
-          type: object
-    TaskSpec:
-      x-go-type: v1alpha1.TaskSpec
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: A task spec. Spec in `schemas/taskspec.schema.json`.
-      required: [kind, metadata, spec]
-      properties:
-        apiVersion:
-          type: string
-          enum: [factory.ccf.dev/v1alpha1]
-        kind:
-          type: string
-          enum: [TaskSpec]
-        metadata:
-          $ref: '#/components/schemas/ObjectMeta'
-        spec:
-          type: object
-    Queue:
-      x-go-type: v1alpha1.Queue
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: A queue. Spec in `schemas/queue.schema.json`.
-      required: [kind, metadata, spec]
-      properties:
-        apiVersion:
-          type: string
-          enum: [factory.ccf.dev/v1alpha1]
-        kind:
-          type: string
-          enum: [Queue]
-        metadata:
-          $ref: '#/components/schemas/ObjectMeta'
-        spec:
-          type: object
-          required: [pool]
-          properties:
-            pool:
-              type: string
-            concurrency:
-              type: integer
-            priority:
-              type: integer
-    Pool:
-      x-go-type: v1alpha1.Pool
-      x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      type: object
-      description: A pool of agents. Spec in `schemas/pool.schema.json`.
-      required: [kind, metadata, spec]
-      properties:
-        apiVersion:
-          type: string
-          enum: [factory.ccf.dev/v1alpha1]
-        kind:
-          type: string
-          enum: [Pool]
-        metadata:
-          $ref: '#/components/schemas/ObjectMeta'
-        spec:
-          type: object
-          required: [mode]
-          properties:
-            mode:
-              type: string
-              enum: [registered, ephemeral]
     CatalogObject:
       description: One config object, by kind.
       oneOf:
@@ -2757,7 +1882,7 @@ components:
         action:
           $ref: '#/components/schemas/ActionIntent'
         rail:
-          $ref: '#/components/schemas/RailVerdict'
+          $ref: '#/components/schemas/EvaluationRail'
         inputs:
           type: object
           additionalProperties: true
@@ -2770,9 +1895,9 @@ components:
         type:
           type: string
           enum: [dispatch, set, notify, cancel, link, effect, debounce, unsupported]
-    RailVerdict:
+    EvaluationRail:
       type: object
-      description: A safety rail's verdict on an action.
+      description: A safety rail's verdict on an action (the rule engine's RailVerdict).
       required: [verdict]
       properties:
         verdict:
@@ -2864,3 +1989,2442 @@ components:
           type: array
           items:
             type: string
+
+    # ---- BEGIN GENERATED: v1alpha1 types (go run ./api/componentsgen; make generate) ----------
+    # Everything up to END GENERATED is written from internal/apis/v1alpha1; don't edit it.
+    Action:
+      x-go-type: v1alpha1.Action
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: 'Action is a tagged union: exactly one member is set.'
+      type: object
+      minProperties: 1
+      maxProperties: 1
+      properties:
+        dispatch:
+          $ref: '#/components/schemas/DispatchAction'
+        set:
+          description: Set updates work-item state keys; values are literals or "=CEL".
+          type: object
+        notify:
+          $ref: '#/components/schemas/NotifyAction'
+        requestApproval:
+          $ref: '#/components/schemas/ApprovalSpec'
+        cancel:
+          $ref: '#/components/schemas/CancelAction'
+        link:
+          $ref: '#/components/schemas/LinkAction'
+        effect:
+          $ref: '#/components/schemas/EffectAction'
+      additionalProperties: false
+    Actor:
+      x-go-type: v1alpha1.Actor
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Actor is who caused an event.
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          description: ID is provider-instance:login, e.g. github-public:octocat.
+          type: string
+        tier:
+          type: string
+        isBot:
+          type: boolean
+        isFactory:
+          type: boolean
+        identity:
+          description: Identity is the factory identity (author, reviewer) when IsFactory.
+          type: string
+      additionalProperties: false
+    Admission:
+      x-go-type: v1alpha1.Admission
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Admission is how registered agents join.
+      type: object
+      required:
+        - tokenRef
+        - owners
+      properties:
+        tokenRef:
+          $ref: '#/components/schemas/SecretRef'
+        owners:
+          description: Owners is the Group whose members may register agents here.
+          type: string
+      additionalProperties: false
+    Agent:
+      x-go-type: v1alpha1.Agent
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Agent is a registered worker.
+      type: object
+      required:
+        - kind
+        - metadata
+        - spec
+      properties:
+        apiVersion:
+          type: string
+          enum:
+            - factory.ccf.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+            - Agent
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/AgentSpec'
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+      additionalProperties: false
+    AgentCapabilities:
+      x-go-type: v1alpha1.AgentCapabilities
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: AgentCapabilities are the agent's harness offers and labels.
+      type: object
+      properties:
+        harnesses:
+          type: array
+          items:
+            $ref: '#/components/schemas/HarnessOffer'
+        labels:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    AgentPhase:
+      x-go-type: v1alpha1.AgentPhase
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: AgentPhase is a registered agent's state.
+      type: string
+      enum:
+        - Ready
+        - Busy
+        - Throttled
+        - Draining
+        - Offline
+    AgentSpec:
+      x-go-type: v1alpha1.AgentSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: AgentSpec is what the agent offers and what its owner lends.
+      type: object
+      required:
+        - pool
+        - owner
+        - capabilities
+      properties:
+        pool:
+          type: string
+        owner:
+          description: Owner must be in the pool's owners Group.
+          type: string
+        capabilities:
+          $ref: '#/components/schemas/AgentCapabilities'
+        lending:
+          $ref: '#/components/schemas/Lending'
+      additionalProperties: false
+    AgentStatus:
+      x-go-type: v1alpha1.AgentStatus
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: AgentStatus is the agent's state.
+      type: object
+      required:
+        - phase
+        - throttledUntil
+      properties:
+        phase:
+          $ref: '#/components/schemas/AgentPhase'
+        throttledUntil:
+          type: string
+          format: date-time
+          nullable: true
+        lastHeartbeat:
+          type: string
+          format: date-time
+        running:
+          type: array
+          items:
+            type: string
+        today:
+          $ref: '#/components/schemas/AgentUsage'
+      additionalProperties: false
+    AgentUsage:
+      x-go-type: v1alpha1.AgentUsage
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: AgentUsage is the agent's usage today, checked against its lending.
+      type: object
+      required:
+        - runs
+        - tokens
+      properties:
+        runs:
+          type: integer
+        tokens:
+          type: integer
+      additionalProperties: false
+    AppIdentity:
+      x-go-type: v1alpha1.AppIdentity
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: AppIdentity is a GitHub App.
+      type: object
+      required:
+        - appID
+        - privateKeyRef
+      properties:
+        appID:
+          type: integer
+        privateKeyRef:
+          $ref: '#/components/schemas/SecretRef'
+      additionalProperties: false
+    ApprovalPhase:
+      x-go-type: v1alpha1.ApprovalPhase
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: 'ApprovalPhase is an Approval''s state: Pending → Granted | Denied | Expired.'
+      type: string
+      enum:
+        - Pending
+        - Granted
+        - Denied
+        - Expired
+    ApprovalRef:
+      x-go-type: v1alpha1.ApprovalRef
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: ApprovalRef is an approval's name and phase, as shown on the work item.
+      type: object
+      required:
+        - name
+        - phase
+      properties:
+        name:
+          type: string
+        phase:
+          $ref: '#/components/schemas/ApprovalPhase'
+      additionalProperties: false
+    ApprovalSpec:
+      x-go-type: v1alpha1.ApprovalSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: ApprovalSpec is what is asked, of whom.
+      type: object
+      required:
+        - name
+        - approvers
+      properties:
+        name:
+          description: 'Name is what rules test: approval.name == ''implement''.'
+          type: string
+        approvers:
+          description: Approvers is a Group.
+          type: string
+        quorum:
+          type: integer
+        via:
+          description: Via is where it's presented and answers are accepted.
+          type: array
+          items:
+            type: string
+        template:
+          type: string
+        expires:
+          $ref: '#/components/schemas/Duration'
+      additionalProperties: false
+    Artifact:
+      x-go-type: v1alpha1.Artifact
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Artifact is something the run produced.
+      type: object
+      required:
+        - kind
+      properties:
+        kind:
+          type: string
+        url:
+          type: string
+        ref:
+          type: string
+      additionalProperties: false
+    Budget:
+      x-go-type: v1alpha1.Budget
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Budget caps spend.
+      type: object
+      properties:
+        daily:
+          $ref: '#/components/schemas/BudgetLimit'
+      additionalProperties: false
+    BudgetLimit:
+      x-go-type: v1alpha1.BudgetLimit
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: BudgetLimit is one budget window's limits; an unset limit is unlimited.
+      type: object
+      properties:
+        runs:
+          type: integer
+        tokens:
+          type: integer
+        usd:
+          type: number
+      additionalProperties: false
+    CancelAction:
+      x-go-type: v1alpha1.CancelAction
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: CancelAction cancels the active tasks of a task spec for the work item.
+      type: object
+      required:
+        - taskSpec
+      properties:
+        taskSpec:
+          type: string
+      additionalProperties: false
+    ChannelRef:
+      x-go-type: v1alpha1.ChannelRef
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: ChannelRef is a channel on a provider.
+      type: object
+      required:
+        - provider
+        - name
+      properties:
+        provider:
+          type: string
+        name:
+          type: string
+      additionalProperties: false
+    ContextItem:
+      x-go-type: v1alpha1.ContextItem
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: ContextItem is something the agent is given, with its trust label.
+      type: object
+      required:
+        - kind
+        - ref
+      properties:
+        kind:
+          type: string
+        provider:
+          type: string
+        ref:
+          type: string
+        trust:
+          type: string
+        mount:
+          type: string
+      additionalProperties: false
+    Debounce:
+      x-go-type: v1alpha1.Debounce
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Debounce collapses bursts of events into one action.
+      type: object
+      required:
+        - window
+      properties:
+        window:
+          $ref: '#/components/schemas/Duration'
+        key:
+          type: string
+      additionalProperties: false
+    Decision:
+      x-go-type: v1alpha1.Decision
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: 'Decision records why a rule did (or didn''t) act: the UI''s "why did this happen?".'
+      type: object
+      properties:
+        at:
+          type: string
+          format: date-time
+        event:
+          type: string
+        ruleSet:
+          type: string
+        rule:
+          type: string
+        fired:
+          type: boolean
+        inputs:
+          description: Inputs are the values `where` saw.
+          type: object
+        rails:
+          type: array
+          items:
+            $ref: '#/components/schemas/RailVerdict'
+        actions:
+          type: array
+          items:
+            type: string
+        reason:
+          type: string
+      additionalProperties: false
+    Destination:
+      x-go-type: v1alpha1.Destination
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Destination is one recipient of a notification.
+      type: object
+      properties:
+        group:
+          type: string
+          minLength: 1
+        via:
+          type: string
+        as:
+          type: string
+          enum:
+            - mention
+            - dm
+        channel:
+          $ref: '#/components/schemas/ChannelRef'
+        item:
+          description: Item comments on, or replies in, the work item's linked objects.
+          type: string
+          enum:
+            - primary
+            - threads
+            - all
+      additionalProperties: false
+      oneOf:
+        - required:
+            - group
+        - required:
+            - channel
+        - required:
+            - item
+    DispatchAction:
+      x-go-type: v1alpha1.DispatchAction
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: DispatchAction creates a Task (Pending) in a queue.
+      type: object
+      required:
+        - taskSpec
+        - queue
+      properties:
+        taskSpec:
+          type: string
+        queue:
+          type: string
+        inputs:
+          description: Inputs must match the TaskSpec's declared inputs.
+          type: object
+        harness:
+          $ref: '#/components/schemas/ExprOrHarnessRequest'
+        requires:
+          $ref: '#/components/schemas/Requires'
+        context:
+          description: Context lists what the agent is given, e.g. event.object.
+          type: array
+          items:
+            type: string
+        target:
+          $ref: '#/components/schemas/Target'
+      additionalProperties: false
+    Duration:
+      x-go-type: v1alpha1.Duration
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: A Go duration ("90s", "15m", "1h30m"), optionally prefixed by whole days ("7d", "1d12h").
+      type: string
+    Effect:
+      x-go-type: v1alpha1.Effect
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Effect is an audit record of one provider write.
+      type: object
+      required:
+        - kind
+        - metadata
+        - spec
+      properties:
+        apiVersion:
+          type: string
+          enum:
+            - factory.ccf.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+            - Effect
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/EffectSpec'
+        status:
+          $ref: '#/components/schemas/EffectStatus'
+      additionalProperties: false
+    EffectAction:
+      x-go-type: v1alpha1.EffectAction
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: 'A direct provider effect: op, an optional target, and the op-specific fields inline (e.g. labels for label.add). The catalog loader checks those fields per op.'
+      type: object
+      required:
+        - op
+      properties:
+        op:
+          $ref: '#/components/schemas/EffectOp'
+        target:
+          description: 'Target is the object to act on: primary, a ref, or "=CEL".'
+          type: string
+      additionalProperties: {}
+      not:
+        required:
+          - args
+    EffectOp:
+      x-go-type: v1alpha1.EffectOp
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: EffectOp is a provider effect, as named in TaskSpec effects.allow and the effect action.
+      type: string
+      enum:
+        - comment
+        - pr.comment
+        - label.add
+        - label.remove
+        - create-issue
+        - sub-issue.add
+        - close
+        - link-duplicate
+        - pr.open
+        - pr.update
+        - pr.retarget
+        - pr.merge
+        - review.comment
+        - review.request-changes
+        - review.approve
+        - thread.reply
+        - thread.resolve
+        - push-branch
+        - stack.push
+        - stack.rebase
+    EffectResult:
+      x-go-type: v1alpha1.EffectResult
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: EffectResult is the outcome of an effect.
+      type: object
+      properties:
+        url:
+          type: string
+        error:
+          type: string
+      additionalProperties: false
+    EffectSpec:
+      x-go-type: v1alpha1.EffectSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: EffectSpec is what was asked.
+      type: object
+      required:
+        - task
+        - op
+        - target
+        - idempotencyKey
+      properties:
+        task:
+          type: string
+        op:
+          $ref: '#/components/schemas/EffectOp'
+        target:
+          $ref: '#/components/schemas/ObjectRef'
+        idempotencyKey:
+          type: string
+        identity:
+          type: string
+        request:
+          type: object
+      additionalProperties: false
+    EffectStatus:
+      x-go-type: v1alpha1.EffectStatus
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: EffectStatus is what happened.
+      type: object
+      properties:
+        result:
+          $ref: '#/components/schemas/EffectResult'
+        at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    EffectiveConfig:
+      x-go-type: v1alpha1.EffectiveConfig
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: EffectiveConfig is the exact config the harness ran with.
+      type: object
+      required:
+        - model
+      properties:
+        model:
+          type: string
+        reasoningEffort:
+          type: string
+      additionalProperties: false
+    EffectsPolicy:
+      x-go-type: v1alpha1.EffectsPolicy
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: EffectsPolicy is what a task may do.
+      type: object
+      properties:
+        allow:
+          type: array
+          items:
+            $ref: '#/components/schemas/EffectOp'
+        labels:
+          description: Labels are globs the label.* effects are checked against.
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    Event:
+      x-go-type: v1alpha1.Event
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: 'Event is a normalised provider event, shaped as a CloudEvent: its identity is (Source = provider instance or "factory", Type).'
+      type: object
+      required:
+        - kind
+        - id
+        - source
+        - type
+        - time
+        - data
+      properties:
+        apiVersion:
+          type: string
+          enum:
+            - factory.ccf.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+            - Event
+        id:
+          type: string
+        source:
+          type: string
+        type:
+          $ref: '#/components/schemas/EventType'
+        subject:
+          type: string
+        time:
+          type: string
+          format: date-time
+        data:
+          $ref: '#/components/schemas/EventData'
+        workItem:
+          description: WorkItem is set on factory.* events, which always carry their work item.
+          type: string
+      additionalProperties: false
+    EventData:
+      x-go-type: v1alpha1.EventData
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: EventData is the event's payload.
+      type: object
+      required:
+        - provider
+      properties:
+        provider:
+          type: string
+        actor:
+          $ref: '#/components/schemas/Actor'
+        object:
+          $ref: '#/components/schemas/ObjectRef'
+        repo:
+          type: string
+        contentRef:
+          type: string
+        facts:
+          type: object
+        raw:
+          description: Raw is the provider payload, kept for audit; never shown to rules.
+      additionalProperties: false
+    EventType:
+      x-go-type: v1alpha1.EventType
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: EventType is a normalised event type.
+      type: string
+      enum:
+        - issue.opened
+        - issue.commented
+        - issue.labeled
+        - issue.closed
+        - pr.opened
+        - pr.updated
+        - pr.ready_for_review
+        - pr.labeled
+        - pr.review.submitted
+        - pr.checks.completed
+        - pr.merged
+        - pr.closed
+        - release.published
+        - deploy.succeeded
+        - deploy.failed
+        - message.posted
+        - message.mention
+        - factory.run.completed
+        - factory.run.failed
+        - factory.approval.granted
+        - factory.approval.denied
+        - factory.approval.expired
+        - factory.schedule.tick
+        - factory.workitem.resynced
+        - factory.command.pause
+        - factory.command.resume
+        - factory.command.redispatch
+        - factory.command.cancel
+    ExprOrHarnessRequest:
+      x-go-type: v1alpha1.ExprOr[v1alpha1.HarnessRequest]
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: ExprOr holds either an expression string or a typed value.
+      oneOf:
+        - description: 'An expression: "{{ params.x }}" (substituted at catalog load) or "=CEL" (evaluated at runtime).'
+          type: string
+          pattern: ^=|\{\{[\s\S]*\}\}
+        - type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+            config:
+              type: object
+              properties:
+                model:
+                  oneOf:
+                    - type: string
+                    - type: array
+                      items:
+                        type: string
+                reasoningEffort:
+                  oneOf:
+                    - type: string
+                    - type: array
+                      items:
+                        type: string
+                prefer:
+                  type: array
+                  items:
+                    type: string
+              additionalProperties: false
+          additionalProperties: false
+    GitCredentialSpec:
+      x-go-type: v1alpha1.GitCredentialSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: GitCredentialSpec describes the scoped git token minted for a task.
+      type: object
+      required:
+        - provider
+        - identity
+        - repo
+      properties:
+        provider:
+          type: string
+        identity:
+          type: string
+        repo:
+          type: string
+        readRepos:
+          type: array
+          items:
+            type: string
+        permissions:
+          type: object
+          additionalProperties:
+            type: string
+        ttl:
+          $ref: '#/components/schemas/Duration'
+      additionalProperties: false
+    GitHubActionsBackend:
+      x-go-type: v1alpha1.GitHubActionsBackend
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: GitHubActionsBackend runs agents as a workflow.
+      type: object
+      required:
+        - providerRef
+        - repo
+        - workflow
+      properties:
+        providerRef:
+          type: string
+        repo:
+          type: string
+        workflow:
+          type: string
+      additionalProperties: false
+    GitHubProviderSpec:
+      x-go-type: v1alpha1.GitHubProviderSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: GitHubProviderSpec is the connection to a GitHub (or GHE) instance.
+      type: object
+      required:
+        - webhook
+        - identities
+      properties:
+        apiURL:
+          type: string
+        webhook:
+          $ref: '#/components/schemas/Webhook'
+        identities:
+          description: Identities are the GitHub Apps this provider can act as, by role (author, reviewer).
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AppIdentity'
+      additionalProperties: false
+    Group:
+      x-go-type: v1alpha1.Group
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Group is a named set of people, resolved per provider.
+      type: object
+      required:
+        - kind
+        - metadata
+        - spec
+      properties:
+        apiVersion:
+          type: string
+          enum:
+            - factory.ccf.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+            - Group
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/GroupSpec'
+      additionalProperties: false
+    GroupCache:
+      x-go-type: v1alpha1.GroupCache
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: GroupCache says how long resolved members are cached.
+      type: object
+      required:
+        - ttl
+      properties:
+        ttl:
+          $ref: '#/components/schemas/Duration'
+      additionalProperties: false
+    GroupSource:
+      x-go-type: v1alpha1.GroupSource
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: GroupSource is one source of members on one provider.
+      type: object
+      required:
+        - provider
+      properties:
+        provider:
+          type: string
+        team:
+          type: string
+          minLength: 1
+        orgRole:
+          $ref: '#/components/schemas/OrgRole'
+        users:
+          type: array
+          items:
+            type: string
+        userGroup:
+          type: string
+          minLength: 1
+      additionalProperties: false
+      oneOf:
+        - required:
+            - team
+        - required:
+            - orgRole
+        - required:
+            - users
+        - required:
+            - userGroup
+    GroupSpec:
+      x-go-type: v1alpha1.GroupSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: GroupSpec is the spec of a Group.
+      type: object
+      required:
+        - members
+      properties:
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupSource'
+        cache:
+          $ref: '#/components/schemas/GroupCache'
+      additionalProperties: false
+    HarnessConfig:
+      x-go-type: v1alpha1.HarnessConfig
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: HarnessConfig is a requested harness config.
+      type: object
+      properties:
+        model:
+          $ref: '#/components/schemas/StringOrList'
+        reasoningEffort:
+          $ref: '#/components/schemas/StringOrList'
+        prefer:
+          description: Prefer orders candidate models when several match.
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    HarnessConstraint:
+      x-go-type: v1alpha1.HarnessConstraint
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: HarnessConstraint bounds what a harness may run.
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        models:
+          $ref: '#/components/schemas/StringOrList'
+        reasoningEffort:
+          $ref: '#/components/schemas/StringOrList'
+      additionalProperties: false
+    HarnessOffer:
+      x-go-type: v1alpha1.HarnessOffer
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: 'HarnessOffer is what one agent can actually run with one harness (from the agent''s Probe and local config): concrete values, not patterns.'
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        auth:
+          description: Auth is subscription, apiKey, accessToken or cloud.
+          type: string
+        models:
+          type: array
+          items:
+            type: string
+        reasoningEffort:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    HarnessPolicy:
+      x-go-type: v1alpha1.HarnessPolicy
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: HarnessPolicy is a TaskSpec's harness constraints and default request.
+      type: object
+      properties:
+        allowed:
+          description: 'Allowed are constraints: nothing outside them runs for this task spec.'
+          type: array
+          items:
+            $ref: '#/components/schemas/HarnessConstraint'
+        default:
+          $ref: '#/components/schemas/HarnessRequest'
+      additionalProperties: false
+    HarnessRequest:
+      x-go-type: v1alpha1.HarnessRequest
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: HarnessRequest asks for a harness and config.
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        config:
+          $ref: '#/components/schemas/HarnessConfig'
+      additionalProperties: false
+    HarnessResolved:
+      x-go-type: v1alpha1.HarnessResolved
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: HarnessResolved is the concrete harness config chosen when an agent leased the task.
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        auth:
+          type: string
+        model:
+          type: string
+        reasoningEffort:
+          type: string
+      additionalProperties: false
+    InlineRule:
+      x-go-type: v1alpha1.InlineRule
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: InlineRule is a Rule without its TypeMeta, embedded in a RuleSet.
+      type: object
+      required:
+        - metadata
+        - spec
+      properties:
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/RuleSpec'
+      additionalProperties: false
+    InputSpec:
+      x-go-type: v1alpha1.InputSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: InputSpec declares one TaskSpec input.
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - string
+            - number
+            - integer
+            - boolean
+            - object
+            - array
+        enum:
+          type: array
+          items: {}
+        default: {}
+        required:
+          type: boolean
+      additionalProperties: false
+    Instructions:
+      x-go-type: v1alpha1.Instructions
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Instructions is the prompt template.
+      type: object
+      required:
+        - template
+      properties:
+        template:
+          type: string
+        headless:
+          type: boolean
+      additionalProperties: false
+    LLMAuth:
+      x-go-type: v1alpha1.LLMAuth
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: LLMAuth is the LLM credential ephemeral agents use.
+      type: object
+      properties:
+        apiKeyRef:
+          $ref: '#/components/schemas/SecretRef'
+      additionalProperties: false
+    LabelSelector:
+      x-go-type: v1alpha1.LabelSelector
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: LabelSelector selects objects by their labels, as in Kubernetes.
+      type: object
+      properties:
+        matchLabels:
+          type: object
+          additionalProperties:
+            type: string
+        matchExpressions:
+          type: array
+          items:
+            $ref: '#/components/schemas/LabelSelectorRequirement'
+      additionalProperties: false
+    LabelSelectorRequirement:
+      x-go-type: v1alpha1.LabelSelectorRequirement
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: LabelSelectorRequirement is one matchExpressions entry.
+      type: object
+      required:
+        - key
+        - operator
+      properties:
+        key:
+          type: string
+        operator:
+          type: string
+          enum:
+            - In
+            - NotIn
+            - Exists
+            - DoesNotExist
+        values:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    LeasePolicy:
+      x-go-type: v1alpha1.LeasePolicy
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: LeasePolicy sets lease timing.
+      type: object
+      properties:
+        ttl:
+          $ref: '#/components/schemas/Duration'
+        heartbeat:
+          $ref: '#/components/schemas/Duration'
+        maxTasksPerAgent:
+          type: integer
+      additionalProperties: false
+    Lending:
+      x-go-type: v1alpha1.Lending
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: 'Lending is the owner''s consent: what the agent may take.'
+      type: object
+      properties:
+        unlimited:
+          type: boolean
+        queues:
+          type: array
+          items:
+            type: string
+        ruleSets:
+          type: array
+          items:
+            type: string
+        harnesses:
+          type: array
+          items:
+            type: string
+        maxConcurrent:
+          type: integer
+        maxRunsPerDay:
+          type: integer
+        maxTokensPerDay:
+          type: integer
+        hours:
+          type: string
+      additionalProperties: false
+    Limits:
+      x-go-type: v1alpha1.Limits
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Limits bound a run.
+      type: object
+      properties:
+        maxTurns:
+          type: integer
+        maxWallClock:
+          $ref: '#/components/schemas/Duration'
+        maxCostUSD:
+          type: number
+      additionalProperties: false
+    Link:
+      x-go-type: v1alpha1.Link
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Link is a provider object that belongs to the work item.
+      type: object
+      required:
+        - provider
+        - ref
+      properties:
+        provider:
+          type: string
+        ref:
+          type: string
+        kind:
+          type: string
+        primary:
+          type: boolean
+      additionalProperties: false
+    LinkAction:
+      x-go-type: v1alpha1.LinkAction
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: LinkAction adds a provider object to the work item.
+      type: object
+      required:
+        - from
+      properties:
+        from:
+          description: From is CEL giving the object ref.
+          type: string
+      additionalProperties: false
+    NotifyAction:
+      x-go-type: v1alpha1.NotifyAction
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: NotifyAction sends a templated message through the providers; no LLM involved.
+      type: object
+      required:
+        - template
+        - to
+      properties:
+        template:
+          type: string
+        to:
+          type: array
+          items:
+            $ref: '#/components/schemas/Destination'
+      additionalProperties: false
+    ObjectMeta:
+      x-go-type: v1alpha1.ObjectMeta
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: ObjectMeta is the metadata of every kind except Task (TaskMeta) and Event (CloudEvents attributes).
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        resourceVersion:
+          description: runtime kinds only
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+    ObjectRef:
+      x-go-type: v1alpha1.ObjectRef
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: ObjectRef identifies a provider object, e.g.
+      type: object
+      required:
+        - ref
+      properties:
+        provider:
+          type: string
+        kind:
+          type: string
+        ref:
+          type: string
+      additionalProperties: false
+    OrgRole:
+      x-go-type: v1alpha1.OrgRole
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: OrgRole selects the members of an org with a role, e.g.
+      type: object
+      required:
+        - org
+        - role
+      properties:
+        org:
+          type: string
+        role:
+          type: string
+      additionalProperties: false
+    OutputSpec:
+      x-go-type: v1alpha1.OutputSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: 'OutputSpec is the expected Result: its spec-specific schema and outcomes.'
+      type: object
+      properties:
+        schema:
+          type: string
+        outcomes:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    Pool:
+      x-go-type: v1alpha1.Pool
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Pool is who takes tasks out of queues and how capacity scales.
+      type: object
+      required:
+        - kind
+        - metadata
+        - spec
+      properties:
+        apiVersion:
+          type: string
+          enum:
+            - factory.ccf.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+            - Pool
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/PoolSpec'
+      additionalProperties: false
+    PoolBackend:
+      x-go-type: v1alpha1.PoolBackend
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: PoolBackend runs ephemeral agents.
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+        githubActions:
+          $ref: '#/components/schemas/GitHubActionsBackend'
+      additionalProperties: false
+    PoolRequirements:
+      x-go-type: v1alpha1.PoolRequirements
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: PoolRequirements is the minimum an agent must offer to join.
+      type: object
+      properties:
+        harnesses:
+          description: 'Harnesses: any of.'
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    PoolSpec:
+      x-go-type: v1alpha1.PoolSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: PoolSpec is the spec of a Pool.
+      type: object
+      required:
+        - mode
+      properties:
+        mode:
+          type: string
+          enum:
+            - registered
+            - ephemeral
+        admission:
+          $ref: '#/components/schemas/Admission'
+        lease:
+          $ref: '#/components/schemas/LeasePolicy'
+        require:
+          $ref: '#/components/schemas/PoolRequirements'
+        fairness:
+          type: string
+        backend:
+          $ref: '#/components/schemas/PoolBackend'
+        image:
+          type: string
+        scaling:
+          $ref: '#/components/schemas/Scaling'
+        llmAuth:
+          $ref: '#/components/schemas/LLMAuth'
+      additionalProperties: false
+    ProgressEvent:
+      x-go-type: v1alpha1.ProgressEvent
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: ProgressEvent is one progress line streamed by the agent.
+      type: object
+      required:
+        - at
+        - kind
+      properties:
+        at:
+          type: string
+          format: date-time
+        kind:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+      additionalProperties: false
+    PromptRef:
+      x-go-type: v1alpha1.PromptRef
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: PromptRef is where the agent fetches the rendered prompt.
+      type: object
+      required:
+        - ref
+      properties:
+        ref:
+          type: string
+        digest:
+          type: string
+      additionalProperties: false
+    Provenance:
+      x-go-type: v1alpha1.Provenance
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Provenance is the event, RuleSet, rule and catalog commit that created a task.
+      type: object
+      required:
+        - event
+        - ruleSet
+        - rule
+        - catalogSHA
+      properties:
+        event:
+          type: string
+        ruleSet:
+          type: string
+        rule:
+          type: string
+        catalogSHA:
+          type: string
+      additionalProperties: false
+    Provider:
+      x-go-type: v1alpha1.Provider
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Provider says how to connect to one provider instance.
+      type: object
+      required:
+        - kind
+        - metadata
+        - spec
+      properties:
+        apiVersion:
+          type: string
+          enum:
+            - factory.ccf.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+            - Provider
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/ProviderSpec'
+      additionalProperties: false
+    ProviderScope:
+      x-go-type: v1alpha1.ProviderScope
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: ProviderScope bounds what a provider instance covers.
+      type: object
+      properties:
+        orgs:
+          type: array
+          items:
+            type: string
+        channels:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    ProviderSpec:
+      x-go-type: v1alpha1.ProviderSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: ProviderSpec is the spec of a Provider.
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum:
+            - github
+            - slack
+        github:
+          $ref: '#/components/schemas/GitHubProviderSpec'
+        slack:
+          $ref: '#/components/schemas/SlackProviderSpec'
+        scope:
+          $ref: '#/components/schemas/ProviderScope'
+        trust:
+          description: Trust resolves actor.tier; the first matching rule wins.
+          type: array
+          items:
+            $ref: '#/components/schemas/TrustRule'
+        resync:
+          $ref: '#/components/schemas/ResyncPolicy'
+      additionalProperties: false
+    Queue:
+      x-go-type: v1alpha1.Queue
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Queue holds tasks until a pool's agents take them.
+      type: object
+      required:
+        - kind
+        - metadata
+        - spec
+      properties:
+        apiVersion:
+          type: string
+          enum:
+            - factory.ccf.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+            - Queue
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/QueueSpec'
+      additionalProperties: false
+    QueueSpec:
+      x-go-type: v1alpha1.QueueSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: QueueSpec is the spec of a Queue.
+      type: object
+      required:
+        - pool
+      properties:
+        pool:
+          type: string
+        concurrency:
+          type: integer
+        priority:
+          type: integer
+        budget:
+          $ref: '#/components/schemas/Budget'
+        retry:
+          $ref: '#/components/schemas/RetryPolicy'
+      additionalProperties: false
+    RailVerdict:
+      x-go-type: v1alpha1.RailVerdict
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: RailVerdict is one safety rail's verdict on a decision.
+      type: object
+      required:
+        - rail
+        - verdict
+      properties:
+        rail:
+          type: string
+        verdict:
+          type: string
+        reason:
+          type: string
+      additionalProperties: false
+    RepoMount:
+      x-go-type: v1alpha1.RepoMount
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: RepoMount is one repo in the workspace.
+      type: object
+      required:
+        - ref
+      properties:
+        ref:
+          description: Ref is owner/repo@ref, or "=CEL".
+          type: string
+        mode:
+          type: string
+          enum:
+            - ro
+            - rw
+      additionalProperties: false
+    Requires:
+      x-go-type: v1alpha1.Requires
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Requires lists the agent labels a task needs.
+      type: object
+      properties:
+        labels:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    Result:
+      x-go-type: v1alpha1.Result
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Result is what an agent reports when a run completes.
+      type: object
+      required:
+        - task
+        - status
+        - question
+      properties:
+        task:
+          type: string
+        status:
+          type: string
+          enum:
+            - done
+            - failed
+            - needs_input
+            - noop
+        outcome:
+          type: string
+        summary:
+          type: string
+        verdict:
+          type: object
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Artifact'
+        suggest:
+          type: array
+          items:
+            $ref: '#/components/schemas/Suggestion'
+        question:
+          description: Question is set when Status is needs_input; null otherwise.
+          type: string
+          nullable: true
+        harness:
+          $ref: '#/components/schemas/ResultHarness'
+        data:
+          type: object
+      additionalProperties: false
+    ResultHarness:
+      x-go-type: v1alpha1.ResultHarness
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: ResultHarness is the harness that ran, its effective config and usage.
+      type: object
+      required:
+        - name
+        - effectiveConfig
+        - usage
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        auth:
+          type: string
+        effectiveConfig:
+          $ref: '#/components/schemas/EffectiveConfig'
+        usage:
+          $ref: '#/components/schemas/Usage'
+      additionalProperties: false
+    ResyncPolicy:
+      x-go-type: v1alpha1.ResyncPolicy
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: ResyncPolicy says how often the provider's objects are re-observed.
+      type: object
+      required:
+        - every
+      properties:
+        every:
+          $ref: '#/components/schemas/Duration'
+      additionalProperties: false
+    RetryPolicy:
+      x-go-type: v1alpha1.RetryPolicy
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: RetryPolicy says how often, and on what, a task is retried.
+      type: object
+      required:
+        - max
+      properties:
+        max:
+          type: integer
+        on:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    Rule:
+      x-go-type: v1alpha1.Rule
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Rule is when and what.
+      type: object
+      required:
+        - kind
+        - metadata
+        - spec
+      properties:
+        apiVersion:
+          type: string
+          enum:
+            - factory.ccf.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+            - Rule
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/RuleSpec'
+      additionalProperties: false
+    RuleSelection:
+      x-go-type: v1alpha1.RuleSelection
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: 'RuleSelection picks rules: refs ∪ selector, minus exclude.'
+      type: object
+      properties:
+        refs:
+          type: array
+          items:
+            type: string
+        selector:
+          $ref: '#/components/schemas/LabelSelector'
+        exclude:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    RuleSet:
+      x-go-type: v1alpha1.RuleSet
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: 'RuleSet is where rules apply: it binds provider instances, sets the scope, selects rules and overrides their params.'
+      type: object
+      required:
+        - kind
+        - metadata
+        - spec
+      properties:
+        apiVersion:
+          type: string
+          enum:
+            - factory.ccf.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+            - RuleSet
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/RuleSetSpec'
+      additionalProperties: false
+    RuleSetSpec:
+      x-go-type: v1alpha1.RuleSetSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: RuleSetSpec is the spec of a RuleSet.
+      type: object
+      required:
+        - providerSelector
+        - rules
+      properties:
+        providerSelector:
+          $ref: '#/components/schemas/LabelSelector'
+        scope:
+          $ref: '#/components/schemas/Scope'
+        rules:
+          $ref: '#/components/schemas/RuleSelection'
+        overrides:
+          description: Overrides are per-rule params, by rule name.
+          type: object
+          additionalProperties:
+            type: object
+        defaults:
+          description: Defaults are params applied to every selected rule unless the rule overrides them.
+          type: object
+        budget:
+          $ref: '#/components/schemas/Budget'
+        stateKeys:
+          description: StateKeys, when declared, are the only keys `set` may write.
+          type: array
+          items:
+            type: string
+        inlineRules:
+          description: InlineRules are rules defined in the RuleSet itself, selected implicitly.
+          type: array
+          items:
+            $ref: '#/components/schemas/InlineRule'
+      additionalProperties: false
+    RuleSpec:
+      x-go-type: v1alpha1.RuleSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: RuleSpec is the spec of a Rule.
+      type: object
+      required:
+        - on
+        - actions
+      properties:
+        ruleSet:
+          type: string
+        providerSelector:
+          $ref: '#/components/schemas/LabelSelector'
+        on:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventType'
+        where:
+          description: Where is CEL over event, actor, item, run, approval, provider, params, now.
+          type: string
+        params:
+          type: object
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Action'
+        priority:
+          type: integer
+        final:
+          type: boolean
+        debounce:
+          $ref: '#/components/schemas/Debounce'
+        schedule:
+          description: 'Schedule is a cron expression, only with on: [factory.schedule.tick].'
+          type: string
+      additionalProperties: false
+    Run:
+      x-go-type: v1alpha1.Run
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Run is one attempt at a Task by one agent.
+      type: object
+      required:
+        - kind
+        - metadata
+        - spec
+      properties:
+        apiVersion:
+          type: string
+          enum:
+            - factory.ccf.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+            - Run
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/RunSpec'
+        status:
+          $ref: '#/components/schemas/RunStatus'
+      additionalProperties: false
+    RunSpec:
+      x-go-type: v1alpha1.RunSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: RunSpec is a Run's spec.
+      type: object
+      required:
+        - task
+        - attempt
+        - agent
+      properties:
+        task:
+          type: string
+        attempt:
+          type: integer
+        agent:
+          type: string
+        owner:
+          type: string
+      additionalProperties: false
+    RunStatus:
+      x-go-type: v1alpha1.RunStatus
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: RunStatus is a Run's status.
+      type: object
+      properties:
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        progress:
+          description: Progress is a ring buffer of the latest progress events.
+          type: array
+          items:
+            $ref: '#/components/schemas/ProgressEvent'
+        result:
+          $ref: '#/components/schemas/Result'
+        transcriptRef:
+          type: string
+        usage:
+          $ref: '#/components/schemas/Usage'
+      additionalProperties: false
+    Scaling:
+      x-go-type: v1alpha1.Scaling
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Scaling bounds an ephemeral pool's size.
+      type: object
+      required:
+        - min
+        - max
+      properties:
+        min:
+          type: integer
+        max:
+          type: integer
+      additionalProperties: false
+    Scope:
+      x-go-type: v1alpha1.Scope
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Scope narrows a RuleSet to repos (globs) or channels.
+      type: object
+      properties:
+        repos:
+          type: array
+          items:
+            type: string
+        exclude:
+          type: array
+          items:
+            type: string
+        channels:
+          type: array
+          items:
+            type: string
+        branches:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    SecretRef:
+      x-go-type: v1alpha1.SecretRef
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: SecretRef points at a secret held outside the catalog.
+      type: object
+      required:
+        - name
+        - key
+      properties:
+        name:
+          type: string
+        key:
+          type: string
+      additionalProperties: false
+    SkillRef:
+      x-go-type: v1alpha1.SkillRef
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: SkillRef pins skills from a skills repo.
+      type: object
+      required:
+        - source
+      properties:
+        source:
+          type: string
+        ref:
+          type: string
+        commit:
+          type: string
+        use:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    SlackProviderSpec:
+      x-go-type: v1alpha1.SlackProviderSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: SlackProviderSpec is the connection to a Slack workspace (future).
+      type: object
+      properties:
+        mode:
+          type: string
+        appTokenRef:
+          $ref: '#/components/schemas/SecretRef'
+        botTokenRef:
+          $ref: '#/components/schemas/SecretRef'
+      additionalProperties: false
+    StringOrList:
+      x-go-type: v1alpha1.StringOrList
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: StringOrList is a field that takes one string (often a pattern, e.g.
+      oneOf:
+        - type: string
+        - type: array
+          items:
+            type: string
+    Suggestion:
+      x-go-type: v1alpha1.Suggestion
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Suggestion is a follow-up the agent proposes; rules decide.
+      type: object
+      required:
+        - taskSpec
+      properties:
+        taskSpec:
+          type: string
+        reason:
+          type: string
+        inputs:
+          type: object
+      additionalProperties: false
+    Target:
+      x-go-type: v1alpha1.Target
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Target says which repo or object the work happens on, when it isn't the event's object.
+      type: object
+      properties:
+        provider:
+          type: string
+        repo:
+          type: string
+        ref:
+          type: string
+      additionalProperties: false
+    Task:
+      x-go-type: v1alpha1.Task
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Task is one instantiation of a TaskSpec for a work item.
+      type: object
+      required:
+        - kind
+        - metadata
+        - spec
+      properties:
+        apiVersion:
+          type: string
+          enum:
+            - factory.ccf.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+            - Task
+        metadata:
+          $ref: '#/components/schemas/TaskMeta'
+        spec:
+          $ref: '#/components/schemas/TaskRunSpec'
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+      additionalProperties: false
+    TaskCredentials:
+      x-go-type: v1alpha1.TaskCredentials
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: TaskCredentials are the credentials a task gets.
+      type: object
+      properties:
+        git:
+          $ref: '#/components/schemas/GitCredentialSpec'
+        llm:
+          type: string
+      additionalProperties: false
+    TaskHarness:
+      x-go-type: v1alpha1.TaskHarness
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: TaskHarness is the requested harness and, once leased, the resolved one (null until then).
+      type: object
+      required:
+        - resolved
+      properties:
+        request:
+          $ref: '#/components/schemas/HarnessRequest'
+        resolved:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/HarnessResolved'
+      additionalProperties: false
+    TaskMeta:
+      x-go-type: v1alpha1.TaskMeta
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: 'TaskMeta is a Task''s metadata: tasks are named by id and carry their provenance.'
+      type: object
+      required:
+        - id
+        - workItem
+      properties:
+        id:
+          type: string
+        workItem:
+          type: string
+        provenance:
+          $ref: '#/components/schemas/Provenance'
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        resourceVersion:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+    TaskPhase:
+      x-go-type: v1alpha1.TaskPhase
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: TaskPhase is a Task's lifecycle phase.
+      type: string
+      enum:
+        - Pending
+        - Leased
+        - Running
+        - Succeeded
+        - Failed
+        - Cancelling
+        - Cancelled
+    TaskRunSpec:
+      x-go-type: v1alpha1.TaskRunSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: 'TaskRunSpec is a Task''s spec: the TaskSpec resolved for this work item.'
+      type: object
+      required:
+        - taskSpec
+        - queue
+      properties:
+        taskSpec:
+          $ref: '#/components/schemas/TaskSpecRef'
+        queue:
+          type: string
+        pool:
+          type: string
+        provider:
+          type: string
+        target:
+          $ref: '#/components/schemas/Target'
+        inputs:
+          type: object
+        harness:
+          $ref: '#/components/schemas/TaskHarness'
+        skills:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkillRef'
+        prompt:
+          $ref: '#/components/schemas/PromptRef'
+        context:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContextItem'
+        credentials:
+          $ref: '#/components/schemas/TaskCredentials'
+        effects:
+          $ref: '#/components/schemas/EffectsPolicy'
+        limits:
+          $ref: '#/components/schemas/Limits'
+        output:
+          $ref: '#/components/schemas/OutputSpec'
+      additionalProperties: false
+    TaskSpec:
+      x-go-type: v1alpha1.TaskSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: TaskSpec is what and how for one role, with no triggers or transitions.
+      type: object
+      required:
+        - kind
+        - metadata
+        - spec
+      properties:
+        apiVersion:
+          type: string
+          enum:
+            - factory.ccf.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+            - TaskSpec
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/TaskSpecSpec'
+      additionalProperties: false
+    TaskSpecRef:
+      x-go-type: v1alpha1.TaskSpecRef
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: TaskSpecRef is the TaskSpec a task was made from, by name and digest.
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        digest:
+          type: string
+      additionalProperties: false
+    TaskSpecSpec:
+      x-go-type: v1alpha1.TaskSpecSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: TaskSpecSpec is the spec of a TaskSpec.
+      type: object
+      properties:
+        description:
+          type: string
+        inputs:
+          description: Inputs are the declared, typed inputs that dispatch.inputs must satisfy.
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/InputSpec'
+        instructions:
+          $ref: '#/components/schemas/Instructions'
+        skills:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkillRef'
+        requires:
+          $ref: '#/components/schemas/Requires'
+        harness:
+          $ref: '#/components/schemas/HarnessPolicy'
+        workspace:
+          $ref: '#/components/schemas/Workspace'
+        identity:
+          type: string
+        permissions:
+          type: object
+          additionalProperties:
+            type: string
+        effects:
+          $ref: '#/components/schemas/EffectsPolicy'
+        limits:
+          $ref: '#/components/schemas/Limits'
+        output:
+          $ref: '#/components/schemas/OutputSpec'
+      additionalProperties: false
+    TaskStatus:
+      x-go-type: v1alpha1.TaskStatus
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: TaskStatus is a Task's status.
+      type: object
+      required:
+        - phase
+        - agent
+      properties:
+        phase:
+          $ref: '#/components/schemas/TaskPhase'
+        agent:
+          type: string
+          nullable: true
+        reason:
+          type: string
+        attempts:
+          type: integer
+        leaseExpiresAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+    Template:
+      x-go-type: v1alpha1.Template
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Template is the text of notifications and approval prompts, one body per provider type.
+      type: object
+      required:
+        - kind
+        - metadata
+        - spec
+      properties:
+        apiVersion:
+          type: string
+          enum:
+            - factory.ccf.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+            - Template
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/TemplateSpec'
+      additionalProperties: false
+    TemplateBody:
+      x-go-type: v1alpha1.TemplateBody
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: 'TemplateBody is either an inline Go text/template (written as a string) or, for Slack, a Block Kit file ({blocks: path}).'
+      oneOf:
+        - description: An inline Go text/template.
+          type: string
+        - type: object
+          required:
+            - blocks
+          properties:
+            blocks:
+              description: Path of a Slack Block Kit JSON file.
+              type: string
+              minLength: 1
+          additionalProperties: false
+    TemplateSpec:
+      x-go-type: v1alpha1.TemplateSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: TemplateSpec is the spec of a Template.
+      type: object
+      required:
+        - bodies
+      properties:
+        bodies:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/TemplateBody'
+      additionalProperties: false
+    TrustRule:
+      x-go-type: v1alpha1.TrustRule
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: TrustRule maps actors to a trust tier.
+      type: object
+      required:
+        - tier
+      properties:
+        tier:
+          type: string
+        group:
+          type: string
+        authorAssociation:
+          type: array
+          items:
+            type: string
+        bots:
+          type: array
+          items:
+            type: string
+        workspaceMember:
+          type: boolean
+      additionalProperties: false
+    Usage:
+      x-go-type: v1alpha1.Usage
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Usage is what a run consumed.
+      type: object
+      required:
+        - inputTokens
+        - outputTokens
+        - costUSD
+      properties:
+        inputTokens:
+          type: integer
+        outputTokens:
+          type: integer
+        turns:
+          type: integer
+        wallClock:
+          $ref: '#/components/schemas/Duration'
+        costUSD:
+          type: number
+          nullable: true
+      additionalProperties: false
+    Webhook:
+      x-go-type: v1alpha1.Webhook
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Webhook is where the provider's webhook is mounted, and the secret that signs it.
+      type: object
+      required:
+        - path
+        - secretRef
+      properties:
+        path:
+          type: string
+        secretRef:
+          $ref: '#/components/schemas/SecretRef'
+      additionalProperties: false
+    WorkItem:
+      x-go-type: v1alpha1.WorkItem
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: WorkItem groups the provider objects that are about one piece of work.
+      type: object
+      required:
+        - kind
+        - metadata
+        - spec
+      properties:
+        apiVersion:
+          type: string
+          enum:
+            - factory.ccf.dev/v1alpha1
+        kind:
+          type: string
+          enum:
+            - WorkItem
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/WorkItemSpec'
+        status:
+          $ref: '#/components/schemas/WorkItemStatus'
+      additionalProperties: false
+    WorkItemSpec:
+      x-go-type: v1alpha1.WorkItemSpec
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: WorkItemSpec is the spec of a WorkItem.
+      type: object
+      properties:
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/Link'
+      additionalProperties: false
+    WorkItemStatus:
+      x-go-type: v1alpha1.WorkItemStatus
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: WorkItemStatus is the work item's state, set only by rules and controllers.
+      type: object
+      properties:
+        state:
+          type: object
+        counters:
+          description: Counters are runs per task spec (derived).
+          type: object
+          additionalProperties:
+            type: integer
+        approvals:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovalRef'
+        decisions:
+          description: Decisions are bounded to the newest MaxDecisions.
+          type: array
+          items:
+            $ref: '#/components/schemas/Decision'
+        reporter:
+          $ref: '#/components/schemas/Actor'
+      additionalProperties: false
+    Workspace:
+      x-go-type: v1alpha1.Workspace
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: Workspace says what the agent checks out.
+      type: object
+      properties:
+        repos:
+          description: Repos are mounted repos; at most one is rw.
+          type: array
+          items:
+            $ref: '#/components/schemas/RepoMount'
+        checkout:
+          type: string
+        publicReads:
+          description: PublicReads lets the agent clone public repos anonymously at runtime.
+          type: boolean
+      additionalProperties: false
+    # ---- END GENERATED ------------------------------------------------------------------------
