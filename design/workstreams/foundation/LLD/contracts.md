@@ -164,7 +164,7 @@ type Projection struct {
 | **auth** | `GET /auth/login`, `GET /auth/callback`, `POST /auth/logout`, `GET /auth/me` | — | GitHub OAuth web flow for the UI |
 | | `GET /auth/device-config` | — | `{clientId, scopes}` for the agent's device-flow owner login (`factory-agent register`) |
 | **webhooks** | `POST /hooks/{provider}` | provider HMAC | delegated to `Conn.Handler()` (not in OpenAPI body schemas; documented as opaque) |
-| **ops** | `GET /healthz`, `GET /readyz`, `GET /metrics` | none | — |
+| **ops** | `GET /healthz`, `GET /readyz`, `GET /metrics` | none — served only on the localhost ops listener (`--ops-addr`), never on the public address | — |
 
 Codegen: `oapi-codegen` strict-server for `internal/apiserver/gen`, client for `internal/apiclient`; web uses `openapi-typescript`. `api/examples/*.json` hold one example per operation response; `factory-mock` and MSW serve them.
 

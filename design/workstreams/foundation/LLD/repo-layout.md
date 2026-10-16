@@ -76,6 +76,7 @@ func Handler() http.Handler // serves assets under root; SPA fallback to index.h
 ```
 
 - `internal/webui/placeholder/index.html` is committed ("UI not built — run `make web`").
+- `.gitignore` covers at least: `deploy/poc/.env`, `.env*` (but not `*.env.example`), `internal/webui/dist/`, `web/node_modules/`, `web/dist/`, `bin/`, `coverage*`.
 - `internal/webui/dist/` is **gitignored**; produced by `make web` (`vite build --outDir ../internal/webui/dist --emptyOutDir`).
 - Backend devs and backend CI never need Node; release builds use `make build-release` (= `make web` + `go build -tags webui`).
 

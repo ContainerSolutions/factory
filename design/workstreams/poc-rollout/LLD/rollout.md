@@ -36,14 +36,15 @@ Stored in the operator's password manager / a local `deploy/poc/.env` (gitignore
 | `FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY`, `…_REVIEWER_APP_PRIVATE_KEY` | App private keys (PEM) |
 | `FACTORY_SECRET_GITHUB_PUBLIC_WEBHOOK_SECRET` | webhook secret |
 | `FACTORY_OAUTH_CLIENT_ID`, `FACTORY_OAUTH_CLIENT_SECRET` | `ccf-factory` OAuth client |
+| `FACTORY_PUBLIC_URL` | the ngrok URL (config, **not a secret**; kept in `.env` only so the public repo doesn't carry it) |
 | `FACTORY_SESSION_KEY`, `FACTORY_CLI_TOKEN` | `openssl rand -hex 32` |
 | `FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN` | `openssl rand -hex 32`; shared with agent owners out of band |
 
 ## Dispatcher hosting
 
-PoC: Gustavo's machine (or a small VM) running `factory serve` (built with `make build-release`), exposed with **Cloudflare Tunnel** (`cloudflared tunnel run factory`, stable hostname) — only `/hooks/*`, `/api/*` and the UI are routed; no inbound ports. Long term: Cloud Run (Q12).
+PoC: Gustavo's machine (or a small VM) running `factory serve` (built with `make build-release`), exposed with an **ngrok** tunnel on a stable `ngrok-free.dev` domain, forwarding to `localhost:8080` (set up 2026-10-16; the hostname lives in `deploy/poc/.env` as `FACTORY_PUBLIC_URL`, not in this public repo). No inbound ports. The tunnel only reaches the public listener (`:8080`: UI, `/api/*`, `/hooks/*`); the unauthenticated ops routes (`/healthz`, `/readyz`, `/metrics`) live on the localhost-only ops listener (`127.0.0.1:9090`), so they're never public. As defence in depth, the kit's ngrok Traffic Policy (`deploy/poc/ngrok-policy.yml`, passed with `--traffic-policy-file`) also denies those three paths. Webhooks are unaffected by ngrok's free-plan browser warning page; the UI login shows it once per browser. Long term: Cloud Run (Q12).
 
-`deploy/poc/` (RUN-S1-T01): `README.md`, `.env.example` (names only), `run.sh` (loads `.env`, `exec factory serve --public-url … --catalog-repo … --retention 2160h`), `cloudflared.yml.example`, `agent.yaml.example`.
+`deploy/poc/` (RUN-S1-T01): `README.md`, `.env.example` (names only), `run.sh` (loads `.env`, `exec factory serve --public-url "$FACTORY_PUBLIC_URL" --catalog-repo … --retention 2160h`), ngrok instructions (`ngrok http --url=$FACTORY_PUBLIC_URL --traffic-policy-file=deploy/poc/ngrok-policy.yml 8080`), `agent.yaml.example`. `deploy/poc/.env` is gitignored and `0600`.
 
 ## Agent onboarding (RUN-S2-T01)
 
