@@ -6,3 +6,6 @@ lisa-design:
 - ReadContent strips every <!-- factory:… --> marker and drops projection comments; non-GitHub refs return empty content (reference-only).
 - serve registers the GitHub adapter unless --dev-fake-providers; CheckHealth on connect and on catalog change.
 - Gap for RT: the Effector doesn't check pr.merge's mergeLabel against effects.labels.
+
+lisa-selfreview:
+Pass 1: security gap found for RT (mergeLabel not checked against effects.labels) → fixed in a separate RT PR.
