@@ -140,9 +140,9 @@ jobs:
 | CEL | `github.com/google/cel-go` |
 | YAML | `go.yaml.in/yaml/v3` (YAML 1.2; strict decoding goes YAML → JSON → `encoding/json` with `DisallowUnknownFields`) |
 | JSON Schema gen / validate | `github.com/invopop/jsonschema` / `github.com/santhosh-tekuri/jsonschema/v6` |
-| HTTP server (real dispatcher) | `github.com/labstack/echo/v4` (v4.13.x, the same line as `api`); `factory-mock` uses plain `net/http` |
-| OpenAPI codegen | `github.com/oapi-codegen/oapi-codegen/v2` **v2.7.x** (Echo strict server + client; a `go.mod` `tool`). Not v2.8+: its 3.1 support needs runtime ≥ v1.4 and so Echo ≥ v4.15.1, so the spec stays OpenAPI 3.0.3 (see [contracts.md §HTTP API](contracts.md#http-api)) |
-| OpenAPI codegen runtime | `github.com/oapi-codegen/runtime` **v1.3.x**, required by the generated server and client; v1.3.1 is the newest that works with Echo v4.13 |
+| HTTP server (real dispatcher) | `github.com/labstack/echo/v4` **v4.15.x** (security bump in #27; `api` follows); `factory-mock` uses plain `net/http` |
+| OpenAPI codegen | `github.com/oapi-codegen/oapi-codegen/v2` **v2.7.x** (Echo strict server + client; a `go.mod` `tool`). The spec is OpenAPI 3.0.3 (see [contracts.md §HTTP API](contracts.md#http-api)); now that Echo is on v4.15, moving to v2.8+ and 3.1 is possible but not done |
+| OpenAPI codegen runtime | `github.com/oapi-codegen/runtime` **v1.3.x**, required by the generated server and client; v1.3.1 today (v1.4+ comes with oapi-codegen v2.8+) |
 | OpenAPI parsing | `github.com/getkin/kin-openapi` (already pulled in by oapi-codegen), in package `api` only: spec parsing for the contract tests and `factory-mock`; not linked into `factory` or `factory-agent` |
 | OpenAPI lint | `github.com/daveshanley/vacuum`, run with `go run …@<version>` from `make openapi-lint`; not in `go.mod` (its dependency tree would move shared dependencies) |
 | GitHub REST/GraphQL | `github.com/google/go-github/v7x`, `github.com/shurcooL/githubv4` |
