@@ -1,0 +1,27 @@
+{
+  "data": {
+    "repository": {
+      "nameWithOwner": "compliance-framework/workflows",
+      "defaultBranchRef": { "name": "main" },
+      "issueOrPullRequest": {
+        "__typename": "Issue",
+        "id": "I_kwDOKz1a7c6Wn0Qb",
+        "number": 123,
+        "state": "CLOSED",
+        "updatedAt": "2026-10-14T18:03:10Z",
+        "author": { "__typename": "Bot", "login": "ccf-release-bot" },
+        "labels": { "nodes": [ { "name": "release-train" }, { "name": "train:done" } ] },
+        "subIssues": { "nodes": [] },
+        "closedByPullRequestsReferences": { "nodes": [] },
+        "comments": {
+          "totalCount": 3,
+          "pageInfo": { "hasNextPage": true, "endCursor": "Y3Vyc29yOnYyOpHOkNAAAQ==" },
+          "nodes": [
+            { "databaseId": 2401000001, "author": { "__typename": "Bot", "login": "ccf-release-bot" }, "body": "Train started." },
+            { "databaseId": 2401000002, "author": { "__typename": "User", "login": "admin" }, "body": "Ship it." }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,11 +1,14 @@
 // Package githubtest is an httptest GitHub for the GitHub adapter's tests. It serves the App
 // endpoints the token minter uses (GET /app, GET /repos/{owner}/{repo}/installation,
-// GET /orgs/{org}/installation and POST /app/installations/{id}/access_tokens) and the webhook
-// deliveries (GET /app/hook/deliveries[/{id}]), verifying every App JWT against the App's
-// public key. With the installation tokens it minted, it serves org members and team members,
-// releases, closed pull requests and commit comparisons (api.go), checking that each token
-// covers the request: the repo and the permission for repo routes, members: read for org
-// routes. It records each request for assertions and can be made to fail.
+// GET /orgs/{org}/installation, GET /users/{user}/installation and
+// POST /app/installations/{id}/access_tokens) and the webhook deliveries
+// (GET /app/hook/deliveries[/{id}]), verifying every App JWT against the App's public key.
+// With the installation tokens it minted, it serves org members and team members, releases,
+// closed pull requests and commit comparisons (api.go), and issues and PRs with their labels
+// and comments, issue search, deployments, an installation's repos and the GraphQL queries the
+// adapter makes, from an object model or canned responses (objects.go). It checks that each
+// token covers the request: the repo and the permission for repo routes, members: read for
+// org routes. It records each request for assertions and can be made to fail.
 //
 // It is safe for concurrent use. Getters return copies.
 package githubtest
@@ -47,6 +50,9 @@ type Installation struct {
 	Repos []string
 	// Permissions are what the installation was granted.
 	Permissions map[string]string
+	// User is true for an installation on a user account: GET /orgs/{owner}/installation
+	// answers 404 for it.
+	User bool
 }
 
 // Claims are the claims of a verified App JWT.
@@ -97,6 +103,19 @@ const (
 	RouteReleases        = "releases"
 	RoutePulls           = "pulls"
 	RouteCompare         = "compare"
+	// The object routes (objects.go).
+	RouteUserInstallation  = "user_installation"
+	RouteInstallationRepos = "installation_repos"
+	RouteIssue             = "issue"
+	RouteComments          = "comments"
+	RouteCreateComment     = "create_comment"
+	RouteUpdateComment     = "update_comment"
+	RouteAddLabels         = "add_labels"
+	RouteRemoveLabel       = "remove_label"
+	RouteSearch            = "search"
+	RouteGraphQL           = "graphql"
+	RouteDeployments       = "deployments"
+	RouteDeploymentStatus  = "deployment_statuses"
 )
 
 // Server is an httptest GitHub.
@@ -126,6 +145,13 @@ type Server struct {
 	ancestors  map[string]bool              // "repo\x00ancestor\x00descendant"
 	hooks      map[int64]bool               // apps with a webhook
 	deliveries map[int64][]Delivery         // by app, newest first
+
+	objects     map[string]*Object      // by objectKey
+	commentSeq  int64                   // comment IDs
+	canned      map[string][]byte       // GraphQL responses, by cannedKey
+	deployments map[string][]Deployment // repo (lower), newest first
+	accountRepo map[string][]string     // owner (lower) → repo names, for "all" installations
+	queries     []GraphQLRequest        // GraphQL requests received
 }
 
 // mintedToken is what an installation token the server minted covers.
@@ -155,11 +181,17 @@ func NewServer(t testing.TB, c clock.Clock) *Server {
 		ancestors:  map[string]bool{},
 		hooks:      map[int64]bool{},
 		deliveries: map[int64][]Delivery{},
+
+		objects:     map[string]*Object{},
+		canned:      map[string][]byte{},
+		deployments: map[string][]Deployment{},
+		accountRepo: map[string][]string{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /app", s.handleApp)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/installation", s.handleInstallation)
 	mux.HandleFunc("GET /orgs/{org}/installation", s.handleOrgInstallation)
+	mux.HandleFunc("GET /users/{user}/installation", s.handleUserInstallation)
 	mux.HandleFunc("POST /app/installations/{id}/access_tokens", s.handleAccessToken)
 	s.routeAPI(mux)
 	s.Server = httptest.NewServer(mux)
@@ -335,7 +367,29 @@ func (s *Server) handleOrgInstallation(w http.ResponseWriter, r *http.Request) {
 	}
 	org := r.PathValue("org")
 	s.mu.Lock()
-	in, found := s.findLocked(func(in Installation) bool { return in.AppID == appID && strings.EqualFold(in.Owner, org) })
+	in, found := s.findLocked(func(in Installation) bool { return in.AppID == appID && !in.User && strings.EqualFold(in.Owner, org) })
+	s.mu.Unlock()
+	if !found {
+		writeError(w, http.StatusNotFound, "Not Found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":                   in.ID,
+		"account":              map[string]any{"login": in.Owner},
+		"app_id":               in.AppID,
+		"permissions":          in.Permissions,
+		"repository_selection": selection(in),
+	})
+}
+
+func (s *Server) handleUserInstallation(w http.ResponseWriter, r *http.Request) {
+	appID, _, ok := s.begin(w, r, RouteUserInstallation)
+	if !ok {
+		return
+	}
+	user := r.PathValue("user")
+	s.mu.Lock()
+	in, found := s.findLocked(func(in Installation) bool { return in.AppID == appID && strings.EqualFold(in.Owner, user) })
 	s.mu.Unlock()
 	if !found {
 		writeError(w, http.StatusNotFound, "Not Found")

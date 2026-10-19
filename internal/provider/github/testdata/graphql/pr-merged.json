@@ -1,0 +1,31 @@
+{
+  "data": {
+    "repository": {
+      "nameWithOwner": "compliance-framework/docs",
+      "defaultBranchRef": { "name": "main" },
+      "issueOrPullRequest": {
+        "__typename": "PullRequest",
+        "id": "PR_kwDOLq7d2c5zQ0zZ",
+        "number": 89,
+        "state": "MERGED",
+        "isDraft": false,
+        "updatedAt": "2026-10-16T09:30:00Z",
+        "headRefOid": "beef000000000000000000000000000000000002",
+        "baseRefName": "main",
+        "merged": true,
+        "mergedAt": "2026-10-16T09:29:58Z",
+        "mergeCommit": { "oid": "abc1230000000000000000000000000000000089" },
+        "author": { "__typename": "Bot", "login": "ccf-factory" },
+        "labels": { "nodes": [ { "name": "documentation" } ] },
+        "reviews": {
+          "nodes": [
+            { "author": { "__typename": "Bot", "login": "ccf-factory-reviewer" }, "state": "APPROVED", "commit": { "oid": "beef000000000000000000000000000000000002" } }
+          ]
+        },
+        "reviewThreads": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [ { "isResolved": true } ] },
+        "commits": { "nodes": [ { "commit": { "oid": "beef000000000000000000000000000000000002", "statusCheckRollup": { "state": "SUCCESS" } } } ] },
+        "comments": { "totalCount": 0, "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] }
+      }
+    }
+  }
+}

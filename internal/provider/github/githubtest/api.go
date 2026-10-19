@@ -1,7 +1,9 @@
 package githubtest
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -119,6 +121,7 @@ func (s *Server) routeAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/releases", s.handleReleases)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls", s.handlePulls)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/compare/{basehead}", s.handleCompare)
+	s.routeObjects(mux)
 }
 
 // beginToken records a request authenticated with an installation token and returns what
@@ -129,6 +132,7 @@ func (s *Server) beginToken(w http.ResponseWriter, r *http.Request, route string
 		writeError(w, http.StatusBadRequest, "unreadable body")
 		return mintedToken{}, false
 	}
+	r.Body = io.NopCloser(bytes.NewReader(body)) // handlers read it again
 	tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	s.mu.Lock()
 	s.counts[route]++
@@ -179,25 +183,32 @@ func allowOrg(w http.ResponseWriter, m mintedToken, org string) bool {
 
 // page writes items[(page-1)*size : page*size] with a Link rel="next" when there are more.
 func (s *Server) page(w http.ResponseWriter, r *http.Request, items []any) {
+	lo, hi := s.pageBounds(w, r, len(items))
+	writeJSON(w, http.StatusOK, items[lo:hi])
+}
+
+// pageBounds is the page of n items the request asks for (page, per_page capped by the page
+// size), and sets the Link rel="next" header when there are more.
+func (s *Server) pageBounds(w http.ResponseWriter, r *http.Request, n int) (lo, hi int) {
 	s.mu.Lock()
 	size := s.pageSize
 	s.mu.Unlock()
-	if n, err := strconv.Atoi(r.URL.Query().Get("per_page")); err == nil && n > 0 && n < size {
-		size = n
+	if v, err := strconv.Atoi(r.URL.Query().Get("per_page")); err == nil && v > 0 && v < size {
+		size = v
 	}
 	p, err := strconv.Atoi(r.URL.Query().Get("page"))
 	if err != nil || p < 1 {
 		p = 1
 	}
-	lo := min((p-1)*size, len(items))
-	hi := min(lo+size, len(items))
-	if hi < len(items) {
+	lo = min((p-1)*size, n)
+	hi = min(lo+size, n)
+	if hi < n {
 		q := r.URL.Query()
 		q.Set("page", strconv.Itoa(p+1))
 		next := url.URL{Scheme: "http", Host: r.Host, Path: r.URL.Path, RawQuery: q.Encode()}
 		w.Header().Set("Link", "<"+next.String()+`>; rel="next"`)
 	}
-	writeJSON(w, http.StatusOK, items[lo:hi])
+	return lo, hi
 }
 
 func (s *Server) handleMembers(w http.ResponseWriter, r *http.Request) {

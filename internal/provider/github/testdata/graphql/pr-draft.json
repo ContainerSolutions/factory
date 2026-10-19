@@ -1,0 +1,27 @@
+{
+  "data": {
+    "repository": {
+      "nameWithOwner": "compliance-framework/docs",
+      "defaultBranchRef": { "name": "main" },
+      "issueOrPullRequest": {
+        "__typename": "PullRequest",
+        "id": "PR_kwDOLq7d2c5zQ2aB",
+        "number": 91,
+        "state": "OPEN",
+        "isDraft": true,
+        "updatedAt": "2026-10-16T10:01:00Z",
+        "headRefOid": "d00d000000000000000000000000000000000001",
+        "baseRefName": "fx/stack-1",
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommit": null,
+        "author": { "__typename": "User", "login": "dave" },
+        "labels": { "nodes": [] },
+        "reviews": { "nodes": [] },
+        "reviewThreads": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] },
+        "commits": { "nodes": [ { "commit": { "oid": "d00d000000000000000000000000000000000001", "statusCheckRollup": { "state": "PENDING" } } } ] },
+        "comments": { "totalCount": 0, "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] }
+      }
+    }
+  }
+}

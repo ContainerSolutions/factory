@@ -78,20 +78,84 @@ func (c *Conn) deployedPRs(ctx context.Context, repo, sha string) ([]int, error)
 	prs = prs[:min(len(prs), DeployLinkPRs)]
 	var out []int
 	for _, pr := range prs {
-		var cmp struct {
-			Status string `json:"status"`
-		}
-		path := "repos/" + repo + "/compare/" + url.PathEscape(pr.commit) + "..." + url.PathEscape(sha)
-		_, err := c.minter.Get(ctx, tok, path, nil, &cmp)
-		if errors.Is(err, provider.ErrNotFound) {
-			continue // a commit GitHub doesn't know (force-pushed away): not contained
-		}
+		ok, err := c.contains(ctx, tok, repo, pr.commit, sha)
 		if err != nil {
 			return nil, err
 		}
-		if cmp.Status == "ahead" || cmp.Status == "identical" {
+		if ok {
 			out = append(out, pr.number)
 		}
 	}
 	return out, nil
+}
+
+// DefaultDeployEnvironment is the environment whose latest deployment Observe reports
+// (item.deploy): the docs' GitHub Pages.
+const DefaultDeployEnvironment = "github-pages"
+
+// deployPerms read deployments and compare commits.
+var deployPerms = map[string]string{"contents": "read", "deployments": "read"}
+
+// observeDeploy is the latest deployment of the default branch to the deploy environment
+// (github-provider.md §Observe): its latest status's state (pending when it has none), SHA and
+// URL, and containsMerge when merge is an ancestor of, or equal to, the deployed SHA. The
+// docs' Pages workflow cancels deployments in progress, so only the latest one matters. nil
+// when the repo has none.
+func (c *Conn) observeDeploy(ctx context.Context, repo, branch, merge string) (*provider.DeployObservation, error) {
+	tok, err := c.repoToken(ctx, repo, deployPerms)
+	if err != nil {
+		return nil, err
+	}
+	var deps []struct {
+		ID  int64  `json:"id"`
+		SHA string `json:"sha"`
+	}
+	q := url.Values{"environment": {c.deployEnv}, "ref": {branch}, "per_page": {"1"}}
+	if _, err := c.minter.Get(ctx, tok, "repos/"+repo+"/deployments", q, &deps); err != nil {
+		return nil, err
+	}
+	if len(deps) == 0 {
+		return nil, nil
+	}
+	d := deps[0]
+	var sts []ghDeploymentStatus
+	path := fmt.Sprintf("repos/%s/deployments/%d/statuses", repo, d.ID)
+	if _, err := c.minter.Get(ctx, tok, path, url.Values{"per_page": {"1"}}, &sts); err != nil {
+		return nil, err
+	}
+	out := &provider.DeployObservation{State: "pending", SHA: d.SHA}
+	if len(sts) > 0 {
+		out.State = sts[0].State
+		out.URL = cmpOr(sts[0].EnvironmentURL, sts[0].TargetURL)
+	}
+	if d.SHA != "" {
+		if out.ContainsMerge, err = c.contains(ctx, tok, repo, merge, d.SHA); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// contains reports whether commit is an ancestor of, or equal to, sha (the compare API says
+// sha is ahead of it or identical). A commit GitHub doesn't know is not contained.
+func (c *Conn) contains(ctx context.Context, tok, repo, commit, sha string) (bool, error) {
+	var cmp struct {
+		Status string `json:"status"`
+	}
+	path := "repos/" + repo + "/compare/" + url.PathEscape(commit) + "..." + url.PathEscape(sha)
+	_, err := c.minter.Get(ctx, tok, path, nil, &cmp)
+	if errors.Is(err, provider.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return cmp.Status == "ahead" || cmp.Status == "identical", nil
+}
+
+func cmpOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

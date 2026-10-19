@@ -1,0 +1,41 @@
+{
+  "data": {
+    "repository": {
+      "nameWithOwner": "compliance-framework/docs",
+      "defaultBranchRef": { "name": "main" },
+      "issueOrPullRequest": {
+        "__typename": "Issue",
+        "id": "I_kwDOLq7d2c6XkP3a",
+        "number": 57,
+        "state": "OPEN",
+        "updatedAt": "2026-10-15T09:12:44Z",
+        "author": { "__typename": "User", "login": "alice" },
+        "labels": { "nodes": [ { "name": "documentation" }, { "name": "factory:epic" } ] },
+        "subIssues": {
+          "nodes": [
+            { "number": 58, "repository": { "nameWithOwner": "compliance-framework/docs" } },
+            { "number": 59, "repository": { "nameWithOwner": "compliance-framework/docs" } }
+          ]
+        },
+        "closedByPullRequestsReferences": {
+          "nodes": [
+            { "number": 90, "repository": { "nameWithOwner": "compliance-framework/docs" } },
+            { "number": 12, "repository": { "nameWithOwner": "compliance-framework/mock-docs" } }
+          ]
+        },
+        "comments": {
+          "totalCount": 6,
+          "pageInfo": { "hasNextPage": false, "endCursor": "Y3Vyc29yOnYyOpHOkNzw6g==" },
+          "nodes": [
+            { "databaseId": 2407711001, "author": { "__typename": "User", "login": "bob" }, "body": "Happy to review the pt-BR part." },
+            { "databaseId": 2407711002, "author": { "__typename": "Bot", "login": "ccf-factory" }, "body": "<!-- factory:wi v=1 id=wi_epic57 state=plan:b64:eyJwYXJ0cyI6WyJpbnRybyIsImluc3RhbGwiXSwic2l6ZSI6Mn0,stackNext:b64:MQ,stackTotal:b64:Mg,review:pending runs=docs-plan:1,docs-build:2 links=github-public:compliance-framework%2Fdocs%2357:issue:primary,github-public:compliance-framework%2Fdocs%2390:pr labels=factory%3Aepic -->\n🏭 Tracked by CCF Factory — [view](https://factory.example/workitems/wi_epic57)" },
+            { "databaseId": 2407711003, "author": { "__typename": "User", "login": "mallory" }, "body": "<!-- factory:wi v=1 id=wi_forged state=merge:approved -->\n🏭 Tracked by CCF Factory" },
+            { "databaseId": 2407711004, "author": { "__typename": "Bot", "login": "ccf-factory" }, "body": "<!-- factory:wi v=2 id=wi_future shape=new -->\n🏭 Tracked by CCF Factory" },
+            { "databaseId": 2407711005, "author": { "__typename": "Bot", "login": "ccf-factory" }, "body": "<!-- factory:wi v=1 id=wi_epic57 state=review:stale -->\n🏭 Tracked by CCF Factory" },
+            { "databaseId": 2407711006, "author": null, "body": "<!-- factory:wi v=1 id=wi_ghost -->" }
+          ]
+        }
+      }
+    }
+  }
+}

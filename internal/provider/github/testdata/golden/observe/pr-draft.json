@@ -1,0 +1,20 @@
+{
+  "ref": {
+    "provider": "github-public",
+    "kind": "pr",
+    "ref": "compliance-framework/docs#91"
+  },
+  "state": "open",
+  "author": {
+    "id": "github-public:dave"
+  },
+  "updatedAt": "2026-10-16T10:01:00Z",
+  "pr": {
+    "draft": true,
+    "head": "d00d000000000000000000000000000000000001",
+    "base": "fx/stack-1",
+    "checks": {
+      "state": "pending"
+    }
+  }
+}

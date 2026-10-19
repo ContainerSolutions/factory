@@ -1,0 +1,27 @@
+{
+  "data": {
+    "repository": {
+      "nameWithOwner": "compliance-framework/docs",
+      "defaultBranchRef": { "name": "main" },
+      "issueOrPullRequest": {
+        "__typename": "PullRequest",
+        "id": "PR_kwDOLq7d2c5zPzzz",
+        "number": 88,
+        "state": "CLOSED",
+        "isDraft": false,
+        "updatedAt": "2026-10-12T12:00:00Z",
+        "headRefOid": "feed000000000000000000000000000000000001",
+        "baseRefName": "main",
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommit": null,
+        "author": { "__typename": "User", "login": "erin" },
+        "labels": { "nodes": [ { "name": "wontfix" } ] },
+        "reviews": { "nodes": [] },
+        "reviewThreads": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] },
+        "commits": { "nodes": [ { "commit": { "oid": "feed000000000000000000000000000000000001", "statusCheckRollup": null } } ] },
+        "comments": { "totalCount": 1, "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [ { "databaseId": 2400000001, "author": { "__typename": "User", "login": "erin" }, "body": "Superseded by #89." } ] }
+      }
+    }
+  }
+}
