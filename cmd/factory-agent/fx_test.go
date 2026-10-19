@@ -45,8 +45,9 @@ func TestFxGitCredential(t *testing.T) {
 }
 
 func TestNewRunnerBuildsThePipeline(t *testing.T) {
+	prev := harnessAdapters["codex"]
 	harnessAdapters["codex"] = func(config.Harness) harness.Adapter { return &fake.Adapter{HarnessName: "codex"} }
-	t.Cleanup(func() { delete(harnessAdapters, "codex") })
+	t.Cleanup(func() { harnessAdapters["codex"] = prev })
 	home := t.TempDir()
 	cfg := &config.Config{WorkRoot: filepath.Join(home, "work"), Harnesses: map[string]config.Harness{"codex": {Models: []string{"m"}}}}
 	r, err := newRunner(cfg, runnerOptions{Home: func() (string, error) { return home, nil }})

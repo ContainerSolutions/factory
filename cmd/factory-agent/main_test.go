@@ -278,6 +278,12 @@ func TestWorkerCommandRefusals(t *testing.T) {
 	dir := t.TempDir()
 	p := writeConfig(t, dir, "http://127.0.0.1:1", "")
 	deps := workerDeps{Probe: probeOpts(""), Config: homeIn(dir)}
+	// claude-code has no adapter until AGT-S1-T04.
+	withClaude := filepath.Join(dir, "with-claude.yaml")
+	cfg := strings.Replace(string(mustRead(t, p)), "harnesses:\n", "harnesses:\n  claude-code:\n    configDir: ~/claude\n    models: [claude-sonnet-5-5]\n", 1)
+	if err := os.WriteFile(withClaude, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name string
 		args []string
@@ -285,7 +291,7 @@ func TestWorkerCommandRefusals(t *testing.T) {
 		code int
 		want string
 	}{
-		{"no harness adapter yet", []string{"--config", p}, deps, 1, "no harness adapter for"},
+		{"no harness adapter yet", []string{"--config", withClaude}, deps, 1, "no harness adapter for claude-code"},
 		{"bad stub result", []string{"--config", p, "--stub-result", p}, deps, 1, "--stub-result"},
 		{"missing base tooling", []string{"--config", p}, workerDeps{Probe: probeOpts("gh-stack"), Config: homeIn(dir)}, 1, "base tool gh-stack"},
 		{"bad config", []string{"--config", filepath.Join(dir, "nope.yaml")}, deps, 1, "config"},

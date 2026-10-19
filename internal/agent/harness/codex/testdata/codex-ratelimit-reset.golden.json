@@ -1,0 +1,21 @@
+{
+  "progress": [
+    {
+      "kind": "turn",
+      "summary": "turn 1"
+    },
+    {
+      "kind": "error",
+      "summary": "usage_limit_reached: The usage limit has been reached"
+    }
+  ],
+  "usage": null,
+  "rateLimited": [
+    "2026-10-19T13:30:00Z"
+  ],
+  "threadId": "0199f2a1-a073-7d43-e5f6-1b2c3d4e5f60",
+  "turns": 1,
+  "lastMessage": "",
+  "failed": true,
+  "lastError": "usage_limit_reached: The usage limit has been reached"
+}
