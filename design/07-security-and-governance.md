@@ -94,7 +94,7 @@ Each Provider resolves tiers through its `trust` list, usually backed by **Group
 |---|---|
 | Someone registers a rogue agent | A join token **plus** owner authentication (GitHub device flow) **plus** membership of the pool's `owners` Group. Agent tokens are short-lived and revocable from the UI. |
 | A compromised or malicious agent fabricates results | Outcomes are schema-validated. Merge gates use provider facts. Author and reviewer agents are separated (beyond the PoC). Effects are allow-listed server-side, whatever the agent claims. |
-| An agent exfiltrates beyond its task | It only ever holds one task's scoped git token, and only ever receives that task's context. Egress allow-list on the worker (`srt` or container). |
+| An agent exfiltrates beyond its task | It only ever holds one task's scoped git token, and only ever receives that task's context. Egress allow-list on the worker (`srt` or container): the git host, the dispatcher, the local stack and the TaskSpec's `workspace.hosts` (e.g. the npm and yarn registries for a docs task), nothing else. |
 | Owner's personal data or credentials leak into runs | Dedicated OS user or devcontainer. Dedicated harness config dirs. No personal GitHub credentials are used. Scratch workspaces are deleted after each task ([10](10-poc.md#isolation-on-a-personal-machine)). |
 | Owner loses control of their machine or plan | Consent lists (`lending`: queues, RuleSets, harnesses, concurrency, hours, runs and tokens per day, or unlimited), `factory-agent pause`, and a local kill switch. Throttling is respected automatically. |
 
@@ -132,7 +132,7 @@ These are the engine invariants listed in [02](02-architecture.md#safety-rails-t
 ## Governance of the catalog itself
 
 - `catalog/**` changes need a maintainer review. **Two approvals** are needed for changes to:
-  - TaskSpec `permissions`, `effects` or `identity`;
+  - TaskSpec `permissions`, `effects`, `identity` or `workspace.hosts` (the hosts widen what a prompt-injected run could reach; FACTORY-CAT-002);
   - any RuleSet that starts selecting the `merge` pack;
   - Pool `admission`;
   - Providers.

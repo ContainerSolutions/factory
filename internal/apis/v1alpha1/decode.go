@@ -44,6 +44,8 @@ type ValidationError struct {
 	// Field is the path of the offending field, e.g. spec.actions[1].
 	Field   string
 	Message string
+	// Err is the typed cause, when there is one (e.g. a *HostError); Unwrap returns it.
+	Err error
 }
 
 func (e *ValidationError) Error() string {
@@ -53,6 +55,8 @@ func (e *ValidationError) Error() string {
 	return e.Field + ": " + e.Message
 }
 
+func (e *ValidationError) Unwrap() error { return e.Err }
+
 func prefixField(prefix string, err error) error {
 	var ve *ValidationError
 	if errors.As(err, &ve) {
@@ -60,7 +64,7 @@ func prefixField(prefix string, err error) error {
 		if ve.Field != "" {
 			field += "." + ve.Field
 		}
-		return &ValidationError{Field: field, Message: ve.Message}
+		return &ValidationError{Field: field, Message: ve.Message, Err: ve.Err}
 	}
 	return fmt.Errorf("%s: %w", prefix, err)
 }

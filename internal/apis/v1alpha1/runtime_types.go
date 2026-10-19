@@ -218,6 +218,11 @@ type TaskRunSpec struct {
 	Effects     *EffectsPolicy   `json:"effects,omitzero"`
 	Limits      *Limits          `json:"limits,omitzero"`
 	Output      *OutputSpec      `json:"output,omitzero"`
+	// Hosts are copied from the TaskSpec's workspace.hosts when the Task is compiled: the
+	// extra hostnames the agent adds to the sandbox allow-list, on top of the git host, the
+	// dispatcher and the local stack. Same rules as workspace.hosts (ValidateHost, at most
+	// 20).
+	Hosts []string `json:"hosts,omitzero"`
 }
 
 // TaskSpecRef is the TaskSpec a task was made from, by name and digest.
