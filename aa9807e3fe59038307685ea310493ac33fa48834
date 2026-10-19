@@ -3,3 +3,6 @@ lisa-design:
 - Body = the catalog's raw schema bytes; with relative $refs to other catalog files, a self-contained bundle ($defs with $id https://catalog.invalid/<path>); v1alpha1 $refs stay as $id refs.
 - Snapshot = the live catalog via controllers.ResultSpec, shared with the run controller's check on complete (the Task's own catalogSHA snapshot isn't kept); a reload between fetch and complete can still refuse a validated Result — documented; the dispatcher stays authoritative.
 - Agent: SchemaSource.OutputSchema(ctx, job) through the generated client; only 404 falls back to the base Result schema; other failures fail the run before the harness starts.
+
+lisa-selfreview:
+Pass 1: no findings.
