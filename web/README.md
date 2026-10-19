@@ -35,7 +35,10 @@ commit the result. Never edit them by hand.
 
 `src/mocks/` serves every operation of the contract with its example from `../api/examples`,
 at the operation's success status and media type (`src/mocks/operations.gen.ts`, generated
-with the client). The unit tests run against the same handlers (`msw/node`, set up in
+with the client). `src/mocks/workitems.ts` overrides `GET /workitems` and `GET /workitems/{id}`
+with a few more work items built around the examples, so the board has every lane, several
+providers, repos and RuleSets, and an unknown work item answers 404. They are dated around
+2026-10-19, which the specs and the e2e test fix as "now". The unit tests run against the same handlers (`msw/node`, set up in
 `vitest.setup.ts`; an unmatched request fails the spec), and `npm run dev:mock` runs them in
 the browser through MSW's service worker, which the dev server serves from the msw package
 (it is never copied into the build).

@@ -9,6 +9,13 @@ import BoardView from '@/views/BoardView.vue';
 export const routes: RouteRecordRaw[] = [
   { path: '/', name: 'board', component: BoardView, meta: { title: 'Board' } },
   {
+    path: '/workitems/:id',
+    name: 'workitem',
+    component: () => import('@/views/WorkItemView.vue'),
+    props: true,
+    meta: { title: 'Work item' },
+  },
+  {
     path: '/pools',
     name: 'pools',
     component: () => import('@/views/PoolsView.vue'),

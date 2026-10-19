@@ -34,6 +34,10 @@ describe('App shell', () => {
   });
 
   it.each([
+    [
+      '/workitems/wi_01JAB3J9T1D2E3F4G5H6J7K8LM',
+      'compliance-framework/docs#42',
+    ],
     ['/pools', 'Queues and pools'],
     ['/catalog', 'Catalog'],
     ['/nowhere', 'Not found'],

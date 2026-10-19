@@ -23,3 +23,12 @@ export function createApiClient(origin: string = window.location.origin) {
 export type ApiClient = ReturnType<typeof createApiClient>;
 
 export const api = createApiClient();
+
+/** A failed response as one line: the Problem's title and detail, else the HTTP status. */
+export function describeProblem(problem: unknown, response: Response): string {
+  const p = (problem ?? {}) as Partial<Schemas['Problem']>;
+  const title = typeof p.title === 'string' && p.title ? p.title : '';
+  const detail = typeof p.detail === 'string' && p.detail ? p.detail : '';
+  if (title && detail) return `${title}: ${detail}`;
+  return title || detail || `HTTP ${response.status}`;
+}
