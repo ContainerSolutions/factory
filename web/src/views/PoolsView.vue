@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onScopeDispose, ref } from 'vue';
+import PauseControls from '@/components/controls/PauseControls.vue';
 import PoolCard from '@/components/pools/PoolCard.vue';
 import QueueCard from '@/components/pools/QueueCard.vue';
 import { poolGroups, sortQueues } from '@/components/pools/pools';
@@ -84,7 +85,11 @@ const streamPill = computed(() => STREAM[stream.status.value]);
           :key="view.queue.metadata.name"
           :view="view"
           :now="now"
-        />
+        >
+          <template #actions>
+            <PauseControls scope="queue" :name="view.queue.metadata.name" />
+          </template>
+        </QueueCard>
       </div>
       <p
         v-else-if="store.queuesLoaded"

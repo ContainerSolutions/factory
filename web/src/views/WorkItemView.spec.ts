@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { flushPromises, type VueWrapper } from '@vue/test-utils';
 import { http, HttpResponse } from 'msw';
 import type { Schemas } from '@/api/client';
+import { confirmDialog, recordCommands } from '@/__tests__/commands';
 import { mountWithApp } from '@/__tests__/mount';
+import { maintainer, reader } from '@/mocks/session';
 import { server } from '@/mocks/node';
 import WorkItemView from './WorkItemView.vue';
 
@@ -98,5 +100,42 @@ describe('WorkItemView', () => {
     await wrapper.setProps({ id: 'wi_01JAC0WAITING000000000000000' });
     await flushPromises();
     expect(wrapper.get('h1').text()).toBe('compliance-framework/ui#88');
+  });
+});
+
+describe('WorkItemView controls', () => {
+  const ID = 'wi_01JAB3J9T1D2E3F4G5H6J7K8LM';
+
+  it('pauses the work item once a maintainer confirms', async () => {
+    const bodies = recordCommands();
+    const { wrapper } = await mountWithApp(WorkItemView, {
+      path: `/workitems/${ID}`,
+      props: { id: ID },
+      me: maintainer,
+      attachTo: document.body,
+    });
+    mounted = wrapper;
+    await wrapper
+      .get(`button[aria-label="Pause work item ${ID}"]`)
+      .trigger('click');
+    await flushPromises();
+    expect(dialog()!.textContent).toContain(`Pause work item ${ID}?`);
+    await confirmDialog('Pause');
+    expect(bodies).toEqual([
+      { type: 'pause', target: { scope: 'workitem', name: ID } },
+    ]);
+    expect(wrapper.get('[data-testid="pause-state"]').text()).toBe(
+      'pause sent',
+    );
+  });
+
+  it('shows a reader no controls', async () => {
+    const { wrapper } = await mountWithApp(WorkItemView, {
+      path: `/workitems/${ID}`,
+      props: { id: ID },
+      me: reader,
+    });
+    mounted = wrapper;
+    expect(wrapper.find('[data-testid="pause-controls"]').exists()).toBe(false);
   });
 });

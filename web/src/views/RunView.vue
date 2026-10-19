@@ -8,6 +8,7 @@ import RunOverview from '@/components/run/RunOverview.vue';
 import RunProgress from '@/components/run/RunProgress.vue';
 import RunTranscript from '@/components/run/RunTranscript.vue';
 import { isRunning } from '@/components/run/run';
+import RunControls from '@/components/controls/RunControls.vue';
 import JsonViewer from '@/components/shared/JsonViewer.vue';
 import PageHeader from '@/components/shared/PageHeader.vue';
 import { useStream } from '@/composables/useStream';
@@ -69,6 +70,7 @@ const stream = useStream(
       · attempt {{ run.spec.attempt }} of task
       <code class="text-xs">{{ run.spec.task }}</code>
     </PageHeader>
+    <RunControls :run="run" :running="running" class="mb-6" />
 
     <div class="grid gap-6 lg:grid-cols-3">
       <div class="flex flex-col gap-6 lg:col-span-2">

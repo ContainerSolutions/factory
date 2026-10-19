@@ -28,10 +28,39 @@ function mockServiceWorker(): Plugin {
   };
 }
 
+// In mock mode the sign-in link (`/api/v1/auth/login`, a page navigation, which MSW doesn't
+// intercept) stands in for the GitHub OAuth round trip: it clears the mock session cookie
+// (src/mocks/session.ts), which signs in as getMe's example, and goes back to `returnTo`.
+function mockSignIn(): Plugin {
+  return {
+    name: 'factory:mock-sign-in',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/api/v1/auth/login', (req, res) => {
+        const url = new URL(req.originalUrl ?? '/', 'http://localhost');
+        const returnTo = url.searchParams.get('returnTo') ?? '/';
+        const safe = /^\/(?![/\\])/.test(returnTo) ? returnTo : '/';
+        res.statusCode = 302;
+        res.setHeader(
+          'Set-Cookie',
+          'factory-mock-session=; Path=/; Max-Age=0; SameSite=Lax',
+        );
+        res.setHeader('Location', safe);
+        res.end();
+      });
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => ({
   base: '/',
-  plugins: [vue(), tailwindcss(), mode === 'mock' && mockServiceWorker()],
+  plugins: [
+    vue(),
+    tailwindcss(),
+    mode === 'mock' && mockServiceWorker(),
+    mode === 'mock' && mockSignIn(),
+  ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
