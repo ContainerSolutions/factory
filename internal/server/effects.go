@@ -49,7 +49,8 @@ func effectID(task, key string) string {
 //
 //  1. the agent holds the task's active lease (403 not-lease-holder);
 //  2. the op is in the task's effects.allow (403 effect-not-allowed);
-//  3. label ops: every label matches effects.labels (403 label-not-allowed);
+//  3. every label the op's args name (labelArgs: label.add/remove, create-issue and pr.open
+//     labels, pr.merge's mergeLabel) matches effects.labels (403 label-not-allowed);
 //  4. the target is the task's repo, an object in it, or a work item link (403
 //     target-not-allowed);
 //  5. the idempotency key is present (≤ 200 chars; 400 idempotency-key-required); a known key
@@ -73,10 +74,8 @@ func (s *Server) CreateEffect(ctx context.Context, req gen.CreateEffectRequestOb
 	if pol == nil || !slices.Contains(pol.Allow, b.Op) {
 		return nil, problemf(http.StatusForbidden, CodeEffectNotAllowed, "op %s is not in the task's effects.allow", b.Op)
 	}
-	if b.Op == v1alpha1.OpLabelAdd || b.Op == v1alpha1.OpLabelRemove {
-		if err := checkLabels(b.Args, pol.Labels); err != nil {
-			return nil, err
-		}
+	if err := checkLabels(b.Op, b.Args, pol.Labels); err != nil {
+		return nil, err
 	}
 	target, err := s.effectTarget(ctx, t, b.Op, b.Target)
 	if err != nil {
@@ -196,13 +195,48 @@ func applyError(err error) error {
 	return &apiError{status: http.StatusBadGateway, code: CodeProviderError, err: err}
 }
 
-// checkLabels checks that the label op names labels and that every one matches a glob of the
-// task's effects.labels (none matches when there are none).
-func checkLabels(args map[string]any, globs []string) error {
-	labels := labelArgs(args)
+// labelArg is an op's args that name labels the op writes.
+type labelArg struct {
+	// keys are the args holding labels: a string or a list of strings each.
+	keys []string
+	// required: the op needs at least one label (the label ops).
+	required bool
+}
+
+// labelArgs lists, per op, every arg that carries a label the op can write, so the Effector
+// checks each one against the task's effects.labels: an op that gains a label-carrying arg is
+// added here and nowhere else. The args are the GitHub adapter's (github-provider.md, GH-S1-T04).
+// A label the adapter adds by itself, link-duplicate's `duplicate`, isn't the agent's choice:
+// effects.allow authorises it with the op.
+var labelArgs = map[v1alpha1.EffectOp]labelArg{
+	v1alpha1.OpLabelAdd:    {keys: []string{"labels", "label"}, required: true},
+	v1alpha1.OpLabelRemove: {keys: []string{"labels", "label"}, required: true},
+	v1alpha1.OpCreateIssue: {keys: []string{"labels"}},
+	v1alpha1.OpPROpen:      {keys: []string{"labels"}},
+	// The Q5 fallback: added when review requirements block the merge.
+	v1alpha1.OpPRMerge: {keys: []string{"mergeLabel"}},
+}
+
+// checkLabels checks that every label op's args name (labelArgs) matches a glob of the task's
+// effects.labels (none matches when there are none), and that a label op names one.
+func checkLabels(op v1alpha1.EffectOp, args map[string]any, globs []string) error {
+	la, ok := labelArgs[op]
+	if !ok {
+		return nil
+	}
+	type named struct{ key, label string }
+	var labels []named
+	for _, k := range la.keys {
+		for _, l := range stringsArg(args, k) {
+			labels = append(labels, named{k, l})
+		}
+	}
 	if len(labels) == 0 {
-		return &apiError{status: http.StatusBadRequest, code: CodeInvalid, detail: "label ops need args.labels (or args.label)",
-			fields: []gen.FieldError{{Field: "args.labels", Message: "required"}}}
+		if la.required {
+			return &apiError{status: http.StatusBadRequest, code: CodeInvalid, detail: "label ops need args.labels (or args.label)",
+				fields: []gen.FieldError{{Field: "args.labels", Message: "required"}}}
+		}
+		return nil
 	}
 	var p patterns.Pattern
 	if len(globs) > 0 {
@@ -212,30 +246,36 @@ func checkLabels(args map[string]any, globs []string) error {
 		}
 	}
 	for _, l := range labels {
-		if p == nil || !p.Match(l) {
-			return problemf(http.StatusForbidden, CodeLabelNotAllowed, "label %q is not in the task's effects.labels", l)
+		if p == nil || !p.Match(l.label) {
+			return &apiError{status: http.StatusForbidden, code: CodeLabelNotAllowed,
+				detail: fmt.Sprintf("label %q (args.%s) is not in the task's effects.labels", l.label, l.key),
+				fields: []gen.FieldError{{Field: "args." + l.key, Message: "not in effects.labels"}}}
 		}
 	}
 	return nil
 }
 
-// labelArgs returns args.labels (a list of strings) and args.label (one).
-func labelArgs(args map[string]any) []string {
+// stringsArg returns args[key] as labels: a string, a []string or the strings of a []any,
+// empty ones left out (as the GitHub adapter reads them).
+func stringsArg(args map[string]any, key string) []string {
 	var out []string
-	switch v := args["labels"].(type) {
+	switch v := args[key].(type) {
 	case []any:
 		for _, x := range v {
-			if s, ok := x.(string); ok {
+			if s, ok := x.(string); ok && s != "" {
 				out = append(out, s)
 			}
 		}
 	case []string:
-		out = append(out, v...)
+		for _, s := range v {
+			if s != "" {
+				out = append(out, s)
+			}
+		}
 	case string:
-		out = append(out, v)
-	}
-	if s, ok := args["label"].(string); ok && s != "" {
-		out = append(out, s)
+		if v != "" {
+			out = append(out, v)
+		}
 	}
 	return out
 }

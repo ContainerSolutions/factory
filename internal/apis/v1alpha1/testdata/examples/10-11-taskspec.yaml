@@ -12,6 +12,6 @@ spec:
   workspace: { checkout: rebase-only }
   identity: reviewer
   permissions: { contents: write, pull_requests: write }
-  effects: { allow: [pr.merge, pr.retarget, stack.rebase, stack.push, pr.comment, label.add] }
+  effects: { allow: [pr.merge, pr.retarget, stack.rebase, stack.push, pr.comment, label.add], labels: [ready-to-merge] }   # the merge label (Q5): pr.merge's args.mergeLabel and label.add
   limits: { maxWallClock: 20m }
   output: { schema: schemas/results/merge.json, outcomes: [merged, labelled-for-merge, rebased-with-conflicts, blocked, needs-human] }

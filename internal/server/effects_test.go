@@ -73,6 +73,66 @@ func TestEffectAllowList(t *testing.T) {
 	}
 }
 
+// TestEffectLabelArgs: every arg that names a label an op writes (labelArgs) is checked against
+// effects.labels, not only the label ops'.
+func TestEffectLabelArgs(t *testing.T) {
+	const docsPR = "compliance-framework/docs#50"
+	e, tok, _ := leased(t, func(tk *v1alpha1.Task) {
+		tk.Spec.Effects.Allow = append(tk.Spec.Effects.Allow, v1alpha1.OpPRMerge, v1alpha1.OpCreateIssue)
+		tk.Spec.Effects.Labels = append(tk.Spec.Effects.Labels, "ready-to-merge")
+	})
+	for _, n := range []string{"50", "51", "52"} {
+		if err := e.gh.Seed(provider.Observation{Ref: v1alpha1.ObjectRef{Kind: provider.KindPR, Ref: "compliance-framework/docs#" + n}, PR: &provider.PRObservation{}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	merge := func(n string, args map[string]any, key string) apiclient.EffectRequest {
+		return apiclient.EffectRequest{Op: v1alpha1.OpPRMerge, Target: ptr("compliance-framework/docs#" + n), Args: args, IdempotencyKey: key}
+	}
+	tests := []struct {
+		name   string
+		req    apiclient.EffectRequest
+		status int
+		field  string
+	}{
+		{"an allowed merge label", merge("50", map[string]any{"mergeLabel": "ready-to-merge"}, "m1"), 200, ""},
+		{"a merge label outside the globs", merge("51", map[string]any{"mergeLabel": "factory:stop"}, "m2"), 403, "args.mergeLabel"},
+		{"a merge label as a list", merge("51", map[string]any{"mergeLabel": []any{"docs", "wontfix"}}, "m3"), 403, "args.mergeLabel"},
+		{"no merge label", merge("52", map[string]any{"sha": "abc"}, "m4"), 200, ""},
+		{"an empty merge label", merge("52", map[string]any{"mergeLabel": ""}, "m5"), 200, ""},
+		{"create-issue with allowed labels", apiclient.EffectRequest{Op: v1alpha1.OpCreateIssue, Args: map[string]any{"title": "t", "labels": []any{"docs", "triage:i18n"}}, IdempotencyKey: "c1"}, 200, ""},
+		{"create-issue with a label outside the globs", apiclient.EffectRequest{Op: v1alpha1.OpCreateIssue, Args: map[string]any{"title": "t", "labels": []any{"docs", "factory:stop"}}, IdempotencyKey: "c2"}, 403, "args.labels"},
+		{"create-issue with one label as a string", apiclient.EffectRequest{Op: v1alpha1.OpCreateIssue, Args: map[string]any{"title": "t", "labels": "wontfix"}, IdempotencyKey: "c3"}, 403, "args.labels"},
+		{"create-issue without labels", apiclient.EffectRequest{Op: v1alpha1.OpCreateIssue, Args: map[string]any{"title": "t"}, IdempotencyKey: "c4"}, 200, ""},
+		{"pr.open with a label outside the globs", apiclient.EffectRequest{Op: v1alpha1.OpPROpen, Args: map[string]any{"head": "fx", "base": "main", "labels": []any{"automerge"}}, IdempotencyKey: "p1"}, 403, "args.labels"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := e.effect(tok, tt.req)
+			if tt.status == 200 {
+				if r.JSON200 == nil {
+					t.Fatalf("status %s: %s", r.Status(), r.Body)
+				}
+				return
+			}
+			wantProblem(t, tt.name, r.HTTPResponse, r.Body, tt.status, CodeLabelNotAllowed)
+			if p := r.ApplicationproblemJSON403; p == nil || len(p.Errors) != 1 || p.Errors[0].Field != tt.field {
+				t.Errorf("field errors %s, want %s", r.Body, tt.field)
+			}
+		})
+	}
+	// Only the allowed effects reached the provider: the merge of #50 and #52 and two issues.
+	var ops []string
+	for _, a := range e.gh.Applies() {
+		ops = append(ops, string(a.Request.Op)+" "+a.Request.Target.Ref)
+	}
+	want := []string{"pr.merge " + docsPR, "pr.merge compliance-framework/docs#52", "pr.merge compliance-framework/docs#52",
+		"create-issue " + docsRepo, "create-issue " + docsRepo}
+	if strings.Join(ops, ",") != strings.Join(want, ",") {
+		t.Errorf("applies %v, want %v", ops, want)
+	}
+}
+
 func TestEffectTargets(t *testing.T) {
 	e, tok, _ := leased(t, nil)
 	// A linked object in another repo is allowed (the work item's links).

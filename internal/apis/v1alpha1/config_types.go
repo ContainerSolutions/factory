@@ -724,7 +724,8 @@ type RepoMount struct {
 // EffectsPolicy is what a task may do.
 type EffectsPolicy struct {
 	Allow []EffectOp `json:"allow,omitzero"`
-	// Labels are globs the label.* effects are checked against.
+	// Labels are globs every label an effect can write is checked against: label.add/remove,
+	// and the labels other ops carry (create-issue and pr.open labels, pr.merge's mergeLabel).
 	Labels []string `json:"labels,omitzero"`
 }
 
