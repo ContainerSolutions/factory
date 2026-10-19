@@ -848,6 +848,66 @@ func TestRunNeedsStack(t *testing.T) {
 	f.checkClean("")
 }
 
+// recordStack is a Stack that records its calls and the time Down had.
+type recordStack struct {
+	mu      sync.Mutex
+	ups     int
+	downs   int
+	downFor time.Duration
+}
+
+func (s *recordStack) Up(context.Context, harness.Workspace, v1alpha1.Task) (map[string]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ups++
+	return map[string]string{"FACTORY_STACK_URL": "http://localhost:8000", "FACTORY_STACK_API": "http://127.0.0.2:8080"}, nil
+}
+
+func (s *recordStack) Down(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.downs++
+	if dl, ok := ctx.Deadline(); ok {
+		s.downFor = time.Until(dl)
+	}
+	return nil
+}
+
+func TestRunWithStack(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	st := &recordStack{}
+	f.opts.Stack = st
+	task := f.task()
+	task.Spec.Requires = &v1alpha1.Requires{Labels: []string{"has-local-stack"}}
+	task.Spec.Inputs = map[string]any{"verifyAgainst": map[string]any{"train": "acme/workflows#1"}}
+	f.adapter.Script = fake.Script{Turn: fake.Turn{
+		Do: func(_ context.Context, ws harness.Workspace, _ string) error {
+			if !slices.Contains(ws.Env, "FACTORY_STACK_URL=http://localhost:8000") {
+				t.Errorf("the harness's environment lacks the stack: %q", ws.Env)
+			}
+			// A sandboxed harness reaches the stack's UI and API hosts, besides the git host
+			// and the dispatcher (both the loopback here).
+			if !slices.Equal(ws.Hosts, []string{"127.0.0.1", "localhost", "127.0.0.2"}) {
+				t.Errorf("hosts %q", ws.Hosts)
+			}
+			return nil
+		},
+		Result: []byte(validResult),
+	}}
+	out, err := f.pipeline().Run(context.Background(), f.job(task, time.Now()), &sink{})
+	if err != nil || out.Status != runner.StatusDone {
+		t.Fatalf("outcome %+v %v", out, err)
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	// compose down (and the showcase's kind cluster) outlast the 30 s cleanup budget.
+	if st.ups != 1 || st.downs != 1 || st.downFor < pipeline.StackDownTimeout-time.Minute {
+		t.Errorf("stack ups %d downs %d, down had %s", st.ups, st.downs, st.downFor)
+	}
+	f.checkClean("")
+}
+
 func TestRunRefusals(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)

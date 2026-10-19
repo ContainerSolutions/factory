@@ -352,7 +352,7 @@ func (r *run) stackUpIfNeeded(ctx context.Context) error {
 		return nil
 	}
 	if r.p.o.Stack == nil {
-		return errors.New("the task needs the local stack, and this agent has no stack support yet (AGT-S1-T06)")
+		return errors.New("the task needs the local stack, and this agent has none (configure localDev and the has-local-stack label)")
 	}
 	env, err := r.p.o.Stack.Up(ctx, r.ws, r.task)
 	if err != nil {

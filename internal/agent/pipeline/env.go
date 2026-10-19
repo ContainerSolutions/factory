@@ -116,7 +116,9 @@ func (r *run) buildEnv(context.Context) error {
 	return nil
 }
 
-// hosts are the git host and the dispatcher's host, each once.
+// hosts are the git host, the dispatcher's host and, when the stack is up, the hosts of its
+// UI and API (FACTORY_STACK_URL, FACTORY_STACK_API), each once: a sandboxed harness reaches
+// only these.
 func (r *run) hosts() []string {
 	var out []string
 	add := func(h string) {
@@ -130,8 +132,18 @@ func (r *run) hosts() []string {
 	if u, err := url.Parse(r.job.Dispatcher); err == nil {
 		add(u.Hostname())
 	}
+	for _, k := range stackURLVars {
+		if v := r.stackEnv[k]; v != "" {
+			if u, err := url.Parse(v); err == nil {
+				add(u.Hostname())
+			}
+		}
+	}
 	return out
 }
+
+// stackURLVars are the stack's variables whose hosts the harness must reach (local-stack.md).
+var stackURLVars = []string{"FACTORY_STACK_URL", "FACTORY_STACK_API"}
 
 // envList is env as sorted KEY=value entries.
 func envList(env map[string]string) []string {

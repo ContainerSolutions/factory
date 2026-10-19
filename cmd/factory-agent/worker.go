@@ -24,6 +24,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/probe"
 	"github.com/compliance-framework/factory/internal/agent/runner"
+	"github.com/compliance-framework/factory/internal/agent/stack"
 	"github.com/compliance-framework/factory/internal/agent/worker"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
@@ -108,10 +109,33 @@ func newRunner(cfg *config.Config, o runnerOptions) (runner.Runner, error) {
 	if err != nil {
 		return nil, err
 	}
-	return pipeline.New(pipeline.Options{
+	po := pipeline.Options{
 		WorkRoot: cfg.WorkRoot, Adapters: adapters, SkillsCache: cache,
 		Logger: o.Logger, KeepWorkspace: o.KeepWorkspace,
-	})
+	}
+	if po.Stack, err = newStack(cfg, home, o.Logger); err != nil {
+		return nil, err
+	}
+	return pipeline.New(po)
+}
+
+// newStack is the pipeline's local stack (local-stack.md) when the agent advertises
+// has-local-stack: local-dev's checkout, the lock under ~/.factory-agent, anonymous GitHub
+// reads for the trains and releases. Without the label the pipeline has none, and a task
+// needing one fails stack-error (the scheduler doesn't lease one here anyway).
+func newStack(cfg *config.Config, home func() (string, error), log *slog.Logger) (pipeline.Stack, error) {
+	if cfg.LocalDev == "" || !slices.Contains(cfg.Labels, config.LabelLocalStack) {
+		return nil, nil
+	}
+	dir, err := config.ExpandPath(stack.DefaultStateDir, home)
+	if err != nil {
+		return nil, err
+	}
+	m, err := stack.New(stack.Options{StateDir: dir})
+	if err != nil {
+		return nil, err
+	}
+	return &stack.ForPipeline{Manager: m, LocalDev: cfg.LocalDev, Logger: log}, nil
 }
 
 func runWorker(ctx context.Context, args []string, stderr io.Writer, d workerDeps) int {

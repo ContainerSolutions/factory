@@ -382,3 +382,17 @@ func TestSandboxDeniedReads(t *testing.T) {
 		t.Errorf("no HOME: %q", got)
 	}
 }
+
+func TestSandboxDomainsLocalStack(t *testing.T) {
+	// With the local stack up, the pipeline adds its host (localhost) to Workspace.Hosts:
+	// the sandbox's network allow-list must carry it.
+	ws := harness.Workspace{Hosts: []string{"github.com", "factory.example.dev", "localhost"}}
+	got := sandboxDomains(ws)
+	if !slices.Contains(got, "localhost") {
+		t.Errorf("domains %q lack localhost", got)
+	}
+	_, perms := sandboxSettings(ws, "", "")
+	if allow, _ := perms[keyAllow].([]string); !slices.Contains(allow, "WebFetch(domain:localhost)") {
+		t.Errorf("allow rules %q lack WebFetch(domain:localhost)", allow)
+	}
+}
