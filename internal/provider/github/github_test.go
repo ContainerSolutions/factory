@@ -25,6 +25,8 @@ const (
 	prov        = "github-public"
 	// hookSecret signs the test webhooks.
 	hookSecret = "test-webhook-secret"
+	// uiBase is the factory's public URL the markers link to.
+	uiBase = "https://factory.example"
 )
 
 var t0 = time.Date(2026, 10, 16, 11, 0, 0, 0, time.UTC)
@@ -47,6 +49,7 @@ func newEnv(t *testing.T) *env {
 	srv.AddApp(reviewerApp, &reviewerRSA.PublicKey)
 	srv.AddInstallation(githubtest.Installation{ID: 1, AppID: authorApp, Owner: org, Permissions: map[string]string{
 		"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read", "members": "read",
+		"checks": "read", "actions": "read", "deployments": "read",
 	}})
 	srv.AddInstallation(githubtest.Installation{ID: 2, AppID: reviewerApp, Owner: org, Permissions: map[string]string{
 		"contents": "write", "pull_requests": "write", "issues": "read", "metadata": "read",
@@ -54,9 +57,11 @@ func newEnv(t *testing.T) *env {
 	srv.SetSlug(authorApp, "ccf-factory")
 	srv.SetSlug(reviewerApp, "ccf-factory-reviewer")
 	return &env{
-		srv:     srv,
-		clk:     clk,
-		adapter: github.NewAdapter(github.Options{HTTPClient: srv.Client(), Clock: clk, Groups: provider.StaticGroups(testGroups)}),
+		srv: srv,
+		clk: clk,
+		adapter: github.NewAdapter(github.Options{
+			HTTPClient: srv.Client(), Clock: clk, Groups: provider.StaticGroups(testGroups), UIBaseURL: uiBase,
+		}),
 		secrets: map[string][]byte{
 			"ccf-factory/app_private_key":          authorKey,
 			"ccf-factory-reviewer/app_private_key": reviewerKey,
@@ -285,19 +290,7 @@ func TestHealth(t *testing.T) {
 func TestNotImplementedYet(t *testing.T) {
 	e := newEnv(t)
 	c := e.connect(t)
-	ctx := context.Background()
-	ref := v1alpha1.ObjectRef{Provider: "github-public", Kind: provider.KindIssue, Ref: docs + "#1"}
-	_, observeErr := c.Observe(ctx, ref)
-	_, listErr := c.List(ctx, v1alpha1.Scope{})
-	_, applyErr := c.Apply(ctx, provider.EffectRequest{})
-	for name, err := range map[string]error{
-		"Observe": observeErr,
-		"List":    listErr,
-		"Project": c.Project(ctx, ref, provider.Projection{}),
-		"Apply":   applyErr,
-	} {
-		if !errors.Is(err, provider.ErrUnsupported) {
-			t.Errorf("%s = %v, want ErrUnsupported", name, err)
-		}
+	if _, err := c.Apply(context.Background(), provider.EffectRequest{}); !errors.Is(err, provider.ErrUnsupported) {
+		t.Errorf("Apply = %v, want ErrUnsupported", err)
 	}
 }

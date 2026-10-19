@@ -1,0 +1,46 @@
+{
+  "ref": {
+    "provider": "github-public",
+    "kind": "issue",
+    "ref": "compliance-framework/workflows#123"
+  },
+  "state": "closed",
+  "labels": [
+    "release-train",
+    "train:done"
+  ],
+  "author": {
+    "id": "github-public:ccf-release-bot[bot]",
+    "isBot": true
+  },
+  "updatedAt": "2026-10-14T18:03:10Z",
+  "issue": {
+    "comments": 3
+  },
+  "projections": [
+    {
+      "workItemID": "wi_train123",
+      "state": {
+        "manifest": "repos.yaml",
+        "release": "drafting",
+        "train": "compliance-framework/workflows#123"
+      },
+      "counters": {
+        "release-docs": 1
+      },
+      "links": [
+        {
+          "provider": "github-public",
+          "ref": "compliance-framework/workflows#123",
+          "kind": "issue",
+          "primary": true
+        },
+        {
+          "provider": "github-public",
+          "ref": "compliance-framework/docs#90",
+          "kind": "pr"
+        }
+      ]
+    }
+  ]
+}

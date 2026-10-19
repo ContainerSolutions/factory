@@ -5,7 +5,9 @@
 // what the identity's installation was granted: the only way in is Minter.Token, which takes a
 // provider.GitCredentialRequest, refuses what its Validate refuses, refuses ReadRepos and an
 // empty permission set, and always sends "repositories": [<name>] and "permissions": {…}. So
-// an unscoped token can't be minted by construction.
+// an unscoped token can't be minted by construction. The two exceptions carry no repository
+// write: OrgToken (organisation permissions only) and the metadata: read token
+// InstallationRepos keeps to itself.
 //
 // Tokens are cached per (identity, repo, permissions) and reused until RefreshBefore before
 // GitHub's expiry; concurrent requests for the same key share one GitHub call. Installation
@@ -82,6 +84,7 @@ type Options struct {
 // Minter mints installation tokens. It is safe for concurrent use.
 type Minter struct {
 	api      *url.URL
+	graphql  *url.URL
 	clock    clock.Clock
 	log      *slog.Logger
 	provider string
@@ -132,6 +135,7 @@ func New(identities map[string]Identity, opts Options) (*Minter, error) {
 	}
 	m := &Minter{
 		api:      api,
+		graphql:  GraphQLURL(api),
 		clock:    opts.Clock,
 		log:      opts.Logger,
 		provider: opts.Provider,

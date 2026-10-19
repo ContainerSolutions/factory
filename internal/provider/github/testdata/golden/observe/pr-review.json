@@ -1,0 +1,69 @@
+{
+  "ref": {
+    "provider": "github-public",
+    "kind": "pr",
+    "ref": "compliance-framework/docs#90"
+  },
+  "state": "open",
+  "labels": [
+    "documentation",
+    "release-docs"
+  ],
+  "author": {
+    "id": "github-public:ccf-factory[bot]",
+    "isBot": true,
+    "isFactory": true,
+    "identity": "author"
+  },
+  "updatedAt": "2026-10-16T08:40:02Z",
+  "pr": {
+    "draft": false,
+    "head": "c0ffee0000000000000000000000000000000003",
+    "base": "main",
+    "checks": {
+      "state": "success",
+      "settled": true
+    },
+    "approvedBy": [
+      {
+        "identity": "alice",
+        "commit": "c0ffee0000000000000000000000000000000001"
+      },
+      {
+        "identity": "author",
+        "commit": "c0ffee0000000000000000000000000000000002"
+      },
+      {
+        "identity": "reviewer",
+        "commit": "c0ffee0000000000000000000000000000000003"
+      }
+    ],
+    "unresolvedThreads": 3
+  },
+  "projections": [
+    {
+      "workItemID": "wi_train123",
+      "state": {
+        "release": "review",
+        "train": "compliance-framework/workflows#123"
+      },
+      "counters": {
+        "docs-review": 1,
+        "release-docs": 1
+      },
+      "links": [
+        {
+          "provider": "github-public",
+          "ref": "compliance-framework/workflows#123",
+          "kind": "issue",
+          "primary": true
+        },
+        {
+          "provider": "github-public",
+          "ref": "compliance-framework/docs#90",
+          "kind": "pr"
+        }
+      ]
+    }
+  ]
+}

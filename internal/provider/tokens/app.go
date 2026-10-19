@@ -59,10 +59,18 @@ func (m *Minter) AppGet(ctx context.Context, identityName, path string, query ur
 // Token's do: *APIError (errors.Is: ErrUnauthorized, ErrForbidden, provider.ErrNotFound,
 // provider.ErrInvalid) or *provider.RetryableError. The token is never logged.
 func (m *Minter) Get(ctx context.Context, token, path string, query url.Values, out any) (http.Header, error) {
+	return m.Do(ctx, token, http.MethodGet, path, query, nil, http.StatusOK, out)
+}
+
+// Do makes one call authenticated with an installation token from Token: in (when not nil) is
+// sent as the JSON body, and a want-status response is decoded into out (when not nil). It
+// returns the response headers. Errors map as Get's do; the token is never logged.
+func (m *Minter) Do(ctx context.Context, token, method, path string, query url.Values, in any, want int, out any) (http.Header, error) {
+	op := method + " " + path
 	if token == "" {
-		return nil, fmt.Errorf("github: GET %s: no token: %w", path, provider.ErrInvalid)
+		return nil, fmt.Errorf("github: %s: no token: %w", op, provider.ErrInvalid)
 	}
-	return m.send(ctx, m.plain, token, http.MethodGet, path, query, nil, http.StatusOK, out, "GET "+path)
+	return m.send(ctx, m.plain, token, method, path, query, in, want, out, op)
 }
 
 // orgPermissions are the organisation permissions OrgToken may ask for. None of them reaches a
@@ -146,6 +154,12 @@ type orgTokenRequest struct {
 
 func (m *Minter) mintOrg(ctx context.Context, id *identity, org string, perms map[string]string) (cachedToken, error) {
 	find := func() (cachedInstall, error) { return m.findOrgInstallation(ctx, id, org) }
+	return m.mintAccount(ctx, id, org, perms, find)
+}
+
+// mintAccount mints a token on the identity's installation on an account (found with find)
+// with perms and no "repositories": OrgToken's and InstallationRepos' tokens.
+func (m *Minter) mintAccount(ctx context.Context, id *identity, org string, perms map[string]string, find func() (cachedInstall, error)) (cachedToken, error) {
 	inst, fresh, err := m.installationFor(ctx, id, org, find)
 	if err != nil {
 		return cachedToken{}, err

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/compliance-framework/factory/internal/provider"
 	"github.com/compliance-framework/factory/internal/provider/tokens"
@@ -66,21 +65,5 @@ func (c *Conn) list(ctx context.Context, token, path string, query url.Values, m
 	return nil
 }
 
-// nextQuery returns the query of the Link header's rel="next" URL. Only the query is used:
-// the next call goes to the same path on the configured API, wherever the link points.
-func nextQuery(h http.Header) (url.Values, bool) {
-	for _, link := range h.Values("Link") {
-		for part := range strings.SplitSeq(link, ",") {
-			target, params, ok := strings.Cut(strings.TrimSpace(part), ";")
-			if !ok || !strings.Contains(params, `rel="next"`) {
-				continue
-			}
-			u, err := url.Parse(strings.Trim(strings.TrimSpace(target), "<>"))
-			if err != nil {
-				return nil, false
-			}
-			return u.Query(), true
-		}
-	}
-	return nil, false
-}
+// nextQuery returns the query of the Link header's rel="next" URL (tokens.NextPage).
+func nextQuery(h http.Header) (url.Values, bool) { return tokens.NextPage(h) }

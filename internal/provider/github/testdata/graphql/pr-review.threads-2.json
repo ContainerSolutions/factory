@@ -1,0 +1,10 @@
+{
+  "data": {
+    "node": {
+      "reviewThreads": {
+        "pageInfo": { "hasNextPage": false, "endCursor": "Y3Vyc29yOnYyOpHOBhreBQ==" },
+        "nodes": [ { "isResolved": true }, { "isResolved": false } ]
+      }
+    }
+  }
+}

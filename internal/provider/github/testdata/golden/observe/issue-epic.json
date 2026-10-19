@@ -1,0 +1,80 @@
+{
+  "ref": {
+    "provider": "github-public",
+    "kind": "issue",
+    "ref": "compliance-framework/docs#57"
+  },
+  "state": "open",
+  "labels": [
+    "documentation",
+    "factory:epic"
+  ],
+  "author": {
+    "id": "github-public:alice"
+  },
+  "updatedAt": "2026-10-15T09:12:44Z",
+  "issue": {
+    "subIssues": [
+      {
+        "provider": "github-public",
+        "kind": "issue",
+        "ref": "compliance-framework/docs#58"
+      },
+      {
+        "provider": "github-public",
+        "kind": "issue",
+        "ref": "compliance-framework/docs#59"
+      }
+    ],
+    "linkedPRs": [
+      {
+        "provider": "github-public",
+        "kind": "pr",
+        "ref": "compliance-framework/docs#90"
+      },
+      {
+        "provider": "github-public",
+        "kind": "pr",
+        "ref": "compliance-framework/mock-docs#12"
+      }
+    ],
+    "comments": 6
+  },
+  "projections": [
+    {
+      "workItemID": "wi_epic57",
+      "state": {
+        "plan": {
+          "parts": [
+            "intro",
+            "install"
+          ],
+          "size": 2
+        },
+        "review": "pending",
+        "stackNext": 1,
+        "stackTotal": 2
+      },
+      "counters": {
+        "docs-build": 2,
+        "docs-plan": 1
+      },
+      "links": [
+        {
+          "provider": "github-public",
+          "ref": "compliance-framework/docs#57",
+          "kind": "issue",
+          "primary": true
+        },
+        {
+          "provider": "github-public",
+          "ref": "compliance-framework/docs#90",
+          "kind": "pr"
+        }
+      ],
+      "labels": [
+        "factory:epic"
+      ]
+    }
+  ]
+}

@@ -29,8 +29,8 @@ var (
 )
 
 // APIError is a GitHub error response. errors.Is maps its status: 401 → ErrUnauthorized,
-// 403 → ErrForbidden, 404 → provider.ErrNotFound, 422 → provider.ErrInvalid. Rate limits and
-// 5xx come wrapped in a *provider.RetryableError instead.
+// 403 → ErrForbidden, 404 and 410 (a deleted issue) → provider.ErrNotFound, 422 →
+// provider.ErrInvalid. Rate limits and 5xx come wrapped in a *provider.RetryableError instead.
 type APIError struct {
 	// Op is the call that failed ("create installation token").
 	Op         string
@@ -60,7 +60,7 @@ func (e *APIError) Is(target error) bool {
 		return target == ErrUnauthorized
 	case http.StatusForbidden:
 		return target == ErrForbidden
-	case http.StatusNotFound:
+	case http.StatusNotFound, http.StatusGone:
 		return target == provider.ErrNotFound
 	case http.StatusUnprocessableEntity:
 		return target == provider.ErrInvalid
@@ -152,6 +152,16 @@ func (m *Minter) call(ctx context.Context, id *identity, method, path string, in
 // when set, is the installation token sent as the bearer (client then adds no JWT). It returns
 // the response headers (for Link pagination).
 func (m *Minter) send(ctx context.Context, client *http.Client, auth, method, path string, query url.Values, in any, want int, out any, op string) (http.Header, error) {
+	u := m.api.JoinPath(path)
+	if len(query) > 0 {
+		u.RawQuery = query.Encode()
+	}
+	return m.sendURL(ctx, client, auth, method, u, in, want, out, op)
+}
+
+// sendURL is send to an absolute URL on the configured API (the GraphQL endpoint). A nil out
+// skips decoding the response.
+func (m *Minter) sendURL(ctx context.Context, client *http.Client, auth, method string, u *url.URL, in any, want int, out any, op string) (http.Header, error) {
 	var body io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
@@ -159,10 +169,6 @@ func (m *Minter) send(ctx context.Context, client *http.Client, auth, method, pa
 			return nil, fmt.Errorf("github: %s: encode request: %w", op, err)
 		}
 		body = bytes.NewReader(b)
-	}
-	u := m.api.JoinPath(path)
-	if len(query) > 0 {
-		u.RawQuery = query.Encode()
 	}
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
 	if err != nil {
@@ -194,6 +200,9 @@ func (m *Minter) send(ctx context.Context, client *http.Client, auth, method, pa
 	}
 	if res.StatusCode != want {
 		return nil, m.statusError(op, res, data)
+	}
+	if out == nil {
+		return res.Header, nil
 	}
 	if err := json.Unmarshal(data, out); err != nil {
 		return nil, fmt.Errorf("github: %s: decode response: %w", op, err)

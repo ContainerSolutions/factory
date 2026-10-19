@@ -1,0 +1,41 @@
+{
+  "ref": {
+    "provider": "github-public",
+    "kind": "pr",
+    "ref": "compliance-framework/docs#89"
+  },
+  "state": "merged",
+  "labels": [
+    "documentation"
+  ],
+  "author": {
+    "id": "github-public:ccf-factory[bot]",
+    "isBot": true,
+    "isFactory": true,
+    "identity": "author"
+  },
+  "updatedAt": "2026-10-16T09:30:00Z",
+  "pr": {
+    "draft": false,
+    "head": "beef000000000000000000000000000000000002",
+    "base": "main",
+    "checks": {
+      "state": "success",
+      "settled": true
+    },
+    "approvedBy": [
+      {
+        "identity": "reviewer",
+        "commit": "beef000000000000000000000000000000000002"
+      }
+    ],
+    "mergedAt": "2026-10-16T09:29:58Z",
+    "mergeCommit": "abc1230000000000000000000000000000000089"
+  },
+  "deploy": {
+    "state": "success",
+    "sha": "de9100000000000000000000000000000000beef",
+    "url": "https://docs.compliance-framework.example/",
+    "containsMerge": true
+  }
+}

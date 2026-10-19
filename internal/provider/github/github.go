@@ -42,6 +42,12 @@ type Options struct {
 	// TrainRepos are the repos ("owner/name") whose closed issues carry a release train's
 	// state, read by the ccf-train extractor (default DefaultTrainRepos).
 	TrainRepos []string
+	// UIBaseURL is the factory's public URL, which the projection marker's visible line links
+	// to (<UIBaseURL>/workitems/<id>); without it the line has no link.
+	UIBaseURL string
+	// DeployEnvironment is the environment whose latest deployment of the default branch
+	// Observe reports for merged PRs (default DefaultDeployEnvironment).
+	DeployEnvironment string
 }
 
 // DefaultTrainRepos is where CCF's release train keeps its tracking issues.
@@ -66,6 +72,9 @@ func NewAdapter(opts Options) *Adapter {
 		opts.TrainRepos = DefaultTrainRepos
 	}
 	opts.TrainRepos = slices.Clone(opts.TrainRepos)
+	if opts.DeployEnvironment == "" {
+		opts.DeployEnvironment = DefaultDeployEnvironment
+	}
 	return &Adapter{opts: opts}
 }
 
@@ -132,8 +141,15 @@ func (a *Adapter) Connect(ctx context.Context, p v1alpha1.Provider, secrets prov
 	if slices.Contains(ids, EventIdentity) {
 		readIdentity = EventIdentity
 	}
+	var orgs []string
+	if p.Spec.Scope != nil {
+		orgs = slices.Clone(p.Spec.Scope.Orgs)
+	}
 	return &Conn{
 		name:          name,
+		orgs:          orgs,
+		uiBase:        a.opts.UIBaseURL,
+		deployEnv:     a.opts.DeployEnvironment,
 		minter:        minter,
 		clock:         a.opts.Clock,
 		log:           a.opts.Logger.With("provider", name),
@@ -154,7 +170,11 @@ const EventIdentity = "author"
 
 // Conn is a connection to one GitHub Provider instance. It is safe for concurrent use.
 type Conn struct {
-	name          string
+	name string
+	// orgs is the Provider's scope.orgs: List's outer bound and where its globs look.
+	orgs          []string
+	uiBase        string
+	deployEnv     string
 	minter        *tokens.Minter
 	clock         clock.Clock
 	log           *slog.Logger
@@ -279,21 +299,6 @@ func healthReason(err error) string {
 }
 
 // ---- Not implemented yet ---------------------------------------------------------------------
-
-// Observe implements provider.Conn. TODO(GH-S1-T03): one GraphQL query per object.
-func (c *Conn) Observe(context.Context, v1alpha1.ObjectRef) (provider.Observation, error) {
-	return provider.Observation{}, fmt.Errorf("github %s: observe: %w", c.name, provider.ErrUnsupported)
-}
-
-// List implements provider.Conn. TODO(GH-S1-T03): open and marked objects in scope.
-func (c *Conn) List(context.Context, v1alpha1.Scope) ([]v1alpha1.ObjectRef, error) {
-	return nil, fmt.Errorf("github %s: list: %w", c.name, provider.ErrUnsupported)
-}
-
-// Project implements provider.Conn. TODO(GH-S1-T03): marker comment and factory labels.
-func (c *Conn) Project(context.Context, v1alpha1.ObjectRef, provider.Projection) error {
-	return fmt.Errorf("github %s: project: %w", c.name, provider.ErrUnsupported)
-}
 
 // Apply implements provider.Conn. TODO(GH-S1-T04): the API-side effect ops.
 func (c *Conn) Apply(context.Context, provider.EffectRequest) (provider.EffectResult, error) {
