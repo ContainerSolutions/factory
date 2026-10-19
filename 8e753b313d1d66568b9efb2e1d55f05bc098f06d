@@ -5,3 +5,6 @@ lisa-design:
 - Failures carry a redacted Result summary (≤500B) instead of nil so the dispatcher sees the cause; a worker cancel carries none.
 - Env allow-list from the owner: PATH, LANG, TERM, DOCKER_*; PATH starts with the workspace bin/ (factory shim → factory-agent fx).
 - Transcript redacted (run tokens, agent token, gh*_/github_pat_/sk-, private keys, Authorization), gzip ≤20MB with a truncation marker; upload failure doesn't fail the run.
+
+lisa-selfreview:
+Pass 1: gap (output schema not reachable by the agent) → contract follow-up as the next agt layer; flaky serve test fixed separately in #35.
