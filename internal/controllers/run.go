@@ -453,6 +453,18 @@ func (r *RunController) Complete(ctx context.Context, taskID string, res v1alpha
 	return f.phase, nil
 }
 
+// ResultSpec is the TaskSpec a task's Result is validated against on complete: the task's
+// TaskSpec, by name, in cat, the live catalog snapshot (the only one the dispatcher keeps;
+// the task's own, provenance.catalogSHA, is gone after a reload). Nil when cat is nil or no
+// longer has it: the Result is then checked against the outcomes only. getTaskOutputSchema
+// serves this TaskSpec's OutputSchemaDocument, so an agent checks with what complete checks.
+func ResultSpec(cat *catalog.Catalog, t *v1alpha1.Task) *catalog.CompiledTaskSpec {
+	if cat == nil {
+		return nil
+	}
+	return cat.TaskSpecs[t.Spec.TaskSpec.Name]
+}
+
 // validateResult checks a Result against the task's TaskSpec output: its schema and outcomes.
 func validateResult(cat *catalog.Catalog, t *v1alpha1.Task, res v1alpha1.Result) error {
 	if res.Task != t.Metadata.ID {
@@ -472,10 +484,7 @@ func validateResult(cat *catalog.Catalog, t *v1alpha1.Task, res v1alpha1.Result)
 			return fmt.Errorf("outcome %q is not one of %s", res.Outcome, strings.Join(out.Outcomes, ", "))
 		}
 	}
-	if cat == nil {
-		return nil
-	}
-	ts := cat.TaskSpecs[t.Spec.TaskSpec.Name]
+	ts := ResultSpec(cat, t)
 	if ts == nil || ts.OutputSchema == nil {
 		return nil
 	}
@@ -488,7 +497,7 @@ func validateResult(cat *catalog.Catalog, t *v1alpha1.Task, res v1alpha1.Result)
 		return fmt.Errorf("decode result: %w", err)
 	}
 	if err := ts.OutputSchema.Validate(inst); err != nil {
-		return fmt.Errorf("schema %s: %s", out.Schema, strings.Join(strings.Fields(err.Error()), " "))
+		return fmt.Errorf("schema %s: %s", ts.Spec.Spec.Output.Schema, strings.Join(strings.Fields(err.Error()), " "))
 	}
 	return nil
 }

@@ -413,6 +413,41 @@ paths:
           $ref: '#/components/responses/NotFound'
         default:
           $ref: '#/components/responses/Error'
+  /tasks/{id}/output-schema:
+    parameters:
+      - $ref: '#/components/parameters/TaskID'
+    get:
+      operationId: getTaskOutputSchema
+      tags: [tasks]
+      summary: Get a task's output schema
+      description: |
+        The JSON Schema (draft 2020-12) of the task's Result: its TaskSpec's `output.schema`,
+        from the live catalog snapshot, which is the one `completeLease` validates the Result
+        against. The agent checks its Result with it before completing, so it can repair it.
+        A schema that refers to other catalog schemas is served as one compound document
+        (they are embedded under `$defs`, by `$id`); references to the v1alpha1 schemas (the
+        base Result) stay references by their `$id`. `404` when the TaskSpec declares no
+        output schema (or is no longer in the catalog). An agent may read only a task it holds
+        the active lease of.
+      security:
+        - agentToken: []
+        - uiSession: []
+        - cliToken: []
+      responses:
+        '200':
+          description: The output schema.
+          content:
+            application/schema+json:
+              schema:
+                $ref: '#/components/schemas/JSONSchemaDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
   /tasks/{id}/context/{n}:
     parameters:
       - $ref: '#/components/parameters/TaskID'
@@ -1588,6 +1623,10 @@ components:
         content:
           type: string
           description: The fetched content. Untrusted content is fenced and hidden parts are marked, not stripped.
+    JSONSchemaDocument:
+      type: object
+      additionalProperties: true
+      description: A JSON Schema (draft 2020-12) document, served as the catalog holds it.
     TranscriptUpload:
       type: object
       description: Where the transcript was stored.

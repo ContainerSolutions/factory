@@ -184,16 +184,20 @@ func (g *gitServer) counts(repo string) (authed, denied, sent int) {
 	return g.authed[repo], g.denied[repo], g.sent[repo]
 }
 
-// dispatcher is the agent API the pipeline calls: the prompt, the context items and the
-// transcript upload.
+// dispatcher is the agent API the pipeline calls: the prompt, the output schema, the context
+// items and the transcript upload.
 type dispatcher struct {
 	t      *testing.T
 	ts     *httptest.Server
 	prompt string
 	digest string // the Digest header; "" = none
-	items  map[int]apiclient.TaskContext
-	gone   map[int]bool
-	limit  int64
+	// schema is the task's output schema; "" = 404 (none). schemaStatus, when set, is the
+	// status getTaskOutputSchema fails with.
+	schema       string
+	schemaStatus int
+	items        map[int]apiclient.TaskContext
+	gone         map[int]bool
+	limit        int64
 
 	mu          sync.Mutex
 	transcripts [][]byte
@@ -222,6 +226,16 @@ func (d *dispatcher) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = io.WriteString(w, d.prompt)
+	case r.Method == http.MethodGet && strings.HasSuffix(p, "/output-schema"):
+		switch {
+		case d.schemaStatus != 0:
+			problem(w, d.schemaStatus, http.StatusText(d.schemaStatus))
+		case d.schema == "":
+			problem(w, http.StatusNotFound, "no output schema")
+		default:
+			w.Header().Set("Content-Type", "application/schema+json")
+			_, _ = io.WriteString(w, d.schema)
+		}
 	case r.Method == http.MethodGet && strings.Contains(p, "/context/"):
 		n, _ := strconv.Atoi(p[strings.LastIndex(p, "/")+1:])
 		it, ok := d.items[n]

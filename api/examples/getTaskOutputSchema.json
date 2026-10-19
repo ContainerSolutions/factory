@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [{ "$ref": "https://factory.ccf.dev/schemas/v1alpha1/result.schema.json" }],
+  "properties": {
+    "outcome": { "enum": ["pr-opened", "pr-updated", "blocked", "needs-info"] },
+    "data": {
+      "type": "object",
+      "required": ["branch"],
+      "properties": { "branch": { "type": "string" }, "pr": { "type": "string" }, "threadsResolved": { "type": "integer" } }
+    }
+  },
+  "required": ["data"]
+}

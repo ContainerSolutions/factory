@@ -687,6 +687,9 @@ type InputSpec = v1alpha1.InputSpec
 // Instructions Instructions is the prompt template.
 type Instructions = v1alpha1.Instructions
 
+// JSONSchemaDocument A JSON Schema (draft 2020-12) document, served as the catalog holds it.
+type JSONSchemaDocument map[string]interface{}
+
 // LLMAuth LLMAuth is the LLM credential ephemeral agents use.
 type LLMAuth = v1alpha1.LLMAuth
 
@@ -1742,6 +1745,9 @@ type ServerInterface interface {
 	// Apply (or record) an effect
 	// (POST /tasks/{id}/effects)
 	CreateEffect(ctx echo.Context, id TaskID) error
+	// Get a task's output schema
+	// (GET /tasks/{id}/output-schema)
+	GetTaskOutputSchema(ctx echo.Context, id TaskID) error
 	// Get a task's rendered prompt
 	// (GET /tasks/{id}/prompt)
 	GetTaskPrompt(ctx echo.Context, id TaskID) error
@@ -2372,6 +2378,28 @@ func (w *ServerInterfaceWrapper) CreateEffect(ctx echo.Context) error {
 	return err
 }
 
+// GetTaskOutputSchema converts echo context to params.
+func (w *ServerInterfaceWrapper) GetTaskOutputSchema(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "id" -------------
+	var id TaskID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", ctx.Param("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter id: %s", err))
+	}
+
+	ctx.Set(string(AgentTokenScopes), []string{})
+
+	ctx.Set(string(UiSessionScopes), []string{})
+
+	ctx.Set(string(CliTokenScopes), []string{})
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.GetTaskOutputSchema(ctx, id)
+	return err
+}
+
 // GetTaskPrompt converts echo context to params.
 func (w *ServerInterfaceWrapper) GetTaskPrompt(ctx echo.Context) error {
 	var err error
@@ -2521,6 +2549,7 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 	router.GET(options.BaseURL+"/tasks/:id", wrapper.GetTask, options.OperationMiddlewares["getTask"]...)
 	router.GET(options.BaseURL+"/tasks/:id/context/:n", wrapper.GetTaskContext, options.OperationMiddlewares["getTaskContext"]...)
 	router.POST(options.BaseURL+"/tasks/:id/effects", wrapper.CreateEffect, options.OperationMiddlewares["createEffect"]...)
+	router.GET(options.BaseURL+"/tasks/:id/output-schema", wrapper.GetTaskOutputSchema, options.OperationMiddlewares["getTaskOutputSchema"]...)
 	router.GET(options.BaseURL+"/tasks/:id/prompt", wrapper.GetTaskPrompt, options.OperationMiddlewares["getTaskPrompt"]...)
 	router.GET(options.BaseURL+"/workitems", wrapper.ListWorkItems, options.OperationMiddlewares["listWorkItems"]...)
 	router.GET(options.BaseURL+"/workitems/:id", wrapper.GetWorkItem, options.OperationMiddlewares["getWorkItem"]...)
@@ -4911,6 +4940,93 @@ func (response CreateEffectdefaultApplicationProblemPlusJSONResponse) VisitCreat
 	return err
 }
 
+type GetTaskOutputSchemaRequestObject struct {
+	Id TaskID `json:"id"`
+}
+
+type GetTaskOutputSchemaResponseObject interface {
+	VisitGetTaskOutputSchemaResponse(w http.ResponseWriter) error
+}
+
+type GetTaskOutputSchema200ApplicationSchemaPlusJSONResponse JSONSchemaDocument
+
+func (response GetTaskOutputSchema200ApplicationSchemaPlusJSONResponse) VisitGetTaskOutputSchemaResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/schema+json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTaskOutputSchema401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetTaskOutputSchema401ApplicationProblemPlusJSONResponse) VisitGetTaskOutputSchemaResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTaskOutputSchema403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetTaskOutputSchema403ApplicationProblemPlusJSONResponse) VisitGetTaskOutputSchemaResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTaskOutputSchema404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetTaskOutputSchema404ApplicationProblemPlusJSONResponse) VisitGetTaskOutputSchemaResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTaskOutputSchemadefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetTaskOutputSchemadefaultApplicationProblemPlusJSONResponse) VisitGetTaskOutputSchemaResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetTaskPromptRequestObject struct {
 	Id TaskID `json:"id"`
 }
@@ -5233,6 +5349,9 @@ type StrictServerInterface interface {
 	// Apply (or record) an effect
 	// (POST /tasks/{id}/effects)
 	CreateEffect(ctx context.Context, request CreateEffectRequestObject) (CreateEffectResponseObject, error)
+	// Get a task's output schema
+	// (GET /tasks/{id}/output-schema)
+	GetTaskOutputSchema(ctx context.Context, request GetTaskOutputSchemaRequestObject) (GetTaskOutputSchemaResponseObject, error)
 	// Get a task's rendered prompt
 	// (GET /tasks/{id}/prompt)
 	GetTaskPrompt(ctx context.Context, request GetTaskPromptRequestObject) (GetTaskPromptResponseObject, error)
@@ -5989,6 +6108,31 @@ func (sh *strictHandler) CreateEffect(ctx echo.Context, id TaskID) error {
 		return err
 	} else if validResponse, ok := response.(CreateEffectResponseObject); ok {
 		return validResponse.VisitCreateEffectResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetTaskOutputSchema operation middleware
+func (sh *strictHandler) GetTaskOutputSchema(ctx echo.Context, id TaskID) error {
+	var request GetTaskOutputSchemaRequestObject
+
+	request.Id = id
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTaskOutputSchema(ctx.Request().Context(), request.(GetTaskOutputSchemaRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTaskOutputSchema")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetTaskOutputSchemaResponseObject); ok {
+		return validResponse.VisitGetTaskOutputSchemaResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

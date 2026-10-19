@@ -152,6 +152,7 @@ Webhooks received during rebuild are accepted and stored as Events; the rule con
   - `RunAPI` is `LeaseIssued`, `Complete(taskID, Result)`, `Abandon`, `CancelRequested` and `AckCancel`, keyed by task id; the API server maps a lease to its task.
 - **Results.**
   - A result is valid when its task matches, its status is known, its outcome is one of the TaskSpec's outcomes (required when the status is `done`), and it passes the output schema.
+  - The output schema is that of the task's TaskSpec in the live catalog snapshot (`controllers.ResultSpec`); a TaskSpec that left the catalog checks the outcomes only. `getTaskOutputSchema` serves the same TaskSpec's schema to the agent, so its repair turn checks what `complete` checks (AGT-S1-T02b, contracts.md §HTTP API).
   - An invalid result fails the task with `invalid-result`. It isn't stored as the run's Result but as an `invalid-result` progress event. A valid result with status `failed` fails the task with `failed`, but its run is `completed`, with the Result stored.
   - `run.result` is the Result's JSON with the `data` fields mirrored at the top level (catalog-poc: `run.result.plan`).
   - The event is `factory/run/<run>`, with facts `run{id, spec, outcome, status, inputs, result, agent, harness{name, model}, reason?}`.

@@ -186,6 +186,10 @@ func TestAgentIsolation(t *testing.T) {
 			r, err := e.c.GetTaskPromptWithResponse(ctx, "tsk_b", bearer(aTok))
 			return replyOf(r.HTTPResponse), r.Body, err
 		}, CodeNotLeaseHolder},
+		{"get B's output schema", func() (reply, []byte, error) {
+			r, err := e.c.GetTaskOutputSchemaWithResponse(ctx, "tsk_b", bearer(aTok))
+			return replyOf(r.HTTPResponse), r.Body, err
+		}, CodeNotLeaseHolder},
 		{"get B's context", func() (reply, []byte, error) {
 			r, err := e.c.GetTaskContextWithResponse(ctx, "tsk_b", 0, bearer(aTok))
 			return replyOf(r.HTTPResponse), r.Body, err

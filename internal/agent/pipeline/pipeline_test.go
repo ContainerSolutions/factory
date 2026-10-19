@@ -12,9 +12,12 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -51,12 +54,6 @@ const (
 	validResult   = `{"status": "done", "outcome": "pr-opened", "summary": "opened acme/docs#13", "data": {"prs": ["acme/docs#13"]}}`
 	invalidResult = `{"status": "done", "outcome": "shipped", "data": {}}`
 )
-
-type schemaFunc func(context.Context, v1alpha1.Task) ([]byte, error)
-
-func (f schemaFunc) OutputSchema(ctx context.Context, t v1alpha1.Task) ([]byte, error) {
-	return f(ctx, t)
-}
 
 // syncBuffer is a concurrency-safe log buffer.
 type syncBuffer struct {
@@ -102,6 +99,7 @@ func newFixture(t *testing.T) *fixture {
 		"lisa/skills/review/SKILL.md":                 "---\nname: review\n---\n",
 	}, nil)
 	f.disp = newDispatcher(t, promptBody)
+	f.disp.schema = releaseDocsSchema
 	f.disp.items[0] = apiclient.TaskContext{Index: 0, Kind: "issue", Ref: "acme/docs#12", Trust: "untrusted", Content: injection}
 
 	f.workRoot = filepath.Join(t.TempDir(), "work")
@@ -125,7 +123,6 @@ func newFixture(t *testing.T) *fixture {
 		Git:           gitw,
 		GitBaseURL:    f.git.ts.URL,
 		SkillsCache:   f.cache,
-		Schemas:       schemaFunc(func(context.Context, v1alpha1.Task) ([]byte, error) { return []byte(releaseDocsSchema), nil }),
 		Environ: func() []string {
 			return []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8", "TERM=dumb", "DOCKER_HOST=unix:///tmp/docker.sock",
 				"SECRET_THING=owner-secret", "GH_TOKEN=owner-gh-token", "AWS_SECRET_ACCESS_KEY=owner-aws", "HOME=/Users/owner", "GIT_ASKPASS=/bin/owner"}
@@ -520,6 +517,101 @@ func TestRunInvalidTwice(t *testing.T) {
 		t.Errorf("%d repair turns, want exactly 1", len(f.adapter.Problems()))
 	}
 	f.checkClean("")
+}
+
+// specInvalidResult passes the v1alpha1 Result schema and the outcomes, and fails only the
+// TaskSpec's own schema (data.prs is required).
+const specInvalidResult = `{"status": "done", "outcome": "pr-opened", "summary": "opened acme/docs#13", "data": {}}`
+
+// schemaSeen records the schema file the harness was given.
+func schemaSeen(seen *[]byte) func(context.Context, harness.Workspace, string) error {
+	return func(_ context.Context, ws harness.Workspace, _ string) error {
+		b, err := os.ReadFile(ws.Schema)
+		*seen = b
+		return err
+	}
+}
+
+// TestRunSpecSchemaRepair: the TaskSpec's schema comes from the dispatcher
+// (getTaskOutputSchema); a Result that violates only that schema gets its repair turn and
+// passes.
+func TestRunSpecSchemaRepair(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	var seen []byte
+	f.adapter.Script = fake.Script{
+		Turn:    fake.Turn{Result: []byte(specInvalidResult), Do: schemaSeen(&seen)},
+		Repairs: []fake.Turn{{Result: []byte(validResult)}},
+	}
+	out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Status != runner.StatusDone || out.Result == nil || len(out.Result.Data["prs"].([]any)) != 1 {
+		t.Fatalf("outcome %+v %+v", out, out.Result)
+	}
+	probs := f.adapter.Problems()
+	if len(probs) != 1 || len(probs[0]) != 1 || !strings.Contains(probs[0][0], "/data") || !strings.Contains(probs[0][0], "prs") {
+		t.Fatalf("repair problems %q, want only the spec schema's data.prs", probs)
+	}
+	if string(seen) != releaseDocsSchema {
+		t.Errorf("the harness's schema file is %s, want the served spec schema", seen)
+	}
+	f.disp.mu.Lock()
+	calls, auths := slices.Clone(f.disp.calls), slices.Clone(f.disp.auths)
+	f.disp.mu.Unlock()
+	i := slices.Index(calls, "GET /api/v1/tasks/"+taskID+"/output-schema")
+	if i < 0 || auths[i] != "Bearer "+agentSecret {
+		t.Errorf("no authenticated getTaskOutputSchema call: %v", calls)
+	}
+	f.checkClean("")
+}
+
+// TestRunNoOutputSchema: a 404 (the TaskSpec declares no schema) falls back to the Result
+// schema and the outcomes, so the same Result passes without a repair turn.
+func TestRunNoOutputSchema(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.disp.schema = ""
+	var seen []byte
+	f.adapter.Script = fake.Script{Turn: fake.Turn{Result: []byte(specInvalidResult), Do: schemaSeen(&seen)}}
+	out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Status != runner.StatusDone || out.Result == nil || len(f.adapter.Problems()) != 0 {
+		t.Fatalf("outcome %+v %+v, repairs %q", out, out.Result, f.adapter.Problems())
+	}
+	gen, err := v1alpha1.Schemas()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(seen, gen[v1alpha1.ResultSchemaFile]) {
+		t.Errorf("the harness's schema file is %s, want the v1alpha1 Result schema", seen)
+	}
+	f.checkClean("")
+}
+
+// TestRunOutputSchemaUnavailable: any failure but a 404 fails the run before the harness
+// starts (checking without the schema could lose the repair turn).
+func TestRunOutputSchemaUnavailable(t *testing.T) {
+	t.Parallel()
+	for _, status := range []int{http.StatusForbidden, http.StatusInternalServerError} {
+		f := newFixture(t)
+		f.disp.schemaStatus = status
+		out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out.Status != runner.StatusFailed || out.Reason != runner.ReasonHarnessError || out.Result == nil ||
+			!strings.Contains(out.Result.Summary, "output-schema") || !strings.Contains(out.Result.Summary, strconv.Itoa(status)) {
+			t.Fatalf("%d: outcome %+v %+v", status, out, out.Result)
+		}
+		if len(f.adapter.Prompts()) != 0 {
+			t.Errorf("%d: the harness started without its schema", status)
+		}
+		f.checkClean("")
+	}
 }
 
 func TestRunWallClockLimit(t *testing.T) {
