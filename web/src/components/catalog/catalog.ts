@@ -209,6 +209,16 @@ export function shortSHA(sha: string): string {
   return sha.slice(0, 12);
 }
 
+/** The stored verdict a dry-run (capitalised) verdict stands for. */
+const STORED_VERDICT: Record<
+  Schemas['EvaluationRail']['verdict'],
+  Schemas['RailVerdict']['verdict']
+> = {
+  Allowed: 'allowed',
+  Suppressed: 'suppressed',
+  Deferred: 'deferred',
+};
+
 /**
  * A dry-run decision in the shape the DecisionWhy drawer shows. An EvaluationRail carries one
  * verdict and no rail name, so it becomes one row named `rails`; the action is its type.
@@ -217,6 +227,7 @@ export function decisionOf(
   evaluation: Schemas['Evaluation'],
   d: Schemas['EvaluationDecision'],
 ): Schemas['Decision'] {
+  const verdict = STORED_VERDICT[d.rail.verdict];
   const decision: Schemas['Decision'] = {
     event: evaluation.event,
     ruleSet: d.ruleSet,
@@ -224,12 +235,12 @@ export function decisionOf(
     fired: d.rail.verdict === 'Allowed',
     rails: [
       d.rail.reason
-        ? { rail: 'rails', verdict: d.rail.verdict, reason: d.rail.reason }
-        : { rail: 'rails', verdict: d.rail.verdict },
+        ? { rail: 'rails', verdict, reason: d.rail.reason }
+        : { rail: 'rails', verdict },
     ],
     actions: [d.action.type],
   };
-  if (d.inputs) decision.inputs = d.inputs as Record<string, never>;
+  if (d.inputs) decision.inputs = d.inputs;
   if (d.rail.reason) decision.reason = d.rail.reason;
   return decision;
 }

@@ -2,7 +2,7 @@ import { http, HttpResponse, type HttpHandler } from 'msw';
 import { API_BASE, type Schemas } from '@/api/client';
 import { examples } from './examples';
 import { poolViews, queueViews } from './pools';
-import { freeform, workItemDetails } from './workitems';
+import { workItemDetails } from './workitems';
 
 type CatalogObject = Schemas['CatalogObject'];
 type Rule = Schemas['Rule'];
@@ -18,16 +18,9 @@ const triage = examples.get('getCatalogObject') as Schemas['TaskSpec'];
 function rule(
   name: string,
   labels: Record<string, string>,
-  spec: Omit<Schemas['RuleSpec'], 'params'> & {
-    params?: Record<string, unknown>;
-  },
+  spec: Schemas['RuleSpec'],
 ): Rule {
-  const { params, ...rest } = spec;
-  return {
-    kind: 'Rule',
-    metadata: { name, labels },
-    spec: params ? { ...rest, params: freeform(params) } : rest,
-  };
+  return { kind: 'Rule', metadata: { name, labels }, spec };
 }
 
 const github = { matchLabels: { family: 'github' } };
@@ -50,7 +43,7 @@ export const rules: readonly Rule[] = [
             context: ['event.object'],
           },
         },
-        { set: freeform({ triage: 'running' }) },
+        { set: { triage: 'running' } },
       ],
       priority: 50,
     },
@@ -62,7 +55,7 @@ export const rules: readonly Rule[] = [
       providerSelector: github,
       on: ['issue.opened'],
       where: "actor.tier == 'maintainer'",
-      actions: [{ set: freeform({ triage: 'skipped' }) }],
+      actions: [{ set: { triage: 'skipped' } }],
     },
   ),
   rule(
@@ -115,8 +108,8 @@ export const ruleSets: readonly Schemas['RuleSet'][] = [
         selector: { matchLabels: { pack: 'intake' } },
         exclude: ['triage-maintainer-issues'],
       },
-      defaults: freeform({ harness: 'claude-code', minApprovals: 2 }),
-      overrides: { 'merge-approved': freeform({ mergeMethod: 'rebase' }) },
+      defaults: { harness: 'claude-code', minApprovals: 2 },
+      overrides: { 'merge-approved': { mergeMethod: 'rebase' } },
       inlineRules: [
         {
           metadata: { name: 'label-docs' },

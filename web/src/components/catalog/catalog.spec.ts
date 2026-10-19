@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { Schemas } from '@/api/client';
 import { examples } from '@/mocks/examples';
 import { providerViews, rules, ruleSets } from '@/mocks/catalog';
-import { freeform } from '@/mocks/workitems';
 import {
   actionKinds,
   decisionOf,
@@ -151,7 +150,7 @@ describe('selectRules', () => {
           selector: { matchLabels: { pack: 'merge' } },
           exclude: ['also-gone'],
         },
-        overrides: { 'merge-approved': freeform({ nope: 1 }) },
+        overrides: { 'merge-approved': { nope: 1 } },
       },
     };
     const { rules: selected, missing } = selectRules(ruleSet, rules);
@@ -187,7 +186,7 @@ describe('dry-run helpers', () => {
       ruleSet: 'docs',
       rule: 'triage-outside-issues',
       fired: true,
-      rails: [{ rail: 'rails', verdict: 'Allowed' }],
+      rails: [{ rail: 'rails', verdict: 'allowed' }],
       actions: ['dispatch'],
       inputs: { 'actor.tier': 'contributor', 'actor.isBot': false },
     });
@@ -203,7 +202,7 @@ describe('dry-run helpers', () => {
       ruleSet: 'a',
       rule: 'b',
       fired: false,
-      rails: [{ rail: 'rails', verdict: 'Suppressed', reason: 'kill-switch' }],
+      rails: [{ rail: 'rails', verdict: 'suppressed', reason: 'kill-switch' }],
       actions: ['set'],
       reason: 'kill-switch',
     });
