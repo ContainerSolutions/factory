@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import type { Schemas } from '@/api/client';
-import { freeform, workItemDetails } from '@/mocks/workitems';
+import { workItemDetails } from '@/mocks/workitems';
 import WorkItemHeader from './WorkItemHeader.vue';
 
 const byName = (name: string) =>
@@ -47,7 +47,7 @@ describe('WorkItemHeader', () => {
         item: {
           ...byName('wi_01JAC0APPROVAL00000000000000'),
           status: {
-            state: freeform({ plan: ['a', 'b'] }),
+            state: { plan: ['a', 'b'] },
             approvals: [
               { name: 'implement', phase: 'Pending' },
               { name: 'merge', phase: 'Granted' },

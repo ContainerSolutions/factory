@@ -5,17 +5,6 @@ import { examples } from './examples';
 type WorkItem = Schemas['WorkItem'];
 type Detail = Schemas['WorkItemDetail'];
 
-/**
- * A free-form object for a field the contract types as `type: object` with no
- * `additionalProperties` (WorkItemStatus.state, Decision.inputs, EventData.facts): openapi-typescript
- * makes those `Record<string, never>`, so no value type-checks without this one cast.
- */
-export function freeform(
-  value: Record<string, unknown>,
-): Record<string, never> {
-  return value as Record<string, never>;
-}
-
 // The contract's own example: a running triage on compliance-framework/docs#42.
 const example = examples.get('getWorkItem') as Detail;
 const exampleTask = example.tasks[0]!;
@@ -58,7 +47,7 @@ function event(
       actor: { id: `github-public:${actor}`, tier: 'maintainer' },
       object: { provider: 'github-public', kind: 'pr', ref: subject },
       repo: `${owner}/${repo}`,
-      facts: freeform(facts),
+      facts: facts,
     },
   };
 }
@@ -89,7 +78,7 @@ const escalated = item(
     },
   ],
   {
-    state: freeform({ stackNext: 1, stackTotal: 2, review: 'needs-human' }),
+    state: { stackNext: 1, stackTotal: 2, review: 'needs-human' },
     counters: { implement: 3, 'docs-review': 3 },
     decisions: [
       {
@@ -98,15 +87,15 @@ const escalated = item(
         ruleSet: 'api',
         rule: 'implement-review-feedback',
         fired: true,
-        inputs: freeform({
+        inputs: {
           'event.review.state': 'changes_requested',
           "item.count('implement')": 3,
           'params.maxImplementRuns': 3,
-        }),
+        },
         rails: [
           {
             rail: 'run-cap',
-            verdict: 'Suppressed',
+            verdict: 'suppressed',
             reason: 'implement ran 3 of 3 times',
           },
         ],
@@ -118,11 +107,11 @@ const escalated = item(
         ruleSet: 'api',
         rule: 'escalate-needs-human',
         fired: true,
-        inputs: freeform({
+        inputs: {
           'run.spec': 'docs-review',
           'run.outcome': 'needs-human',
-        }),
-        rails: [{ rail: 'effects-allowed', verdict: 'Allowed' }],
+        },
+        rails: [{ rail: 'effects-allowed', verdict: 'allowed' }],
         actions: ['effect', 'notify'],
       },
     ],
@@ -212,7 +201,7 @@ const approval = item(
     },
   ],
   {
-    state: freeform({ stackNext: 0, stackTotal: 3 }),
+    state: { stackNext: 0, stackTotal: 3 },
     counters: { 'plan-epic': 1 },
     approvals: [{ name: 'implement', phase: 'Pending' }],
     decisions: [
@@ -222,8 +211,8 @@ const approval = item(
         ruleSet: 'docs-epic',
         rule: 'plan-epic',
         fired: true,
-        inputs: freeform({ 'event.labels': ['epic'] }),
-        rails: [{ rail: 'run-cap', verdict: 'Allowed' }],
+        inputs: { 'event.labels': ['epic'] },
+        rails: [{ rail: 'run-cap', verdict: 'allowed' }],
         actions: ['dispatch', 'set'],
       },
     ],
@@ -243,7 +232,7 @@ const waiting = item(
     },
   ],
   {
-    state: freeform({ triage: 'needs-info' }),
+    state: { triage: 'needs-info' },
     counters: { triage: 1 },
     decisions: [
       {
@@ -252,8 +241,8 @@ const waiting = item(
         ruleSet: 'ui',
         rule: 'triage-outside-issues',
         fired: true,
-        inputs: freeform({ 'actor.tier': 'contributor' }),
-        rails: [{ rail: 'run-cap', verdict: 'Allowed' }],
+        inputs: { 'actor.tier': 'contributor' },
+        rails: [{ rail: 'run-cap', verdict: 'allowed' }],
         actions: ['dispatch', 'set'],
       },
     ],
@@ -274,11 +263,11 @@ const release = item(
     },
   ],
   {
-    state: freeform({
+    state: {
       release: 'drafting',
       train: 'platform/release-notes@v1.9.0',
       manifest: 'repos.yaml',
-    }),
+    },
     counters: { 'release-docs': 1 },
     decisions: [
       {
@@ -287,11 +276,11 @@ const release = item(
         ruleSet: 'release-docs',
         rule: 'draft-release-docs',
         fired: true,
-        inputs: freeform({ 'event.release.tag': 'v1.9.0' }),
+        inputs: { 'event.release.tag': 'v1.9.0' },
         rails: [
           {
             rail: 'budget',
-            verdict: 'Deferred',
+            verdict: 'deferred',
             reason: 'queue default is at its daily budget',
           },
         ],
@@ -319,7 +308,7 @@ const doneRecent = item(
     },
   ],
   {
-    state: freeform({ review: 'approved', merge: 'merged' }),
+    state: { review: 'approved', merge: 'merged' },
     counters: { triage: 1, implement: 1, 'docs-review': 1, merge: 1 },
     decisions: [
       {
@@ -328,8 +317,8 @@ const doneRecent = item(
         ruleSet: 'docs',
         rule: 'merge-approved',
         fired: true,
-        inputs: freeform({ 'item.pr.checks.state': 'success' }),
-        rails: [{ rail: 'run-cap', verdict: 'Allowed' }],
+        inputs: { 'item.pr.checks.state': 'success' },
+        rails: [{ rail: 'run-cap', verdict: 'allowed' }],
         actions: ['dispatch'],
       },
     ],
@@ -349,7 +338,7 @@ const doneOld = item(
     },
   ],
   {
-    state: freeform({ merge: 'merged' }),
+    state: { merge: 'merged' },
     counters: { merge: 1 },
     decisions: [
       {
@@ -358,7 +347,7 @@ const doneOld = item(
         ruleSet: 'docs',
         rule: 'merge-approved',
         fired: true,
-        rails: [{ rail: 'run-cap', verdict: 'Allowed' }],
+        rails: [{ rail: 'run-cap', verdict: 'allowed' }],
         actions: ['dispatch'],
       },
     ],

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTime, formatValue, toneOf } from './format';
+import { formatTime, formatValue, railVerdictLabel, toneOf } from './format';
 
 describe('formatTime', () => {
   it.each<[string | Date | undefined, string]>([
@@ -39,5 +39,17 @@ describe('toneOf', () => {
     [undefined, 'neutral'],
   ])('%s → %s', (status, want) => {
     expect(toneOf(status)).toBe(want);
+  });
+});
+
+describe('railVerdictLabel', () => {
+  it.each([
+    ['allowed', 'Allowed'],
+    ['suppressed', 'Suppressed'],
+    ['deferred', 'Deferred'],
+    ['unsupported', 'Unsupported'],
+  ])('%s → %s', (verdict, want) => {
+    expect(railVerdictLabel(verdict)).toBe(want);
+    expect(toneOf(want)).not.toBe('neutral');
   });
 });

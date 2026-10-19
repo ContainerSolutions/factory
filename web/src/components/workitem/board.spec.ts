@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Schemas } from '@/api/client';
-import { freeform, workItemDetails } from '@/mocks/workitems';
+import { workItemDetails } from '@/mocks/workitems';
 import {
   boardLanes,
   facets,
@@ -29,7 +29,6 @@ function wi(
   };
 }
 
-const state = freeform;
 const items = workItemDetails.map((d) => d.workItem);
 const NOW = new Date('2026-10-19T12:00:00Z');
 
@@ -111,7 +110,7 @@ describe('laneOf', () => {
     ['only refs and ids', { ...train }, 'waiting'],
     ['an unknown word', { review: 'pondering', merge: 'merged' }, 'done'],
   ])('%s', (_, values, want) => {
-    expect(laneOf(wi({ state: state(values) }))).toBe(want);
+    expect(laneOf(wi({ state: values }))).toBe(want);
   });
 
   it.each<[string, WorkItem['status'], LaneId]>([
@@ -119,7 +118,7 @@ describe('laneOf', () => {
     [
       'a pending approval',
       {
-        state: state({ ...stack }),
+        state: { ...stack },
         approvals: [{ name: 'implement', phase: 'Pending' }],
       },
       'needs-human',
@@ -127,7 +126,7 @@ describe('laneOf', () => {
     [
       'a pending approval beats done',
       {
-        state: state({ review: 'approved' }),
+        state: { review: 'approved' },
         approvals: [{ name: 'merge', phase: 'Pending' }],
       },
       'needs-human',
@@ -135,7 +134,7 @@ describe('laneOf', () => {
     [
       'a granted approval',
       {
-        state: state({ ...stack }),
+        state: { ...stack },
         approvals: [{ name: 'implement', phase: 'Granted' }],
       },
       'waiting',

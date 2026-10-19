@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
 import type { Schemas } from '@/api/client';
 import { examples } from '@/mocks/examples';
-import { freeform, workItemDetails } from '@/mocks/workitems';
+import { workItemDetails } from '@/mocks/workitems';
 import WorkItemTimeline from './WorkItemTimeline.vue';
 
 const example = examples.get('getWorkItem') as Schemas['WorkItemDetail'];
@@ -72,7 +72,7 @@ describe('WorkItemTimeline', () => {
           ...example.events[0]!,
           data: {
             ...example.events[0]!.data,
-            facts: freeform({ title: '<b>bold</b>' }),
+            facts: { title: '<b>bold</b>' },
           },
         },
       ],

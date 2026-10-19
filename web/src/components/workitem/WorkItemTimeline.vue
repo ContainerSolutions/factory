@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import type { Schemas } from '@/api/client';
 import StatusPill from '@/components/shared/StatusPill.vue';
-import { formatTime } from '@/components/shared/format';
+import { formatTime, railVerdictLabel } from '@/components/shared/format';
 import SecondaryButton from '@/volt/SecondaryButton.vue';
 import { asRecord } from './board';
 import { timelineOf } from './timeline';
@@ -38,7 +38,7 @@ function safeURL(url: string | undefined): string | undefined {
 function blockingRails(
   decision: Schemas['Decision'],
 ): Schemas['RailVerdict'][] {
-  return (decision.rails ?? []).filter((r) => r.verdict !== 'Allowed');
+  return (decision.rails ?? []).filter((r) => r.verdict !== 'allowed');
 }
 </script>
 
@@ -101,8 +101,8 @@ function blockingRails(
             <StatusPill
               v-for="rail in blockingRails(entry.decision)"
               :key="rail.rail"
-              :label="`${rail.rail}: ${rail.verdict}`"
-              :tone="rail.verdict === 'Deferred' ? 'warn' : 'danger'"
+              :label="`${rail.rail}: ${railVerdictLabel(rail.verdict)}`"
+              :tone="rail.verdict === 'deferred' ? 'warn' : 'danger'"
             />
             <SecondaryButton
               size="small"

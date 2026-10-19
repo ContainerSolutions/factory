@@ -4,7 +4,7 @@ import type { Schemas } from '@/api/client';
 import Drawer from '@/volt/Drawer.vue';
 import JsonViewer from './JsonViewer.vue';
 import StatusPill from './StatusPill.vue';
-import { formatTime } from './format';
+import { formatTime, railVerdictLabel } from './format';
 
 /**
  * Why a rule did (or didn't) act: the RuleSet, the rule, the inputs its `where` saw, the rail
@@ -97,7 +97,9 @@ const title = computed(() =>
               class="border-t border-ccf-200 dark:border-ccf-800"
             >
               <td class="py-1 pr-3 font-mono text-xs">{{ rail.rail }}</td>
-              <td class="py-1 pr-3"><StatusPill :label="rail.verdict" /></td>
+              <td class="py-1 pr-3">
+                <StatusPill :label="railVerdictLabel(rail.verdict)" />
+              </td>
               <td class="py-1">{{ rail.reason ?? '' }}</td>
             </tr>
           </tbody>

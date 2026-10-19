@@ -40,10 +40,11 @@ const TONES: Record<string, Tone> = {
   failed: 'danger',
   Cancelling: 'warn',
   Cancelled: 'neutral',
-  // Rail verdicts.
+  // Rail verdicts, by their display label.
   Allowed: 'success',
   Suppressed: 'danger',
   Deferred: 'warn',
+  Unsupported: 'danger',
   // Approval phases.
   Granted: 'success',
   Denied: 'danger',
@@ -52,4 +53,9 @@ const TONES: Record<string, Tone> = {
 
 export function toneOf(status: string | undefined): Tone {
   return (status && TONES[status]) || 'neutral';
+}
+
+/** The display label for a stored (lowercase) rail verdict: `suppressed` → `Suppressed`. */
+export function railVerdictLabel(verdict: string): string {
+  return verdict.charAt(0).toUpperCase() + verdict.slice(1);
 }

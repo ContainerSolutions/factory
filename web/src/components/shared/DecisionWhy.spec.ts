@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
 import type { Schemas } from '@/api/client';
-import { freeform } from '@/mocks/workitems';
 import DecisionWhy from './DecisionWhy.vue';
 
 const decision: Schemas['Decision'] = {
@@ -11,10 +10,10 @@ const decision: Schemas['Decision'] = {
   ruleSet: 'api',
   rule: 'implement-review-feedback',
   fired: true,
-  inputs: freeform({ "item.count('implement')": 3 }),
+  inputs: { "item.count('implement')": 3 },
   rails: [
-    { rail: 'run-cap', verdict: 'Suppressed', reason: 'ran 3 of 3 times' },
-    { rail: 'budget', verdict: 'Allowed' },
+    { rail: 'run-cap', verdict: 'suppressed', reason: 'ran 3 of 3 times' },
+    { rail: 'budget', verdict: 'allowed' },
   ],
   actions: ['dispatch'],
 };
