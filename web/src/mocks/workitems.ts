@@ -341,7 +341,7 @@ export const liveRun: Schemas['Run'] = {
         at: '2026-10-19T11:56:10Z',
         kind: 'tool',
         message: 'read repos.yaml',
-        data: freeform({ turn: 2 }),
+        data: { turn: 2 },
       },
     ],
     usage: { inputTokens: 18200, outputTokens: 900, turns: 4, costUSD: null },

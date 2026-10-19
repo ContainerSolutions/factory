@@ -6,7 +6,6 @@ import type { Schemas } from '@/api/client';
 import { fakeEventSources } from '@/__tests__/eventSource';
 import { mountWithApp } from '@/__tests__/mount';
 import { eventSourceKey } from '@/composables/useStream';
-import { freeform } from '@/mocks/workitems';
 import { server } from '@/mocks/node';
 import { workItemDetails } from '@/mocks/workitems';
 import BoardView from './BoardView.vue';
@@ -115,7 +114,7 @@ describe('BoardView', () => {
       {
         ...waiting,
         metadata: { ...waiting.metadata, resourceVersion: '9' },
-        status: { ...waiting.status, state: freeform({ triage: 'running' }) },
+        status: { ...waiting.status, state: { triage: 'running' } },
       },
       '9',
     );

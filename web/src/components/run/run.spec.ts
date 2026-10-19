@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Schemas } from '@/api/client';
-import { freeform, liveRun } from '@/mocks/workitems';
+import { liveRun } from '@/mocks/workitems';
 import {
   formatCost,
   formatCount,
@@ -35,7 +35,7 @@ describe('runStateOf', () => {
 });
 
 describe('turnOf', () => {
-  it.each<[unknown, number | undefined]>([
+  it.each<[ProgressEvent['data'], number | undefined]>([
     [{ turn: 3 }, 3],
     [{ turn: '3' }, undefined],
     [{ turn: 1.5 }, undefined],
@@ -44,7 +44,7 @@ describe('turnOf', () => {
     const event: ProgressEvent = {
       at: '2026-10-19T11:55:40Z',
       kind: 'tool',
-      data: data === undefined ? undefined : freeform(data as never),
+      data,
     };
     expect(turnOf(event)).toBe(want);
   });
@@ -68,7 +68,7 @@ describe('mergeProgress', () => {
   });
 
   it('tells events apart by every field', () => {
-    const withData: ProgressEvent = { ...b, data: freeform({ turn: 2 }) };
+    const withData: ProgressEvent = { ...b, data: { turn: 2 } };
     expect(mergeProgress([b], [withData])).toEqual([b, withData]);
   });
 
