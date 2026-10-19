@@ -1,0 +1,17 @@
+# ngrok Traffic Policy for the PoC tunnel (rollout.md §Dispatcher hosting), passed with
+#   ngrok http --url="$FACTORY_PUBLIC_URL" --traffic-policy-file=deploy/poc/ngrok-policy.yml 8080
+# Defence in depth: factory serve keeps /healthz, /readyz and /metrics on its loopback-only ops
+# listener (127.0.0.1:9090), never on :8080, where these paths only get the UI's index.html
+# (the single-page app's fallback). The tunnel refuses them before they reach the dispatcher.
+on_http_request:
+  - name: deny the ops routes
+    expressions:
+      - >-
+        req.url.path in ['/healthz', '/readyz', '/metrics'] ||
+        req.url.path.startsWith('/healthz/') ||
+        req.url.path.startsWith('/readyz/') ||
+        req.url.path.startsWith('/metrics/')
+    actions:
+      - type: deny
+        config:
+          status_code: 404

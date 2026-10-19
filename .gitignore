@@ -1,5 +1,7 @@
 # Secrets: never commit. deploy/poc/.env holds the PoC dispatcher's credentials.
 deploy/poc/.env
+# The PoC dispatcher's logs (deploy/poc/run.sh).
+deploy/poc/logs/
 .env
 .env.*
 *.env

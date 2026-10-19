@@ -34,6 +34,10 @@ smoke-claude: ## Maintainer machine only, never CI: a trivial task end to end th
 	@if [ -n "$$CI" ]; then echo "smoke-claude runs a real claude on a maintainer machine, never in CI"; exit 1; fi
 	FACTORY_SMOKE_CLAUDE=1 go test -count=1 -v -run '^TestSmokeClaude$$' ./internal/agent/harness/claudecode/
 
+.PHONY: poc-up
+poc-up: ## Start the PoC dispatcher: deploy/poc/run.sh (loads deploy/poc/.env, make build-release unless SKIP_BUILD=1, factory serve)
+	deploy/poc/run.sh
+
 .PHONY: lint
 lint: $(LINT_CONFIG) ## Run golangci-lint with the shared CCF config, as CI does
 	golangci-lint run --config=$(LINT_CONFIG)
