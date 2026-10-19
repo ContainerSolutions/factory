@@ -230,6 +230,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tasks/{id}/output-schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The task id (`tsk_…`). */
+                id: components["parameters"]["TaskID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a task's output schema
+         * @description The JSON Schema (draft 2020-12) of the task's Result: its TaskSpec's `output.schema`,
+         *     from the live catalog snapshot, which is the one `completeLease` validates the Result
+         *     against. The agent checks its Result with it before completing, so it can repair it.
+         *     A schema that refers to other catalog schemas is served as one compound document
+         *     (they are embedded under `$defs`, by `$id`); references to the v1alpha1 schemas (the
+         *     base Result) stay references by their `$id`. `404` when the TaskSpec declares no
+         *     output schema (or is no longer in the catalog). An agent may read only a task it holds
+         *     the active lease of.
+         */
+        get: operations["getTaskOutputSchema"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tasks/{id}/context/{n}": {
         parameters: {
             query?: never;
@@ -911,6 +941,10 @@ export interface components {
             /** @description The fetched content. Untrusted content is fenced and hidden parts are marked, not stripped. */
             content: string;
         };
+        /** @description A JSON Schema (draft 2020-12) document, served as the catalog holds it. */
+        JSONSchemaDocument: {
+            [key: string]: unknown;
+        };
         /** @description Where the transcript was stored. */
         TranscriptUpload: {
             transcriptRef: string;
@@ -1097,7 +1131,7 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** @description A safety rail's verdict on an action (the rule engine's RailVerdict). */
+        /** @description A safety rail's verdict on an action, as the dry-run summarises it. This is a different view from the stored RailVerdict (lowercase allowed, suppressed, deferred, unsupported): an unsupported action shows as Suppressed, and the rail name is prefixed to the reason. */
         EvaluationRail: {
             /** @enum {string} */
             verdict: "Allowed" | "Suppressed" | "Deferred";
@@ -1152,7 +1186,9 @@ export interface components {
         Action: {
             dispatch?: components["schemas"]["DispatchAction"];
             /** @description Set updates work-item state keys; values are literals or "=CEL". */
-            set?: Record<string, never>;
+            set?: {
+                [key: string]: unknown;
+            };
             notify?: components["schemas"]["NotifyAction"];
             requestApproval?: components["schemas"]["ApprovalSpec"];
             cancel?: components["schemas"]["CancelAction"];
@@ -1292,7 +1328,9 @@ export interface components {
             rule?: string;
             fired?: boolean;
             /** @description Inputs are the values `where` saw. */
-            inputs?: Record<string, never>;
+            inputs?: {
+                [key: string]: unknown;
+            };
             rails?: components["schemas"]["RailVerdict"][];
             actions?: string[];
             reason?: string;
@@ -1315,7 +1353,9 @@ export interface components {
             taskSpec: string;
             queue: string;
             /** @description Inputs must match the TaskSpec's declared inputs. */
-            inputs?: Record<string, never>;
+            inputs?: {
+                [key: string]: unknown;
+            };
             harness?: components["schemas"]["ExprOrHarnessRequest"];
             requires?: components["schemas"]["Requires"];
             /** @description Context lists what the agent is given, e.g. event.object. */
@@ -1359,7 +1399,9 @@ export interface components {
             target: components["schemas"]["ObjectRef"];
             idempotencyKey: string;
             identity?: string;
-            request?: Record<string, never>;
+            request?: {
+                [key: string]: unknown;
+            };
         };
         /** @description EffectStatus is what happened. */
         EffectStatus: {
@@ -1404,7 +1446,9 @@ export interface components {
             object?: components["schemas"]["ObjectRef"];
             repo?: string;
             contentRef?: string;
-            facts?: Record<string, never>;
+            facts?: {
+                [key: string]: unknown;
+            };
             /** @description Raw is the provider payload, kept for audit; never shown to rules. */
             raw?: unknown;
         };
@@ -1676,7 +1720,9 @@ export interface components {
             at: string;
             kind: string;
             message?: string;
-            data?: Record<string, never>;
+            data?: {
+                [key: string]: unknown;
+            };
         };
         /** @description PromptRef is where the agent fetches the rendered prompt. */
         PromptRef: {
@@ -1738,10 +1784,14 @@ export interface components {
             budget?: components["schemas"]["Budget"];
             retry?: components["schemas"]["RetryPolicy"];
         };
-        /** @description RailVerdict is one safety rail's verdict on a decision. */
+        /** @description RailVerdict is one safety rail's verdict on a decision as the work item stores it (lowercase, unsupported included); the dry-run API's EvaluationRail is a different view of it (Allowed, Suppressed or Deferred), where unsupported shows as Suppressed and the rail name is prefixed to the reason. */
         RailVerdict: {
             rail: string;
-            verdict: string;
+            /**
+             * @description Verdict is the stored verdict; the dry-run's EvaluationRail.verdict is its summary.
+             * @enum {string}
+             */
+            verdict: "allowed" | "suppressed" | "deferred" | "unsupported";
             reason?: string;
         };
         /** @description RepoMount is one repo in the workspace. */
@@ -1762,13 +1812,17 @@ export interface components {
             status: "done" | "failed" | "needs_input" | "noop";
             outcome?: string;
             summary?: string;
-            verdict?: Record<string, never>;
+            verdict?: {
+                [key: string]: unknown;
+            };
             artifacts?: components["schemas"]["Artifact"][];
             suggest?: components["schemas"]["Suggestion"][];
             /** @description Question is set when Status is needs_input; null otherwise. */
             question: string | null;
             harness?: components["schemas"]["ResultHarness"];
-            data?: Record<string, never>;
+            data?: {
+                [key: string]: unknown;
+            };
         };
         /** @description ResultHarness is the harness that ran, its effective config and usage. */
         ResultHarness: {
@@ -1824,10 +1878,14 @@ export interface components {
             rules: components["schemas"]["RuleSelection"];
             /** @description Overrides are per-rule params, by rule name. */
             overrides?: {
-                [key: string]: Record<string, never>;
+                [key: string]: {
+                    [key: string]: unknown;
+                };
             };
             /** @description Defaults are params applied to every selected rule unless the rule overrides them. */
-            defaults?: Record<string, never>;
+            defaults?: {
+                [key: string]: unknown;
+            };
             budget?: components["schemas"]["Budget"];
             /** @description StateKeys, when declared, are the only keys `set` may write. */
             stateKeys?: string[];
@@ -1841,7 +1899,9 @@ export interface components {
             on: components["schemas"]["EventType"][];
             /** @description Where is CEL over event, actor, item, run, approval, provider, params, now. */
             where?: string;
-            params?: Record<string, never>;
+            params?: {
+                [key: string]: unknown;
+            };
             actions: components["schemas"]["Action"][];
             priority?: number;
             final?: boolean;
@@ -1919,7 +1979,9 @@ export interface components {
         Suggestion: {
             taskSpec: string;
             reason?: string;
-            inputs?: Record<string, never>;
+            inputs?: {
+                [key: string]: unknown;
+            };
         };
         /** @description Target says which repo or object the work happens on, when it isn't the event's object. */
         Target: {
@@ -1971,7 +2033,9 @@ export interface components {
             pool?: string;
             provider?: string;
             target?: components["schemas"]["Target"];
-            inputs?: Record<string, never>;
+            inputs?: {
+                [key: string]: unknown;
+            };
             harness?: components["schemas"]["TaskHarness"];
             requires?: components["schemas"]["Requires"];
             skills?: components["schemas"]["SkillRef"][];
@@ -1981,6 +2045,13 @@ export interface components {
             effects?: components["schemas"]["EffectsPolicy"];
             limits?: components["schemas"]["Limits"];
             output?: components["schemas"]["OutputSpec"];
+            /**
+             * @description Hosts are copied from the TaskSpec's workspace.hosts when the Task is compiled: the
+             *     extra hostnames the agent adds to the sandbox allow-list, on top of the git host, the
+             *     dispatcher and the local stack. Same rules as workspace.hosts (ValidateHost, at most
+             *     20).
+             */
+            hosts?: string[];
         };
         /** @description TaskSpec is what and how for one role, with no triggers or transitions. */
         TaskSpec: {
@@ -2088,7 +2159,9 @@ export interface components {
         };
         /** @description WorkItemStatus is the work item's state, set only by rules and controllers. */
         WorkItemStatus: {
-            state?: Record<string, never>;
+            state?: {
+                [key: string]: unknown;
+            };
             /** @description Counters are runs per task spec (derived). */
             counters?: {
                 [key: string]: number;
@@ -2108,6 +2181,17 @@ export interface components {
              *     repos are public: they are cloned anonymously and get no read-only token.
              */
             publicReads?: boolean;
+            /**
+             * @description Hosts are the extra hostnames a sandboxed harness may reach, on top of the git host, the
+             *     dispatcher and the local stack, e.g. registry.npmjs.org for a docs task's yarn install.
+             *     Each is a lowercase hostname of at least two labels with an optional port and an
+             *     optional single leading "*." label followed by at least two labels (*.example.com, not
+             *     *.com); no scheme, path, userinfo, IP literal or localhost; at most 20 (ValidateHost).
+             *     The compiler copies them to the Task's spec.hosts.
+             *     Hosts widen what a prompt-injected run could reach, so a catalog change to them needs
+             *     two approvals (FACTORY-CAT-002).
+             */
+            hosts?: string[];
         };
     };
     responses: {
@@ -2550,6 +2634,33 @@ export interface operations {
                 };
                 content: {
                     "text/plain": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getTaskOutputSchema: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The task id (`tsk_…`). */
+                id: components["parameters"]["TaskID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The output schema. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/schema+json": components["schemas"]["JSONSchemaDocument"];
                 };
             };
             401: components["responses"]["Unauthorized"];

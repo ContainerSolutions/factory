@@ -239,6 +239,13 @@ export const operations: readonly MockOperation[] = [
     contentType: 'application/json',
   },
   {
+    id: 'getTaskOutputSchema',
+    method: 'get',
+    path: '/api/v1/tasks/{id}/output-schema',
+    status: 200,
+    contentType: 'application/schema+json',
+  },
+  {
     id: 'getTaskPrompt',
     method: 'get',
     path: '/api/v1/tasks/{id}/prompt',
