@@ -1,0 +1,46 @@
+{
+  "event": "gh-127/0",
+  "workItem": "wi-epic",
+  "matches": [],
+  "decisions": [],
+  "stateAfter": {
+    "plan": [
+      {
+        "dependsOn": [],
+        "issue": "compliance-framework/docs#71",
+        "title": "Enable Docusaurus i18n with pt-BR"
+      },
+      {
+        "dependsOn": [
+          "compliance-framework/docs#71"
+        ],
+        "issue": "compliance-framework/docs#72",
+        "title": "PT-BR glossary"
+      },
+      {
+        "dependsOn": [
+          "compliance-framework/docs#72"
+        ],
+        "issue": "compliance-framework/docs#73",
+        "title": "Translate the general section"
+      },
+      {
+        "dependsOn": [
+          "compliance-framework/docs#73"
+        ],
+        "issue": "compliance-framework/docs#74",
+        "title": "Translate the API reference"
+      },
+      {
+        "dependsOn": [
+          "compliance-framework/docs#74"
+        ],
+        "issue": "compliance-framework/docs#75",
+        "title": "Translate the plugin pages"
+      }
+    ],
+    "review": "running",
+    "stackNext": 4,
+    "stackTotal": 5
+  }
+}

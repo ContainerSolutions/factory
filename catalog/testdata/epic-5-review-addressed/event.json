@@ -1,0 +1,28 @@
+{
+  "kind": "Event",
+  "id": "factory-run-impl-6",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-impl-6",
+        "spec": "implement",
+        "outcome": "pr-updated",
+        "status": "done",
+        "inputs": {
+          "mode": "address-review",
+          "target": "stack"
+        },
+        "result": {
+          "pr": "compliance-framework/docs#85",
+          "branch": "factory/stack/wi-epic/4",
+          "threadsResolved": 2
+        }
+      }
+    }
+  },
+  "workItem": "wi-epic"
+}

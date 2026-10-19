@@ -1,0 +1,11 @@
+{
+  "id": "wi-train",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/workflows#123",
+      "kind": "issue",
+      "primary": true
+    }
+  ]
+}

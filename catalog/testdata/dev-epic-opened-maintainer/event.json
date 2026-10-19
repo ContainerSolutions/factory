@@ -1,0 +1,28 @@
+{
+  "kind": "Event",
+  "id": "gh-124/0",
+  "source": "github-public",
+  "type": "issue.opened",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "github-public",
+    "actor": {
+      "id": "github-public:admin",
+      "tier": "maintainer"
+    },
+    "object": {
+      "provider": "github-public",
+      "kind": "issue",
+      "ref": "compliance-framework/mock-docs#30"
+    },
+    "facts": {
+      "issue": {
+        "title": "Mock docs in PT-BR (i18n)",
+        "labels": [
+          "epic"
+        ],
+        "body": "Translate the documentation site to Brazilian Portuguese: enable Docusaurus i18n, add a glossary, then translate section by section."
+      }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "event": "gh-108/0",
+  "workItem": "wi-train",
+  "matches": [
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "docs-on-release-train",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "docs-on-release-train",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "params"
+      ]
+    }
+  ],
+  "decisions": [],
+  "stateAfter": {}
+}

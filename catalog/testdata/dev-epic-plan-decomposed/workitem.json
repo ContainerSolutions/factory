@@ -1,0 +1,18 @@
+{
+  "id": "wi-mock-epic",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/mock-docs#30",
+      "kind": "issue",
+      "primary": true
+    }
+  ],
+  "state": {
+    "plan": "planning"
+  },
+  "reporter": {
+    "id": "github-public:admin",
+    "tier": "maintainer"
+  }
+}

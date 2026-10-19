@@ -1,0 +1,113 @@
+{
+  "event": "gh-121/0",
+  "workItem": "wi-epic",
+  "matches": [
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "announce-ptbr-live",
+      "result": "matched",
+      "inputs": [
+        "item"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "announce-ptbr-live",
+      "action": {
+        "notify": {
+          "template": "ptbr-live",
+          "to": [
+            {
+              "item": "primary"
+            }
+          ]
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "announce-ptbr-live",
+      "action": {
+        "effect": {
+          "op": "close",
+          "target": "primary"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "announce-ptbr-live",
+      "action": {
+        "set": {
+          "key": "announced",
+          "value": true
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "item"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "announced": true,
+    "merge": "merged",
+    "plan": [
+      {
+        "dependsOn": [],
+        "issue": "compliance-framework/docs#71",
+        "title": "Enable Docusaurus i18n with pt-BR"
+      },
+      {
+        "dependsOn": [
+          "compliance-framework/docs#71"
+        ],
+        "issue": "compliance-framework/docs#72",
+        "title": "PT-BR glossary"
+      },
+      {
+        "dependsOn": [
+          "compliance-framework/docs#72"
+        ],
+        "issue": "compliance-framework/docs#73",
+        "title": "Translate the general section"
+      },
+      {
+        "dependsOn": [
+          "compliance-framework/docs#73"
+        ],
+        "issue": "compliance-framework/docs#74",
+        "title": "Translate the API reference"
+      },
+      {
+        "dependsOn": [
+          "compliance-framework/docs#74"
+        ],
+        "issue": "compliance-framework/docs#75",
+        "title": "Translate the plugin pages"
+      }
+    ],
+    "review": "approved",
+    "stackNext": 4,
+    "stackTotal": 5
+  }
+}

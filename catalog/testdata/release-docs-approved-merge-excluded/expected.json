@@ -1,0 +1,24 @@
+{
+  "event": "gh-113/0",
+  "workItem": "wi-train",
+  "matches": [
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "fix-release-docs-review",
+      "result": "not-matched",
+      "inputs": [
+        "actor",
+        "event",
+        "item",
+        "params"
+      ]
+    }
+  ],
+  "decisions": [],
+  "stateAfter": {
+    "manifest": "repos.yaml",
+    "release": "drafting",
+    "review": "approved",
+    "train": "compliance-framework/workflows#123"
+  }
+}

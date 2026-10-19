@@ -1,0 +1,63 @@
+{
+  "event": "gh-125/0",
+  "workItem": "wi-epic",
+  "matches": [
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "plan-maintainer-epics",
+      "result": "matched",
+      "inputs": [
+        "actor",
+        "event",
+        "params"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "plan-maintainer-epics",
+      "action": {
+        "dispatch": {
+          "taskSpec": "plan-epic",
+          "queue": "poc",
+          "target": {
+            "repo": "compliance-framework/docs",
+            "ref": "compliance-framework/docs#70"
+          }
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor",
+        "event",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "plan-maintainer-epics",
+      "action": {
+        "set": {
+          "key": "plan",
+          "value": "planning"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor",
+        "event",
+        "params"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "plan": "planning"
+  }
+}

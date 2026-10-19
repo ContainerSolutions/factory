@@ -1,0 +1,213 @@
+{
+  "event": "factory-run-release-docs-dev-1",
+  "workItem": "wi-mock-train",
+  "matches": [
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "record-merge-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "record-review-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "record-release-docs-repos",
+      "priority": 100,
+      "result": "matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "record-release-review-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "record-release-docs-repos",
+      "priority": 100,
+      "result": "duplicate",
+      "firedVia": "dev-release-docs",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "record-release-review-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "review-whole-stack",
+      "priority": 50,
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "announce-ptbr-live",
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "build-stack-next",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "build-stack-start",
+      "result": "not-matched",
+      "inputs": [
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "escalate-needs-human",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "fix-stack-review",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "announce-release-docs",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "escalate-needs-human",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "announce-release-docs",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "escalate-needs-human",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "record-release-docs-repos",
+      "action": {
+        "set": {
+          "key": "repos",
+          "value": [
+            {
+              "action": "cut",
+              "instance": "mock-api",
+              "line": "0.3",
+              "repo": "compliance-framework/mock-api",
+              "version": "0.3.0"
+            },
+            {
+              "action": "rows",
+              "instance": "mock-plugin-2",
+              "line": null,
+              "repo": "compliance-framework/mock-plugin-policies-2",
+              "version": "0.3.1"
+            }
+          ]
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "manifest": "repos.mock.yaml",
+    "release": "drafting",
+    "repos": [
+      {
+        "action": "cut",
+        "instance": "mock-api",
+        "line": "0.3",
+        "repo": "compliance-framework/mock-api",
+        "version": "0.3.0"
+      },
+      {
+        "action": "rows",
+        "instance": "mock-plugin-2",
+        "line": null,
+        "repo": "compliance-framework/mock-plugin-policies-2",
+        "version": "0.3.1"
+      }
+    ],
+    "train": "compliance-framework/workflows#124"
+  }
+}

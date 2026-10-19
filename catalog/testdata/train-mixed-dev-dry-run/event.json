@@ -1,0 +1,62 @@
+{
+  "kind": "Event",
+  "id": "gh-106/0",
+  "source": "github-public",
+  "type": "issue.closed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "github-public",
+    "actor": {
+      "id": "github-public:release-bot[bot]",
+      "tier": "maintainer",
+      "isBot": true
+    },
+    "object": {
+      "provider": "github-public",
+      "kind": "issue",
+      "ref": "compliance-framework/workflows#124"
+    },
+    "facts": {
+      "issue": {
+        "title": "Release train 2026-11",
+        "labels": [
+          "release-train",
+          "train:dry-run"
+        ]
+      },
+      "train": {
+        "month": "2026-11",
+        "manifest": "repos.mock.yaml",
+        "dryRun": true,
+        "repos": [
+          {
+            "name": "mock-api",
+            "versions": {
+              ".": "0.3.0"
+            },
+            "bump": "minor"
+          },
+          {
+            "name": "mock-ui",
+            "versions": {
+              ".": "0.1.3"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "mock-plugin-policies-2",
+            "versions": {
+              ".": "0.3.1"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "mock-helm-charts",
+            "versions": {},
+            "bump": "none"
+          }
+        ]
+      }
+    }
+  }
+}

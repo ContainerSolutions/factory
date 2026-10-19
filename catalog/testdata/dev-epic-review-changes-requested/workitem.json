@@ -1,0 +1,100 @@
+{
+  "id": "wi-mock-epic",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/mock-docs#30",
+      "kind": "issue",
+      "primary": true
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/mock-docs#41",
+      "kind": "pr"
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/mock-docs#42",
+      "kind": "pr"
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/mock-docs#43",
+      "kind": "pr"
+    }
+  ],
+  "state": {
+    "plan": [
+      {
+        "issue": "compliance-framework/mock-docs#31",
+        "title": "Enable Docusaurus i18n with pt-BR",
+        "dependsOn": []
+      },
+      {
+        "issue": "compliance-framework/mock-docs#32",
+        "title": "PT-BR glossary",
+        "dependsOn": [
+          "compliance-framework/mock-docs#31"
+        ]
+      },
+      {
+        "issue": "compliance-framework/mock-docs#33",
+        "title": "Translate the general section",
+        "dependsOn": [
+          "compliance-framework/mock-docs#32"
+        ]
+      }
+    ],
+    "stackNext": 2,
+    "stackTotal": 3,
+    "review": "running"
+  },
+  "counters": {
+    "docs-review": 1
+  },
+  "reporter": {
+    "id": "github-public:admin",
+    "tier": "maintainer"
+  },
+  "prs": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/mock-docs#41",
+      "author": {
+        "isFactory": true
+      },
+      "draft": false,
+      "head": "beef",
+      "labels": [],
+      "checks": {
+        "state": "pending"
+      }
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/mock-docs#42",
+      "author": {
+        "isFactory": true
+      },
+      "draft": false,
+      "head": "beef",
+      "labels": [],
+      "checks": {
+        "state": "pending"
+      }
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/mock-docs#43",
+      "author": {
+        "isFactory": true
+      },
+      "draft": false,
+      "head": "beef",
+      "labels": [],
+      "checks": {
+        "state": "pending"
+      }
+    }
+  ]
+}

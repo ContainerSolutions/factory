@@ -1,0 +1,29 @@
+{
+  "kind": "Event",
+  "id": "gh-111/0",
+  "source": "github-public",
+  "type": "pr.opened",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "github-public",
+    "actor": {
+      "id": "github-public:ccf-factory[bot]",
+      "tier": "anyone",
+      "isBot": true,
+      "isFactory": true,
+      "identity": "author"
+    },
+    "object": {
+      "provider": "github-public",
+      "kind": "pr",
+      "ref": "compliance-framework/mock-docs#12"
+    },
+    "facts": {
+      "pr": {
+        "draft": false,
+        "head": "f00d",
+        "base": "main"
+      }
+    }
+  }
+}

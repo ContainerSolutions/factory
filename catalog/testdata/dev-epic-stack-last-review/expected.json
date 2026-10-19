@@ -1,0 +1,191 @@
+{
+  "event": "factory-run-mock-impl-3",
+  "workItem": "wi-mock-epic",
+  "matches": [
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "record-merge-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "record-review-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "record-release-docs-repos",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "record-release-review-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "review-whole-stack",
+      "priority": 50,
+      "result": "matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "announce-ptbr-live",
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "build-stack-next",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "build-stack-start",
+      "result": "not-matched",
+      "inputs": [
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "escalate-needs-human",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "fix-stack-review",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "announce-release-docs",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "escalate-needs-human",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "review-whole-stack",
+      "action": {
+        "dispatch": {
+          "taskSpec": "docs-review",
+          "queue": "poc",
+          "inputs": {
+            "checks": [
+              "i18n",
+              "versioning",
+              "style",
+              "build"
+            ],
+            "target": "stack"
+          }
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "review-whole-stack",
+      "action": {
+        "set": {
+          "key": "review",
+          "value": "running"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "item",
+        "run"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "plan": [
+      {
+        "dependsOn": [],
+        "issue": "compliance-framework/mock-docs#31",
+        "title": "Enable Docusaurus i18n with pt-BR"
+      },
+      {
+        "dependsOn": [
+          "compliance-framework/mock-docs#31"
+        ],
+        "issue": "compliance-framework/mock-docs#32",
+        "title": "PT-BR glossary"
+      },
+      {
+        "dependsOn": [
+          "compliance-framework/mock-docs#32"
+        ],
+        "issue": "compliance-framework/mock-docs#33",
+        "title": "Translate the general section"
+      }
+    ],
+    "review": "running",
+    "stackNext": 2,
+    "stackTotal": 3
+  }
+}

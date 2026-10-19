@@ -1,0 +1,109 @@
+{
+  "event": "gh-103/0",
+  "workItem": "wi-train",
+  "matches": [
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "docs-on-release-train",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "docs-on-release-train",
+      "result": "matched",
+      "inputs": [
+        "event",
+        "params"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "docs-on-release-train",
+      "action": {
+        "dispatch": {
+          "taskSpec": "release-docs",
+          "queue": "poc",
+          "inputs": {
+            "train": "compliance-framework/workflows#123"
+          },
+          "target": {
+            "repo": "compliance-framework/docs"
+          }
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "event",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "docs-on-release-train",
+      "action": {
+        "set": {
+          "key": "manifest",
+          "value": "repos.yaml"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "event",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "docs-on-release-train",
+      "action": {
+        "set": {
+          "key": "release",
+          "value": "drafting"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "event",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "docs-on-release-train",
+      "action": {
+        "set": {
+          "key": "train",
+          "value": "compliance-framework/workflows#123"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "event",
+        "params"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "manifest": "repos.yaml",
+    "release": "drafting",
+    "train": "compliance-framework/workflows#123"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "kind": "Event",
+  "id": "factory-run-release-review-3",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-review-3",
+        "spec": "docs-review",
+        "outcome": "changes-requested",
+        "status": "done",
+        "inputs": {
+          "target": "pr",
+          "verifyAgainst": {
+            "train": "compliance-framework/workflows#123"
+          },
+          "checks": [
+            "version-accuracy",
+            "versioning",
+            "style",
+            "build"
+          ]
+        },
+        "result": {}
+      }
+    }
+  },
+  "workItem": "wi-train"
+}

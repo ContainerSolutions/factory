@@ -1,0 +1,30 @@
+{
+  "kind": "Event",
+  "id": "factory-run-merge-blocked",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-merge-2",
+        "spec": "merge",
+        "outcome": "blocked",
+        "status": "done",
+        "inputs": {
+          "target": "stack",
+          "requiredCheck": "ci / required"
+        },
+        "result": {
+          "merged": [],
+          "blockedBy": {
+            "pr": "compliance-framework/docs#83",
+            "reason": "factory:hold label"
+          }
+        }
+      }
+    }
+  },
+  "workItem": "wi-epic"
+}

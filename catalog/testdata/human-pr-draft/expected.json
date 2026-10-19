@@ -1,0 +1,28 @@
+{
+  "event": "gh-116/0",
+  "workItem": "wi-95",
+  "matches": [
+    {
+      "ruleSet": "poc-docs-human-review",
+      "rule": "review-human-prs",
+      "result": "not-matched",
+      "inputs": [
+        "actor",
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "review-release-docs",
+      "result": "not-matched",
+      "inputs": [
+        "actor",
+        "event",
+        "item",
+        "params"
+      ]
+    }
+  ],
+  "decisions": [],
+  "stateAfter": {}
+}

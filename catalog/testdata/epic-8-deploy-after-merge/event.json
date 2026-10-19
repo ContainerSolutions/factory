@@ -1,0 +1,28 @@
+{
+  "kind": "Event",
+  "id": "gh-121/0",
+  "source": "github-public",
+  "type": "deploy.succeeded",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "github-public",
+    "actor": {
+      "id": "github-public:github-actions[bot]",
+      "tier": "anyone",
+      "isBot": true
+    },
+    "object": {
+      "provider": "github-public",
+      "kind": "deployment",
+      "ref": "compliance-framework/docs#d-991"
+    },
+    "repo": "compliance-framework/docs",
+    "facts": {
+      "deploy": {
+        "environment": "github-pages",
+        "sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "url": "https://compliance-framework.github.io/docs/"
+      }
+    }
+  }
+}
