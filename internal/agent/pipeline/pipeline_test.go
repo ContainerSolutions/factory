@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -159,10 +160,11 @@ func (f *fixture) task() v1alpha1.Task {
 				{Kind: "repo", Provider: "github-public", Ref: "acme/local-dev@main", Mount: "/work/local-dev"},
 				{Kind: "repo", Provider: "github-public", Ref: "acme/private-ro@main", Mount: "/work/private-ro"},
 			},
-			Skills: []v1alpha1.SkillRef{{Source: f.git.ts.URL + "/acme/ccf-skills", Ref: "v0.8.0", Commit: f.skillsCommit, Use: []string{"docs-style", "ccf-review:review"}}},
-			Prompt: &v1alpha1.PromptRef{Ref: "api://tasks/" + taskID + "/prompt", Digest: "sha256:" + hex.EncodeToString(sum[:])},
-			Limits: &v1alpha1.Limits{MaxWallClock: "15m", MaxTurns: 10},
-			Output: &v1alpha1.OutputSpec{Schema: "schemas/results/release-docs.json", Outcomes: []string{"pr-opened", "no-docs-change", "blocked"}},
+			Skills:  []v1alpha1.SkillRef{{Source: f.git.ts.URL + "/acme/ccf-skills", Ref: "v0.8.0", Commit: f.skillsCommit, Use: []string{"docs-style", "ccf-review:review"}}},
+			Prompt:  &v1alpha1.PromptRef{Ref: "api://tasks/" + taskID + "/prompt", Digest: "sha256:" + hex.EncodeToString(sum[:])},
+			Limits:  &v1alpha1.Limits{MaxWallClock: "15m", MaxTurns: 10},
+			Effects: &v1alpha1.EffectsPolicy{Allow: []v1alpha1.EffectOp{v1alpha1.OpPushBranch, v1alpha1.OpPROpen, v1alpha1.OpLabelAdd}, Labels: []string{"docs:*"}},
+			Output:  &v1alpha1.OutputSpec{Schema: "schemas/results/release-docs.json", Outcomes: []string{"pr-opened", "no-docs-change", "blocked"}},
 		},
 	}
 }
@@ -440,12 +442,23 @@ func checkWorkspace(t *testing.T, f *fixture, ws harness.Workspace, prompt strin
 		"FACTORY_HEADLESS": "1", "FACTORY_HARNESS": fake.Name, "FACTORY_TASK_ID": taskID, "FACTORY_API": f.disp.ts.URL,
 		"FACTORY_TOKEN": agentSecret, "FACTORY_OUT": ws.Out, "FACTORY_RESULT": ws.Result, "GH_TOKEN": gitSecret,
 		"HOME": ws.Home, "TMPDIR": ws.Tmp, "LANG": "C.UTF-8", "TERM": "dumb", "DOCKER_HOST": "unix:///tmp/docker.sock",
-		"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1", pipeline.EnvEffector: filepath.Join(ws.Root, pipeline.EffectorFile),
 	}
 	for k, v := range want {
 		if env[k] != v {
 			t.Errorf("env %s = %q, want %q", k, env[k], v)
 		}
+	}
+	// The Effector's config: the task's policy and the workspace layout, no secret.
+	var ec pipeline.EffectorConfig
+	if b, err := os.ReadFile(env[pipeline.EnvEffector]); err != nil || json.Unmarshal(b, &ec) != nil {
+		t.Errorf("the effector config: %v %s", err, b)
+	}
+	wantEC := pipeline.EffectorConfig{Task: taskID, TaskSpec: "release-docs", Provider: "github-public", Repo: "acme/docs",
+		Allow: []string{"push-branch", "pr.open", "label.add"}, Labels: []string{"docs:*"},
+		Outcomes: []string{"pr-opened", "no-docs-change", "blocked"}, RepoDir: ws.Repo, Schema: ws.Schema}
+	if !reflect.DeepEqual(ec, wantEC) {
+		t.Errorf("effector config %+v, want %+v", ec, wantEC)
 	}
 	// Hosts: the git host and the dispatcher's, once each (both are the loopback here).
 	if !slices.Equal(ws.Hosts, []string{"127.0.0.1"}) {

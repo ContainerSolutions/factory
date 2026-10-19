@@ -45,8 +45,8 @@ func TestMain(m *testing.M) {
 		case HookOp:
 			os.Exit(HookMain(os.Args[3:], os.Stdin, os.Stderr))
 		}
-		// Any other op (the Effector's `mcp`, AGT-S1-T05) is a usage error, as in
-		// factory-agent today.
+		// The Effector's ops and `mcp` aren't needed here (internal/agent/effector tests
+		// them): a usage error.
 		os.Exit(2)
 	}
 	os.Exit(m.Run())

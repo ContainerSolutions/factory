@@ -5,33 +5,41 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
+	"github.com/compliance-framework/factory/internal/agent/effector"
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
 	"github.com/compliance-framework/factory/internal/agent/harness/claudecode"
 )
 
-// fxCommand is the Effector CLI (effector.md), on a run's PATH as `factory`. Today it has
-// the ops the run pipeline and the adapters need: the git credential helper and Claude
-// Code's PreToolUse hook; AGT-S1-T05 adds the others.
+// fxCommand is the Effector CLI (effector.md), on a run's PATH as `factory`: the effect ops
+// (internal/agent/effector), `mcp` (the same ops as a stdio MCP server), and the internal
+// ops the run pipeline and the adapters need: the git credential helper and Claude Code's
+// PreToolUse hook.
 func fxCommand() command {
 	return command{
 		name:    "fx",
-		summary: "the Effector CLI, `factory` in a run (today: git-credential, claude-hook)",
+		summary: "the Effector CLI, `factory` in a run (`fx help` lists the ops)",
 		run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return runFx(ctx, args, os.Stdin, stdout, stderr, os.Getenv)
 		},
 	}
 }
 
-// runFx dispatches an Effector op. Exit codes are effector.md's: 2 usage, 5 git failure;
-// claude-hook's are Claude Code's hook protocol (0 allow, 2 block).
+// runFx dispatches an Effector op. Exit codes are effector.md's: 2 usage, 3 not allowed, 4
+// refused or failed, 5 git failure; claude-hook's are Claude Code's hook protocol (0 allow, 2
+// block).
 func runFx(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: factory-agent fx <op> [flags]\n\nops:\n  git-credential get|store|erase   the run's git credential helper (git calls it)\n"+
-			"  claude-hook pre-tool-use         Claude Code's PreToolUse hook (claude calls it)")
+		fxUsage(stderr)
 		return 2
 	}
 	switch args[0] {
+	case "help", "-h", "--help":
+		fxUsage(stdout)
+		return 0
+	case "mcp":
+		return runMCP(ctx, args[1:], stdin, stdout, stderr, getenv)
 	case "git-credential":
 		if len(args) != 2 {
 			fmt.Fprintln(stderr, "usage: factory-agent fx git-credential get|store|erase")
@@ -45,6 +53,22 @@ func runFx(ctx context.Context, args []string, stdin io.Reader, stdout, stderr i
 	case claudecode.HookOp:
 		return claudecode.HookMain(args[1:], stdin, stderr)
 	}
-	fmt.Fprintf(stderr, "factory-agent fx: unknown op %q\n", args[0])
-	return 2
+	if !effector.IsOp(args) {
+		fmt.Fprintf(stderr, "factory-agent fx: unknown op %q\n\n", strings.Join(args, " "))
+		fxUsage(stderr)
+		return 2
+	}
+	e, err := effector.FromEnv(getenv, nil)
+	if err != nil {
+		fmt.Fprintln(stderr, "factory:", err)
+		return 2
+	}
+	return effector.Main(ctx, e, args, stdin, stdout, stderr)
+}
+
+// fxUsage lists the effect ops and the internal ones.
+func fxUsage(w io.Writer) {
+	effector.Usage(w)
+	fmt.Fprintln(w, "\ninternal ops:\n  git-credential get|store|erase   the run's git credential helper (git calls it)\n"+
+		"  claude-hook pre-tool-use         Claude Code's PreToolUse hook (claude calls it)")
 }
