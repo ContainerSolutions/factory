@@ -1,0 +1,33 @@
+[
+  {
+    "kind": "Event",
+    "id": "gh-pull_request_review-submitted/0",
+    "source": "github-public",
+    "type": "pr.review.submitted",
+    "subject": "compliance-framework/docs#90",
+    "time": "2026-10-16T11:00:00Z",
+    "data": {
+      "provider": "github-public",
+      "actor": {
+        "id": "github-public:ccf-factory-reviewer[bot]",
+        "tier": "anyone",
+        "isBot": true,
+        "isFactory": true,
+        "identity": "reviewer"
+      },
+      "object": {
+        "provider": "github-public",
+        "kind": "pr",
+        "ref": "compliance-framework/docs#90"
+      },
+      "repo": "compliance-framework/docs",
+      "contentRef": "github://compliance-framework/docs/pull/90#review-2398765432",
+      "facts": {
+        "review": {
+          "commit": "f00df00df00df00df00df00df00df00df00df00d",
+          "state": "changes_requested"
+        }
+      }
+    }
+  }
+]

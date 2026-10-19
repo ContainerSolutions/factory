@@ -69,7 +69,7 @@ func (e *APIError) Is(target error) bool {
 }
 
 const (
-	maxResponse   = 1 << 20
+	maxResponse   = 8 << 20
 	maxMessage    = 256
 	apiVersion    = "2022-11-28"
 	userAgent     = "ccf-factory"
@@ -144,47 +144,61 @@ func (m *Minter) createToken(ctx context.Context, id *identity, installation int
 // call makes one authenticated (App JWT) GitHub call and decodes a want-status response into
 // out.
 func (m *Minter) call(ctx context.Context, id *identity, method, path string, in any, want int, out any, op string) error {
+	_, err := m.send(ctx, id.client, "", method, path, nil, in, want, out, op)
+	return err
+}
+
+// send makes one GitHub call with client and decodes a want-status response into out. auth,
+// when set, is the installation token sent as the bearer (client then adds no JWT). It returns
+// the response headers (for Link pagination).
+func (m *Minter) send(ctx context.Context, client *http.Client, auth, method, path string, query url.Values, in any, want int, out any, op string) (http.Header, error) {
 	var body io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
 		if err != nil {
-			return fmt.Errorf("github: %s: encode request: %w", op, err)
+			return nil, fmt.Errorf("github: %s: encode request: %w", op, err)
 		}
 		body = bytes.NewReader(b)
 	}
 	u := m.api.JoinPath(path)
+	if len(query) > 0 {
+		u.RawQuery = query.Encode()
+	}
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
 	if err != nil {
-		return fmt.Errorf("github: %s: %w", op, err)
+		return nil, fmt.Errorf("github: %s: %w", op, err)
 	}
 	req.Header.Set("Accept", acceptHeader)
 	req.Header.Set("X-GitHub-Api-Version", apiVersion)
 	req.Header.Set("User-Agent", userAgent)
+	if auth != "" {
+		req.Header.Set("Authorization", "Bearer "+auth)
+	}
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	res, err := id.client.Do(req)
+	res, err := client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return fmt.Errorf("github: %s: %w", op, ctx.Err())
+			return nil, fmt.Errorf("github: %s: %w", op, ctx.Err())
 		}
-		return &provider.RetryableError{Err: fmt.Errorf("github: %s: %w", op, err)}
+		return nil, &provider.RetryableError{Err: fmt.Errorf("github: %s: %w", op, err)}
 	}
 	defer func() { _ = res.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(res.Body, maxResponse))
 	if err != nil {
 		if ctx.Err() != nil {
-			return fmt.Errorf("github: %s: %w", op, ctx.Err())
+			return nil, fmt.Errorf("github: %s: %w", op, ctx.Err())
 		}
-		return &provider.RetryableError{Err: fmt.Errorf("github: %s: read response: %w", op, err)}
+		return nil, &provider.RetryableError{Err: fmt.Errorf("github: %s: read response: %w", op, err)}
 	}
 	if res.StatusCode != want {
-		return m.statusError(op, res, data)
+		return nil, m.statusError(op, res, data)
 	}
 	if err := json.Unmarshal(data, out); err != nil {
-		return fmt.Errorf("github: %s: decode response: %w", op, err)
+		return nil, fmt.Errorf("github: %s: decode response: %w", op, err)
 	}
-	return nil
+	return res.Header, nil
 }
 
 // statusError maps an unexpected status: rate limits (429, or a 403 that says so), 5xx →

@@ -1,0 +1,29 @@
+[
+  {
+    "kind": "Event",
+    "id": "gh-check_run-completed/0",
+    "source": "github-public",
+    "type": "pr.checks.completed",
+    "subject": "compliance-framework/docs#90",
+    "time": "2026-10-16T11:00:00Z",
+    "data": {
+      "provider": "github-public",
+      "actor": {
+        "id": "github-public:github-actions[bot]",
+        "tier": "anyone",
+        "isBot": true
+      },
+      "object": {
+        "provider": "github-public",
+        "kind": "pr",
+        "ref": "compliance-framework/docs#90"
+      },
+      "repo": "compliance-framework/docs",
+      "facts": {
+        "checks": {
+          "state": "failure"
+        }
+      }
+    }
+  }
+]

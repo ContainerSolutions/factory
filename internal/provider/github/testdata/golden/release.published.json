@@ -1,0 +1,37 @@
+[
+  {
+    "kind": "Event",
+    "id": "gh-release-published/0",
+    "source": "github-public",
+    "type": "release.published",
+    "subject": "compliance-framework/api#v1.4.0",
+    "time": "2026-10-16T11:00:00Z",
+    "data": {
+      "provider": "github-public",
+      "actor": {
+        "id": "github-public:ccf-release-bot[bot]",
+        "tier": "bot",
+        "isBot": true
+      },
+      "object": {
+        "provider": "github-public",
+        "kind": "release",
+        "ref": "compliance-framework/api#v1.4.0"
+      },
+      "repo": "compliance-framework/api",
+      "facts": {
+        "release": {
+          "previousTag": "v1.3.10",
+          "semver": {
+            "bump": "minor",
+            "major": 1,
+            "minor": 4,
+            "patch": 0,
+            "prerelease": false
+          },
+          "tag": "v1.4.0"
+        }
+      }
+    }
+  }
+]

@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +22,9 @@ const (
 	reviewerApp = 202
 	org         = "compliance-framework"
 	docs        = org + "/docs"
+	prov        = "github-public"
+	// hookSecret signs the test webhooks.
+	hookSecret = "test-webhook-secret"
 )
 
 var t0 = time.Date(2026, 10, 16, 11, 0, 0, 0, time.UTC)
@@ -45,18 +46,21 @@ func newEnv(t *testing.T) *env {
 	srv.AddApp(authorApp, &authorRSA.PublicKey)
 	srv.AddApp(reviewerApp, &reviewerRSA.PublicKey)
 	srv.AddInstallation(githubtest.Installation{ID: 1, AppID: authorApp, Owner: org, Permissions: map[string]string{
-		"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read",
+		"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read", "members": "read",
 	}})
 	srv.AddInstallation(githubtest.Installation{ID: 2, AppID: reviewerApp, Owner: org, Permissions: map[string]string{
 		"contents": "write", "pull_requests": "write", "issues": "read", "metadata": "read",
 	}})
+	srv.SetSlug(authorApp, "ccf-factory")
+	srv.SetSlug(reviewerApp, "ccf-factory-reviewer")
 	return &env{
 		srv:     srv,
 		clk:     clk,
-		adapter: github.NewAdapter(github.Options{HTTPClient: srv.Client(), Clock: clk}),
+		adapter: github.NewAdapter(github.Options{HTTPClient: srv.Client(), Clock: clk, Groups: provider.StaticGroups(testGroups)}),
 		secrets: map[string][]byte{
 			"ccf-factory/app_private_key":          authorKey,
 			"ccf-factory-reviewer/app_private_key": reviewerKey,
+			"github-public/webhook_secret":         []byte(hookSecret),
 		},
 		p: v1alpha1.Provider{
 			TypeMeta: v1alpha1.TypeMeta{Kind: "Provider"},
@@ -74,6 +78,18 @@ func newEnv(t *testing.T) *env {
 			},
 		},
 	}
+}
+
+// testGroups are the catalog Groups trust rules name in the tests.
+var testGroups = map[string]v1alpha1.GroupSpec{
+	"maintainers": {Members: []v1alpha1.GroupSource{
+		{Provider: "slack-ccf", UserGroup: "@maintainers"}, // another provider's source: skipped
+		{Provider: prov, OrgRole: &v1alpha1.OrgRole{Org: org, Role: "admin"}},
+	}},
+	"docs-team": {Members: []v1alpha1.GroupSource{
+		{Provider: prov, Team: org + "/no-such-team"}, // unresolvable: not a member
+		{Provider: prov, Team: org + "/docs"},
+	}, Cache: &v1alpha1.GroupCache{TTL: "1m"}},
 }
 
 func (e *env) resolver() provider.SecretResolver {
@@ -133,6 +149,9 @@ func TestConnectRefused(t *testing.T) {
 		{"bad key", func(e *env) { e.secrets["ccf-factory/app_private_key"] = []byte("s3cr3t but not PEM") }, provider.ErrInvalid},
 		{"bad API URL", func(e *env) { e.p.Spec.GitHub.APIURL = "file:///etc" }, provider.ErrInvalid},
 		{"missing secret", func(e *env) { delete(e.secrets, "ccf-factory-reviewer/app_private_key") }, nil},
+		{"missing webhook secret", func(e *env) { delete(e.secrets, "github-public/webhook_secret") }, nil},
+		{"empty webhook secret", func(e *env) { e.secrets["github-public/webhook_secret"] = nil }, provider.ErrInvalid},
+		{"incomplete webhook secret ref", func(e *env) { e.p.Spec.GitHub.Webhook.SecretRef.Key = "" }, provider.ErrInvalid},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -270,25 +289,15 @@ func TestNotImplementedYet(t *testing.T) {
 	ref := v1alpha1.ObjectRef{Provider: "github-public", Kind: provider.KindIssue, Ref: docs + "#1"}
 	_, observeErr := c.Observe(ctx, ref)
 	_, listErr := c.List(ctx, v1alpha1.Scope{})
-	_, groupErr := c.ResolveGroup(ctx, v1alpha1.GroupSource{})
-	_, normErr := c.Normalise(ctx, provider.RawEvent{})
 	_, applyErr := c.Apply(ctx, provider.EffectRequest{})
 	for name, err := range map[string]error{
-		"Recover":      c.Recover(ctx, t0, nil),
-		"Normalise":    normErr,
-		"ResolveGroup": groupErr,
-		"Observe":      observeErr,
-		"List":         listErr,
-		"Project":      c.Project(ctx, ref, provider.Projection{}),
-		"Apply":        applyErr,
+		"Observe": observeErr,
+		"List":    listErr,
+		"Project": c.Project(ctx, ref, provider.Projection{}),
+		"Apply":   applyErr,
 	} {
 		if !errors.Is(err, provider.ErrUnsupported) {
 			t.Errorf("%s = %v, want ErrUnsupported", name, err)
 		}
-	}
-	rec := httptest.NewRecorder()
-	c.Handler(nil).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hooks/github-public", nil))
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("Handler = %d, want 503 (GitHub redelivers)", rec.Code)
 	}
 }

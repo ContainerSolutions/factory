@@ -1,0 +1,109 @@
+{
+  "action": "completed",
+  "repository": {
+    "id": 712034561,
+    "node_id": "R_kgDOKm712034561",
+    "name": "docs",
+    "full_name": "compliance-framework/docs",
+    "private": false,
+    "owner": {
+      "login": "compliance-framework",
+      "id": 152837014,
+      "node_id": "U_kgDO152837014",
+      "avatar_url": "https://avatars.githubusercontent.com/u/152837014?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/compliance-framework",
+      "html_url": "https://github.com/compliance-framework",
+      "type": "Organization",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "html_url": "https://github.com/compliance-framework/docs",
+    "description": null,
+    "fork": false,
+    "url": "https://api.github.com/repos/compliance-framework/docs",
+    "created_at": "2023-11-20T10:02:11Z",
+    "updated_at": "2026-10-15T08:00:00Z",
+    "pushed_at": "2026-10-16T10:58:00Z",
+    "default_branch": "main",
+    "visibility": "public",
+    "topics": [],
+    "archived": false
+  },
+  "organization": {
+    "login": "compliance-framework",
+    "id": 152837014,
+    "node_id": "O_kgDOCRwPlg",
+    "url": "https://api.github.com/orgs/compliance-framework",
+    "repos_url": "https://api.github.com/orgs/compliance-framework/repos",
+    "avatar_url": "https://avatars.githubusercontent.com/u/152837014?v=4",
+    "description": "Continuous Compliance Framework"
+  },
+  "sender": {
+    "login": "github-actions[bot]",
+    "id": 41898282,
+    "node_id": "U_kgDO41898282",
+    "avatar_url": "https://avatars.githubusercontent.com/u/41898282?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/github-actions[bot]",
+    "html_url": "https://github.com/github-actions",
+    "type": "Bot",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "installation": {
+    "id": 61234567,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uNjEyMzQ1Njc="
+  },
+  "check_run": {
+    "id": 51234567890,
+    "node_id": "CR_kwDOKm51234567890",
+    "head_sha": "f00df00df00df00df00df00df00df00df00df00d",
+    "external_id": "ci-go",
+    "status": "completed",
+    "conclusion": "FAILURE",
+    "name": "ci / go",
+    "started_at": "2026-10-16T10:55:00Z",
+    "completed_at": "2026-10-16T11:00:00Z",
+    "output": {
+      "title": "Tests failed",
+      "summary": "2 failing",
+      "text": null,
+      "annotations_count": 2
+    },
+    "check_suite": {
+      "id": 30123456790,
+      "head_branch": "release-docs"
+    },
+    "app": {
+      "id": 15368,
+      "slug": "github-actions",
+      "name": "GitHub Actions"
+    },
+    "pull_requests": [
+      {
+        "url": "https://api.github.com/repos/compliance-framework/docs/pulls/90",
+        "id": 2100000090,
+        "number": 90,
+        "head": {
+          "ref": "feature-90",
+          "sha": "abcabc",
+          "repo": {
+            "id": 712034561,
+            "url": "https://api.github.com/repos/compliance-framework/docs",
+            "name": "docs"
+          }
+        },
+        "base": {
+          "ref": "main",
+          "sha": "111111",
+          "repo": {
+            "id": 712034561,
+            "url": "https://api.github.com/repos/compliance-framework/docs",
+            "name": "docs"
+          }
+        }
+      }
+    ]
+  }
+}
