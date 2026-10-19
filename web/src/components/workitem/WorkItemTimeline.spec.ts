@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
+import { createMemoryHistory } from 'vue-router';
 import type { Schemas } from '@/api/client';
 import { examples } from '@/mocks/examples';
 import { workItemDetails } from '@/mocks/workitems';
+import { createAppRouter } from '@/router';
 import WorkItemTimeline from './WorkItemTimeline.vue';
 
 const example = examples.get('getWorkItem') as Schemas['WorkItemDetail'];
@@ -11,7 +13,12 @@ const example = examples.get('getWorkItem') as Schemas['WorkItemDetail'];
 function mountTimeline(detail: Schemas['WorkItemDetail']) {
   return mount(WorkItemTimeline, {
     props: { detail },
-    global: { plugins: [[PrimeVue, { unstyled: true }]] },
+    global: {
+      plugins: [
+        createAppRouter(createMemoryHistory()),
+        [PrimeVue, { unstyled: true }],
+      ],
+    },
   });
 }
 
@@ -37,6 +44,9 @@ describe('WorkItemTimeline', () => {
     expect(task).toContain('queue triage');
     expect(task).toContain('Running');
     expect(run).toContain('attempt 1 on agt_gusfcarvalho-mbp-01');
+    expect(entries[3]!.get('a').attributes('href')).toBe(
+      '/runs/run_01JAB3M3P4Q5R6S7T8V9W0X1YZ',
+    );
     expect(run).toContain('outcome: triaged');
     expect(effect).toContain('comment on compliance-framework/docs#42');
     expect(entries[4]!.get('a').attributes()).toMatchObject({
@@ -86,8 +96,9 @@ describe('WorkItemTimeline', () => {
     const wrapper = mountTimeline(detail);
     expect(wrapper.find('b').exists()).toBe(false);
     expect(wrapper.text()).toContain('<b>bold</b>');
-    expect(wrapper.find('a').exists()).toBe(false);
-    expect(wrapper.text()).toContain('javascript:alert(1)');
+    const effect = wrapper.get('li[data-kind="effect"]');
+    expect(effect.find('a').exists()).toBe(false);
+    expect(effect.text()).toContain('javascript:alert(1)');
   });
 
   it('shows a failed effect', () => {

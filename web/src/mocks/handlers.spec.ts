@@ -44,7 +44,7 @@ describe('mock handlers', () => {
 
   it('serves the transcript gzip-compressed', async () => {
     const res = await fetch(
-      `${window.location.origin}${API_BASE}/runs/run_1/transcript`,
+      `${window.location.origin}${API_BASE}/runs/run_01JAB3M3P4Q5R6S7T8V9W0X1YZ/transcript`,
     );
     expect(res.headers.get('Content-Type')).toBe('application/gzip');
     const text = await new Response(

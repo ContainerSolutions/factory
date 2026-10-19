@@ -2,6 +2,13 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { api, describeProblem, type Schemas } from '@/api/client';
 
+/** Whether `a` is an older version than `b`; versions that aren't numbers never are. */
+function isOlder(a: Schemas['WorkItem'], b: Schemas['WorkItem']): boolean {
+  const va = Number(a.metadata.resourceVersion);
+  const vb = Number(b.metadata.resourceVersion);
+  return Number.isFinite(va) && Number.isFinite(vb) && va < vb;
+}
+
 /** Work items for the board (`GET /workitems`) and the open work item (`GET /workitems/{id}`). */
 export const useWorkItemsStore = defineStore('workitems', () => {
   const items = ref<Schemas['WorkItem'][]>([]);
@@ -43,6 +50,24 @@ export const useWorkItemsStore = defineStore('workitems', () => {
   /** Appends the next page; a no-op on the last page. */
   async function loadMore(): Promise<void> {
     if (nextCursor.value) await fetchPage(nextCursor.value);
+  }
+
+  /**
+   * Applies a `workitem.updated` event to the loaded work items: replaces the one with the same
+   * name, unless the loaded one is newer (a larger `resourceVersion`), or adds it first. Nothing
+   * changes before the first page is loaded, which will have it.
+   */
+  function upsert(item: Schemas['WorkItem']): void {
+    if (!loaded.value) return;
+    const i = items.value.findIndex(
+      (w) => w.metadata.name === item.metadata.name,
+    );
+    if (i < 0) {
+      items.value = [item, ...items.value];
+      return;
+    }
+    if (isOlder(item, items.value[i]!)) return;
+    items.value = items.value.map((w, j) => (j === i ? item : w));
   }
 
   const current = ref<Schemas['WorkItemDetail'] | null>(null);
@@ -89,6 +114,7 @@ export const useWorkItemsStore = defineStore('workitems', () => {
     error,
     load,
     loadMore,
+    upsert,
     current,
     currentLoading,
     currentError,

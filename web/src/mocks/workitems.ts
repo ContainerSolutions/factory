@@ -290,6 +290,72 @@ const release = item(
   },
 );
 
+// The deferred dispatch went out once the budget allowed: a run still going at the fixtures'
+// "now", whose progress the mock stream (src/mocks/stream.ts) keeps sending.
+const releaseTask: Schemas['Task'] = {
+  ...exampleTask,
+  metadata: {
+    ...exampleTask.metadata,
+    id: 'tsk_01JAC0RELEASEDRAFT000000000',
+    workItem: release.metadata.name,
+    provenance: {
+      event: 'github-enterprise/ghe-release-1.9.0',
+      ruleSet: 'release-docs',
+      rule: 'draft-release-docs',
+      catalogSHA: CATALOG_SHA,
+    },
+    createdAt: '2026-10-19T11:55:00Z',
+  },
+  spec: {
+    ...exampleTask.spec,
+    taskSpec: { name: 'release-docs' },
+    queue: 'default',
+    provider: 'github-enterprise',
+    target: { provider: 'github-enterprise', repo: 'platform/release-notes' },
+  },
+  status: { phase: 'Running', agent: 'agt_gusfcarvalho-mbp-01', attempts: 1 },
+};
+
+/** A run in progress: no end, Result, effects or transcript yet. */
+export const liveRun: Schemas['Run'] = {
+  kind: 'Run',
+  metadata: {
+    name: 'run_01JAC0RELEASEDRAFT00000000',
+    createdAt: '2026-10-19T11:55:30Z',
+  },
+  spec: {
+    task: releaseTask.metadata.id,
+    attempt: 1,
+    agent: 'agt_gusfcarvalho-mbp-01',
+    owner: 'github-public:gusfcarvalho',
+  },
+  status: {
+    startedAt: '2026-10-19T11:55:30Z',
+    progress: [
+      {
+        at: '2026-10-19T11:55:40Z',
+        kind: 'phase',
+        message: 'cloning platform/release-notes',
+      },
+      {
+        at: '2026-10-19T11:56:10Z',
+        kind: 'tool',
+        message: 'read repos.yaml',
+        data: freeform({ turn: 2 }),
+      },
+    ],
+    usage: { inputTokens: 18200, outputTokens: 900, turns: 4, costUSD: null },
+  },
+};
+
+const releaseDetail: Detail = {
+  workItem: release,
+  events: [],
+  tasks: [releaseTask],
+  runs: [liveRun],
+  effects: [],
+};
+
 // Done two days before the fixtures' "now" (2026-10-19), so it shows in the Done lane.
 const doneRecent = item(
   'wi_01JAC0DONERECENT000000000000',
@@ -360,7 +426,7 @@ function bare(workItem: WorkItem): Detail {
 
 /** The mock work items and their timelines, most recently updated first. */
 export const workItemDetails: readonly Detail[] = [
-  bare(release),
+  releaseDetail,
   escalatedDetail,
   bare(doneRecent),
   bare(approval),
