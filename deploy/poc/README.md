@@ -21,7 +21,7 @@ Commands run from the repository root unless a step says otherwise.
 ## 1. Prerequisites (dispatcher host)
 
 - **Go**, the version in `go.mod`, and **Node `^20.19` with npm `^10.1`** (`web/.nvmrc`, `web/package.json`): `make build-release` builds the UI and embeds it.
-- **git that can read `compliance-framework/ccf-skills`**. That repo is private, and the dispatcher resolves each TaskSpec's skills ref with `git ls-remote` using this host's git credentials. Check with `git ls-remote https://github.com/compliance-framework/ccf-skills HEAD`. If that fails, `gh auth setup-git` sets up a credential helper.
+- **git**. `compliance-framework/ccf-skills` is private: the dispatcher resolves each TaskSpec's skills ref with `git ls-remote` using a read-only token it mints as ccf-factory (factory#68), so ccf-factory must be installed on `ccf-skills` (§2). The host needs no GitHub login of its own; don't give the dispatcher host's git your personal credentials for this.
 - **ngrok** (agent v3) with an account and a stable `ngrok-free.dev` domain. Run `ngrok config add-authtoken` once.
 - `openssl`, `curl`, and `jq` (optional, for reading the logs).
 - Admin on the `compliance-framework` org, to create and install the Apps.
