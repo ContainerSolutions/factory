@@ -1,3 +1,9 @@
+# Re-dispatch after a pending merge run (the merge TaskSpec is one pass): pr.checks.completed
+# covers the next PR's required check completing. A review approving the next PR at its new
+# head (pr.review.submitted) is not in on, and the where reads the stack-level
+# item.state.review, not each PR's approval at its head, so a pending run waiting on an
+# approval isn't re-dispatched when it lands. To settle in RUN-S3, before RUN-S4-T01 takes this
+# rule out of exclude.
 kind: Rule
 metadata: { name: merge-whole-stack, labels: { pack: docs-epic } }                  # excluded from the RuleSet until everything else is trusted (Q10)
 spec:

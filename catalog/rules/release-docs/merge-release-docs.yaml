@@ -1,5 +1,7 @@
 # Excluded from every RuleSet until everything else is trusted (Q10, RUN-S4-T01). Targets the
 # docs PR, as review-release-docs does, so it's safe to include in the dev RuleSet as it is.
+# Its triggers cover a pending merge run's re-dispatch: pr.checks.completed (the check
+# completes) and pr.review.submitted (the approval at the head lands).
 kind: Rule
 metadata: { name: merge-release-docs, labels: { pack: release-docs } }
 spec:

@@ -48,7 +48,7 @@ TaskSpec YAML is as in [10 §TaskSpecs](../../../10-poc.md#taskspecs). Prompts a
 | `plan-epic` | 3–8 sub-issues, each independently reviewable and mergeable in order; each with acceptance criteria; create them with `factory issue create` + `factory issue sub-add`; comment the plan |
 | `implement` | `mode: new` → implement the sub-issue on a branch based on `inputs.base` (`factory/stack/<wi>/<n>`), open PR with base `inputs.base`; `mode: address-review` → address every unresolved thread (`resolve` skill), push, reply/resolve threads; `target: stack` → use `lisa` stack mode one-shot |
 | `docs-review` | use `ccf-review:review` with the `docs-site` pack; with `verifyAgainst` use `docs-verify` against the running versions; one review per PR (stack: per PR, plus a summary comment on the top PR); approve only when no must-fix findings remain; Questions → outcome `needs-human` |
-| `merge` | re-verify gates (approval by reviewer at head, `requiredCheck` green, no unresolved threads, no hold label: `do-not-merge`, `factory:hold` or `factory:stop`, no human `CHANGES_REQUESTED` review newer than the approval); stack: merge bottom-up, retarget the next PR, rebase, wait for checks, continue; review-required block → add merge label (Q5) |
+| `merge` | re-verify gates (approval by reviewer at head, `requiredCheck` green, no unresolved threads, no hold label: `do-not-merge`, `factory:hold` or `factory:stop`, no human `CHANGES_REQUESTED` review newer than the approval); stack, one pass: merge what's ready bottom-up, retarget the next PR, rebase, push; next PR not ready yet (check pending, approval at an old head) → outcome `pending` with `waitingOn`, never poll; review-required block → add merge label (Q5). Outcomes: `merged`, `labelled-for-merge`, `rebased-with-conflicts`, `pending` (non-escalating), `blocked`, `needs-human` |
 
 Result schemas extend the base Result (`status`, `outcome`, `summary`) with `data`:
 
@@ -58,7 +58,7 @@ Result schemas extend the base Result (`status`, `outcome`, `summary`) with `dat
 | `plan-epic` | `plan[]{issue, title, dependsOn[]}` (also mirrored at top-level `plan` for rules: `run.result.plan`) |
 | `implement` | `branch`, `pr`, `threadsResolved`, `stack[]{pr, branch}` |
 | `review` | `findings{mustFix, shouldFix, question}`, `prs[]{pr, event}` |
-| `merge` | `merged[]{pr, sha}`, `blockedBy` |
+| `merge` | `merged[]{pr, sha}`, `blockedBy{pr, reason}` (required on `blocked`, `rebased-with-conflicts`), `waitingOn{pr, reason}` (required on `pending`) |
 
 ## Templates
 
@@ -119,6 +119,7 @@ All `merge-*` rules are in every RuleSet's `rules.exclude` until RUN-S4-T01.
 | `deploy-succeeded-before-merge-recorded` (race) | nothing on the deploy event; then on `factory.run.completed` (merge merged, `item.deploy` success) → `ptbr-live` once |
 | `human-pr-opened` / `human-pr-draft` / `bot-pr` | review / nothing / nothing |
 | `factory-stop-label` | everything suppressed by rails |
+| `merge-pending-no-escalation` | `record-merge-outcome` sets `merge: pending`; `escalate-needs-human` doesn't fire |
 | `hostile-verdict` (future triage pack) | — (not in PoC) |
 
 CI: `make catalog` (validate + rules test + `--coverage`, failing on uncovered PoC rules).

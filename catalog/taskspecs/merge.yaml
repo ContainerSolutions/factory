@@ -4,6 +4,12 @@
 # Labels: ready-to-merge is the merge label (Q5), the fallback when the reviewer App's
 # approval doesn't count toward required reviews: pr.merge's args.mergeLabel and label.add.
 # Nothing else; the hold labels (do-not-merge, factory:hold, factory:stop) are only read.
+#
+# One pass (HEADLESS rule 2: no poll loops). When the next PR of a stack isn't ready yet (its
+# required check is pending, or its approval is at an old head after the rebase), the run ends
+# pending, with data.waitingOn; the rules re-dispatch merge when the check completes or the
+# approval lands. pending doesn't escalate: escalate-needs-human fires on blocked and
+# needs-human only.
 kind: TaskSpec
 metadata: { name: merge }
 spec:
@@ -22,4 +28,4 @@ spec:
   permissions: { contents: write, pull_requests: write }
   effects: { allow: [pr.merge, pr.retarget, stack.rebase, stack.push, pr.comment, label.add], labels: [ready-to-merge] }
   limits: { maxWallClock: 20m }
-  output: { schema: schemas/results/merge.json, outcomes: [merged, labelled-for-merge, rebased-with-conflicts, blocked, needs-human] }
+  output: { schema: schemas/results/merge.json, outcomes: [merged, labelled-for-merge, rebased-with-conflicts, pending, blocked, needs-human] }

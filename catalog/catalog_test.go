@@ -492,14 +492,14 @@ var resultCases = []resultCase{
 	// release-docs: docs-release's data (plan.json's, with pr and checks; ccf-docs dry run).
 	{"release-docs pr-opened", "release-docs", true, `{"task": "t", "status": "done", "outcome": "pr-opened", "summary": "Opened mock-docs#12.", "question": null,
 		"artifacts": [{"kind": "pr", "ref": "compliance-framework/mock-docs#12"}],
-		"data": {"train": "compliance-framework/workflows#77", "branch": "docs/release-train-2026-11", "pr": "compliance-framework/mock-docs#12",
+		"data": {"train": "compliance-framework/workflows#77", "branch": "factory/release-docs/train-2026-11", "pr": "compliance-framework/mock-docs#12",
 			"repos": [
 				{"repo": "compliance-framework/mock-api", "version": "0.3.0", "from": "0.2.3", "bump": "minor", "instance": "mock-api", "line": "0.3", "depth": "full", "action": "cut", "sections": ["api-reference", "notes", "upgrade"], "gifs": []},
 				{"repo": "compliance-framework/mock-plugin-policies-2", "version": "0.3.1", "from": "0.3.0", "bump": "patch", "instance": "mock-plugin-2", "line": null, "depth": "rows", "action": "rows", "sections": ["policy-row"], "gifs": []},
 				{"repo": "compliance-framework/mock-helm-charts", "version": null, "from": null, "bump": "none", "instance": null, "line": null, "depth": null, "action": "skip", "sections": [], "gifs": [], "skipped": "no-instance"}],
 			"checks": {"instances": "pass", "changes": "pass", "build": "not-run"}}}`},
 	{"release-docs no-docs-change", "release-docs", true, `{"task": "t", "status": "done", "outcome": "no-docs-change", "question": null,
-		"data": {"train": "compliance-framework/workflows#78", "branch": "docs/release-train-2026-12", "repos": []}}`},
+		"data": {"train": "compliance-framework/workflows#78", "branch": "factory/release-docs/train-2026-12", "repos": []}}`},
 	{"release-docs blocked", "release-docs", true, `{"task": "t", "status": "done", "outcome": "blocked", "summary": "The train is still running.", "question": null}`},
 	{"release-docs pr-opened without pr", "release-docs", false, `{"task": "t", "status": "done", "outcome": "pr-opened", "question": null,
 		"data": {"train": "compliance-framework/workflows#77", "branch": "b", "repos": []}}`},
@@ -552,6 +552,11 @@ var resultCases = []resultCase{
 	{"merge blocked", "merge", true, `{"task": "t", "status": "done", "outcome": "blocked", "question": null,
 		"data": {"merged": [], "blockedBy": {"pr": "compliance-framework/docs#82", "reason": "factory:hold label"}}}`},
 	{"merge labelled", "merge", true, `{"task": "t", "status": "done", "outcome": "labelled-for-merge", "question": null, "data": {"merged": []}}`},
+	{"merge pending", "merge", true, `{"task": "t", "status": "done", "outcome": "pending", "question": null,
+		"data": {"merged": [{"pr": "compliance-framework/docs#81", "sha": "` + strings.Repeat("a", 40) + `"}],
+			"waitingOn": {"pr": "compliance-framework/docs#82", "reason": "required check pending after the rebase"}}}`},
+	{"merge pending without waitingOn", "merge", false, `{"task": "t", "status": "done", "outcome": "pending", "question": null,
+		"data": {"merged": [{"pr": "compliance-framework/docs#81", "sha": "` + strings.Repeat("a", 40) + `"}]}}`},
 	{"merge merged nothing", "merge", false, `{"task": "t", "status": "done", "outcome": "merged", "question": null, "data": {"merged": []}}`},
 	{"merge blocked without reason", "merge", false, `{"task": "t", "status": "done", "outcome": "blocked", "question": null, "data": {}}`},
 }

@@ -1,0 +1,35 @@
+{
+  "kind": "Event",
+  "id": "factory-run-merge-pending",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-merge-1",
+        "spec": "merge",
+        "outcome": "pending",
+        "status": "done",
+        "inputs": {
+          "target": "stack",
+          "requiredCheck": "ci / required"
+        },
+        "result": {
+          "merged": [
+            {
+              "pr": "compliance-framework/docs#81",
+              "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ],
+          "waitingOn": {
+            "pr": "compliance-framework/docs#82",
+            "reason": "required check pending after the rebase"
+          }
+        }
+      }
+    }
+  },
+  "workItem": "wi-epic"
+}
