@@ -831,7 +831,7 @@ Create `ccf-factory` (author; **the only App with a webhook**) and `ccf-factory-
 
 ### RUN-S0-T03 `[human]` create mock-docs
 
-- **Who:** org owner · **Status:** repo created 2026-10-16; initial commit pushed; Pages source still to be set to GitHub Actions
+- **Who:** org owner · **Status:** done 2026-10-19: repo created, initial commit pushed, Pages source set to GitHub Actions (no workflow or custom domain yet; DOC-S2-T01 adds the deploy workflow)
 
 Create the public repo `compliance-framework/mock-docs` with an initial commit on `main`, and enable GitHub Pages (Actions).
 
