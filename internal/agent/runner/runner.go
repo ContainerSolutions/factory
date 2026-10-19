@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -103,34 +104,69 @@ type Outcome struct {
 	TranscriptRef string
 }
 
-// Credentials holds a task's current git credential, safe for concurrent use. Its String,
-// Format and LogValue never print the token.
+// Credentials holds a task's current git credentials, safe for concurrent use: the task
+// token (the lease's gitCredential) and one read-only token per private read repo (its
+// readCredentials). A heartbeat swaps them together. Its String, Format and LogValue never
+// print a token.
 type Credentials struct {
-	mu sync.RWMutex
-	c  apiclient.GitCredential
+	mu   sync.RWMutex
+	c    apiclient.GitCredential
+	read []apiclient.GitCredential
 }
 
-// NewCredentials holds c.
-func NewCredentials(c apiclient.GitCredential) *Credentials { return &Credentials{c: c} }
+// NewCredentials holds the task token c and the read-only tokens read.
+func NewCredentials(c apiclient.GitCredential, read ...apiclient.GitCredential) *Credentials {
+	return &Credentials{c: c, read: cloneCreds(read)}
+}
 
-// Get returns the current credential.
+// Get returns the current task token.
 func (c *Credentials) Get() apiclient.GitCredential {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.c
 }
 
-// Set swaps in a refreshed credential.
+// Set swaps in a refreshed task token.
 func (c *Credentials) Set(n apiclient.GitCredential) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.c = n
 }
 
+// Reads returns the current read-only tokens.
+func (c *Credentials) Reads() []apiclient.GitCredential {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return cloneCreds(c.read)
+}
+
+// SetReads swaps in refreshed read-only tokens (heartbeat refreshedReadCredentials): they
+// replace the previous ones.
+func (c *Credentials) SetReads(read []apiclient.GitCredential) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.read = cloneCreds(read)
+}
+
+func cloneCreds(in []apiclient.GitCredential) []apiclient.GitCredential {
+	if len(in) == 0 {
+		return nil
+	}
+	return append([]apiclient.GitCredential(nil), in...)
+}
+
 // String describes the credential without its token.
 func (c *Credentials) String() string {
 	g := c.Get()
-	return fmt.Sprintf("git credential for %s on %s, expires %s, token [REDACTED]", g.Repo, g.Host, g.ExpiresAt.Format(time.RFC3339))
+	s := fmt.Sprintf("git credential for %s on %s, expires %s, token [REDACTED]", g.Repo, g.Host, g.ExpiresAt.Format(time.RFC3339))
+	if reads := c.Reads(); len(reads) > 0 {
+		repos := make([]string, len(reads))
+		for i, r := range reads {
+			repos[i] = r.Repo
+		}
+		s += fmt.Sprintf("; read-only credentials for %s, tokens [REDACTED]", strings.Join(repos, ", "))
+	}
+	return s
 }
 
 // Format prints String for every verb, so %v, %+v and %#v can't leak the token.

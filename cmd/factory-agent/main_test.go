@@ -285,7 +285,7 @@ func TestWorkerCommandRefusals(t *testing.T) {
 		code int
 		want string
 	}{
-		{"no run pipeline yet", []string{"--config", p}, deps, 1, "AGT-S1-T02"},
+		{"no harness adapter yet", []string{"--config", p}, deps, 1, "no harness adapter for"},
 		{"bad stub result", []string{"--config", p, "--stub-result", p}, deps, 1, "--stub-result"},
 		{"missing base tooling", []string{"--config", p}, workerDeps{Probe: probeOpts("gh-stack"), Config: homeIn(dir)}, 1, "base tool gh-stack"},
 		{"bad config", []string{"--config", filepath.Join(dir, "nope.yaml")}, deps, 1, "config"},

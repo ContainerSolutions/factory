@@ -18,7 +18,8 @@ import (
 const secret = "ghs_secret-token-value"
 
 func TestCredentialsRedacted(t *testing.T) {
-	c := NewCredentials(apiclient.GitCredential{Token: secret, Repo: "o/r", Host: "github.com", ExpiresAt: time.Unix(0, 0).UTC()})
+	c := NewCredentials(apiclient.GitCredential{Token: secret, Repo: "o/r", Host: "github.com", ExpiresAt: time.Unix(0, 0).UTC()},
+		apiclient.GitCredential{Token: secret + "-read", Repo: "o/private"})
 	var logs bytes.Buffer
 	slog.New(slog.NewJSONHandler(&logs, nil)).Info("cred", "c", c)
 	j, err := json.Marshal(struct{ C *Credentials }{c})
@@ -30,9 +31,21 @@ func TestCredentialsRedacted(t *testing.T) {
 			t.Errorf("leaks or isn't redacted: %s", s)
 		}
 	}
+	if !strings.Contains(c.String(), "o/private") {
+		t.Errorf("String doesn't name the read repos: %s", c)
+	}
 	c.Set(apiclient.GitCredential{Token: "new"})
 	if c.Get().Token != "new" {
 		t.Error("Set didn't swap the credential")
+	}
+	reads := c.Reads()
+	reads[0].Token = "mutated"
+	if c.Reads()[0].Token != secret+"-read" {
+		t.Error("Reads returned the held slice")
+	}
+	c.SetReads([]apiclient.GitCredential{{Token: "new-read", Repo: "o/private"}})
+	if r := c.Reads(); len(r) != 1 || r[0].Token != "new-read" {
+		t.Errorf("SetReads didn't swap the read credentials: %v", r)
 	}
 }
 
