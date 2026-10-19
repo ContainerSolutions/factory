@@ -5,7 +5,7 @@
 
 ## Server
 
-- **Echo v4** (`github.com/labstack/echo/v4`, the same line as `compliance-framework/api`); handlers implement the oapi-codegen **Echo strict** server interface (`internal/apiserver/gen`), registered with its generated `RegisterHandlers`.
+- **Echo v4** (`github.com/labstack/echo/v4` v4.15.x); handlers implement the oapi-codegen **Echo strict** server interface (`internal/apiserver/gen`), registered with its generated `RegisterHandlers`.
 - Middleware chain, as Echo middleware: request ID → structured access log via `slog` (no bodies) → recover → auth (per route group: `/api/v1` agent routes, UI routes, CLI) → body limit (1 MB; transcripts 20 MB) → handler.
 - One `HTTPErrorHandler` renders every error as `application/problem+json`.
 - Plain `http.Handler`s are mounted with `echo.WrapHandler`: the embedded UI (`internal/webui.Handler()`) as the catch-all `GET /*` and `HEAD /*`, and each provider's `Conn.Handler(sink)` at its webhook path. They stay framework-agnostic so they're testable without Echo.
