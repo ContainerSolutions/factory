@@ -1,0 +1,7 @@
+lisa-design:
+- Credential helper: a Unix socket (0700 dir, 0600 socket, in os.TempDir for the 104-byte path cap); git config only via GIT_CONFIG_COUNT env: credential.helper= (drops osxkeychain etc.), then the factory-agent fx git-credential helper, useHttpPath; answers only exact protocol+host+owner/name matches; tokens never on disk, in .git/config, argv or logs.
+- Entries rebuilt per request from runner.Credentials: rw repo ← gitCredential; each private read repo ← its readCredentials token; publicReads and others anonymous; heartbeat refreshes apply on the next request.
+- No output schema reaches the agent (the Task has only a catalog path): validation uses the base Result schema + outcomes behind a SchemaSource seam; the dispatcher's check on complete stays authoritative. Closing needs GET /tasks/{id}/output-schema (next agt layer).
+- Failures carry a redacted Result summary (≤500B) instead of nil so the dispatcher sees the cause; a worker cancel carries none.
+- Env allow-list from the owner: PATH, LANG, TERM, DOCKER_*; PATH starts with the workspace bin/ (factory shim → factory-agent fx).
+- Transcript redacted (run tokens, agent token, gh*_/github_pat_/sk-, private keys, Authorization), gzip ≤20MB with a truncation marker; upload failure doesn't fail the run.
