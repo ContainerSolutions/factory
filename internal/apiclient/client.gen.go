@@ -560,13 +560,13 @@ type EvaluationDecision struct {
 	Action ActionIntent           `json:"action"`
 	Inputs map[string]interface{} `json:"inputs,omitempty"`
 
-	// Rail A safety rail's verdict on an action (the rule engine's RailVerdict).
+	// Rail A safety rail's verdict on an action, as the dry-run summarises it. This is a different view from the stored RailVerdict (lowercase allowed, suppressed, deferred, unsupported): an unsupported action shows as Suppressed, and the rail name is prefixed to the reason.
 	Rail    EvaluationRail `json:"rail"`
 	Rule    string         `json:"rule"`
 	RuleSet string         `json:"ruleSet"`
 }
 
-// EvaluationRail A safety rail's verdict on an action (the rule engine's RailVerdict).
+// EvaluationRail A safety rail's verdict on an action, as the dry-run summarises it. This is a different view from the stored RailVerdict (lowercase allowed, suppressed, deferred, unsupported): an unsupported action shows as Suppressed, and the rail name is prefixed to the reason.
 type EvaluationRail struct {
 	Reason  *string               `json:"reason,omitempty"`
 	Verdict EvaluationRailVerdict `json:"verdict"`
@@ -908,7 +908,7 @@ type QueueView struct {
 	Running int `json:"running"`
 }
 
-// RailVerdict RailVerdict is one safety rail's verdict on a decision.
+// RailVerdict RailVerdict is one safety rail's verdict on a decision as the work item stores it (lowercase, unsupported included); the dry-run API's EvaluationRail is a different view of it (Allowed, Suppressed or Deferred), where unsupported shows as Suppressed and the rail name is prefixed to the reason.
 type RailVerdict = v1alpha1.RailVerdict
 
 // RegisterAgentRequest The agent's pool, host and offer. The credentials travel in the security headers.

@@ -8,6 +8,7 @@
           "$ref": "#/$defs/DispatchAction"
         },
         "set": {
+          "additionalProperties": true,
           "type": "object"
         },
         "notify": {
@@ -186,6 +187,7 @@
           "type": "string"
         },
         "inputs": {
+          "additionalProperties": true,
           "type": "object"
         },
         "harness": {
@@ -517,11 +519,13 @@
         },
         "overrides": {
           "additionalProperties": {
+            "additionalProperties": true,
             "type": "object"
           },
           "type": "object"
         },
         "defaults": {
+          "additionalProperties": true,
           "type": "object"
         },
         "budget": {
@@ -565,6 +569,7 @@
           "type": "string"
         },
         "params": {
+          "additionalProperties": true,
           "type": "object"
         },
         "actions": {

@@ -8,6 +8,7 @@
           "$ref": "#/$defs/DispatchAction"
         },
         "set": {
+          "additionalProperties": true,
           "type": "object"
         },
         "notify": {
@@ -162,6 +163,7 @@
           "type": "string"
         },
         "inputs": {
+          "additionalProperties": true,
           "type": "object"
         },
         "harness": {
@@ -461,6 +463,7 @@
           "type": "string"
         },
         "params": {
+          "additionalProperties": true,
           "type": "object"
         },
         "actions": {

@@ -259,7 +259,7 @@ func diffDecisions(old, cur []GoldenDecision, matches []Change) []Change {
 
 // verdictSummary is "[allowed]", "[suppressed kill-switch: item has factory:stop]".
 func verdictSummary(v v1alpha1.RailVerdict) string {
-	s := v.Verdict
+	s := string(v.Verdict)
 	if v.Rail != "" {
 		s += " " + v.Rail
 	}

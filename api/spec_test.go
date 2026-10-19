@@ -588,9 +588,93 @@ func TestVocabulary(t *testing.T) {
 			}
 		})
 	}
+	var verdicts []any
+	for _, v := range v1alpha1.RailVerdictValues() {
+		verdicts = append(verdicts, v)
+	}
+	verdict := doc.Components.Schemas["RailVerdict"].Value.Properties["verdict"].Value
+	if got, want := strs(verdict.Enum...), strs(verdicts...); !slices.Equal(got, want) {
+		t.Errorf("RailVerdict.verdict enum = %v, want %v", got, want)
+	}
 	status := doc.Components.Schemas["Result"].Value.Properties["status"].Value
 	want := strs(v1alpha1.ResultDone, v1alpha1.ResultFailed, v1alpha1.ResultNeedsInput, v1alpha1.ResultNoop)
 	if got := strs(status.Enum...); !slices.Equal(got, want) {
 		t.Errorf("Result.status enum = %v, want %v", got, want)
+	}
+}
+
+// TestFreeFormObjects checks that every object schema says what its values are: an object
+// with neither properties nor additionalProperties reads to code generators as one with no
+// properties at all (openapi-typescript: Record<string, never>), so no real value type-checks.
+func TestFreeFormObjects(t *testing.T) {
+	doc, _ := load(t)
+	var walk func(at string, ref *openapi3.SchemaRef)
+	walk = func(at string, ref *openapi3.SchemaRef) {
+		if ref == nil || ref.Ref != "" || ref.Value == nil {
+			return
+		}
+		s := ref.Value
+		ap := s.AdditionalProperties
+		if s.Type.Is(openapi3.TypeObject) && len(s.Properties) == 0 && ap.Has == nil && ap.Schema == nil &&
+			len(s.OneOf)+len(s.AnyOf)+len(s.AllOf) == 0 {
+			t.Errorf("%s: object with neither properties nor additionalProperties", at)
+		}
+		for name, p := range s.Properties {
+			walk(at+"."+name, p)
+		}
+		walk(at+"[*]", s.Items)
+		walk(at+"{*}", ap.Schema)
+		for i, refs := range []openapi3.SchemaRefs{s.OneOf, s.AnyOf, s.AllOf} {
+			for j, r := range refs {
+				walk(fmt.Sprintf("%s/%d.%d", at, i, j), r)
+			}
+		}
+	}
+	for name, s := range doc.Components.Schemas {
+		walk(name, s)
+	}
+}
+
+// TestWorkItemFreeFormValues validates the getWorkItem example's work item, whose state and
+// decision inputs are non-empty, against the WorkItem component, and checks that those maps
+// take any value.
+func TestWorkItemFreeFormValues(t *testing.T) {
+	doc, _ := load(t)
+	b, err := fs.ReadFile(api.Examples, api.ExampleFile("getWorkItem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		WorkItem map[string]any `json:"workItem"`
+	}
+	if err := json.Unmarshal(b, &body); err != nil {
+		t.Fatal(err)
+	}
+	status, _ := body.WorkItem["status"].(map[string]any)
+	state, _ := status["state"].(map[string]any)
+	decisions, _ := status["decisions"].([]any)
+	if len(state) == 0 || len(decisions) == 0 {
+		t.Fatal("the getWorkItem example needs a non-empty state and a decision")
+	}
+	decision, _ := decisions[0].(map[string]any)
+	if inputs, _ := decision["inputs"].(map[string]any); len(inputs) == 0 {
+		t.Fatal("the getWorkItem example's decision needs non-empty inputs")
+	}
+	// Values of every JSON type, as rules write them.
+	state["nested"] = map[string]any{"a": []any{1.0, "b", true, nil}}
+	decision["inputs"].(map[string]any)["run.result.verdict"] = map[string]any{"size": "s"}
+
+	wi := doc.Components.Schemas["WorkItem"]
+	if wi == nil {
+		t.Fatal("no WorkItem component")
+	}
+	if err := wi.Value.VisitJSON(body.WorkItem, openapi3.MultiErrors()); err != nil {
+		t.Errorf("work item does not match the WorkItem schema: %v", err)
+	}
+	for _, at := range []struct{ schema, prop string }{{"WorkItemStatus", "state"}, {"Decision", "inputs"}} {
+		p := doc.Components.Schemas[at.schema].Value.Properties[at.prop].Value
+		if ap := p.AdditionalProperties; ap.Has == nil || !*ap.Has {
+			t.Errorf("%s.%s: additionalProperties = %+v, want true", at.schema, at.prop, ap)
+		}
 	}
 }

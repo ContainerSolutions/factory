@@ -30,7 +30,7 @@ func match(t *testing.T, ev Evaluation, set, rule string) Match {
 func decisions(ev Evaluation) []string {
 	out := make([]string, 0, len(ev.Decisions))
 	for _, d := range ev.Decisions {
-		out = append(out, d.RuleSet+"/"+d.Rule+": "+d.Action.String()+" ["+d.Rail.Verdict+"]")
+		out = append(out, d.RuleSet+"/"+d.Rule+": "+d.Action.String()+" ["+string(d.Rail.Verdict)+"]")
 	}
 	return out
 }
