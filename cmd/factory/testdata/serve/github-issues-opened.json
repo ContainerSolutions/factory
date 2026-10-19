@@ -1,0 +1,101 @@
+{
+  "action": "opened",
+  "repository": {
+    "id": 712034561,
+    "node_id": "R_kgDOKm712034561",
+    "name": "docs",
+    "full_name": "compliance-framework/docs",
+    "private": false,
+    "owner": {
+      "login": "compliance-framework",
+      "id": 152837014,
+      "node_id": "U_kgDO152837014",
+      "avatar_url": "https://avatars.githubusercontent.com/u/152837014?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/compliance-framework",
+      "html_url": "https://github.com/compliance-framework",
+      "type": "Organization",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "html_url": "https://github.com/compliance-framework/docs",
+    "description": null,
+    "fork": false,
+    "url": "https://api.github.com/repos/compliance-framework/docs",
+    "created_at": "2023-11-20T10:02:11Z",
+    "updated_at": "2026-10-15T08:00:00Z",
+    "pushed_at": "2026-10-16T10:58:00Z",
+    "default_branch": "main",
+    "visibility": "public",
+    "topics": [],
+    "archived": false
+  },
+  "organization": {
+    "login": "compliance-framework",
+    "id": 152837014,
+    "node_id": "O_kgDOCRwPlg",
+    "url": "https://api.github.com/orgs/compliance-framework",
+    "repos_url": "https://api.github.com/orgs/compliance-framework/repos",
+    "avatar_url": "https://avatars.githubusercontent.com/u/152837014?v=4",
+    "description": "Continuous Compliance Framework"
+  },
+  "sender": {
+    "login": "gus",
+    "id": 1201,
+    "node_id": "U_kgDO00001201",
+    "avatar_url": "https://avatars.githubusercontent.com/u/1201?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/gus",
+    "html_url": "https://github.com/gus",
+    "type": "User",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "installation": {
+    "id": 61234567,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uNjEyMzQ1Njc="
+  },
+  "issue": {
+    "url": "https://api.github.com/repos/compliance-framework/docs/issues/42",
+    "repository_url": "https://api.github.com/repos/compliance-framework/docs",
+    "html_url": "https://github.com/compliance-framework/docs/issues/42",
+    "id": 2900000042,
+    "node_id": "I_kwDOKm000042",
+    "number": 42,
+    "title": "Add i18n with a PT-BR translation",
+    "user": {
+      "login": "gus",
+      "id": 1201,
+      "node_id": "U_kgDO00001201",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1201?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/gus",
+      "html_url": "https://github.com/gus",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "labels": [],
+    "state": "open",
+    "locked": false,
+    "assignee": null,
+    "assignees": [],
+    "milestone": null,
+    "comments": 0,
+    "created_at": "2026-10-16T10:40:00Z",
+    "updated_at": "2026-10-16T11:00:00Z",
+    "closed_at": null,
+    "author_association": "MEMBER",
+    "active_lock_reason": null,
+    "sub_issues_summary": {
+      "total": 0,
+      "completed": 0,
+      "percent_completed": 0
+    },
+    "body": "Translate the docs to PT-BR, one PR per section.",
+    "reactions": {
+      "total_count": 0
+    },
+    "state_reason": null
+  }
+}

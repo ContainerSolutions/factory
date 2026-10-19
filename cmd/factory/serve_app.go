@@ -22,6 +22,7 @@ import (
 	"github.com/compliance-framework/factory/internal/controllers"
 	"github.com/compliance-framework/factory/internal/provider"
 	"github.com/compliance-framework/factory/internal/provider/fake"
+	"github.com/compliance-framework/factory/internal/provider/github"
 	"github.com/compliance-framework/factory/internal/scheduler"
 	"github.com/compliance-framework/factory/internal/server"
 	"github.com/compliance-framework/factory/internal/store"
@@ -31,6 +32,9 @@ import (
 
 // githubHTTPTimeout bounds each call to GitHub's OAuth and user endpoints.
 const githubHTTPTimeout = 30 * time.Second
+
+// healthCheckTimeout bounds a Provider's health check (GitHub: GET /app per identity).
+const healthCheckTimeout = 15 * time.Second
 
 // serveDeps are runServe's injectable dependencies; the zero value is production.
 type serveDeps struct {
@@ -49,19 +53,80 @@ type serveDeps struct {
 	Ready func()
 }
 
-// adapters are the provider adapters `factory serve` registers.
-func adapters(cfg serveConfig, d serveDeps, groups provider.GroupLookup) []provider.Adapter {
+// adapters are the provider adapters `factory serve` registers: the GitHub adapter, unless
+// --dev-fake-providers puts the fake in its place.
+func adapters(cfg serveConfig, d serveDeps, groups provider.GroupLookup, log *slog.Logger) []provider.Adapter {
 	var out []provider.Adapter
-	// GH-S1-T04 registers the GitHub adapter here (one line), unless --dev-fake-providers
-	// stands in for it.
 	if cfg.DevFakeProviders {
 		a := d.Fake
 		if a == nil {
 			a = fake.NewAdapter(fake.Options{Clock: d.Clock, Groups: groups})
 		}
 		out = append(out, a)
+	} else {
+		out = append(out, healthChecked{Adapter: github.NewAdapter(github.Options{
+			HTTPClient: d.HTTPClient, Clock: d.Clock, Logger: log.With("component", "github"), Groups: groups,
+			UIBaseURL: cfg.PublicURL, DeployEnvironment: cfg.DeployEnvironment,
+		}), log: log})
 	}
 	return out
+}
+
+// healthChecker is a Conn that checks its own health (the GitHub Conn's CheckHealth); Health
+// alone only reports what was last seen.
+type healthChecker interface {
+	CheckHealth(ctx context.Context) provider.HealthStatus
+}
+
+// healthChecked runs a Conn's health check whenever its adapter connects one: at startup and
+// on every reconnect after a catalog change.
+type healthChecked struct {
+	provider.Adapter
+	log *slog.Logger
+}
+
+func (h healthChecked) Connect(ctx context.Context, p v1alpha1.Provider, secrets provider.SecretResolver) (provider.Conn, error) {
+	c, err := h.Adapter.Connect(ctx, p, secrets)
+	if err == nil {
+		checkHealth(ctx, p.Metadata.Name, c, h.log)
+	}
+	return c, err
+}
+
+// checkHealth runs c's health check, when it has one, and logs the result. A failing check
+// doesn't fail anything: Health reports it (the API's provider health) until it recovers.
+func checkHealth(ctx context.Context, name string, c provider.Conn, log *slog.Logger) {
+	hc, ok := c.(healthChecker)
+	if !ok {
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, healthCheckTimeout)
+	defer cancel()
+	st := hc.CheckHealth(cctx)
+	if st.Status == provider.HealthOK {
+		log.Info("provider health", "provider", name, "status", st.Status)
+		return
+	}
+	log.Warn("provider health", "provider", name, "status", st.Status, "message", st.Message)
+}
+
+// followHealth re-checks every connected Provider's health whenever the catalog changes (a
+// resync), until ctx is done; Providers the change reconnected were checked by healthChecked.
+func followHealth(ctx context.Context, cs *controllers.CatalogSync, pc *controllers.ProviderController, log *slog.Logger) error {
+	_, changed := cs.Snapshot()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-changed:
+		}
+		_, changed = cs.Snapshot()
+		for _, name := range pc.Names() {
+			if c, ok := pc.Conn(name); ok {
+				checkHealth(ctx, name, c, log)
+			}
+		}
+	}
 }
 
 // envSecrets resolves a catalog secretRef from FACTORY_SECRET_<NAME>_<KEY>.
@@ -177,7 +242,7 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		}
 		return g.Spec, true
 	}
-	reg, err := provider.NewRegistry(adapters(cfg, d, groups)...)
+	reg, err := provider.NewRegistry(adapters(cfg, d, groups, log)...)
 	if err != nil {
 		return fmt.Errorf("provider registry: %w", err)
 	}
@@ -186,17 +251,14 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		return err
 	}
 	if err := pc.Connect(ctx); err != nil {
-		hint := ""
-		if errors.Is(err, provider.ErrUnknownType) && !cfg.DevFakeProviders {
-			hint = " (no GitHub adapter is built in yet: use --dev-fake-providers for development)"
-		}
-		return fmt.Errorf("connect providers: %w%s", err, hint)
+		return fmt.Errorf("connect providers: %w", err)
 	}
 	for _, name := range pc.Names() {
 		log.Info("provider connected", "provider", name, "type", cat.Providers[name].Spec.Type,
 			"webhook", cfg.PublicURL+"/hooks/"+name)
 	}
 	group.Go(runCtx, "provider", pc.Run)
+	group.Go(runCtx, "provider-health", func(ctx context.Context) error { return followHealth(ctx, cs, pc, log) })
 	if err := pc.Recover(ctx, startedAt); err != nil {
 		log.Warn("recovering deliveries failed; continuing", "err", err)
 	}

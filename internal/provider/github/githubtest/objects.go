@@ -20,11 +20,38 @@ type User struct {
 	Bot   bool
 }
 
-// Comment is one conversation comment on an issue or a PR.
+// Comment is one conversation comment on an issue or a PR, or one comment of a review
+// thread.
 type Comment struct {
 	ID     int64
 	Author User
 	Body   string
+}
+
+// Review is one review of a PR. State is APPROVED, CHANGES_REQUESTED or COMMENTED.
+type Review struct {
+	ID       int64
+	Author   User
+	State    string
+	Body     string
+	CommitID string
+	// Comments are the review's inline comments.
+	Comments []ReviewComment
+}
+
+// ReviewComment is one inline comment of a review.
+type ReviewComment struct {
+	Path string
+	Line int
+	Side string
+	Body string
+}
+
+// Thread is one review thread of a PR, by its GraphQL node ID.
+type Thread struct {
+	ID       string
+	Resolved bool
+	Comments []Comment
 }
 
 // Object is an issue or a PR in the object model. The REST routes read and change it, and
@@ -35,20 +62,51 @@ type Object struct {
 	Repo   string
 	Number int
 	PR     bool
-	// State is "open", "closed" or "merged" (PRs).
-	State     string
-	Labels    []string
-	Author    User
-	UpdatedAt time.Time
-	Draft     bool
-	Head      string
-	Base      string
-	Comments  []Comment
+	// ID is the REST id (sub-issues are added by it); zero is numbered.
+	ID    int64
+	Title string
+	Body  string
+	// State is "open", "closed" or "merged" (PRs); StateReason is why an issue was closed.
+	State       string
+	StateReason string
+	Labels      []string
+	Author      User
+	UpdatedAt   time.Time
+	Draft       bool
+	// Head is the PR's head commit, HeadRef its branch; Base is the base branch.
+	Head     string
+	HeadRef  string
+	Base     string
+	Comments []Comment
+	// SubIssues are the numbers of the issue's sub-issues (in the same repo).
+	SubIssues []int
+	Reviews   []Review
+	Threads   []Thread
+	// MergeBlock makes PUT …/merge refuse with 405: MergeReviewRequired or MergeNotMergeable.
+	MergeBlock string
+	// MergeMethod and MergeCommit are set by a merge.
+	MergeMethod string
+	MergeCommit string
 }
+
+// Merge blocks (Object.MergeBlock).
+const (
+	MergeReviewRequired = "review-required"
+	MergeNotMergeable   = "not-mergeable"
+)
 
 func (o Object) clone() Object {
 	o.Labels = slices.Clone(o.Labels)
 	o.Comments = slices.Clone(o.Comments)
+	o.SubIssues = slices.Clone(o.SubIssues)
+	o.Reviews = slices.Clone(o.Reviews)
+	for i := range o.Reviews {
+		o.Reviews[i].Comments = slices.Clone(o.Reviews[i].Comments)
+	}
+	o.Threads = slices.Clone(o.Threads)
+	for i := range o.Threads {
+		o.Threads[i].Comments = slices.Clone(o.Threads[i].Comments)
+	}
 	return o
 }
 
@@ -87,14 +145,36 @@ func (s *Server) AddObject(o Object) {
 	if o.UpdatedAt.IsZero() {
 		o.UpdatedAt = s.clock.Now()
 	}
-	for i := range o.Comments {
-		if o.Comments[i].ID == 0 {
-			s.commentSeq++
-			o.Comments[i].ID = s.commentSeq
-		}
-		s.commentSeq = max(s.commentSeq, o.Comments[i].ID)
-	}
+	s.numberLocked(&o)
 	s.objects[objectKey(o.Repo, o.Number)] = &o
+}
+
+// numberLocked numbers an object's zero IDs: its own, its comments', reviews' and threads'
+// comments'.
+func (s *Server) numberLocked(o *Object) {
+	if o.ID == 0 {
+		s.idSeq++
+		o.ID = s.idSeq
+	}
+	s.idSeq = max(s.idSeq, o.ID)
+	number := func(id *int64) {
+		if *id == 0 {
+			s.commentSeq++
+			*id = s.commentSeq
+		}
+		s.commentSeq = max(s.commentSeq, *id)
+	}
+	for i := range o.Comments {
+		number(&o.Comments[i].ID)
+	}
+	for i := range o.Reviews {
+		number(&o.Reviews[i].ID)
+	}
+	for i := range o.Threads {
+		for j := range o.Threads[i].Comments {
+			number(&o.Threads[i].Comments[j].ID)
+		}
+	}
 }
 
 // Object returns a copy of an object in the model.
@@ -160,7 +240,9 @@ func (s *Server) AddAccountRepos(owner string, names ...string) {
 func (s *Server) routeObjects(mux *http.ServeMux) {
 	mux.HandleFunc("GET /installation/repositories", s.handleInstallationRepos)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}", s.handleIssue)
-	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}/comments", s.handleComments)
+	// One pattern for …/issues/{number}/comments, …/issues/{number}/sub_issues and
+	// …/issues/comments/{id}, which ServeMux can't tell apart as separate patterns.
+	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}/{sub}", s.handleIssueSub)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/comments", s.handleCreateComment)
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/issues/comments/{id}", s.handleUpdateComment)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/labels", s.handleAddLabels)
@@ -241,8 +323,9 @@ func restIssue(o *Object) map[string]any {
 		state = "closed"
 	}
 	out := map[string]any{
-		"number": o.Number, "state": state, "labels": labelList(o.Labels), "user": restUser(o.Author),
+		"id": o.ID, "number": o.Number, "state": state, "labels": labelList(o.Labels), "user": restUser(o.Author),
 		"updated_at": o.UpdatedAt.UTC().Format(time.RFC3339), "comments": len(o.Comments),
+		"title": o.Title, "body": nullable(o.Body), "html_url": htmlURL(o), "state_reason": nullable(o.StateReason),
 	}
 	if o.PR {
 		out["pull_request"] = map[string]any{"url": "https://api.github.invalid/repos/" + o.Repo + "/pulls/" + strconv.Itoa(o.Number)}
@@ -302,7 +385,7 @@ func (s *Server) handleComments(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	items := make([]any, len(o.Comments))
 	for i, c := range o.Comments {
-		items[i] = map[string]any{"id": c.ID, "body": c.Body, "user": restUser(c.Author)}
+		items[i] = restComment(o, c)
 	}
 	s.mu.Unlock()
 	s.page(w, r, items)
@@ -330,8 +413,9 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 	c := Comment{ID: s.commentSeq, Author: author, Body: in.Body}
 	o.Comments = append(o.Comments, c)
 	o.UpdatedAt = s.clock.Now()
+	out := restComment(o, c)
 	s.mu.Unlock()
-	writeJSON(w, http.StatusCreated, map[string]any{"id": c.ID, "body": c.Body, "user": restUser(author)})
+	writeJSON(w, http.StatusCreated, out)
 }
 
 func (s *Server) handleUpdateComment(w http.ResponseWriter, r *http.Request) {
@@ -374,9 +458,9 @@ func (s *Server) handleUpdateComment(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	obj.Comments[at].Body = in.Body
 	obj.UpdatedAt = s.clock.Now()
-	c := obj.Comments[at]
+	out := restComment(obj, obj.Comments[at])
 	s.mu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{"id": c.ID, "body": c.Body, "user": restUser(c.Author)})
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleAddLabels(w http.ResponseWriter, r *http.Request) {
@@ -583,10 +667,11 @@ func (s *Server) handleDeploymentStatuses(w http.ResponseWriter, r *http.Request
 }
 
 // operationName is the name of a GraphQL query ("query Observe(…)").
-var operationName = regexp.MustCompile(`^\s*query\s+([A-Za-z_][A-Za-z0-9_]*)`)
+var operationName = regexp.MustCompile(`^\s*(?:query|mutation)\s+([A-Za-z_][A-Za-z0-9_]*)`)
 
 // handleGraphQL answers a query with its canned response (SetGraphQL), else from the object
-// model for the adapter's operations (Observe, ObserveComments, ObserveThreads, ObserveRepo).
+// model for the adapter's operations (Observe, ObserveComments, ObserveThreads, ObserveRepo,
+// and the review-thread effects: ApplyThread, ApplyThreadReply, ApplyResolveThread).
 // A query naming a repo needs a token covering it with issues or pull_requests read (metadata
 // read for ObserveRepo).
 func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
@@ -645,6 +730,8 @@ func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"repository": map[string]any{
 			"nameWithOwner": owner + "/" + name, "isArchived": false, "updatedAt": s.clock.Now().UTC().Format(time.RFC3339),
 		}}})
+	case opThread, opThreadReply, opResolveThread:
+		s.gqlThreadOp(w, m, op, req.Variables)
 	default:
 		writeJSON(w, http.StatusOK, gqlErrors("", "githubtest: no canned response for "+op))
 	}
@@ -717,8 +804,15 @@ func (s *Server) gqlObserve(repo string, n int) map[string]any {
 		obj["merged"] = o.State == "merged"
 		obj["mergedAt"] = mergedAt
 		obj["mergeCommit"] = nil
+		if o.State == "merged" && o.MergeCommit != "" {
+			obj["mergeCommit"] = map[string]any{"oid": o.MergeCommit}
+		}
 		obj["reviews"] = map[string]any{"nodes": []any{}}
-		obj["reviewThreads"] = map[string]any{"pageInfo": map[string]any{"hasNextPage": false, "endCursor": nil}, "nodes": []any{}}
+		threads := make([]any, len(o.Threads))
+		for i, th := range o.Threads {
+			threads[i] = map[string]any{"isResolved": th.Resolved}
+		}
+		obj["reviewThreads"] = map[string]any{"pageInfo": map[string]any{"hasNextPage": false, "endCursor": nil}, "nodes": threads}
 		obj["commits"] = map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"oid": o.Head, "statusCheckRollup": nil}}}}
 	} else {
 		obj["__typename"] = "Issue"

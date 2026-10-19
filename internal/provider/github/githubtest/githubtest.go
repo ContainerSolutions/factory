@@ -8,7 +8,9 @@
 // and comments, issue search, deployments, an installation's repos and the GraphQL queries the
 // adapter makes, from an object model or canned responses (objects.go). It checks that each
 // token covers the request: the repo and the permission for repo routes, members: read for
-// org routes. It records each request for assertions and can be made to fail.
+// org routes. The effects' routes (effects.go) create and change issues, PRs, sub-issues,
+// reviews and review threads in the same model. It records each request for assertions and
+// can be made to fail.
 //
 // It is safe for concurrent use. Getters return copies.
 package githubtest
@@ -116,6 +118,21 @@ const (
 	RouteGraphQL           = "graphql"
 	RouteDeployments       = "deployments"
 	RouteDeploymentStatus  = "deployment_statuses"
+	// The effect routes (effects.go).
+	RouteRepo         = "repo"
+	RouteListIssues   = "list_issues"
+	RouteCreateIssue  = "create_issue"
+	RouteUpdateIssue  = "update_issue"
+	RouteComment      = "comment"
+	RouteSubIssues    = "sub_issues"
+	RouteAddSubIssue  = "add_sub_issue"
+	RoutePull         = "pull"
+	RouteCreatePull   = "create_pull"
+	RouteUpdatePull   = "update_pull"
+	RouteMerge        = "merge"
+	RouteReviews      = "reviews"
+	RouteReview       = "review"
+	RouteCreateReview = "create_review"
 )
 
 // Server is an httptest GitHub.
@@ -148,6 +165,8 @@ type Server struct {
 
 	objects     map[string]*Object      // by objectKey
 	commentSeq  int64                   // comment IDs
+	idSeq       int64                   // object IDs
+	repoConfig  map[string]Repo         // repo (lower) → settings
 	canned      map[string][]byte       // GraphQL responses, by cannedKey
 	deployments map[string][]Deployment // repo (lower), newest first
 	accountRepo map[string][]string     // owner (lower) → repo names, for "all" installations
@@ -186,6 +205,7 @@ func NewServer(t testing.TB, c clock.Clock) *Server {
 		canned:      map[string][]byte{},
 		deployments: map[string][]Deployment{},
 		accountRepo: map[string][]string{},
+		repoConfig:  map[string]Repo{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /app", s.handleApp)

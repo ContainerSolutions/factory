@@ -127,19 +127,22 @@ func startServe(t *testing.T, cfg serveConfig) *served {
 		t.Fatal(err)
 	}
 
+	s := runServed(t, cfg, serveDeps{Getenv: getenvOf(testEnv()), Fake: adapter})
+	s.gh = gh
+	return s
+}
+
+// runServed runs runServe with deps in the background and waits until it is ready.
+func runServed(t *testing.T, cfg serveConfig, deps serveDeps) *served {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &served{t: t, gh: gh, logs: &logBuffer{}, cancel: cancel, done: make(chan error, 1)}
+	s := &served{t: t, logs: &logBuffer{}, cancel: cancel, done: make(chan error, 1)}
 	addrs := make(chan [2]net.Addr, 1)
 	ready := make(chan struct{})
 	log := slog.New(slog.NewJSONHandler(s.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	go func() {
-		s.done <- runServe(ctx, cfg, serveDeps{
-			Getenv:    getenvOf(testEnv()),
-			Fake:      adapter,
-			Listening: func(pub, ops net.Addr) { addrs <- [2]net.Addr{pub, ops} },
-			Ready:     func() { close(ready) },
-		}, log)
-	}()
+	deps.Listening = func(pub, ops net.Addr) { addrs <- [2]net.Addr{pub, ops} }
+	deps.Ready = func() { close(ready) }
+	go func() { s.done <- runServe(ctx, cfg, deps, log) }()
 	t.Cleanup(func() { _ = s.stop() })
 	select {
 	case a := <-addrs:
@@ -411,15 +414,15 @@ func TestServeShutdownWithOpenStream(t *testing.T) {
 	}
 }
 
-// Without --dev-fake-providers no adapter connects the catalog's github Provider: startup
-// fails clearly.
-func TestServeUnknownProviderType(t *testing.T) {
+// Without --dev-fake-providers the GitHub adapter connects the catalog's github Provider:
+// without its secrets startup fails clearly, naming the variable (never a value).
+func TestServeGitHubProviderNeedsSecrets(t *testing.T) {
 	cfg := testConfig(t, "http://127.0.0.1:1")
 	cfg.DevFakeProviders = false
 	err := runServe(context.Background(), cfg, serveDeps{Getenv: getenvOf(testEnv())}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err == nil || !strings.Contains(err.Error(), `provider "github-public"`) || !strings.Contains(err.Error(), "unknown provider type") ||
-		!strings.Contains(err.Error(), "--dev-fake-providers") {
-		t.Fatalf("runServe = %v, want a clear unknown-type error", err)
+	if err == nil || !strings.Contains(err.Error(), "connect providers") || !strings.Contains(err.Error(), `"github-public"`) ||
+		!strings.Contains(err.Error(), "FACTORY_SECRET_GITHUB_PUBLIC_WEBHOOK_SECRET is not set") {
+		t.Fatalf("runServe = %v, want the missing webhook secret", err)
 	}
 }
 
@@ -460,7 +463,7 @@ func TestParseServeConfig(t *testing.T) {
 		{name: "defaults", env: testEnv(), check: func(t *testing.T, c serveConfig, w []string) {
 			if c.Addr != ":8080" || c.OpsAddr != "127.0.0.1:9090" || c.Retention != 2160*time.Hour || c.LogFormat != "json" ||
 				c.CatalogRepo != "https://github.com/compliance-framework/factory" || c.CatalogRef != "main" || c.CatalogPath != "catalog" ||
-				c.DevFakeProviders || c.PublicURL != "http://localhost:8080" {
+				c.DevFakeProviders || c.PublicURL != "http://localhost:8080" || c.DeployEnvironment != "github-pages" {
 				t.Errorf("defaults %+v", c)
 			}
 			if len(w) != 1 || !strings.Contains(w[0], "no --public-url") {
@@ -512,6 +515,12 @@ func TestParseServeConfig(t *testing.T) {
 		{name: "bad log level", args: []string{"--log-level", "loud"}, env: testEnv(), wantErr: []string{"--log-level"}},
 		{name: "bad github api url", args: []string{"--github-api-url", "api"}, env: testEnv(), wantErr: []string{"--github-api-url"}},
 		{name: "extra args", args: []string{"now"}, env: testEnv(), wantErr: []string{"unexpected arguments"}},
+		{name: "deploy environment", args: []string{"--deploy-environment", "production"}, env: testEnv(), check: func(t *testing.T, c serveConfig, _ []string) {
+			if c.DeployEnvironment != "production" {
+				t.Errorf("deploy environment %q", c.DeployEnvironment)
+			}
+		}},
+		{name: "empty deploy environment", args: []string{"--deploy-environment", " "}, env: testEnv(), wantErr: []string{"--deploy-environment must not be empty"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

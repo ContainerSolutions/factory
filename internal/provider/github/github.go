@@ -213,7 +213,8 @@ func (c *Conn) MintGitCredential(ctx context.Context, req provider.GitCredential
 }
 
 // CheckHealth authenticates as every identity's App (GET /app), records the outcomes and
-// returns the resulting Health. `factory serve` calls it at connect and on resync (GH-S1-T04).
+// returns the resulting Health. `factory serve` calls it when it connects the Provider and
+// again whenever the catalog changes.
 func (c *Conn) CheckHealth(ctx context.Context) provider.HealthStatus {
 	idents := c.minter.Identities()
 	errs := make([]error, len(idents))
@@ -296,11 +297,4 @@ func healthReason(err error) string {
 		return "GitHub unreachable or rate-limited"
 	}
 	return err.Error()
-}
-
-// ---- Not implemented yet ---------------------------------------------------------------------
-
-// Apply implements provider.Conn. TODO(GH-S1-T04): the API-side effect ops.
-func (c *Conn) Apply(context.Context, provider.EffectRequest) (provider.EffectResult, error) {
-	return provider.EffectResult{}, fmt.Errorf("github %s: apply: %w", c.name, provider.ErrUnsupported)
 }
