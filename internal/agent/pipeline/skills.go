@@ -38,10 +38,11 @@ func (r *run) skillsURL(source string) string {
 }
 
 // materialiseSkills copies the selected skills of each pinned skills repo into skills/, as
-// plugin directories (run-pipeline.md §Steps 5): skills/<plugin>/.claude-plugin/plugin.json
-// and skills/<plugin>/skills/<skill>/. The harness adapters lay them out for their harness
-// in Prepare (Claude Code's --plugin-dir takes the plugin directories as they are; Codex
-// copies the skill folders).
+// plugin directories (run-pipeline.md §Steps 5): skills/<plugin>/.claude-plugin/plugin.json,
+// the plugin's other root files and directories (bin/, rules/, …) and
+// skills/<plugin>/skills/<skill>/ for the selected skills only. The harness adapters lay them
+// out for their harness in Prepare (Claude Code's --plugin-dir takes the plugin directories as
+// they are; Codex copies the skill folders), and each plugin's bin/ is on the harness's PATH.
 func (r *run) materialiseSkills(ctx context.Context) error {
 	for i, s := range r.task.Spec.Skills {
 		if len(s.Use) == 0 {
@@ -237,7 +238,10 @@ func readLimited(fsys fs.FS, name string, limit int64) ([]byte, error) {
 }
 
 // materialise copies s.Use from tree into dst. A use is "skill" or "plugin:skill"; an
-// unqualified skill must be in exactly one plugin.
+// unqualified skill must be in exactly one plugin. Each plugin a use names gets its whole
+// tree (bin/, lib/, rules/, docs/, …) except skills/, where only the selected skills go, its
+// Claude-only components (claudeOnlyPluginFiles) and other plugins' directories nested in it; its files are bounded together by
+// maxPluginBytes and maxPluginFiles.
 func materialise(tree string, s v1alpha1.SkillRef, dst string) ([]harness.Skill, error) {
 	fallback := path.Base(strings.TrimSuffix(strings.TrimRight(s.Source, "/"), ".git"))
 	if !nameRE.MatchString(fallback) {
@@ -248,7 +252,7 @@ func materialise(tree string, s v1alpha1.SkillRef, dst string) ([]harness.Skill,
 		return nil, fmt.Errorf("skills tree: %w", err)
 	}
 	var out []harness.Skill
-	written := map[string]bool{}
+	budgets := map[string]*budget{}
 	for _, use := range s.Use {
 		pname, sname, qualified := strings.Cut(use, ":")
 		if !qualified {
@@ -282,21 +286,16 @@ func materialise(tree string, s v1alpha1.SkillRef, dst string) ([]harness.Skill,
 			return nil, fmt.Errorf("plugin %q: not a plugin name", p.name)
 		}
 		pdir := filepath.Join(dst, p.name)
-		if !written[p.name] {
-			manifest := p.manifest
-			if manifest == nil {
-				manifest, _ = json.Marshal(map[string]string{"name": p.name})
+		b := budgets[p.name]
+		if b == nil {
+			b = pluginBudget()
+			budgets[p.name] = b
+			if err := writePlugin(tree, p, plugins, pdir, b); err != nil {
+				return nil, fmt.Errorf("plugin %q: %w", p.name, err)
 			}
-			if err := os.MkdirAll(filepath.Join(pdir, ".claude-plugin"), 0o700); err != nil {
-				return nil, err
-			}
-			if err := os.WriteFile(filepath.Join(pdir, ".claude-plugin", "plugin.json"), manifest, 0o600); err != nil {
-				return nil, err
-			}
-			written[p.name] = true
 		}
 		sdst := filepath.Join(pdir, "skills", sname)
-		if err := copyTree(filepath.Join(tree, filepath.FromSlash(p.dir), "skills", sname), sdst); err != nil {
+		if err := copyTree(filepath.Join(tree, filepath.FromSlash(p.dir), "skills", sname), sdst, nil, b); err != nil {
 			return nil, fmt.Errorf("skill %q: %w", use, err)
 		}
 		out = append(out, harness.Skill{Name: sname, Plugin: p.name, Dir: sdst})
@@ -304,10 +303,113 @@ func materialise(tree string, s v1alpha1.SkillRef, dst string) ([]harness.Skill,
 	return out, nil
 }
 
-// copyTree copies the regular files and directories under src to dst, keeping the
-// executable bit; symlinks and other special files are skipped, so nothing outside src is
-// read.
-func copyTree(src, dst string) error {
+// Bounds of one materialised plugin, its root files and selected skills together.
+const (
+	maxPluginBytes = 50 << 20
+	maxPluginFiles = 5000
+)
+
+// budget counts what has been copied of one plugin against its bounds.
+type budget struct {
+	maxFiles int
+	maxBytes int64
+	files    int
+	bytes    int64
+}
+
+// pluginBudget is a budget of maxPluginFiles and maxPluginBytes.
+func pluginBudget() *budget { return &budget{maxFiles: maxPluginFiles, maxBytes: maxPluginBytes} }
+
+// take counts one more file or directory of size bytes, or refuses it past a bound.
+func (b *budget) take(name string, size int64) error {
+	b.files++
+	b.bytes += size
+	if b.files > b.maxFiles {
+		return fmt.Errorf("%s: the plugin is over %d files and directories", name, b.maxFiles)
+	}
+	if b.bytes > b.maxBytes {
+		return fmt.Errorf("%s: the plugin is over %d bytes", name, b.maxBytes)
+	}
+	return nil
+}
+
+// claudeOnlyPluginFiles are the plugin root's Claude Code components left out of a run (the
+// default locations of the plugins reference, code.claude.com/docs/en/plugins-reference
+// §Standard layout): hooks, slash commands, subagents, MCP and LSP servers, output styles,
+// monitors, workflows, themes and plugin settings. Runs never loaded them, ccf-skills'
+// HEADLESS.md bans hooks, slash commands and subagents in the headless path, and a plugin's
+// hooks, servers, monitors or workflows would run code in the run beyond the factory's own hook
+// and the Effector's MCP server (the adapter writes the run's settings, hook and MCP config).
+var claudeOnlyPluginFiles = []string{
+	"hooks", "hooks.json", "commands", "agents", ".mcp.json", ".lsp.json", "output-styles",
+	"monitors", "workflows", "themes", "settings.json",
+}
+
+// manifestKeys are the plugin.json keys a run keeps (code.claude.com/docs/en/plugins-reference
+// §Fields): the identity fields only. Every other key is dropped: the component keys (hooks,
+// mcpServers, lspServers, commands, agents, outputStyles, experimental.monitors, …), since they
+// would declare inline, or at other paths, what claudeOnlyPluginFiles leaves out; and skills,
+// whose extra scan paths would load skills that weren't selected from the copied tree (the
+// selected ones are under skills/, which Claude Code scans by default).
+var manifestKeys = []string{"name", "version", "description", "author", "homepage", "repository", "license", "keywords"}
+
+// reduceManifest is manifest with only manifestKeys, as found; a manifest that isn't a JSON
+// object is refused.
+func reduceManifest(manifest []byte) ([]byte, error) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(manifest, &m); err != nil || m == nil {
+		return nil, errors.New(".claude-plugin/plugin.json is not a JSON object")
+	}
+	out := map[string]json.RawMessage{}
+	for _, k := range manifestKeys {
+		if v, ok := m[k]; ok {
+			out[k] = v
+		}
+	}
+	return json.Marshal(out)
+}
+
+// writePlugin lays out plugin p of tree in pdir: its manifest (reduced to manifestKeys, or
+// generated for a plugin without one) and its whole tree but .claude-plugin/, skills/ (the
+// selected skills are copied one by one), claudeOnlyPluginFiles and the directories of the
+// other plugins nested in it (a plugin at the tree's root holds the others).
+func writePlugin(tree string, p plugin, all []plugin, pdir string, b *budget) error {
+	var manifest []byte
+	if p.manifest == nil {
+		manifest, _ = json.Marshal(map[string]string{"name": p.name})
+	} else {
+		var err error
+		if manifest, err = reduceManifest(p.manifest); err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(pdir, ".claude-plugin"), 0o700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(pdir, ".claude-plugin", "plugin.json"), manifest, 0o600); err != nil {
+		return err
+	}
+	skip := map[string]bool{".claude-plugin": true, "skills": true}
+	for _, f := range claudeOnlyPluginFiles {
+		skip[f] = true
+	}
+	for _, q := range all {
+		switch {
+		case q.dir == p.dir:
+		case p.dir == ".":
+			skip[q.dir] = true
+		case strings.HasPrefix(q.dir, p.dir+"/"):
+			skip[strings.TrimPrefix(q.dir, p.dir+"/")] = true
+		}
+	}
+	return copyTree(filepath.Join(tree, filepath.FromSlash(p.dir)), pdir, skip, b)
+}
+
+// copyTree copies the regular files and directories under src to dst but the paths (relative
+// to src, slash-separated) in skip, keeping the executable bit and counting each against b;
+// symlinks are skipped, so nothing outside src is read, and other special files (devices,
+// pipes, sockets) are refused.
+func copyTree(src, dst string, skip map[string]bool, b *budget) error {
 	root, err := os.OpenRoot(src)
 	if err != nil {
 		return err
@@ -318,16 +420,30 @@ func copyTree(src, dst string) error {
 		if err != nil {
 			return err
 		}
+		if skip[p] {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
 		target := filepath.Join(dst, filepath.FromSlash(p))
 		switch {
 		case d.IsDir():
+			if p != "." {
+				if err := b.take(p, 0); err != nil {
+					return err
+				}
+			}
 			return os.MkdirAll(target, 0o700)
 		case d.Type().IsRegular():
 			info, err := d.Info()
 			if err != nil {
 				return err
 			}
-			b, err := readLimited(fsys, p, maxSkillFile)
+			if err := b.take(p, info.Size()); err != nil {
+				return err
+			}
+			data, err := readLimited(fsys, p, maxSkillFile)
 			if err != nil {
 				return err
 			}
@@ -335,9 +451,11 @@ func copyTree(src, dst string) error {
 			if info.Mode()&0o111 != 0 {
 				mode = 0o700
 			}
-			return os.WriteFile(target, b, mode)
+			return os.WriteFile(target, data, mode)
+		case d.Type()&fs.ModeSymlink != 0:
+			return nil
 		}
-		return nil // symlinks, devices, sockets
+		return fmt.Errorf("%s: a special file (%s)", p, d.Type())
 	})
 }
 
