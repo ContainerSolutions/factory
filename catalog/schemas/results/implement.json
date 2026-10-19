@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "implement Result: the base Result plus data as the lisa skill writes it in headless mode: pr (owner/repo#N), branch, threadsResolved and stack (lisa stack push's report, one entry per branch). pr-opened and pr-updated Results carry the PR; pr-opened also the branch (build-stack-next stacks the next PR on run.result.branch).",
+  "allOf": [
+    { "$ref": "https://factory.ccf.dev/schemas/v1alpha1/result.schema.json" },
+    {
+      "if": { "required": ["status", "outcome"], "properties": { "status": { "const": "done" }, "outcome": { "const": "pr-opened" } } },
+      "then": { "required": ["data"], "properties": { "data": { "required": ["pr", "branch"] } } }
+    },
+    {
+      "if": { "required": ["status", "outcome"], "properties": { "status": { "const": "done" }, "outcome": { "const": "pr-updated" } } },
+      "then": { "required": ["data"], "properties": { "data": { "required": ["pr"] } } }
+    }
+  ],
+  "properties": {
+    "outcome": { "enum": ["pr-opened", "pr-updated", "blocked", "needs-info"] },
+    "data": {
+      "type": "object",
+      "properties": {
+        "pr": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$" },
+        "branch": { "type": "string", "minLength": 1 },
+        "threadsResolved": { "type": "integer", "minimum": 0 },
+        "stack": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["branch"],
+            "properties": {
+              "branch": { "type": "string", "minLength": 1 },
+              "local": { "type": "string" },
+              "remote": { "type": ["string", "null"] },
+              "pushed": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

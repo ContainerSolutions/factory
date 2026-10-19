@@ -1,0 +1,17 @@
+# Notified by build-stack-start (factory.run.completed of plan-epic, outcome decomposed) on the
+# epic. Sees: run.result.plan (the sub-issues, in stacking order) and links.ui.
+kind: Template
+metadata: { name: epic-plan }
+spec:
+  bodies:
+    github: |
+      🗺️ The factory planned this epic as {{ len .run.result.plan }} sub-issues, one pull request each, in this order:
+
+      {{ range .run.result.plan -}}
+      1. {{ .issue }}: {{ .title }}{{ with .dependsOn }} (after {{ range $i, $d := . }}{{ if $i }}, {{ end }}{{ $d }}{{ end }}){{ end }}
+      {{ end }}
+      **Stacking order.** Each pull request is based on the previous one's branch, the first on `main`. When the last one is open, the factory reviews the whole stack, then merges it bottom-up.
+
+      **To stop.** Add the `factory:stop` label to this issue to stop the factory on this epic. Add `factory:hold` to a pull request to keep it from being merged until you remove the label.
+
+      [Follow it in the Factory UI]({{ .links.ui }})

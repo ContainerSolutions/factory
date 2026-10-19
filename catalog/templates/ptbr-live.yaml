@@ -1,0 +1,13 @@
+# Notified by announce-ptbr-live (the deploy that contains the stack's merge succeeded) on the
+# epic. Sees: item.links (the stack's PRs) and links.ui. The URL is the docs site's (10 §Use
+# case 2); the dev RuleSet's mock-docs epic gets the same text.
+kind: Template
+metadata: { name: ptbr-live }
+spec:
+  bodies:
+    github: |
+      🇧🇷 PT-BR is live: https://compliance-framework.github.io/docs/pt-BR/
+
+      Stack:{{ range .item.links }}{{ if eq .kind "pr" }} {{ .ref }}{{ end }}{{ end }}
+
+      [Follow it in the Factory UI]({{ .links.ui }})

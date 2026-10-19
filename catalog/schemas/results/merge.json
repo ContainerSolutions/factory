@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "merge Result: the base Result plus data: the PRs merged (bottom-up for a stack) with their merge commits, and what stopped the run (blockedBy: the PR and the gate that failed). merged needs at least one PR; blocked and rebased-with-conflicts name what stopped it.",
+  "allOf": [
+    { "$ref": "https://factory.ccf.dev/schemas/v1alpha1/result.schema.json" },
+    {
+      "if": { "required": ["status", "outcome"], "properties": { "status": { "const": "done" }, "outcome": { "const": "merged" } } },
+      "then": { "required": ["data"], "properties": { "data": { "required": ["merged"], "properties": { "merged": { "minItems": 1 } } } } }
+    },
+    {
+      "if": { "required": ["status", "outcome"], "properties": { "status": { "const": "done" }, "outcome": { "enum": ["blocked", "rebased-with-conflicts"] } } },
+      "then": { "required": ["data"], "properties": { "data": { "required": ["blockedBy"] } } }
+    }
+  ],
+  "properties": {
+    "outcome": { "enum": ["merged", "labelled-for-merge", "rebased-with-conflicts", "blocked", "needs-human"] },
+    "data": {
+      "type": "object",
+      "properties": {
+        "merged": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["pr", "sha"],
+            "properties": {
+              "pr": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$" },
+              "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+            }
+          }
+        },
+        "blockedBy": {
+          "type": "object",
+          "required": ["pr", "reason"],
+          "properties": {
+            "pr": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  }
+}

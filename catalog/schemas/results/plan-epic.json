@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "plan-epic Result: the base Result plus data.plan, the ordered sub-issues (rules read it as run.result.plan: the dispatcher lifts data's fields into run.result; the Result has no free top-level fields). A decomposed Result has 3 to 8 sub-issues, each an issue ref the run created.",
+  "allOf": [
+    { "$ref": "https://factory.ccf.dev/schemas/v1alpha1/result.schema.json" },
+    {
+      "if": { "required": ["status", "outcome"], "properties": { "status": { "const": "done" }, "outcome": { "const": "decomposed" } } },
+      "then": { "required": ["data"], "properties": { "data": { "required": ["plan"], "properties": { "plan": { "minItems": 3, "maxItems": 8 } } } } }
+    }
+  ],
+  "properties": {
+    "outcome": { "enum": ["decomposed", "single", "needs-info"] },
+    "data": {
+      "type": "object",
+      "properties": {
+        "plan": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["issue", "title"],
+            "properties": {
+              "issue": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$", "description": "The sub-issue, owner/repo#N." },
+              "title": { "type": "string", "minLength": 1 },
+              "dependsOn": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}

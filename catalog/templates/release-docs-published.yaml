@@ -1,0 +1,22 @@
+# Notified by announce-release-docs (factory.run.completed of the merge run, outcome merged)
+# on every object of the work item: the docs PR and the closed train issue.
+# Sees: item.state.train (the train ref), run.result.merged (the PRs merged) and links.ui.
+# The per-repo table needs item.state.repos (the release-docs run's data.repos, set by the
+# release-docs rules); without it the body points to the PR, whose description has the table.
+kind: Template
+metadata: { name: release-docs-published }
+spec:
+  bodies:
+    github: |
+      📚 The docs for release train {{ .item.state.train }} are live.
+      {{ with .item.state.repos }}
+      | Repository | Version | Docs |
+      | --- | --- | --- |
+      {{ range . }}{{ if ne .action "skip" -}}
+      | {{ .repo }} | {{ with .version }}v{{ . }}{{ end }} | {{ .instance }} {{ if eq .action "cut" }}{{ .line }} (new version){{ else if eq .action "edit" }}{{ .line }} (updated){{ else }}policies catalog{{ end }} |
+      {{ end }}{{ end }}{{ else }}
+      Each repository's version lines are listed in the docs PR's description.
+      {{ end }}
+      Docs PR: {{ range $i, $m := .run.result.merged }}{{ if $i }}, {{ end }}{{ $m.pr }}{{ end }}
+
+      [Follow it in the Factory UI]({{ .links.ui }})

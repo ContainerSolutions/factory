@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "release-docs Result: the base Result plus data as the docs-release skill (ccf-docs) writes it in headless mode: plan.json's data (train, branch, repos) with pr and checks added. A pr-opened Result carries the PR. data's objects stay open, so a skill that adds a field doesn't break the run.",
+  "allOf": [
+    { "$ref": "https://factory.ccf.dev/schemas/v1alpha1/result.schema.json" },
+    {
+      "if": { "required": ["status", "outcome"], "properties": { "status": { "const": "done" }, "outcome": { "const": "pr-opened" } } },
+      "then": { "required": ["data"], "properties": { "data": { "required": ["train", "branch", "pr", "repos"] } } }
+    }
+  ],
+  "properties": {
+    "outcome": { "enum": ["pr-opened", "no-docs-change", "blocked"] },
+    "data": {
+      "type": "object",
+      "properties": {
+        "train": { "type": "string", "minLength": 1, "description": "The train ref (owner/workflows#N) or the release (owner/repo@vX.Y.Z)." },
+        "branch": { "type": "string", "minLength": 1, "description": "plan.branch: docs/release-train-<month> or docs/release-<repo>-<tag>." },
+        "pr": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$", "description": "The docs PR, owner/repo#N, as factory pr open printed it." },
+        "repos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["repo", "action"],
+            "properties": {
+              "repo": { "type": "string", "minLength": 1 },
+              "version": { "type": ["string", "null"] },
+              "from": { "type": ["string", "null"] },
+              "bump": { "type": ["string", "null"] },
+              "instance": { "type": ["string", "null"] },
+              "line": { "type": ["string", "null"] },
+              "depth": { "enum": ["full", "notes", "none", "rows", null] },
+              "action": { "enum": ["cut", "edit", "rows", "skip"] },
+              "sections": { "type": "array", "items": { "type": "string" } },
+              "gifs": { "type": "array", "items": { "type": "string" } },
+              "skipped": { "type": "string", "description": "Why a skipped repo isn't documented: not-released, no-instance, unmapped-policy, depth-none, …" }
+            }
+          }
+        },
+        "checks": {
+          "type": "object",
+          "properties": {
+            "instances": { "enum": ["pass", "fail", "not-run"] },
+            "changes": { "enum": ["pass", "fail", "not-run"] },
+            "build": { "enum": ["pass", "fail", "not-run"] }
+          }
+        }
+      }
+    }
+  }
+}
