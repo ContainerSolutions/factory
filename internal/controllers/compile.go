@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/compliance-framework/factory/internal/catalog"
 	"github.com/compliance-framework/factory/internal/catalog/gitsource"
 	"github.com/compliance-framework/factory/internal/cel"
+	"github.com/compliance-framework/factory/internal/provider"
 	"github.com/compliance-framework/factory/internal/rules"
 )
 
@@ -109,6 +111,9 @@ type compileInput struct {
 	taskID   string
 	deferred string // the budget reason, when the rails deferred the dispatch
 	now      time.Time
+	// kindOf resolves the kind of an "owner/name#n" context ref that neither the event nor
+	// the work item's links name (applier.objectKind). Nil: it is guessed an issue.
+	kindOf func(ctx context.Context, provider, ref string) (string, error)
 }
 
 // compileTask compiles a Dispatch into a Pending Task and its prompt (controllers.md §Task
@@ -189,7 +194,14 @@ func compileTask(ctx context.Context, in compileInput, skills SkillResolver) (*v
 		ctxItems = append(ctxItems, c)
 	}
 	for _, c := range in.d.Context {
-		add(contextItem(c, in.ev))
+		it := contextItem(c, in.ev)
+		if it.Kind == "ref" && ticketRefRE.MatchString(it.Ref) {
+			var err error
+			if it, err = ticketItem(ctx, in, target.Provider, it.Ref); err != nil {
+				return nil, nil, err // transient (provider): retried
+			}
+		}
+		add(it)
 	}
 	if l, ok := primaryLink(in.wi.Spec.Links); ok {
 		add(v1alpha1.ContextItem{Kind: l.Kind, Provider: l.Provider, Ref: l.Ref, Trust: TrustUntrusted})
@@ -315,6 +327,9 @@ func compileTask(ctx context.Context, in compileInput, skills SkillResolver) (*v
 	if len(requires) > 0 {
 		task.Spec.Requires = &v1alpha1.Requires{Labels: requires}
 	}
+	if ws := spec.Workspace; ws != nil && len(ws.Hosts) > 0 {
+		task.Spec.Hosts = slices.Clone(ws.Hosts)
+	}
 	return task, prompt, nil
 }
 
@@ -339,7 +354,8 @@ func taskTarget(t *v1alpha1.Target, wi *v1alpha1.WorkItem) v1alpha1.Target {
 }
 
 // contextItem maps a dispatch context entry ("event.object", "event.review", a ref) to a
-// context ref.
+// context ref. A plain ref is kind "ref"; compileTask makes an owner/name#n one a ticket
+// (ticketItem).
 func contextItem(c string, ev v1alpha1.Event) v1alpha1.ContextItem {
 	if c == "event.object" {
 		if o := ev.Data.Object; o != nil {
@@ -368,6 +384,44 @@ func contextItem(c string, ev v1alpha1.Event) v1alpha1.ContextItem {
 	}
 	return v1alpha1.ContextItem{Kind: "ref", Ref: c, Trust: TrustUntrusted}
 }
+
+// ticketRefRE is an issue or PR ref, owner/name#n (the form of the agent's tickets/ files).
+var ticketRefRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+$`)
+
+// ticketItem is the context item of an "owner/name#n" dispatch context entry: an issue or a PR
+// on the dispatch target's provider, so the agent writes it to tickets/. Its kind is the
+// event object's or a link's when one of them is that ref, else in.kindOf's; the server reads
+// content by kind (another kind is not found), so it is resolved rather than guessed.
+func ticketItem(ctx context.Context, in compileInput, prov, ref string) (v1alpha1.ContextItem, error) {
+	kind := ""
+	if o := in.ev.Data.Object; o != nil && o.Ref == ref && isTicketKind(o.Kind) {
+		p := o.Provider
+		if p == "" {
+			p = in.ev.Source
+		}
+		if p == prov {
+			kind = o.Kind
+		}
+	}
+	for _, l := range in.wi.Spec.Links {
+		if kind == "" && l.Provider == prov && l.Ref == ref && isTicketKind(l.Kind) {
+			kind = l.Kind
+		}
+	}
+	if kind == "" {
+		kind = provider.KindIssue
+		if in.kindOf != nil {
+			k, err := in.kindOf(ctx, prov, ref)
+			if err != nil {
+				return v1alpha1.ContextItem{}, err
+			}
+			kind = k
+		}
+	}
+	return v1alpha1.ContextItem{Kind: kind, Provider: prov, Ref: ref, Trust: TrustUntrusted}, nil
+}
+
+func isTicketKind(k string) bool { return k == provider.KindIssue || k == provider.KindPR }
 
 // itemSummary is the work item as prompts see it: id, state and links (no bodies).
 func itemSummary(wi *v1alpha1.WorkItem) map[string]any {
