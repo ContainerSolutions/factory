@@ -1,0 +1,278 @@
+// Package github is the provider adapter for GitHub and GHE
+// (design/workstreams/provider-github/LLD/github-provider.md): App auth and scoped git
+// credentials (GH-S1-T01), webhook ingress and normalisation (GH-S1-T02), observe, list and
+// projection (GH-S1-T03) and effects (GH-S1-T04).
+//
+// It acts as the Provider's App identities ("author", "reviewer"), whose installation tokens
+// internal/provider/tokens mints, one repo per token.
+package github
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"maps"
+	"net/http"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/compliance-framework/factory/internal/provider/tokens"
+)
+
+// Type is the Provider spec.type this adapter connects.
+const Type = string(v1alpha1.ProviderTypeGitHub)
+
+// Options are the adapter-wide dependencies, shared by every Conn.
+type Options struct {
+	// HTTPClient makes the GitHub calls (default: tokens' default client).
+	HTTPClient *http.Client
+	// Clock times token caches, credential expiry and health (default clock.Real).
+	Clock clock.Clock
+	// Logger gets the adapter's logs (default: discarded). Tokens are never logged.
+	Logger *slog.Logger
+	// Groups resolves the catalog Groups named by trust rules (used from GH-S1-T02).
+	Groups provider.GroupLookup
+}
+
+// Adapter connects Provider objects of type github.
+type Adapter struct {
+	opts Options
+}
+
+var _ provider.Adapter = (*Adapter)(nil)
+
+// NewAdapter returns the GitHub adapter.
+func NewAdapter(opts Options) *Adapter {
+	if opts.Clock == nil {
+		opts.Clock = clock.Real{}
+	}
+	if opts.Logger == nil {
+		opts.Logger = slog.New(slog.DiscardHandler)
+	}
+	return &Adapter{opts: opts}
+}
+
+// Type implements provider.Adapter.
+func (a *Adapter) Type() string { return Type }
+
+// Connect implements provider.Adapter. It resolves every identity's private key through
+// secrets and parses it, so a missing secret or a bad key fails here; it makes no GitHub call
+// (CheckHealth does).
+func (a *Adapter) Connect(ctx context.Context, p v1alpha1.Provider, secrets provider.SecretResolver) (provider.Conn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	name := p.Metadata.Name
+	switch {
+	case name == "":
+		return nil, fmt.Errorf("github: connect: provider has no name: %w", provider.ErrInvalid)
+	case string(p.Spec.Type) != Type:
+		return nil, fmt.Errorf("github: connect %q: type %q: %w", name, p.Spec.Type, provider.ErrInvalid)
+	case p.Spec.GitHub == nil:
+		return nil, fmt.Errorf("github: connect %q: no spec.github: %w", name, provider.ErrInvalid)
+	case len(p.Spec.GitHub.Identities) == 0:
+		return nil, fmt.Errorf("github: connect %q: no identities: %w", name, provider.ErrInvalid)
+	case secrets == nil:
+		return nil, fmt.Errorf("github: connect %q: no secret resolver: %w", name, provider.ErrInvalid)
+	}
+	spec := p.Spec.GitHub
+	idents := make(map[string]tokens.Identity, len(spec.Identities))
+	for _, role := range slices.Sorted(maps.Keys(spec.Identities)) {
+		app := spec.Identities[role]
+		ref := app.PrivateKeyRef
+		if ref.Name == "" || ref.Key == "" {
+			return nil, fmt.Errorf("github: connect %q: identity %q: privateKeyRef needs name and key: %w", name, role, provider.ErrInvalid)
+		}
+		key, err := secrets.Resolve(ctx, ref)
+		if err != nil {
+			return nil, fmt.Errorf("github: connect %q: identity %q: resolve secret %s/%s: %w", name, role, ref.Name, ref.Key, err)
+		}
+		idents[role] = tokens.Identity{AppID: app.AppID, PrivateKey: key}
+	}
+	minter, err := tokens.New(idents, tokens.Options{
+		APIURL:     spec.APIURL,
+		HTTPClient: a.opts.HTTPClient,
+		Clock:      a.opts.Clock,
+		Logger:     a.opts.Logger.With("provider", name),
+		Provider:   name,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("github: connect %q: %w", name, err)
+	}
+	return &Conn{
+		name:   name,
+		minter: minter,
+		clock:  a.opts.Clock,
+		log:    a.opts.Logger.With("provider", name),
+		health: map[string]identityHealth{},
+	}, nil
+}
+
+// Conn is a connection to one GitHub Provider instance. It is safe for concurrent use.
+type Conn struct {
+	name   string
+	minter *tokens.Minter
+	clock  clock.Clock
+	log    *slog.Logger
+
+	mu     sync.Mutex
+	health map[string]identityHealth // by identity; absent until first checked
+}
+
+var _ provider.Conn = (*Conn)(nil)
+
+// identityHealth is the last outcome of authenticating as one identity.
+type identityHealth struct {
+	err error
+	at  time.Time
+}
+
+// MintGitCredential implements provider.Conn: one installation token on req.Repo with
+// req.Permissions, via tokens.Minter.Token (which refuses unscoped or over-broad requests with
+// provider.ErrInvalid). Outcomes that say whether the identity can authenticate update Health.
+func (c *Conn) MintGitCredential(ctx context.Context, req provider.GitCredentialRequest) (provider.Credential, error) {
+	cred, err := c.minter.Token(ctx, req)
+	c.record(req.Identity, err)
+	if err != nil {
+		return provider.Credential{}, fmt.Errorf("github %s: %w", c.name, err)
+	}
+	return cred, nil
+}
+
+// CheckHealth authenticates as every identity's App (GET /app), records the outcomes and
+// returns the resulting Health. `factory serve` calls it at connect and on resync (GH-S1-T04).
+func (c *Conn) CheckHealth(ctx context.Context) provider.HealthStatus {
+	idents := c.minter.Identities()
+	errs := make([]error, len(idents))
+	var wg sync.WaitGroup
+	for i, id := range idents {
+		wg.Go(func() { errs[i] = c.minter.CheckApp(ctx, id) })
+	}
+	wg.Wait()
+	now := c.clock.Now()
+	c.mu.Lock()
+	for i, id := range idents {
+		if errs[i] != nil && ctx.Err() != nil {
+			continue // we gave up; that says nothing about the identity
+		}
+		c.health[id] = identityHealth{err: errs[i], at: now}
+	}
+	c.mu.Unlock()
+	return c.Health()
+}
+
+// record updates an identity's health after a mint. Only outcomes about the identity itself
+// count: success, an auth failure (401/403) or GitHub being unreachable (retryable). A refused
+// request, a repo the App isn't installed on or a cancelled context say nothing about it.
+func (c *Conn) record(identity string, err error) {
+	switch {
+	case err == nil,
+		errors.Is(err, tokens.ErrUnauthorized),
+		errors.Is(err, tokens.ErrForbidden),
+		errors.Is(err, provider.ErrRetryable):
+	default:
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !slices.Contains(c.minter.Identities(), identity) {
+		return
+	}
+	c.health[identity] = identityHealth{err: err, at: c.clock.Now()}
+}
+
+// Health implements provider.Conn: ok when every identity's last check or mint succeeded,
+// down when every one failed, degraded in between, unknown before anything was checked. It
+// doesn't block.
+func (c *Conn) Health() provider.HealthStatus {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.health) == 0 {
+		return provider.HealthStatus{Status: provider.HealthUnknown, Message: "not checked yet"}
+	}
+	var failing []string
+	var checked time.Time
+	for _, id := range slices.Sorted(maps.Keys(c.health)) {
+		h := c.health[id]
+		if h.at.After(checked) {
+			checked = h.at
+		}
+		if h.err != nil {
+			failing = append(failing, fmt.Sprintf("%s: %s", id, healthReason(h.err)))
+		}
+	}
+	st := provider.HealthStatus{Status: provider.HealthOK, CheckedAt: checked}
+	switch {
+	case len(failing) == 0:
+	case len(failing) == len(c.minter.Identities()):
+		st.Status, st.Message = provider.HealthDown, strings.Join(failing, "; ")
+	default:
+		st.Status, st.Message = provider.HealthDegraded, strings.Join(failing, "; ")
+	}
+	return st
+}
+
+// healthReason is a short, secret-free reason for a failed check.
+func healthReason(err error) string {
+	switch {
+	case errors.Is(err, tokens.ErrUnauthorized):
+		return "GitHub rejected the App JWT (check the App ID and private key)"
+	case errors.Is(err, tokens.ErrForbidden):
+		return "GitHub refused the App"
+	case errors.Is(err, provider.ErrRetryable):
+		return "GitHub unreachable or rate-limited"
+	}
+	return err.Error()
+}
+
+// ---- Not implemented yet ---------------------------------------------------------------------
+
+// Handler implements provider.Conn. TODO(GH-S1-T02): verify X-Hub-Signature-256 and accept
+// deliveries. Until then it answers 503, so GitHub redelivers.
+func (c *Conn) Handler(provider.IngressSink) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "github webhook ingress is not implemented yet", http.StatusServiceUnavailable)
+	})
+}
+
+// Recover implements provider.Conn. TODO(GH-S1-T02): re-ingest GET /app/hook/deliveries.
+func (c *Conn) Recover(context.Context, time.Time, provider.IngressSink) error {
+	return fmt.Errorf("github %s: recover: %w", c.name, provider.ErrUnsupported)
+}
+
+// Normalise implements provider.Conn. TODO(GH-S1-T02): the mapping table.
+func (c *Conn) Normalise(context.Context, provider.RawEvent) ([]v1alpha1.Event, error) {
+	return nil, fmt.Errorf("github %s: normalise: %w", c.name, provider.ErrUnsupported)
+}
+
+// ResolveGroup implements provider.Conn. TODO(GH-S1-T02): teams and org roles, with actor
+// tier resolution.
+func (c *Conn) ResolveGroup(context.Context, v1alpha1.GroupSource) ([]string, error) {
+	return nil, fmt.Errorf("github %s: resolve group: %w", c.name, provider.ErrUnsupported)
+}
+
+// Observe implements provider.Conn. TODO(GH-S1-T03): one GraphQL query per object.
+func (c *Conn) Observe(context.Context, v1alpha1.ObjectRef) (provider.Observation, error) {
+	return provider.Observation{}, fmt.Errorf("github %s: observe: %w", c.name, provider.ErrUnsupported)
+}
+
+// List implements provider.Conn. TODO(GH-S1-T03): open and marked objects in scope.
+func (c *Conn) List(context.Context, v1alpha1.Scope) ([]v1alpha1.ObjectRef, error) {
+	return nil, fmt.Errorf("github %s: list: %w", c.name, provider.ErrUnsupported)
+}
+
+// Project implements provider.Conn. TODO(GH-S1-T03): marker comment and factory labels.
+func (c *Conn) Project(context.Context, v1alpha1.ObjectRef, provider.Projection) error {
+	return fmt.Errorf("github %s: project: %w", c.name, provider.ErrUnsupported)
+}
+
+// Apply implements provider.Conn. TODO(GH-S1-T04): the API-side effect ops.
+func (c *Conn) Apply(context.Context, provider.EffectRequest) (provider.EffectResult, error) {
+	return provider.EffectResult{}, fmt.Errorf("github %s: apply: %w", c.name, provider.ErrUnsupported)
+}
