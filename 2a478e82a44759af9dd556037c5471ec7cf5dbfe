@@ -1,0 +1,7 @@
+lisa-design:
+- The codex binary was never run while building this (owner decision); every flag/config key/event name lives in flags.go marked UNVERIFIED, verified by the owner with make smoke-codex (gated on FACTORY_SMOKE_CODEX=1, refused in CI).
+- Scratch CODEX_HOME at <ws>/home/.codex: auth.json is a symlink to the owner's file (never read or copied); config.toml's MCP env_vars lists names only; skills flattened.
+- approval via -c approval_policy="never" (exec doesn't take --ask-for-approval); effort mapping max→xhigh on *-codex-max*, high elsewhere; minimal→low on *-codex*.
+- error events don't fail a run (Codex reports retries that way); turn.failed or a non-zero exit do; a 429 Codex is retrying still throttles the agent.
+- Repair state in CODEX_HOME/factory-session.json so one adapter serves concurrent runs; resume with fallback to a new exec.
+- Risks for the smoke run: --output-schema strict subset vs our Result schemas (flip useOutputSchema), read-only sandbox blocks network for review tasks, workspace-write may keep .git read-only, per-turn vs cumulative usage.
