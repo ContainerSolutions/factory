@@ -151,8 +151,9 @@ type Workspace struct {
 	// Preamble is the headless preamble, also prepended to the prompt; adapters may put it
 	// in the system prompt (AGENTS.md, --append-system-prompt).
 	Preamble string
-	// Hosts are the hosts the run's commands must reach: the git host its repos come from and
-	// the dispatcher's (an adapter's network sandbox allows them).
+	// Hosts are the hosts the run's commands must reach: the git host its repos come from,
+	// the dispatcher's, the local stack's when it is up, and the Task's spec.hosts (an
+	// adapter's network sandbox allows them).
 	Hosts []string
 }
 

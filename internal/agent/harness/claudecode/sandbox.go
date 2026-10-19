@@ -38,7 +38,8 @@ func sandboxWritable(ws harness.Workspace) []string {
 }
 
 // sandboxDomains are the hosts sandboxed commands may reach: the run's (the git host, with
-// github.com's API and raw content, and the dispatcher), and the harness's own.
+// github.com's API and raw content, the dispatcher, the local stack and the Task's hosts),
+// and the harness's own.
 func sandboxDomains(ws harness.Workspace) []string {
 	var out []string
 	for _, h := range ws.Hosts {
