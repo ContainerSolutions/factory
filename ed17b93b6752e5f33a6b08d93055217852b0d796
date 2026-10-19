@@ -1,0 +1,6 @@
+lisa-design:
+- Minter API is Token(ctx, GitCredentialRequest): Validate first, then a body constructor that requires exactly one repo and ≥1 permission (no omitempty) — unscoped tokens can't be built.
+- Refused locally (ErrInvalid) before any GitHub call: ReadRepos, empty/unknown permissions, malformed repo, unknown identity; superset of the installation's permissions (ceiling = installation permissions, rechecked once if the cache is stale).
+- Installation via GET /repos/{o}/{r}/installation, cached per (identity, owner) 1h, dropped on 401/404/422; JWT via ghinstallation AppsTransport (wall clock ~90s); caches/expiry on the injected clock; reuse until 5m before GitHub's expiry.
+- In-package single-flight (x/sync not allow-listed); tokens scoped to other repos are refused; App clients never follow redirects; no tokens/JWTs in logs.
+- go-github: ghinstallation pins v88 — T02..T04 use v88 to avoid two copies.
