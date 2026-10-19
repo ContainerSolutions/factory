@@ -5,3 +5,6 @@ lisa-design:
 - bypassPermissions in both modes (nobody can answer prompts; acceptEdits denies Bash); read-only adds --disallowedTools Write,Edit,MultiEdit,NotebookEdit.
 - Shared helpers extracted from codex into harness/clirun (+ harnesstest for tests); codex behaviour unchanged.
 - All flags/keys UNVERIFIED (make smoke-claude, gated, never run here).
+
+lisa-selfreview:
+Pass 1: security (owner decision) — bypassPermissions without an OS sandbox exposed the maintainer's machine to prompt-injected Bash; fixed before push by enabling Claude's sandbox + credential read denies.
