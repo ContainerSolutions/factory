@@ -630,6 +630,16 @@ type TaskSpec struct {
 // GetName returns metadata.name.
 func (t *TaskSpec) GetName() string { return t.Metadata.Name }
 
+// Validate checks the workspace's hosts.
+func (t *TaskSpec) Validate() error {
+	if ws := t.Spec.Workspace; ws != nil {
+		if err := ws.Validate(); err != nil {
+			return prefixField("spec.workspace", err)
+		}
+	}
+	return nil
+}
+
 // TaskSpecSpec is the spec of a TaskSpec. String fields that depend on inputs may be "=CEL".
 type TaskSpecSpec struct {
 	Description string `json:"description,omitzero"`
@@ -712,6 +722,15 @@ type Workspace struct {
 	// PublicReads lets the agent clone public repos anonymously at runtime, and says the ro
 	// repos are public: they are cloned anonymously and get no read-only token.
 	PublicReads *bool `json:"publicReads,omitzero"`
+	// Hosts are the extra hostnames a sandboxed harness may reach, on top of the git host, the
+	// dispatcher and the local stack, e.g. registry.npmjs.org for a docs task's yarn install.
+	// Each is a lowercase hostname of at least two labels with an optional port and an
+	// optional single leading "*." label followed by at least two labels (*.example.com, not
+	// *.com); no scheme, path, userinfo, IP literal or localhost; at most 20 (ValidateHost).
+	// The compiler copies them to the Task's spec.hosts.
+	// Hosts widen what a prompt-injected run could reach, so a catalog change to them needs
+	// two approvals (FACTORY-CAT-002).
+	Hosts []string `json:"hosts,omitzero"`
 }
 
 // RepoMount is one repo in the workspace.
