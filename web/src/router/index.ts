@@ -1,0 +1,38 @@
+import {
+  createRouter,
+  createWebHistory,
+  type RouteRecordRaw,
+  type RouterHistory,
+} from 'vue-router';
+import BoardView from '@/views/BoardView.vue';
+
+export const routes: RouteRecordRaw[] = [
+  { path: '/', name: 'board', component: BoardView, meta: { title: 'Board' } },
+  {
+    path: '/pools',
+    name: 'pools',
+    component: () => import('@/views/PoolsView.vue'),
+    meta: { title: 'Queues and pools' },
+  },
+  {
+    path: '/catalog',
+    name: 'catalog',
+    component: () => import('@/views/CatalogView.vue'),
+    meta: { title: 'Catalog' },
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: () => import('@/views/NotFoundView.vue'),
+    meta: { title: 'Not found' },
+  },
+];
+
+export function createAppRouter(history: RouterHistory = createWebHistory()) {
+  const router = createRouter({ history, routes });
+  router.afterEach((to) => {
+    const title = typeof to.meta.title === 'string' ? to.meta.title : '';
+    document.title = title ? `${title} · CCF Factory` : 'CCF Factory';
+  });
+  return router;
+}

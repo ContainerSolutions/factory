@@ -1,0 +1,7 @@
+# The build goes to ../internal/webui/dist (ignored at the repo root), node_modules too.
+node_modules/
+*.tsbuildinfo
+coverage/
+playwright-report/
+test-results/
+*.local
