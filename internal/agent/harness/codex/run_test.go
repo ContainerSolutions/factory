@@ -14,6 +14,7 @@ import (
 
 	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/compliance-framework/factory/internal/agent/harness/harnesstest"
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
@@ -55,7 +56,7 @@ func TestRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			a, ws, fc := prepared(t, tt.writable, fakePlan{Runs: []fakeRun{tt.run}})
-			s := &recSink{}
+			s := &harnesstest.Recorder{}
 			raw, err := a.Run(context.Background(), ws, task(tt.model, tt.effort), "the prompt\n", s)
 			if err != nil {
 				t.Fatal(err)
@@ -87,7 +88,7 @@ func TestRun(t *testing.T) {
 			if !strings.Contains(lines[0], `"factory.codex-exec"`) || !strings.Contains(string(raw.Transcript), `"thread.started"`) {
 				t.Errorf("transcript:\n%s", raw.Transcript)
 			}
-			if len(s.progress) == 0 || s.progress[0].Kind != harness.KindTurn || len(s.usage) == 0 || len(s.limits) != 0 {
+			if len(s.Events) == 0 || s.Events[0].Kind != harness.KindTurn || len(s.Usages) == 0 || len(s.Limits) != 0 {
 				t.Errorf("sink: %+v", s)
 			}
 			sess, err := readSession(home)
@@ -116,13 +117,13 @@ func TestRunFailures(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			a, ws, _ := prepared(t, true, fakePlan{Runs: []fakeRun{tt.run}})
-			s := &recSink{}
+			s := &harnesstest.Recorder{}
 			_, err := a.Run(context.Background(), ws, task("gpt-5-codex", "high"), "p", s)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("err %v, want %q", err, tt.wantErr)
 			}
-			if tt.wantLimit.IsZero() != (len(s.limits) == 0) || (len(s.limits) > 0 && !s.limits[0].Equal(tt.wantLimit)) {
-				t.Errorf("rate limits %v, want %v", s.limits, tt.wantLimit)
+			if tt.wantLimit.IsZero() != (len(s.Limits) == 0) || (len(s.Limits) > 0 && !s.Limits[0].Equal(tt.wantLimit)) {
+				t.Errorf("rate limits %v, want %v", s.Limits, tt.wantLimit)
 			}
 		})
 	}
@@ -136,10 +137,10 @@ func TestRepair(t *testing.T) {
 			{Stream: "codex-success.jsonl", LastMessage: `{"status":"done"}`},
 			{Stream: "codex-success.jsonl", LastMessage: okResult},
 		}})
-		if _, err := a.Run(context.Background(), ws, task("gpt-5", "medium"), "the prompt", &recSink{}); err != nil {
+		if _, err := a.Run(context.Background(), ws, task("gpt-5", "medium"), "the prompt", &harnesstest.Recorder{}); err != nil {
 			t.Fatal(err)
 		}
-		raw, err := a.Repair(context.Background(), ws, []string{"/outcome: missing"}, &recSink{})
+		raw, err := a.Repair(context.Background(), ws, []string{"/outcome: missing"}, &harnesstest.Recorder{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -158,10 +159,10 @@ func TestRepair(t *testing.T) {
 	t.Run("a new exec without a thread", func(t *testing.T) {
 		t.Parallel()
 		a, ws, fc := prepared(t, true, fakePlan{Runs: []fakeRun{{Stream: "codex-token-count.jsonl"}}})
-		if _, err := a.Run(context.Background(), ws, task("gpt-5", "low"), "the prompt", &recSink{}); err != nil {
+		if _, err := a.Run(context.Background(), ws, task("gpt-5", "low"), "the prompt", &harnesstest.Recorder{}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := a.Repair(context.Background(), ws, []string{"no result"}, &recSink{}); err != nil {
+		if _, err := a.Repair(context.Background(), ws, []string{"no result"}, &harnesstest.Recorder{}); err != nil {
 			t.Fatal(err)
 		}
 		c := fc.calls()[1]
@@ -172,7 +173,7 @@ func TestRepair(t *testing.T) {
 	t.Run("nothing to repair", func(t *testing.T) {
 		t.Parallel()
 		a, ws, _ := prepared(t, true, fakePlan{})
-		if _, err := a.Repair(context.Background(), ws, []string{"x"}, &recSink{}); err == nil {
+		if _, err := a.Repair(context.Background(), ws, []string{"x"}, &harnesstest.Recorder{}); err == nil {
 			t.Error("Repair before Run succeeded")
 		}
 	})
@@ -185,7 +186,7 @@ func TestRunCancelKillsTheProcessTree(t *testing.T) {
 	a, ws, fc := prepared(t, true, fakePlan{Runs: []fakeRun{{Stream: "codex-success.jsonl", Child: true, Block: true, IgnoreTerm: true}}})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s := &recSink{}
+	s := &harnesstest.Recorder{}
 	done := make(chan error, 1)
 	go func() {
 		_, err := a.Run(ctx, ws, task("gpt-5", "high"), "p", s)
@@ -230,26 +231,11 @@ func TestRunRateLimitStopsTheRun(t *testing.T) {
 	a, ws, _ := prepared(t, true, fakePlan{Runs: []fakeRun{{Stream: "codex-ratelimit.jsonl", Block: true}}})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s := &recSink{onLimit: cancel}
+	s := &harnesstest.Recorder{OnLimit: cancel}
 	start := time.Now()
 	_, err := a.Run(ctx, ws, task("gpt-5", "high"), "p", s)
-	if !errors.Is(err, context.Canceled) || len(s.limits) != 1 || time.Since(start) > 10*time.Second {
-		t.Errorf("Run = %v after %s, limits %v", err, time.Since(start), s.limits)
-	}
-}
-
-func TestLineWriter(t *testing.T) {
-	var got []string
-	w := &lineWriter{fn: func(b []byte) { got = append(got, string(b)) }}
-	long := strings.Repeat("x", maxLine+10)
-	for _, chunk := range []string{"{\"a\":", "1}\r\n\n", long, "\nlast"} {
-		if _, err := w.Write([]byte(chunk)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	w.flush()
-	if len(got) != 3 || got[0] != `{"a":1}` || len(got[1]) != maxLine || got[2] != "last" {
-		t.Errorf("lines: %d, first %q", len(got), got[0])
+	if !errors.Is(err, context.Canceled) || len(s.Limits) != 1 || time.Since(start) > 10*time.Second {
+		t.Errorf("Run = %v after %s, limits %v", err, time.Since(start), s.Limits)
 	}
 }
 

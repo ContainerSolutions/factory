@@ -47,6 +47,8 @@ flowchart LR
 
 It is *not* bounded by the prompt.
 
+The agent harness always runs inside an **OS sandbox** that bounds what its commands may write, read and reach on the owner's machine (Codex's `--sandbox`; Claude Code's sandbox settings, which also keep the machine's other credentials unreadable and the network to the run's hosts). It is a second layer under the scoped tokens, not a replacement for them, and an agent machine that can't sandbox a harness doesn't offer it ([harness-adapters.md](workstreams/agent/LLD/harness-adapters.md#decisions-taken-in-agt-s1-t04)).
+
 ## Controls
 
 ### Untrusted content handling

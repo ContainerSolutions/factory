@@ -18,6 +18,7 @@ import (
 
 	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/compliance-framework/factory/internal/agent/harness/claudecode"
 	"github.com/compliance-framework/factory/internal/agent/harness/codex"
 	"github.com/compliance-framework/factory/internal/agent/owner"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
@@ -59,7 +60,8 @@ type runnerOptions struct {
 // harnessAdapters builds each harness's adapter from its local config, one line per
 // harness: AGT-S1-T03 registers codex and AGT-S1-T04 claude-code.
 var harnessAdapters = map[string]func(config.Harness) harness.Adapter{
-	config.HarnessCodex: func(h config.Harness) harness.Adapter { return codex.New(codex.Options{Config: h}) },
+	config.HarnessCodex:      func(h config.Harness) harness.Adapter { return codex.New(codex.Options{Config: h}) },
+	config.HarnessClaudeCode: func(h config.Harness) harness.Adapter { return claudecode.New(claudecode.Options{Config: h}) },
 }
 
 // skillsCache is where skills checkouts are cached by commit (run-pipeline.md §Steps 5).
@@ -94,7 +96,7 @@ func newRunner(cfg *config.Config, o runnerOptions) (runner.Runner, error) {
 	for _, name := range slices.Sorted(maps.Keys(cfg.Harnesses)) {
 		mk, ok := harnessAdapters[name]
 		if !ok {
-			return nil, fmt.Errorf("no harness adapter for %s yet (AGT-S1-T03 codex, AGT-S1-T04 claude-code); pass --stub-result <result.json> to run against a development dispatcher", name)
+			return nil, fmt.Errorf("no harness adapter for %s; pass --stub-result <result.json> to run against a development dispatcher", name)
 		}
 		adapters[name] = mk(cfg.Harnesses[name])
 	}

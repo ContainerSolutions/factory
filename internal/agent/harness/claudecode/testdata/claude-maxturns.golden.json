@@ -1,0 +1,45 @@
+{
+  "progress": [
+    {
+      "kind": "turn",
+      "summary": "turn 1"
+    },
+    {
+      "kind": "tool",
+      "summary": "search TODO"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 2"
+    },
+    {
+      "kind": "tool",
+      "summary": "fetch https://example.com/spec"
+    },
+    {
+      "kind": "error",
+      "summary": "limit maxTurns reached: claude stopped after 2 turns"
+    }
+  ],
+  "usage": [
+    {
+      "InputTokens": 1003,
+      "OutputTokens": 8,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 1103,
+      "OutputTokens": 8,
+      "CostUSD": null
+    }
+  ],
+  "rateLimited": null,
+  "sessionId": "5d3b1f0e-8c2a-4e57-9b1d-2a6c7e9f0a11",
+  "turns": 2,
+  "result": "",
+  "failed": false,
+  "lastError": "",
+  "limit": "maxTurns",
+  "fatal": "",
+  "stopped": false
+}

@@ -447,6 +447,10 @@ func checkWorkspace(t *testing.T, f *fixture, ws harness.Workspace, prompt strin
 			t.Errorf("env %s = %q, want %q", k, env[k], v)
 		}
 	}
+	// Hosts: the git host and the dispatcher's, once each (both are the loopback here).
+	if !slices.Equal(ws.Hosts, []string{"127.0.0.1"}) {
+		t.Errorf("hosts %q", ws.Hosts)
+	}
 	if !strings.HasPrefix(env["PATH"], ws.Bin+string(filepath.ListSeparator)) {
 		t.Errorf("PATH %q doesn't start with the factory CLI's directory", env["PATH"])
 	}

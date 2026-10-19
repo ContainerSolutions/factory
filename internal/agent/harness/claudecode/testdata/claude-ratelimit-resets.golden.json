@@ -1,0 +1,20 @@
+{
+  "progress": [
+    {
+      "kind": "error",
+      "summary": "You've hit your limit · resets 3pm (Europe/Lisbon)"
+    }
+  ],
+  "usage": null,
+  "rateLimited": [
+    "2026-10-19T14:00:00Z"
+  ],
+  "sessionId": "5d3b1f0e-8c2a-4e57-9b1d-2a6c7e9f0a11",
+  "turns": 0,
+  "result": "You've hit your limit · resets 3pm (Europe/Lisbon)",
+  "failed": true,
+  "lastError": "You've hit your limit · resets 3pm (Europe/Lisbon)",
+  "limit": "",
+  "fatal": "",
+  "stopped": false
+}

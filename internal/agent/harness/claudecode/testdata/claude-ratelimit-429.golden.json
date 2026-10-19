@@ -1,0 +1,39 @@
+{
+  "progress": [
+    {
+      "kind": "turn",
+      "summary": "turn 1"
+    },
+    {
+      "kind": "message",
+      "summary": "Reading the repo."
+    },
+    {
+      "kind": "error",
+      "summary": "API Error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed the rate limit for your organization of 400,000 input tokens per minute.\"}}"
+    }
+  ],
+  "usage": [
+    {
+      "InputTokens": 2005,
+      "OutputTokens": 12,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 0,
+      "OutputTokens": 0,
+      "CostUSD": 0.012
+    }
+  ],
+  "rateLimited": [
+    "2026-10-19T12:15:00Z"
+  ],
+  "sessionId": "5d3b1f0e-8c2a-4e57-9b1d-2a6c7e9f0a11",
+  "turns": 1,
+  "result": "API Error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed the rate limit for your organization of 400,000 input tokens per minute.\"}}",
+  "failed": true,
+  "lastError": "API Error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed the rate limit for your organization of 400,000 input tokens per minute.\"}}",
+  "limit": "",
+  "fatal": "",
+  "stopped": false
+}

@@ -1,0 +1,94 @@
+{
+  "progress": [
+    {
+      "kind": "error",
+      "summary": "MCP server factory: failed"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 1"
+    },
+    {
+      "kind": "message",
+      "summary": "plan: 1/3 done"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 2"
+    },
+    {
+      "kind": "tool",
+      "summary": "agent Survey the docs tree"
+    },
+    {
+      "kind": "tool",
+      "summary": "search docs/**/*.md"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 3"
+    },
+    {
+      "kind": "tool",
+      "summary": "$ gh issue view 7 --json body"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 4"
+    },
+    {
+      "kind": "message",
+      "summary": "```json …"
+    },
+    {
+      "kind": "error",
+      "summary": "tool calls denied: Write"
+    }
+  ],
+  "usage": [
+    {
+      "InputTokens": 5010,
+      "OutputTokens": 60,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 5203,
+      "OutputTokens": 40,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 3004,
+      "OutputTokens": 30,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 3102,
+      "OutputTokens": 15,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 5352,
+      "OutputTokens": 50,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 5431,
+      "OutputTokens": 45,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 1000,
+      "OutputTokens": 100,
+      "CostUSD": 0.09
+    }
+  ],
+  "rateLimited": null,
+  "sessionId": "5d3b1f0e-8c2a-4e57-9b1d-2a6c7e9f0a11",
+  "turns": 4,
+  "result": "{\"status\":\"done\",\"outcome\":\"decomposed\",\"summary\":\"five sub-issues\"}",
+  "failed": false,
+  "lastError": "",
+  "limit": "",
+  "fatal": "",
+  "stopped": false
+}

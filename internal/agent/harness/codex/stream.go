@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/compliance-framework/factory/internal/agent/harness/clirun"
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
@@ -137,7 +138,7 @@ func (p *parser) item(typ string, it item, raw []byte, now time.Time) {
 	case itemAgentMessage:
 		if typ == evItemCompleted && it.Text != "" {
 			p.lastMessage = it.Text
-			p.progress(harness.KindMessage, firstLine(it.Text), now)
+			p.progress(harness.KindMessage, clirun.FirstLine(it.Text), now)
 		}
 	case itemCommand, itemFileChange, itemMCPToolCall, itemWebSearch:
 		// One event per tool call: when it starts, or when it completes if its start
@@ -178,12 +179,12 @@ func (p *parser) fail(msg string, raw []byte, now time.Time) {
 		msg = "codex reported an error"
 	}
 	p.lastError = msg
-	p.progress(harness.KindError, firstLine(msg), now)
+	p.progress(harness.KindError, clirun.FirstLine(msg), now)
 	if p.limited || !isRateLimit(msg) {
 		return
 	}
 	p.limited = true
-	p.until = resetTime(raw, msg, now, p.reset)
+	p.until = clirun.ResetTime(raw, msg, now, p.reset)
 	p.sink.RateLimited(p.until)
 }
 
@@ -196,7 +197,7 @@ func (p *parser) usage(u tokenUsage) {
 }
 
 func (p *parser) progress(kind, summary string, at time.Time) {
-	p.sink.Progress(harness.ProgressEvent{Kind: kind, Summary: clip(summary, harness.MaxSummary), At: at})
+	p.sink.Progress(harness.ProgressEvent{Kind: kind, Summary: clirun.Clip(summary, harness.MaxSummary), At: at})
 }
 
 // errorMessage is an error event's text: error.message, error as a string, or message.
@@ -219,7 +220,7 @@ func errorMessage(e json.RawMessage, msg string) string {
 func toolSummary(it item) string {
 	switch it.Type {
 	case itemCommand:
-		return "$ " + firstLine(it.Command)
+		return "$ " + clirun.FirstLine(it.Command)
 	case itemFileChange:
 		paths := make([]string, 0, len(it.Changes))
 		for _, c := range it.Changes {
@@ -229,26 +230,10 @@ func toolSummary(it item) string {
 	case itemMCPToolCall:
 		return "mcp " + it.Server + "." + it.Tool
 	case itemWebSearch:
-		return "search " + firstLine(it.Query)
+		return "search " + clirun.FirstLine(it.Query)
 	}
 	return it.Type
 }
 
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return strings.TrimSpace(s[:i]) + " …"
-	}
-	return s
-}
-
-// clip cuts s to n bytes on a rune boundary.
-func clip(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && s[n]&0xC0 == 0x80 {
-		n--
-	}
-	return s[:n]
-}
+// isRateLimit reports whether an error's text says a rate or plan limit was hit.
+func isRateLimit(msg string) bool { return clirun.ContainsFold(msg, rateLimitWords) }

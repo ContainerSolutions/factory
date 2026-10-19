@@ -1,4 +1,4 @@
-package codex
+package clirun
 
 import (
 	"encoding/json"
@@ -12,19 +12,12 @@ import (
 // (harness-adapters.md: else +15 min).
 const DefaultThrottle = 15 * time.Minute
 
-// maxThrottle bounds a parsed reset: a weekly plan limit is the longest.
-const maxThrottle = 8 * 24 * time.Hour
+// MaxThrottle bounds a parsed reset: a weekly plan limit is the longest.
+const MaxThrottle = 8 * 24 * time.Hour
 
-// isRateLimit reports whether an error's text says a rate or plan limit was hit.
-func isRateLimit(msg string) bool {
-	m := strings.ToLower(msg)
-	for _, w := range rateLimitWords {
-		if strings.Contains(m, w) {
-			return true
-		}
-	}
-	return false
-}
+// ResetPlausible reports whether a parsed reset can be used: after now and at most
+// MaxThrottle ahead.
+func ResetPlausible(t, now time.Time) bool { return t.After(now) && t.Sub(now) <= MaxThrottle }
 
 var (
 	againInRE = regexp.MustCompile(`(?i)(?:try again|retry|resets?)\s+in\s+([0-9][0-9a-z ,]*)`)
@@ -33,11 +26,11 @@ var (
 	ordinalRE = regexp.MustCompile(`(?i)\b([0-9]{1,2})(st|nd|rd|th)\b`)
 )
 
-// resetTime is when a rate limit ends: a resets_in_seconds / resets_at field in the event, a
-// "try again in …" or "try again at …" in its text, else now + def. A reset in the past or
-// beyond maxThrottle is ignored.
-func resetTime(raw []byte, msg string, now time.Time, def time.Duration) time.Time {
-	ok := func(t time.Time) bool { return t.After(now) && t.Sub(now) <= maxThrottle }
+// ResetTime is when a rate limit ends: a resets_in_seconds / resets_at field in the event
+// (raw), a "try again in …" or "try again at …" in its text, else now + def. A reset in the
+// past or beyond MaxThrottle is ignored.
+func ResetTime(raw []byte, msg string, now time.Time, def time.Duration) time.Time {
+	ok := func(t time.Time) bool { return ResetPlausible(t, now) }
 	if t, found := resetField(raw, now); found && ok(t) {
 		return t
 	}
@@ -57,7 +50,7 @@ func resetTime(raw []byte, msg string, now time.Time, def time.Duration) time.Ti
 		}
 	}
 	if m := againAtRE.FindStringSubmatch(msg); m != nil {
-		if t, found := parseAt(strings.TrimSpace(m[1]), now); found && ok(t) {
+		if t, found := ParseAt(strings.TrimSpace(m[1]), now); found && ok(t) {
 			return t
 		}
 	}
@@ -80,20 +73,34 @@ func unit(u string) (time.Duration, bool) {
 	return 0, false
 }
 
-// parseAt reads a "try again at" time: RFC 3339, or a local wall time with or without a date
-// ("3:05 PM", "Oct 21st, 2026 3:05 PM"). A time of day alone is the next one.
-func parseAt(s string, now time.Time) (time.Time, bool) {
+// ParseAt reads a reset time: RFC 3339, or a wall time in now's location with or without a
+// date ("3:05 PM", "3pm", "Oct 21st, 2026 3:05 PM", "Oct 21 at 3pm"). A time of day alone is
+// the next one; a date without a year the next one too.
+func ParseAt(s string, now time.Time) (time.Time, bool) {
+	s = strings.TrimSpace(s)
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return t, true
 	}
 	s = ordinalRE.ReplaceAllString(s, "$1")
+	// Go parses AM/PM in upper case only; month names in any case.
+	s = strings.Join(strings.Fields(strings.ToUpper(s)), " ")
+	s = strings.Replace(s, " AT ", " ", 1)
 	loc := now.Location()
 	for _, layout := range []string{"Jan 2, 2006 3:04 PM", "Jan 2 2006 3:04 PM", "Jan 2, 2006, 3:04 PM", "2006-01-02 15:04"} {
 		if t, err := time.ParseInLocation(layout, s, loc); err == nil {
 			return t, true
 		}
 	}
-	for _, layout := range []string{"3:04 PM", "3:04PM", "15:04"} {
+	for _, layout := range []string{"Jan 2, 3:04 PM", "Jan 2 3:04 PM", "Jan 2, 3:04PM", "Jan 2 3:04PM", "Jan 2, 3PM", "Jan 2 3PM", "Jan 2, 3 PM", "Jan 2 3 PM"} {
+		if t, err := time.ParseInLocation(layout, s, loc); err == nil {
+			at := time.Date(now.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, loc)
+			if !at.After(now) {
+				at = at.AddDate(1, 0, 0)
+			}
+			return at, true
+		}
+	}
+	for _, layout := range []string{"3:04 PM", "3:04PM", "3PM", "3 PM", "15:04"} {
 		if t, err := time.ParseInLocation(layout, s, loc); err == nil {
 			at := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, loc)
 			if !at.After(now) {

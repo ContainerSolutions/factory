@@ -2,7 +2,9 @@ package pipeline
 
 import (
 	"context"
+	"net/url"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -105,7 +107,25 @@ func (r *run) buildEnv(context.Context) error {
 		env[k] = v
 	}
 	r.ws.Env = envList(env)
+	r.ws.Hosts = r.hosts()
 	return nil
+}
+
+// hosts are the git host and the dispatcher's host, each once.
+func (r *run) hosts() []string {
+	var out []string
+	add := func(h string) {
+		if h != "" && !slices.Contains(out, h) {
+			out = append(out, h)
+		}
+	}
+	if r.base != nil {
+		add(r.base.Hostname())
+	}
+	if u, err := url.Parse(r.job.Dispatcher); err == nil {
+		add(u.Hostname())
+	}
+	return out
 }
 
 // envList is env as sorted KEY=value entries.

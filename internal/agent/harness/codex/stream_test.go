@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/compliance-framework/factory/internal/agent/harness/harnesstest"
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
@@ -43,15 +44,15 @@ func parseFile(t *testing.T, path string) parsed {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &recSink{}
+	s := &harnesstest.Recorder{}
 	p := newParser(s, clock.NewFake(t0), DefaultThrottle)
 	sc := bufio.NewScanner(bytes.NewReader(b))
 	for sc.Scan() {
 		p.line(sc.Bytes())
 	}
-	out := parsed{Usage: s.usage, RateLimited: s.limits, ThreadID: p.threadID, Turns: p.turns,
+	out := parsed{Usage: s.Usages, RateLimited: s.Limits, ThreadID: p.threadID, Turns: p.turns,
 		LastMessage: p.lastMessage, Failed: p.failed, LastError: p.lastError}
-	for _, e := range s.progress {
+	for _, e := range s.Events {
 		if !e.At.Equal(t0) {
 			t.Errorf("event %+v isn't stamped with the clock", e)
 		}
@@ -158,7 +159,7 @@ func TestParseSemantics(t *testing.T) {
 }
 
 func TestParserEdgeCases(t *testing.T) {
-	s := &recSink{}
+	s := &harnesstest.Recorder{}
 	p := newParser(s, clock.NewFake(t0), DefaultThrottle)
 	long := strings.Repeat("é", 400) // 800 bytes
 	for _, l := range []string{
@@ -174,13 +175,28 @@ func TestParserEdgeCases(t *testing.T) {
 	} {
 		p.line([]byte(l))
 	}
-	if len(s.progress) != 3 || len(s.progress[0].Summary) > harness.MaxSummary || !strings.HasPrefix(long, s.progress[0].Summary) {
-		t.Errorf("progress %+v", s.progress)
+	if len(s.Events) != 3 || len(s.Events[0].Summary) > harness.MaxSummary || !strings.HasPrefix(long, s.Events[0].Summary) {
+		t.Errorf("progress %+v", s.Events)
 	}
-	if len(s.usage) != 1 || s.usage[0].InputTokens != 10 {
-		t.Errorf("usage %+v", s.usage)
+	if len(s.Usages) != 1 || s.Usages[0].InputTokens != 10 {
+		t.Errorf("usage %+v", s.Usages)
 	}
-	if len(s.limits) != 1 || p.lastError != "usage limit again" {
-		t.Errorf("limits %v, last error %q", s.limits, p.lastError)
+	if len(s.Limits) != 1 || p.lastError != "usage limit again" {
+		t.Errorf("limits %v, last error %q", s.Limits, p.lastError)
+	}
+}
+
+func TestIsRateLimit(t *testing.T) {
+	for msg, want := range map[string]bool{
+		"You've hit your usage limit.":                             true,
+		"exceeded retry limit, last status: 429 Too Many Requests": true,
+		"Rate limit reached for requests":                          true,
+		"insufficient_quota":                                       true,
+		"stream disconnected before completion":                    false,
+		"command failed with exit code 1":                          false,
+	} {
+		if got := isRateLimit(msg); got != want {
+			t.Errorf("isRateLimit(%q) = %v", msg, got)
+		}
 	}
 }

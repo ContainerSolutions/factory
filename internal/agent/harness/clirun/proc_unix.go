@@ -1,6 +1,6 @@
 //go:build unix
 
-package codex
+package clirun
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 	"syscall"
 )
 
-// inOwnGroup starts cmd as the leader of a new process group, so the commands codex starts
+// inOwnGroup starts cmd as the leader of a new process group, so the commands the harness starts
 // can be killed with it.
 func inOwnGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
