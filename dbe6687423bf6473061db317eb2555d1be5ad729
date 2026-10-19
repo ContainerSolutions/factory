@@ -6,3 +6,6 @@ lisa-design:
 - Deploys link by choosing the Events' objects: one Event per merged PR the SHA contains (newest 20, compare API); none → owner/name#d-<id>.
 - Release previousTag = highest final release below the tag with the same release-please component prefix; non-semver tags get only tag.
 - Recover lists each App's deliveries with the JWT (404 = no webhook), oldest first, once per GUID.
+
+lisa-selfreview:
+Pass 1: no blocking findings; security trade-off (org-scoped members:read token) flagged for the owner.
