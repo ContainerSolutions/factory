@@ -1,0 +1,17 @@
+# Address a change request on the factory's docs PR (up to three implement runs). Targets the
+# docs PR, as review-release-docs does: the work item's primary link is the train issue.
+kind: Rule
+metadata: { name: fix-release-docs-review, labels: { pack: release-docs } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [pr.review.submitted]
+  params: { docsRepo: compliance-framework/docs }          # the dev RuleSet's defaults set mock-docs
+  where: >
+    has(item.state.release) && event.repo == params.docsRepo &&
+    event.review.state == 'changes_requested' && item.count('implement') < 3
+  actions:
+    - dispatch:
+        taskSpec: implement
+        queue: poc
+        target: { repo: "{{ params.docsRepo }}", ref: "=event.object.ref" }
+        inputs: { mode: address-review, target: pr }

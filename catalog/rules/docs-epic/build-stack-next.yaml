@@ -1,0 +1,14 @@
+# A stack PR is open: implement the next sub-issue on its branch. The sub-issue is also a
+# context item, for the ticket file lisa reads in headless mode.
+kind: Rule
+metadata: { name: build-stack-next, labels: { pack: docs-epic } }
+spec:
+  on: [factory.run.completed]
+  where: "run.spec == 'implement' && run.inputs.mode == 'new' && run.outcome == 'pr-opened' && item.state.stackNext + 1 < item.state.stackTotal"
+  actions:
+    - set: { stackNext: "=item.state.stackNext + 1" }      # later actions see the updated state
+    - dispatch:
+        taskSpec: implement
+        queue: poc
+        context: ["=item.state.plan[item.state.stackNext].issue"]
+        inputs: { mode: new, target: pr, issue: "=item.state.plan[item.state.stackNext].issue", base: "=run.result.branch" }

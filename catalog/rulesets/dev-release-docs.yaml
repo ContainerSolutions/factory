@@ -1,0 +1,17 @@
+# Dev RuleSet (10 §RuleSets; catalog-poc LLD §Dev and prod RuleSets): the release-docs pack
+# against mock trains (repos.mock.yaml, dry runs too) and mock-docs. The params are defaults,
+# so every rule of the pack that declares them, merge-release-docs included once it's no
+# longer excluded, gets the mock values. No dispatch here may target compliance-framework/docs
+# (catalog_test.go's TestRuleSetTargets).
+kind: RuleSet
+metadata: { name: dev-release-docs }
+spec:
+  providerSelector: { matchLabels: { family: github, network: public } }
+  scope: { repos: ["compliance-framework/workflows", "compliance-framework/mock-docs", "compliance-framework/mock-*"] }
+  rules:
+    selector: { matchExpressions: [{ key: pack, operator: In, values: [release-docs, shared] }] }
+    exclude: [merge-release-docs]
+  defaults: { trainManifest: repos.mock.yaml, docsRepo: compliance-framework/mock-docs }
+  overrides:
+    docs-on-release-train: { allowDryRun: true }
+  stateKeys: [release, train, manifest, repos, review, merge]

@@ -1,0 +1,7 @@
+kind: Rule
+metadata: { name: record-review-outcome, labels: { pack: docs-epic } }
+spec:
+  on: [factory.run.completed]
+  priority: 100                                            # runs first, so later rules see the new state
+  where: "run.spec == 'docs-review'"
+  actions: [{ set: { review: "=run.outcome" } }]

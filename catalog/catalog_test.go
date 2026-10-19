@@ -1,6 +1,7 @@
-// Package catalog_test checks the factory's own catalog: it validates strictly, every prompt
-// and Template renders with fixture inputs (golden files under testdata/render, rewritten with
-// go test ./catalog -update), and the result schemas accept what the skills write.
+// Package catalog_test checks the factory's own catalog: it validates with no warning but the
+// RuleSet overlaps the design calls for, every prompt and Template renders with fixture inputs
+// (golden files under testdata/render, rewritten with go test ./catalog -update), the result
+// schemas accept what the skills write, and no dev RuleSet ever targets compliance-framework/docs.
 package catalog_test
 
 import (
@@ -9,6 +10,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -17,32 +19,60 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
 	"github.com/compliance-framework/factory/internal/catalog"
+	"github.com/compliance-framework/factory/internal/cel"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files under testdata/render")
 
-// load loads this directory as factory serve does, with warnings as errors.
+// overlapRE reads a CAT1200 warning: the rule and the other RuleSet that selects it.
+var overlapRE = regexp.MustCompile(`rule (\S+) is also selected by RuleSet (\S+),`)
+
+// expectedOverlap says whether a rule may be selected by two RuleSets with overlapping scope
+// (CAT1200, a warning). Two overlaps are by design (catalog-poc LLD §Dev and prod RuleSets):
+// every RuleSet selects the shared pack, and both release-docs RuleSets scope workflows, where
+// the trains are; their rules tell prod and dev trains apart by the train's manifest. Any
+// other overlap fails, as every other warning does.
+func expectedOverlap(rule, a, b string) bool {
+	pair := []string{a, b}
+	slices.Sort(pair)
+	return rule == "escalate-needs-human" || slices.Equal(pair, []string{"dev-release-docs", "poc-release-docs"})
+}
+
+// load loads this directory as factory serve does. Warnings fail it, as with validate
+// --strict, except the RuleSet overlaps the design calls for (expectedOverlap).
 func load(t *testing.T) *catalog.Catalog {
 	t.Helper()
-	c, errs := catalog.LoadDir(os.DirFS("."), catalog.Options{Strict: true})
-	if c == nil || len(errs) > 0 {
-		var b strings.Builder
-		for _, e := range errs {
-			b.WriteString(e.Error() + "\n")
+	c, errs := catalog.LoadDir(os.DirFS("."), catalog.Options{})
+	var b strings.Builder
+	for _, e := range errs {
+		if e.Severity == catalog.SeverityWarning && e.Code == catalog.CodeOverlap {
+			if m := overlapRE.FindStringSubmatch(e.Message); m != nil && expectedOverlap(m[1], m[2], e.Object.Name) {
+				continue
+			}
 		}
+		b.WriteString(e.Error() + "\n")
+	}
+	if c == nil || b.Len() > 0 {
 		t.Fatalf("the catalog does not validate:\n%s", b.String())
 	}
 	return c
 }
 
-// TestCatalog: the objects this task adds are all there.
+// TestCatalog: the catalog's objects are all there.
 func TestCatalog(t *testing.T) {
 	c := load(t)
 	for kind, got := range map[string][]string{
 		"taskspecs": keys(c.TaskSpecs), "templates": keys(c.Templates),
 		"prompts": keys(c.Assets.Prompts), "schemas": keys(c.Assets.Schemas),
+		"rules": keys(c.Rules), "rulesets": keys(c.RuleSets),
 	} {
 		want := map[string][]string{
+			"rules": {"announce-ptbr-live", "announce-release-docs", "build-stack-next", "build-stack-start",
+				"docs-on-release-train", "escalate-needs-human", "fix-release-docs-review", "fix-stack-review",
+				"merge-release-docs", "merge-whole-stack", "plan-maintainer-epics", "record-merge-outcome",
+				"record-release-docs-repos", "record-release-review-outcome", "record-review-outcome",
+				"review-human-prs", "review-release-docs", "review-whole-stack"},
+			"rulesets":  {"dev-docs-epic", "dev-release-docs", "poc-docs-epic", "poc-docs-human-review", "poc-release-docs"},
 			"taskspecs": {"docs-review", "implement", "merge", "plan-epic", "release-docs"},
 			"templates": {"epic-plan", "needs-human", "ptbr-live", "release-docs-published"},
 			"prompts": {"prompts/docs-review.md.tmpl", "prompts/implement.md.tmpl", "prompts/merge.md.tmpl",
@@ -73,6 +103,138 @@ func TestCatalog(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// prodDocs is the real docs repo: only the prod (poc-*) RuleSets may write to it.
+const prodDocs = "compliance-framework/docs"
+
+// prodDocsRE matches the real docs repo, alone or in a ref (docs#12, docs@main), but not
+// mock-docs.
+var prodDocsRE = regexp.MustCompile(`(^|[^-\w])compliance-framework/docs\b`)
+
+// ruleSetDocsRepo is the docs repo a RuleSet's dispatches target: docs for the prod (poc-*)
+// RuleSets, mock-docs for the dev (dev-*) ones (catalog-poc LLD §Dev and prod RuleSets).
+func ruleSetDocsRepo(name string) string {
+	switch {
+	case strings.HasPrefix(name, "poc-"):
+		return prodDocs
+	case strings.HasPrefix(name, "dev-"):
+		return "compliance-framework/mock-docs"
+	}
+	return ""
+}
+
+// TestRuleSetTargets is the guard against a dev RuleSet writing to compliance-framework/docs.
+// The write token follows task.target.repo (TestCatalog), so the target each dispatch names is
+// what the task may write to. Every rule a RuleSet's selection picks is checked with that
+// RuleSet's params, the excluded merge-* rules too, as they will run once RUN-S4-T01 takes
+// them out of exclude:
+//   - a dispatch that names a target names the RuleSet's docs repo;
+//   - release-docs and plan-epic dispatches, and every dispatch of the release-docs pack (whose
+//     work item's primary link is the train issue in workflows), name one;
+//   - a dev RuleSet mentions compliance-framework/docs nowhere, and its scope doesn't match it,
+//     so the dispatches without a target (the work item's primary link) can't reach it.
+func TestRuleSetTargets(t *testing.T) {
+	c := load(t)
+	for _, name := range keys(c.RuleSets) {
+		rs := c.RuleSets[name]
+		want := ruleSetDocsRepo(name)
+		if want == "" {
+			t.Errorf("RuleSet %s: neither poc-* (prod) nor dev-* (dev), so its docs repo is unknown", name)
+			continue
+		}
+		dev := want != prodDocs
+		if !rs.Scope.MatchRepo(want) {
+			t.Errorf("RuleSet %s: the scope doesn't match %s", name, want)
+		}
+		if dev && rs.Scope.MatchRepo(prodDocs) {
+			t.Errorf("RuleSet %s: a dev RuleSet's scope matches %s", name, prodDocs)
+		}
+		spec := rs.Spec.Spec
+		checked := 0
+		for _, ruleName := range keys(c.Rules) {
+			rule := c.Rules[ruleName]
+			selected := slices.Contains(spec.Rules.Refs, ruleName) ||
+				(spec.Rules.Selector != nil && spec.Rules.Selector.Matches(rule.Metadata.Labels))
+			if strings.Contains(ruleName, "/") || !selected {
+				continue // inline, or not selected; exclude is ignored on purpose
+			}
+			checked++
+			params, err := cel.MergeParams(rule.Spec.Params, spec.Defaults, spec.Overrides[ruleName])
+			if err != nil {
+				t.Errorf("RuleSet %s, rule %s: params: %v", name, ruleName, err)
+				continue
+			}
+			sub, err := cel.SubstituteRule(rule, params)
+			if err != nil {
+				t.Errorf("RuleSet %s, rule %s: substitute: %v", name, ruleName, err)
+				continue
+			}
+			if dev {
+				// What runs: the where, the actions and the params they see (spec.params still
+				// holds the rule's own defaults).
+				b, err := json.Marshal(map[string]any{"where": sub.Spec.Where, "actions": sub.Spec.Actions, "params": params})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if prodDocsRE.Match(b) {
+					t.Errorf("RuleSet %s, rule %s: a dev RuleSet's rule names %s: %s", name, ruleName, prodDocs, b)
+				}
+			}
+			for i, a := range sub.Spec.Actions {
+				d := a.Dispatch
+				if d == nil {
+					continue
+				}
+				repo := ""
+				if d.Target != nil {
+					repo = d.Target.Repo
+				}
+				mustTarget := d.TaskSpec == "release-docs" || d.TaskSpec == "plan-epic" || rule.Metadata.Labels["pack"] == "release-docs"
+				switch {
+				case repo == "" && mustTarget:
+					t.Errorf("RuleSet %s, rule %s, actions[%d]: the %s dispatch names no target.repo (want %s)", name, ruleName, i, d.TaskSpec, want)
+				case repo != "" && repo != want:
+					t.Errorf("RuleSet %s, rule %s, actions[%d]: the %s dispatch targets %s, want %s", name, ruleName, i, d.TaskSpec, repo, want)
+				}
+			}
+		}
+		if checked == 0 {
+			t.Errorf("RuleSet %s selects no rule", name)
+		}
+		// The catalog's own params for the rules that run must agree with the ones above.
+		for _, er := range rs.Rules {
+			if got, ok := er.Params["docsRepo"]; ok && got != want {
+				t.Errorf("RuleSet %s, rule %s: docsRepo is %v, want %s", name, er.Name, got, want)
+			}
+		}
+	}
+}
+
+// TestImplementNewContext: an implement dispatch in mode new passes its sub-issue as a context
+// item too (the same expression as inputs.issue), for the sub-issue's ticket file that lisa
+// reads in headless mode.
+func TestImplementNewContext(t *testing.T) {
+	c := load(t)
+	found := 0
+	for _, name := range keys(c.RuleSets) {
+		for _, er := range c.RuleSets[name].Rules {
+			for i, ca := range er.Actions {
+				d := ca.Action.Dispatch
+				if d == nil || d.TaskSpec != "implement" || d.Inputs["mode"] != "new" {
+					continue
+				}
+				found++
+				issue, _ := d.Inputs["issue"].(string)
+				if issue == "" || !slices.Contains(d.Context, issue) {
+					t.Errorf("RuleSet %s, rule %s, actions[%d]: context %q doesn't carry inputs.issue %q", name, er.Name, i, d.Context, issue)
+				}
+			}
+		}
+	}
+	if found == 0 {
+		t.Error("no RuleSet dispatches implement in mode new")
 	}
 }
 

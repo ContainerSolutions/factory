@@ -1,0 +1,14 @@
+# The docs are live once the docs PR is merged: comment on the docs PR and the (closed) train
+# issue. The per-repo table reads item.state.repos, which record-release-docs-repos keeps from
+# the release-docs run.
+kind: Rule
+metadata: { name: announce-release-docs, labels: { pack: release-docs } }
+spec:
+  on: [factory.run.completed]
+  params: { trainManifest: repos.yaml }   # the dev RuleSet's defaults set repos.mock.yaml, as for docs-on-release-train
+  where: >
+    run.spec == 'merge' && run.outcome == 'merged' && has(item.state.release) &&
+    has(item.state.manifest) && item.state.manifest == params.trainManifest
+  actions:
+    - notify: { template: release-docs-published, to: [{ item: all }] }   # the docs PR and the (closed) train issue
+    - set: { release: published }

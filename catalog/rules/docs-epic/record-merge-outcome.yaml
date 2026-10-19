@@ -1,0 +1,7 @@
+kind: Rule
+metadata: { name: record-merge-outcome, labels: { pack: docs-epic } }
+spec:
+  on: [factory.run.completed]
+  priority: 100
+  where: "run.spec == 'merge'"
+  actions: [{ set: { merge: "=run.outcome" } }]
