@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$comment": "merge Result: the base Result plus data: the PRs merged (bottom-up for a stack) with their merge commits, and what stopped the run (blockedBy: the PR and the gate that failed). merged needs at least one PR; blocked and rebased-with-conflicts name what stopped it.",
+  "$comment": "merge Result: the base Result plus data: the PRs merged (bottom-up for a stack) with their merge commits, what stopped the run (blockedBy: the PR and the gate that failed) and, for a run that ends pending, what it waits on (waitingOn: the next PR and why: its required check is pending, or its approval is at an old head). merged needs at least one PR; blocked and rebased-with-conflicts name what stopped it; pending names what it waits on.",
   "allOf": [
     { "$ref": "https://factory.ccf.dev/schemas/v1alpha1/result.schema.json" },
     {
@@ -10,10 +10,14 @@
     {
       "if": { "required": ["status", "outcome"], "properties": { "status": { "const": "done" }, "outcome": { "enum": ["blocked", "rebased-with-conflicts"] } } },
       "then": { "required": ["data"], "properties": { "data": { "required": ["blockedBy"] } } }
+    },
+    {
+      "if": { "required": ["status", "outcome"], "properties": { "status": { "const": "done" }, "outcome": { "const": "pending" } } },
+      "then": { "required": ["data"], "properties": { "data": { "required": ["waitingOn"] } } }
     }
   ],
   "properties": {
-    "outcome": { "enum": ["merged", "labelled-for-merge", "rebased-with-conflicts", "blocked", "needs-human"] },
+    "outcome": { "enum": ["merged", "labelled-for-merge", "rebased-with-conflicts", "pending", "blocked", "needs-human"] },
     "data": {
       "type": "object",
       "properties": {
@@ -29,6 +33,14 @@
           }
         },
         "blockedBy": {
+          "type": "object",
+          "required": ["pr", "reason"],
+          "properties": {
+            "pr": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        },
+        "waitingOn": {
           "type": "object",
           "required": ["pr", "reason"],
           "properties": {

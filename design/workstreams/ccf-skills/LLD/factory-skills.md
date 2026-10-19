@@ -17,7 +17,9 @@ Needs-info: if the epic is ambiguous on a decision only a human can make (e.g. "
 
 ## merge
 
-**Input:** `target: pr | stack`, required check name (param), merge label (repo config). **Output:** merged PRs or a block reason; result `merge` schema.
+**Input:** `target: pr | stack`, required check name (param), merge label (repo config). **Output:** merged PRs, and a block reason or what the run waits on; result `merge` schema.
+
+One pass (HEADLESS rule 2: no poll loops): merge what's ready bottom-up, retarget/rebase/push the rest, and stop. When the next PR isn't ready yet, the run ends with the **non-escalating** outcome `pending` and `data.waitingOn: {pr, reason}`; the rules re-dispatch merge when that PR's check completes or its approval lands. `blocked` stays for real gate failures; `escalate-needs-human` fires only on `blocked` and `needs-human`.
 
 ```text
 gates(pr): approvedBy reviewer at head SHA ∧ required check success ∧ unresolvedThreads == 0
@@ -29,7 +31,8 @@ stack: for pr in bottom→top:
          factory pr merge pr
          next := pr above; factory pr retarget next --base main; factory stack rebase; factory stack push
          if rebase had conflicts → outcome rebased-with-conflicts (rules send it back to review); stop
-         wait for next's required check (poll via observe, ≤ 20 min) before continuing
+         if next's required check isn't success yet, or its approval is at an old head (the rebase moved it)
+           → outcome pending{waitingOn: {pr: next, reason}}; stop      (never poll: the rules re-dispatch merge)
 ```
 
 A maintainer who wants the factory to wait adds `factory:hold` (documented in the `epic-plan` and `needs-human` templates and in the `docs` CONTRIBUTING.md). Never force-merges; never bypasses rulesets; never merges a PR the factory didn't author (human PRs are review-only).

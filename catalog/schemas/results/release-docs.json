@@ -14,7 +14,7 @@
       "type": "object",
       "properties": {
         "train": { "type": "string", "minLength": 1, "description": "The train ref (owner/workflows#N) or the release (owner/repo@vX.Y.Z)." },
-        "branch": { "type": "string", "minLength": 1, "description": "plan.branch: docs/release-train-<month> or docs/release-<repo>-<tag>." },
+        "branch": { "type": "string", "pattern": "^factory/release-docs/[A-Za-z0-9._-]+$", "description": "plan.branch: factory/release-docs/train-<month> or factory/release-docs/<repo>-<tag> (07-security: the factory pushes only to factory/*)." },
         "pr": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$", "description": "The docs PR, owner/repo#N, as factory pr open printed it." },
         "repos": {
           "type": "array",
