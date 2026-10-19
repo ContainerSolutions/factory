@@ -1,0 +1,8 @@
+# Registered agents (the owners' own machines). The join token is a secret reference only:
+# factory serve reads it from FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN.
+kind: Pool
+metadata: { name: local }
+spec:
+  mode: registered
+  admission: { tokenRef: { name: local-pool, key: join-token }, owners: maintainers }
+  lease: { ttl: 2m, heartbeat: 30s, maxTasksPerAgent: 1 }

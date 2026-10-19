@@ -60,7 +60,7 @@ openapi-lint: ## Lint api/openapi.yaml with vacuum (ruleset api/vacuum.yaml); in
 catalog: ## Validate the catalog and run its rule tests (once catalog/ exists)
 	@if [ -d catalog ]; then \
 		go run ./cmd/factory validate --dir catalog && \
-		go run ./cmd/factory rules test --catalog catalog --fixtures catalog/testdata; \
+		go run ./cmd/factory rules test --catalog catalog; \
 	fi
 
 .PHONY: reviewable

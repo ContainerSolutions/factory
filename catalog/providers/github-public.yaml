@@ -1,0 +1,30 @@
+# The public GitHub, as the two PoC Apps (10 §Provider, Group, Pool, Queue; GH LLD §Apps).
+# Secrets are references only ({ name, key }); nothing secret is written in the catalog.
+# factory serve reads each from FACTORY_SECRET_<NAME>_<KEY> (upper-cased, other characters
+# replaced by _): FACTORY_SECRET_GITHUB_PUBLIC_WEBHOOK_SECRET,
+# FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY and FACTORY_SECRET_CCF_FACTORY_REVIEWER_APP_PRIVATE_KEY.
+#
+# Private read repos. A TaskSpec's ro workspace repos are private unless it sets
+# workspace.publicReads: true. For each private ro repo the scheduler mints a separate read-only
+# installation token (contents: read, that one repo), with the App of the TaskSpec's identity
+# below, and hands it to the agent in the lease's readCredentials (never stored). There is no
+# extra secret to configure: the App's privateKeyRef is what mints them. So the App of that
+# identity (author: ccf-factory, reviewer: ccf-factory-reviewer) must be installed on every
+# private repo a TaskSpec reads, or the task stays Pending with a git-credential error.
+# Public ro repos (publicReads: true) get no token: they are cloned anonymously.
+kind: Provider
+metadata: { name: github-public, labels: { family: github, network: public } }
+spec:
+  type: github
+  github:
+    apiURL: https://api.github.com
+    webhook: { path: /hooks/github-public, secretRef: { name: github-public-webhook, key: secret } }
+    identities:                                     # new Apps, created and provided for the PoC (Q4)
+      # The App IDs are placeholders, as in 10 (<ccf-factory>, <ccf-factory-reviewer>): the
+      # schema needs an integer. Set the real IDs from the Apps' settings pages at rollout.
+      author:   { appID: 1, privateKeyRef: { name: ccf-factory-app, key: private-key } }            # ccf-factory: the only event source
+      reviewer: { appID: 2, privateKeyRef: { name: ccf-factory-reviewer-app, key: private-key } }   # ccf-factory-reviewer
+  scope: { orgs: [compliance-framework] }
+  trust:
+    - { tier: maintainer, group: maintainers }
+    - { tier: anyone }

@@ -1,0 +1,21 @@
+# Who may sign in to the factory UI and read it (api-server LLD §Readers): the readers Group,
+# or maintainers. A Group missing from the catalog has no members, so without this file only
+# maintainers could sign in.
+#
+# A Group is a list of member sources; a person is a member when any source lists them. Each
+# source names its provider and exactly one of:
+#   orgRole: { org, role }   role admin (the org owners) or member (every member of the org)
+#   team: org/slug           the team's members, child teams included
+#   users: [login, ...]      GitHub logins, listed explicitly
+# Uncomment and edit the examples below to widen (or, by removing the orgRole line, narrow)
+# who can read.
+kind: Group
+metadata: { name: readers }
+spec:
+  members:
+    # By org role: any member of the CCF org.
+    - { provider: github-public, orgRole: { org: compliance-framework, role: member } }
+    # By team (org/slug), e.g. a docs reviewers team:
+    # - { provider: github-public, team: compliance-framework/docs-reviewers }
+    # By explicit users (GitHub logins), e.g. outside collaborators:
+    # - { provider: github-public, users: [octocat, hubot] }
