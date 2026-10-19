@@ -1,0 +1,14 @@
+project: factory-tsk-01jatrain
+source: train compliance-framework/workflows#123
+versions: api 1.4.0, ui 2.13.0, agent 0.9.2
+dir: /home/owner/local-dev
+env:
+  COMPOSE_COMMAND=docker compose
+  COMPOSE_PROJECT_NAME=factory-tsk-01jatrain
+  CCF_API_IMAGE=ghcr.io/compliance-framework/api:1.4.0
+  CCF_UI_IMAGE=ghcr.io/compliance-framework/ui:2.13.0
+  CCF_AGENT_VERSION=0.9.2
+  KIND_HOST_ALIAS=factory-tsk-01jatrain-api-1
+up: make demo-up-showcase 'COMPOSE_COMMAND=docker compose' COMPOSE_PROJECT_NAME=factory-tsk-01jatrain CCF_API_IMAGE=ghcr.io/compliance-framework/api:1.4.0 CCF_UI_IMAGE=ghcr.io/compliance-framework/ui:2.13.0 CCF_AGENT_VERSION=0.9.2 KIND_HOST_ALIAS=factory-tsk-01jatrain-api-1
+down: docker compose --project-name factory-tsk-01jatrain down --volumes --remove-orphans --timeout 10
+down: make showcase-kind-destroy 'COMPOSE_COMMAND=docker compose'

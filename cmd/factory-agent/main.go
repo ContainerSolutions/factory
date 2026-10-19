@@ -19,6 +19,7 @@ var commands = []command{
 	probeCommand(),
 	fxCommand(),
 	mcpCommand(),
+	stackCommand(),
 }
 
 // command is one subcommand. run gets the arguments after the subcommand's name and returns

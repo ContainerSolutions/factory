@@ -46,8 +46,13 @@ const (
 	DefaultBotEmail = "ccf-factory[bot]@users.noreply.github.com"
 )
 
-// cleanupTimeout bounds the work done after the run ended (transcript upload, stack down).
+// cleanupTimeout bounds the transcript upload after the run ended.
 const cleanupTimeout = 30 * time.Second
+
+// StackDownTimeout bounds Stack.Down in cleanup: compose down stops a dozen containers and
+// removes their volumes, and the showcase profile also deletes a kind cluster, which takes
+// longer than cleanupTimeout.
+const StackDownTimeout = 3 * time.Minute
 
 // Stack brings the local CCF stack up for a task that needs one (local-stack.md,
 // AGT-S1-T06). Up returns the variables to add to the harness's environment
@@ -428,12 +433,12 @@ func (r *run) harnessInfo(u v1alpha1.Usage) *v1alpha1.ResultHarness {
 // cleanup always runs: stack down, the credential socket closed, the workspace removed
 // (run-pipeline.md §Steps 12).
 func (r *run) cleanup(parent context.Context) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), cleanupTimeout)
-	defer cancel()
 	if r.stackUp {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), StackDownTimeout)
 		if err := r.p.o.Stack.Down(ctx); err != nil {
 			r.log.Warn("stack down failed", "err", r.red.String(err.Error()))
 		}
+		cancel()
 	}
 	if r.creds != nil {
 		if err := r.creds.Close(); err != nil {
