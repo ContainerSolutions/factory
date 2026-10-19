@@ -2626,7 +2626,9 @@ components:
           items:
             $ref: '#/components/schemas/EffectOp'
         labels:
-          description: Labels are globs the label.* effects are checked against.
+          description: |-
+            Labels are globs every label an effect can write is checked against: label.add/remove,
+            and the labels other ops carry (create-issue and pr.open labels, pr.merge's mergeLabel).
           type: array
           items:
             type: string
