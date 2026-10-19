@@ -64,30 +64,42 @@ func cacheKey(l v1alpha1.Link) string { return l.Provider + "/" + l.Ref }
 // Observe returns the link's observation, from the cache when it is fresher than the TTL.
 // A missing object is provider.ErrNotFound.
 func (c *ObservationCache) Observe(ctx context.Context, l v1alpha1.Link) (provider.Observation, error) {
+	obs, _, err := c.observe(ctx, l)
+	return obs, err
+}
+
+// observe is Observe, also returning when the observation was made.
+func (c *ObservationCache) observe(ctx context.Context, l v1alpha1.Link) (provider.Observation, time.Time, error) {
 	k := cacheKey(l)
 	c.mu.Lock()
 	e, ok := c.entries[k]
 	c.mu.Unlock()
 	if ok && c.clk.Now().Sub(e.at) < c.ttl {
-		return e.obs, e.err
+		return e.obs, e.at, e.err
 	}
-	return c.Refresh(ctx, l)
+	return c.refresh(ctx, l)
 }
 
 // Refresh observes the link now and caches the result.
 func (c *ObservationCache) Refresh(ctx context.Context, l v1alpha1.Link) (provider.Observation, error) {
+	obs, _, err := c.refresh(ctx, l)
+	return obs, err
+}
+
+func (c *ObservationCache) refresh(ctx context.Context, l v1alpha1.Link) (provider.Observation, time.Time, error) {
 	conn, ok := c.conns.Conn(l.Provider)
 	if !ok {
-		return provider.Observation{}, fmt.Errorf("observe %s: no connection for provider %q", l.Ref, l.Provider)
+		return provider.Observation{}, time.Time{}, fmt.Errorf("observe %s: no connection for provider %q", l.Ref, l.Provider)
 	}
 	obs, err := conn.Observe(ctx, v1alpha1.ObjectRef{Provider: l.Provider, Kind: l.Kind, Ref: l.Ref})
 	if err != nil && !isNotFound(err) {
-		return provider.Observation{}, err // transient: not cached
+		return provider.Observation{}, time.Time{}, err // transient: not cached
 	}
+	at := c.clk.Now()
 	c.mu.Lock()
-	c.entries[cacheKey(l)] = cachedObservation{obs: obs, err: err, at: c.clk.Now()}
+	c.entries[cacheKey(l)] = cachedObservation{obs: obs, err: err, at: at}
 	c.mu.Unlock()
-	return obs, err
+	return obs, at, err
 }
 
 // Forget drops the link's cached observation.
