@@ -1,0 +1,25 @@
+{
+  "progress": [
+    {
+      "kind": "turn",
+      "summary": "turn 1"
+    },
+    {
+      "kind": "error",
+      "summary": "exceeded retry limit, last status: 429 Too Many Requests"
+    },
+    {
+      "kind": "error",
+      "summary": "exceeded retry limit, last status: 429 Too Many Requests"
+    }
+  ],
+  "usage": null,
+  "rateLimited": [
+    "2026-10-19T12:15:00Z"
+  ],
+  "threadId": "0199f2a1-9f62-7c32-d4e5-0a1b2c3d4e5f",
+  "turns": 1,
+  "lastMessage": "",
+  "failed": true,
+  "lastError": "exceeded retry limit, last status: 429 Too Many Requests"
+}

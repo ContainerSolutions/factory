@@ -1,0 +1,27 @@
+{
+  "progress": [
+    {
+      "kind": "turn",
+      "summary": "turn 1"
+    },
+    {
+      "kind": "error",
+      "summary": "Reconnecting... 1/5 (stream disconnected before completion: error sending request)"
+    },
+    {
+      "kind": "error",
+      "summary": "Reconnecting... 2/5 (stream disconnected before completion: error sending request)"
+    },
+    {
+      "kind": "error",
+      "summary": "stream disconnected before completion: error sending request for url (https://chatgpt.com/backend-api/codex/responses)"
+    }
+  ],
+  "usage": null,
+  "rateLimited": null,
+  "threadId": "0199f2a1-b184-7e54-f607-2c3d4e5f6071",
+  "turns": 1,
+  "lastMessage": "",
+  "failed": true,
+  "lastError": "stream disconnected before completion: error sending request for url (https://chatgpt.com/backend-api/codex/responses)"
+}

@@ -25,6 +25,10 @@ build: ## Build bin/factory, bin/factory-agent and bin/factory-mock with the pla
 test: ## Run Go tests with the race detector
 	go test -race -count=1 ./...
 
+.PHONY: smoke-codex
+smoke-codex: ## Maintainer machine only, never CI: a trivial task end to end through the real codex (FACTORY_SMOKE_CODEX_HOME, _MODEL, _EFFORT, _BIN)
+	FACTORY_SMOKE_CODEX=1 go test -count=1 -v -run '^TestSmokeCodex$$' ./internal/agent/harness/codex/
+
 .PHONY: lint
 lint: $(LINT_CONFIG) ## Run golangci-lint with the shared CCF config, as CI does
 	golangci-lint run --config=$(LINT_CONFIG)

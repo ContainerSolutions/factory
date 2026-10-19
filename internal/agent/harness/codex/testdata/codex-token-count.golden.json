@@ -1,0 +1,21 @@
+{
+  "progress": null,
+  "usage": [
+    {
+      "InputTokens": 5000,
+      "OutputTokens": 300,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 7000,
+      "OutputTokens": 400,
+      "CostUSD": null
+    }
+  ],
+  "rateLimited": null,
+  "threadId": "",
+  "turns": 0,
+  "lastMessage": "",
+  "failed": false,
+  "lastError": ""
+}

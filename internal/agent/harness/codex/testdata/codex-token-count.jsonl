@@ -1,0 +1,4 @@
+{"id":"0","msg":{"type":"task_started","model_context_window":272000}}
+{"id":"0","msg":{"type":"token_count","info":{"total_token_usage":{"input_tokens":5000,"cached_input_tokens":0,"output_tokens":300},"last_token_usage":{"input_tokens":5000,"cached_input_tokens":0,"output_tokens":300}}}}
+{"id":"0","msg":{"type":"token_count","info":{"total_token_usage":{"input_tokens":12000,"cached_input_tokens":4000,"output_tokens":700},"last_token_usage":{"input_tokens":7000,"cached_input_tokens":4000,"output_tokens":400}}}}
+{"id":"0","msg":{"type":"token_count","info":null}}

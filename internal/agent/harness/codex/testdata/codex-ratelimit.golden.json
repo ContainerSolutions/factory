@@ -1,0 +1,29 @@
+{
+  "progress": [
+    {
+      "kind": "turn",
+      "summary": "turn 1"
+    },
+    {
+      "kind": "tool",
+      "summary": "$ bash -lc ls"
+    },
+    {
+      "kind": "error",
+      "summary": "You've hit your usage limit. Upgrade to Pro (https://openai.com/chatgpt/pricing) or try again in 2 hours 5 minutes."
+    },
+    {
+      "kind": "error",
+      "summary": "You've hit your usage limit. Upgrade to Pro (https://openai.com/chatgpt/pricing) or try again in 2 hours 5 minutes."
+    }
+  ],
+  "usage": null,
+  "rateLimited": [
+    "2026-10-19T14:05:00Z"
+  ],
+  "threadId": "0199f2a1-8e51-7b21-c3d4-9f0a1b2c3d4e",
+  "turns": 1,
+  "lastMessage": "",
+  "failed": true,
+  "lastError": "You've hit your usage limit. Upgrade to Pro (https://openai.com/chatgpt/pricing) or try again in 2 hours 5 minutes."
+}

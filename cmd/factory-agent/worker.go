@@ -18,6 +18,7 @@ import (
 
 	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/compliance-framework/factory/internal/agent/harness/codex"
 	"github.com/compliance-framework/factory/internal/agent/owner"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/probe"
@@ -57,7 +58,9 @@ type runnerOptions struct {
 
 // harnessAdapters builds each harness's adapter from its local config, one line per
 // harness: AGT-S1-T03 registers codex and AGT-S1-T04 claude-code.
-var harnessAdapters = map[string]func(config.Harness) harness.Adapter{}
+var harnessAdapters = map[string]func(config.Harness) harness.Adapter{
+	config.HarnessCodex: func(h config.Harness) harness.Adapter { return codex.New(codex.Options{Config: h}) },
+}
 
 // skillsCache is where skills checkouts are cached by commit (run-pipeline.md §Steps 5).
 const skillsCache = "~/.factory-agent/cache/ccf-skills"

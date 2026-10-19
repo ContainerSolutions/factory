@@ -16,10 +16,16 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/probe"
 )
 
-// probeOptions is how the commands probe: the default probers until the harness adapters
-// (AGT-S1-T03/T04) and the label probes (local-stack.md) register theirs here.
+// probeOptions is how the commands probe: each registered harness adapter's Probe (a
+// configured harness without one is probed with probe.Configured) and, once local-stack.md's
+// label probes exist, theirs.
 func probeOptions() probe.Options {
-	return probe.Options{Tooling: probe.BaseTooling{}}
+	o := probe.Options{Tooling: probe.BaseTooling{}, Harnesses: map[string]probe.Prober{}}
+	for name, mk := range harnessAdapters {
+		// Probe takes the harness's config as an argument: the adapter's own is unused.
+		o.Harnesses[name] = mk(config.Harness{})
+	}
+	return o
 }
 
 func probeCommand() command {

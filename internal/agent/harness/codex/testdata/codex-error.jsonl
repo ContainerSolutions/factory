@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"0199f2a1-b184-7e54-f607-2c3d4e5f6071"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"**Checking the build**"}}
+{"type":"error","message":"Reconnecting... 1/5 (stream disconnected before completion: error sending request)"}
+{"type":"error","message":"Reconnecting... 2/5 (stream disconnected before completion: error sending request)"}
+{"type":"turn.failed","error":{"message":"stream disconnected before completion: error sending request for url (https://chatgpt.com/backend-api/codex/responses)"}}
