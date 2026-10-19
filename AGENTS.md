@@ -13,6 +13,7 @@ make openapi-lint               # vacuum on api/openapi.yaml (ruleset api/vacuum
 go test ./internal/webui -run TestHandler   # one test
 go run ./cmd/factory rules test --catalog catalog [--update | --base-catalog <dir>] [--coverage]   # replay catalog/testdata against the rules
 make build-release              # web/ build + go build -tags webui
+cd web && npm ci && npm run gen:api   # after changing api/openapi.yaml or api/examples: regenerates web's committed client (CI's web job checks it)
 bin/factory serve --dev-fake-providers --catalog-dir internal/catalog/testdata/poc   # local dispatcher, fake GitHub (needs FACTORY_OAUTH_CLIENT_ID/_SECRET, FACTORY_SESSION_KEY, FACTORY_CLI_TOKEN in env)
 bin/factory dispatch --event event.json --server http://127.0.0.1:8080             # inject an event (FACTORY_CLI_TOKEN in env)
 ```
@@ -22,7 +23,7 @@ Backend work never needs Node: without `-tags webui` the binary embeds `internal
 ## Layout and ownership
 
 - `cmd/factory`, `cmd/factory-agent`: one file per subcommand; register it with one line in `main.go` (keeps merge conflicts to a single line).
-- `internal/apis/v1alpha1`, `api/openapi.yaml`, `schemas/`: **contracts**. Change them in their own PR, merged before the code that uses them.
+- `internal/apis/v1alpha1`, `api/openapi.yaml`, `schemas/`: **contracts**. Change them in their own PR, merged before the code that uses them. A change to `api/openapi.yaml` or `api/examples/` also regenerates `web/`'s client in that PR (`npm run gen:api`).
 - `internal/{rules,cel,patterns,catalog}`: **pure** packages. No network, store, provider or processes.
 - `web/`: the Vue app, with its own toolchain. Never imported by Go; never changed in the same PR as Go code (except contract regeneration).
 - `catalog/`: factory configuration. Changes need `factory rules test` fixtures.
