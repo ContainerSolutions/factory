@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/controllers"
+	"github.com/compliance-framework/factory/internal/provider/github"
 )
 
 // Environment variables `factory serve` reads (api-server.md §factory serve). Secrets come from
@@ -73,6 +74,9 @@ type serveConfig struct {
 	GitHubAPIURL string
 	// SkillsBase resolves TaskSpec skill refs with git ls-remote; empty keeps them unresolved.
 	SkillsBase string
+	// DeployEnvironment is the GitHub environment whose latest deployment of the default
+	// branch the GitHub adapter reports for merged PRs (item.deploy).
+	DeployEnvironment string
 
 	LogLevel  slog.Level
 	LogFormat string
@@ -109,6 +113,7 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 	fl.StringVar(&cfg.GitHubURL, "github-url", defaultGitHubURL, "GitHub web URL for the OAuth flow")
 	fl.StringVar(&cfg.GitHubAPIURL, "github-api-url", "", "GitHub API URL for GET /user (default: the auth Provider's spec.github.apiURL)")
 	fl.StringVar(&cfg.SkillsBase, "skills-base", defaultSkillsBase, "base URL of skill repositories, resolved with git ls-remote; empty: leave skill refs unresolved")
+	fl.StringVar(&cfg.DeployEnvironment, "deploy-environment", github.DefaultDeployEnvironment, "GitHub environment whose deployments of the default branch are item.deploy")
 	level := fl.String("log-level", "info", "log level: debug, info, warn or error")
 	fl.StringVar(&cfg.LogFormat, "log-format", "json", "log format: json or text")
 	fl.Usage = func() { serveUsage(stderr, fl) }
@@ -186,6 +191,10 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 		}
 	}
 
+	if strings.TrimSpace(cfg.DeployEnvironment) == "" {
+		bad("--deploy-environment must not be empty")
+	}
+
 	// Durations.
 	for _, d := range []struct {
 		name string
@@ -253,7 +262,8 @@ func isLoopback(host string) bool {
 func serveUsage(w io.Writer, fl *flag.FlagSet) {
 	fmt.Fprintln(w, `usage: factory serve [--addr :8080] [--ops-addr 127.0.0.1:9090] [--public-url URL]
                      [--catalog-repo URL --catalog-ref main --catalog-path catalog | --catalog-dir DIR]
-                     [--retention 2160h] [--log-level info] [--log-format json|text] [--dev-fake-providers]
+                     [--retention 2160h] [--deploy-environment github-pages] [--log-level info]
+                     [--log-format json|text] [--dev-fake-providers]
 
 Runs the dispatcher: the store, catalog-sync, the provider connections, the controllers, the
 scheduler, the API server with the embedded UI on --addr, and the ops routes on --ops-addr.

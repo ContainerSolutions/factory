@@ -122,6 +122,7 @@ func (s *Server) routeAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls", s.handlePulls)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/compare/{basehead}", s.handleCompare)
 	s.routeObjects(mux)
+	s.routeEffects(mux)
 }
 
 // beginToken records a request authenticated with an installation token and returns what
@@ -297,8 +298,13 @@ func (s *Server) handlePulls(w http.ResponseWriter, r *http.Request) {
 	if !allowRepo(w, m, owner, repo, "pull_requests") {
 		return
 	}
-	if st := r.URL.Query().Get("state"); st != "closed" {
-		writeJSON(w, http.StatusOK, []any{}) // the server only knows closed PRs
+	switch st := r.URL.Query().Get("state"); st {
+	case "open":
+		s.openPulls(w, r, owner+"/"+repo) // from the object model (effects.go)
+		return
+	case "closed":
+	default:
+		writeJSON(w, http.StatusOK, []any{}) // closed PRs (AddPulls) and open ones (the model) only
 		return
 	}
 	s.mu.Lock()

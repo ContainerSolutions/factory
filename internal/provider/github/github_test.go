@@ -286,11 +286,3 @@ func TestHealth(t *testing.T) {
 		t.Errorf("cancelled check: %+v, want ok unchanged", h)
 	}
 }
-
-func TestNotImplementedYet(t *testing.T) {
-	e := newEnv(t)
-	c := e.connect(t)
-	if _, err := c.Apply(context.Background(), provider.EffectRequest{}); !errors.Is(err, provider.ErrUnsupported) {
-		t.Errorf("Apply = %v, want ErrUnsupported", err)
-	}
-}
