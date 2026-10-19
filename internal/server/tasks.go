@@ -105,6 +105,44 @@ func (s *Server) GetTaskPrompt(ctx context.Context, req gen.GetTaskPromptRequest
 	return resp, nil
 }
 
+// MediaTypeSchemaJSON is getTaskOutputSchema's media type.
+const MediaTypeSchemaJSON = "application/schema+json"
+
+// GetTaskOutputSchema implements gen.StrictServerInterface: the output schema the task's
+// Result is validated against on complete (controllers.ResultSpec: the live catalog's), as
+// the catalog holds it. An agent may read only the task it holds the lease of; UI and CLI any
+// task (getTask's rule).
+func (s *Server) GetTaskOutputSchema(ctx context.Context, req gen.GetTaskOutputSchemaRequestObject) (gen.GetTaskOutputSchemaResponseObject, error) {
+	var (
+		t   *v1alpha1.Task
+		err error
+	)
+	if principal(ctx).Kind == auth.KindAgent {
+		t, err = s.leasedTask(ctx, req.Id)
+	} else {
+		t, err = s.getTask(ctx, req.Id)
+	}
+	if err != nil {
+		return nil, err
+	}
+	ts := controllers.ResultSpec(s.d.Catalog.Current(), t)
+	if ts == nil || ts.OutputSchemaDocument == nil {
+		return nil, problemf(http.StatusNotFound, CodeNotFound, "task %s's TaskSpec %q declares no output schema", req.Id, t.Spec.TaskSpec.Name)
+	}
+	return rawSchema(ts.OutputSchemaDocument), nil
+}
+
+// rawSchema writes a schema document's bytes unchanged (the generated response would
+// re-encode it as a map, reordering its keys).
+type rawSchema []byte
+
+func (r rawSchema) VisitGetTaskOutputSchemaResponse(w http.ResponseWriter) error {
+	w.Header().Set(echo.HeaderContentType, MediaTypeSchemaJSON)
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write(r)
+	return err
+}
+
 // ContentReader is implemented by provider connections that can read an object's untrusted
 // text (title, body, comments) for a task's context items. provider.Conn has no such method
 // yet (Observe carries no untrusted text), so a connection without it yields reference-only

@@ -17,9 +17,11 @@ type Catalog struct {
     Pools      map[string]*v1alpha1.Pool
     Programs   cel.ProgramIndex               // compiled where/"=" programs
     Sources    map[ObjectKey]SourcePos        // file:line for every object (errors, UI)
-    Assets     Assets                         // prompts (parsed templates) and result schemas (compiled), keyed by relative path
+    Assets     Assets                         // prompts (parsed templates) and result schemas (compiled, plus their raw bytes), keyed by relative path
 }
 ```
+
+A `CompiledTaskSpec` keeps its output schema compiled (`OutputSchema`) and as one self-contained document (`OutputSchemaDocument`, AGT-S1-T02b): the file's raw bytes, or, when it `$ref`s other catalog schemas, a compound document embedding them by their catalog `$id`. The API serves that document to agents (`getTaskOutputSchema`), so they validate with exactly what the dispatcher compiled.
 
 Immutable after `Load`; the runtime swaps pointers atomically.
 

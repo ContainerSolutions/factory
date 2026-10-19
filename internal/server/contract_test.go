@@ -267,6 +267,17 @@ func TestContract(t *testing.T) {
 	if string(gp.Body) != "Implement "+docsIssue+"." || gp.HTTPResponse.Header.Get("Digest") != "sha256:abc" {
 		t.Errorf("prompt %q digest %q", gp.Body, gp.HTTPResponse.Header.Get("Digest"))
 	}
+	gs, err := e.c.GetTaskOutputSchemaWithResponse(ctx, "tsk_1", bearer(tok))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh.check("getTaskOutputSchema", gs.HTTPResponse, gs.Body, http.StatusOK)
+	if raw := e.cat.Assets.SchemaSources["schemas/results/implement.json"]; len(raw) == 0 || !bytes.Equal(gs.Body, raw) {
+		t.Errorf("output schema %s: want the catalog's bytes unchanged\n%s", gs.Body, raw)
+	}
+	if us, err := e.c.GetTaskOutputSchemaWithResponse(ctx, "tsk_1", session(gus)); err != nil || us.StatusCode() != http.StatusOK || !bytes.Equal(us.Body, gs.Body) {
+		t.Fatalf("output schema as UI: %v %s", err, us.Status())
+	}
 	gc, err := e.c.GetTaskContextWithResponse(ctx, "tsk_1", 0, bearer(tok))
 	if err != nil {
 		t.Fatal(err)

@@ -49,13 +49,6 @@ const (
 // cleanupTimeout bounds the work done after the run ended (transcript upload, stack down).
 const cleanupTimeout = 30 * time.Second
 
-// SchemaSource gives a task's spec-specific output schema (the TaskSpec's output.schema, a
-// JSON Schema document). A nil document means none is known: the Result is then checked
-// against the v1alpha1 Result schema and the task's outcomes only.
-type SchemaSource interface {
-	OutputSchema(ctx context.Context, t v1alpha1.Task) ([]byte, error)
-}
-
 // Stack brings the local CCF stack up for a task that needs one (local-stack.md,
 // AGT-S1-T06). Up returns the variables to add to the harness's environment
 // (FACTORY_STACK_URL, FACTORY_STACK_API); Down is called once in cleanup after a successful
@@ -89,7 +82,8 @@ type Options struct {
 	// SocketDir is where the credential socket's directory is created. Default:
 	// os.TempDir() (Unix socket paths must stay short).
 	SocketDir string
-	// Schemas gives spec-specific output schemas; nil: none.
+	// Schemas gives spec-specific output schemas. Default: APISchemas, the dispatcher's
+	// getTaskOutputSchema through the job's client.
 	Schemas SchemaSource
 	// Stack brings the local stack up; nil: tasks that need one fail with stack-error.
 	Stack Stack
@@ -151,6 +145,9 @@ func New(o Options) (*Pipeline, error) {
 	}
 	if o.SkillsBase == "" {
 		o.SkillsBase = DefaultSkillsBase
+	}
+	if o.Schemas == nil {
+		o.Schemas = APISchemas{}
 	}
 	if o.Environ == nil {
 		o.Environ = os.Environ

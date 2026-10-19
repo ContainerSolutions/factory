@@ -58,8 +58,10 @@ type loader struct {
 	docs    []*document
 	prompts map[string]*Prompt
 	schemas map[string]*jsonschema.Schema
-	// schemaSources are the raw *.json files under schemas/, compiled after the walk.
+	// schemaSources are the raw *.json files under schemas/, compiled after the walk;
+	// schemaRaw are those that compiled (the raw bytes of schemas).
 	schemaSources map[string][]byte
+	schemaRaw     map[string][]byte
 }
 
 // LoadDir loads the catalog rooted at fsys and validates it (every phase of the LLD, all
@@ -80,6 +82,7 @@ func LoadDir(fsys fs.FS, opts Options) (*Catalog, []Error) {
 		prompts:       map[string]*Prompt{},
 		schemas:       map[string]*jsonschema.Schema{},
 		schemaSources: map[string][]byte{},
+		schemaRaw:     map[string][]byte{},
 	}
 	l.walk()
 	l.compileSchemaAssets()
@@ -262,6 +265,7 @@ func (l *loader) compileSchemaAssets() {
 			continue
 		}
 		l.schemas[p] = s
+		l.schemaRaw[p] = l.schemaSources[p]
 	}
 }
 

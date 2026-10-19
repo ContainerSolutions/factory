@@ -247,8 +247,14 @@ func (v *validator) checkReferences() {
 		if s.Instructions != nil {
 			e.compiled.Prompt = v.prompts[s.Instructions.Template]
 		}
-		if s.Output != nil && s.Output.Schema != "" {
-			e.compiled.OutputSchema = v.schemas[s.Output.Schema]
+		if s.Output != nil && s.Output.Schema != "" && v.schemas[s.Output.Schema] != nil {
+			doc, err := bundleSchema(v.schemaRaw, s.Output.Schema)
+			if err != nil {
+				v.errorf(e.doc, fieldPath{"spec", "output", "schema"}, CodeInvalidAsset, "%v", err)
+			} else {
+				e.compiled.OutputSchema = v.schemas[s.Output.Schema]
+				e.compiled.OutputSchemaDocument = doc
+			}
 		}
 		if s.Instructions != nil && !v.isAsset(promptsDir, s.Instructions.Template) {
 			v.errorf(e.doc, fieldPath{"spec", "instructions", "template"}, CodeMissingPrompt, "prompt %q does not exist (prompts are files under %s/)", s.Instructions.Template, promptsDir)
@@ -320,7 +326,7 @@ func (v *validator) assemble() *Catalog {
 		Pools:     map[string]*v1alpha1.Pool{},
 		Programs:  v.programs,
 		Sources:   map[ObjectKey]SourcePos{},
-		Assets:    Assets{Prompts: v.prompts, Schemas: v.schemas},
+		Assets:    Assets{Prompts: v.prompts, Schemas: v.schemas, SchemaSources: v.schemaRaw},
 	}
 	for n, d := range v.providers {
 		c.Providers[n] = d.obj.(*v1alpha1.Provider)

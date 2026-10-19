@@ -688,6 +688,9 @@ type InputSpec = v1alpha1.InputSpec
 // Instructions Instructions is the prompt template.
 type Instructions = v1alpha1.Instructions
 
+// JSONSchemaDocument A JSON Schema (draft 2020-12) document, served as the catalog holds it.
+type JSONSchemaDocument map[string]interface{}
+
 // LLMAuth LLMAuth is the LLM credential ephemeral agents use.
 type LLMAuth = v1alpha1.LLMAuth
 
@@ -1830,6 +1833,9 @@ type ClientInterface interface {
 
 	CreateEffect(ctx context.Context, id TaskID, body CreateEffectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetTaskOutputSchema request
+	GetTaskOutputSchema(ctx context.Context, id TaskID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetTaskPrompt request
 	GetTaskPrompt(ctx context.Context, id TaskID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2262,6 +2268,18 @@ func (c *Client) CreateEffectWithBody(ctx context.Context, id TaskID, contentTyp
 
 func (c *Client) CreateEffect(ctx context.Context, id TaskID, body CreateEffectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateEffectRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetTaskOutputSchema(ctx context.Context, id TaskID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTaskOutputSchemaRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -3657,6 +3675,40 @@ func NewCreateEffectRequestWithBody(server string, id TaskID, contentType string
 	return req, nil
 }
 
+// NewGetTaskOutputSchemaRequest generates requests for GetTaskOutputSchema
+func NewGetTaskOutputSchemaRequest(server string, id TaskID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/tasks/%s/output-schema", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetTaskPromptRequest generates requests for GetTaskPrompt
 func NewGetTaskPromptRequest(server string, id TaskID) (*http.Request, error) {
 	var err error
@@ -3945,6 +3997,9 @@ type ClientWithResponsesInterface interface {
 	CreateEffectWithBodyWithResponse(ctx context.Context, id TaskID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateEffectResponse, error)
 
 	CreateEffectWithResponse(ctx context.Context, id TaskID, body CreateEffectJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEffectResponse, error)
+
+	// GetTaskOutputSchemaWithResponse request
+	GetTaskOutputSchemaWithResponse(ctx context.Context, id TaskID, reqEditors ...RequestEditorFn) (*GetTaskOutputSchemaResponse, error)
 
 	// GetTaskPromptWithResponse request
 	GetTaskPromptWithResponse(ctx context.Context, id TaskID, reqEditors ...RequestEditorFn) (*GetTaskPromptResponse, error)
@@ -4892,6 +4947,40 @@ func (r CreateEffectResponse) ContentType() string {
 	return ""
 }
 
+type GetTaskOutputSchemaResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	ApplicationschemaJSON200      *JSONSchemaDocument
+	ApplicationproblemJSON401     *Unauthorized
+	ApplicationproblemJSON403     *Forbidden
+	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSONDefault *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r GetTaskOutputSchemaResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetTaskOutputSchemaResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetTaskOutputSchemaResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetTaskPromptResponse struct {
 	Body                          []byte
 	HTTPResponse                  *http.Response
@@ -5305,6 +5394,15 @@ func (c *ClientWithResponses) CreateEffectWithResponse(ctx context.Context, id T
 		return nil, err
 	}
 	return ParseCreateEffectResponse(rsp)
+}
+
+// GetTaskOutputSchemaWithResponse request returning *GetTaskOutputSchemaResponse
+func (c *ClientWithResponses) GetTaskOutputSchemaWithResponse(ctx context.Context, id TaskID, reqEditors ...RequestEditorFn) (*GetTaskOutputSchemaResponse, error) {
+	rsp, err := c.GetTaskOutputSchema(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetTaskOutputSchemaResponse(rsp)
 }
 
 // GetTaskPromptWithResponse request returning *GetTaskPromptResponse
@@ -6721,6 +6819,60 @@ func ParseCreateEffectResponse(rsp *http.Response) (*CreateEffectResponse, error
 			return nil, err
 		}
 		response.ApplicationproblemJSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetTaskOutputSchemaResponse parses an HTTP response from a GetTaskOutputSchemaWithResponse call
+func ParseGetTaskOutputSchemaResponse(rsp *http.Response) (*GetTaskOutputSchemaResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetTaskOutputSchemaResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest JSONSchemaDocument
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationschemaJSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error

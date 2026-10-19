@@ -51,6 +51,8 @@ type Assets struct {
 	// Schemas are the *.json files under schemas/, compiled as JSON Schemas (draft 2020-12
 	// by default). They may $ref the v1alpha1 schemas by their $id, e.g. the base Result.
 	Schemas map[string]*jsonschema.Schema
+	// SchemaSources are the raw bytes of Schemas, by the same paths.
+	SchemaSources map[string][]byte
 }
 
 // Prompt is one prompt template.
@@ -141,6 +143,10 @@ type CompiledTaskSpec struct {
 	// Prompt is instructions.template; OutputSchema is output.schema (nil when unset).
 	Prompt       *Prompt
 	OutputSchema *jsonschema.Schema
+	// OutputSchemaDocument is output.schema as one self-contained JSON document, what
+	// OutputSchema was compiled from: the file's raw bytes, or a compound document embedding
+	// the catalog schemas it refers to (see bundleSchema). Nil when OutputSchema is.
+	OutputSchemaDocument []byte
 	// Expressions are the "=" fields of the spec by field path
 	// ("spec.workspace.repos[0].ref"); their programs are also in Catalog.Programs.
 	Expressions map[string]*cel.Program

@@ -91,29 +91,27 @@ func (r *run) prepareSchema(ctx context.Context) error {
 	if o := r.task.Spec.Output; o != nil {
 		chk.outcomes = slices.Clone(o.Outcomes)
 	}
-	if r.p.o.Schemas != nil {
-		spec, err := r.p.o.Schemas.OutputSchema(ctx, r.task)
+	spec, err := r.p.o.Schemas.OutputSchema(ctx, r.job)
+	if err != nil {
+		return fmt.Errorf("the output schema: %w", err)
+	}
+	if spec != nil {
+		c, err := newSchemaCompiler()
+		if err != nil {
+			return err
+		}
+		parsed, err := jsonschema.UnmarshalJSON(bytes.NewReader(spec))
 		if err != nil {
 			return fmt.Errorf("the output schema: %w", err)
 		}
-		if spec != nil {
-			c, err := newSchemaCompiler()
-			if err != nil {
-				return err
-			}
-			parsed, err := jsonschema.UnmarshalJSON(bytes.NewReader(spec))
-			if err != nil {
-				return fmt.Errorf("the output schema: %w", err)
-			}
-			u := outputSchemaURL + r.task.Spec.TaskSpec.Name + ".json"
-			if err := c.AddResource(u, parsed); err != nil {
-				return fmt.Errorf("the output schema: %w", err)
-			}
-			if chk.spec, err = c.Compile(u); err != nil {
-				return fmt.Errorf("the output schema: %w", err)
-			}
-			doc = spec
+		u := outputSchemaURL + r.task.Spec.TaskSpec.Name + ".json"
+		if err := c.AddResource(u, parsed); err != nil {
+			return fmt.Errorf("the output schema: %w", err)
 		}
+		if chk.spec, err = c.Compile(u); err != nil {
+			return fmt.Errorf("the output schema: %w", err)
+		}
+		doc = spec
 	}
 	r.check = chk
 	if err := os.WriteFile(r.ws.Schema, doc, 0o600); err != nil {
