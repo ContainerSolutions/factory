@@ -4,3 +4,6 @@ lisa-design:
 - Installation via GET /repos/{o}/{r}/installation, cached per (identity, owner) 1h, dropped on 401/404/422; JWT via ghinstallation AppsTransport (wall clock ~90s); caches/expiry on the injected clock; reuse until 5m before GitHub's expiry.
 - In-package single-flight (x/sync not allow-listed); tokens scoped to other repos are refused; App clients never follow redirects; no tokens/JWTs in logs.
 - go-github: ghinstallation pins v88 — T02..T04 use v88 to avoid two copies.
+
+lisa-selfreview:
+Pass 1: no findings (scoping by construction, permission ceiling, redirect refusal, log hygiene).
