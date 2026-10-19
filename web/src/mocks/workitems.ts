@@ -89,7 +89,7 @@ const escalated = item(
     },
   ],
   {
-    state: freeform({ implement: 'done', review: 'needs-human' }),
+    state: freeform({ stackNext: 1, stackTotal: 2, review: 'needs-human' }),
     counters: { implement: 3, 'docs-review': 3 },
     decisions: [
       {
@@ -120,8 +120,7 @@ const escalated = item(
         fired: true,
         inputs: freeform({
           'run.spec': 'docs-review',
-          'run.outcome': 'changes-requested',
-          "item.count('docs-review')": 3,
+          'run.outcome': 'needs-human',
         }),
         rails: [{ rail: 'effects-allowed', verdict: 'Allowed' }],
         actions: ['effect', 'notify'],
@@ -170,8 +169,9 @@ const escalatedDetail: Detail = {
         result: {
           ...exampleRun.status!.result!,
           task: escalatedTask.metadata.id,
-          outcome: 'changes-requested',
-          summary: 'Third review round: the OSCAL profile examples still fail.',
+          outcome: 'needs-human',
+          summary:
+            'Third review round: whether the OSCAL profile flag is public needs a maintainer.',
         },
       },
     },
@@ -212,7 +212,7 @@ const approval = item(
     },
   ],
   {
-    state: freeform({ plan: 'planned', stackNext: 0, stackTotal: 3 }),
+    state: freeform({ stackNext: 0, stackTotal: 3 }),
     counters: { 'plan-epic': 1 },
     approvals: [{ name: 'implement', phase: 'Pending' }],
     decisions: [
@@ -277,6 +277,7 @@ const release = item(
     state: freeform({
       release: 'drafting',
       train: 'platform/release-notes@v1.9.0',
+      manifest: 'repos.yaml',
     }),
     counters: { 'release-docs': 1 },
     decisions: [
@@ -318,12 +319,7 @@ const doneRecent = item(
     },
   ],
   {
-    state: freeform({
-      triage: 'triaged',
-      implement: 'done',
-      review: 'approved',
-      merge: 'merged',
-    }),
+    state: freeform({ review: 'approved', merge: 'merged' }),
     counters: { triage: 1, implement: 1, 'docs-review': 1, merge: 1 },
     decisions: [
       {

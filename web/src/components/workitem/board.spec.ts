@@ -33,48 +33,112 @@ const state = freeform;
 const items = workItemDetails.map((d) => d.workItem);
 const NOW = new Date('2026-10-19T12:00:00Z');
 
+// State shapes the PoC catalog's rules write (internal/catalog/testdata/poc/rules): the
+// release-docs pack's `release`, `train`, `manifest` and `review`, the docs-epic pack's `plan`,
+// `stackNext`, `stackTotal`, `review`, `merge` and `announced`.
+const train = {
+  train: 'compliance-framework/workflows#123',
+  manifest: 'repos.yaml',
+};
+const plan = [
+  { issue: 'compliance-framework/docs#58' },
+  { issue: 'compliance-framework/docs#59' },
+];
+const stack = { plan, stackNext: 1, stackTotal: 2 };
+
 describe('laneOf', () => {
-  it.each<[string, WorkItem['status'], LaneId]>([
-    ['no status', undefined, 'waiting'],
-    ['empty state', { state: state({}) }, 'waiting'],
-    ['a running key', { state: state({ triage: 'running' }) }, 'running'],
-    ['a drafting key', { state: state({ release: 'drafting' }) }, 'running'],
+  it.each<[string, Record<string, unknown>, LaneId]>([
+    ['empty state', {}, 'waiting'],
+    // release-docs: docs-on-release-train, review-release-docs, announce-release-docs.
+    ['release drafting', { release: 'drafting', ...train }, 'running'],
     [
-      'needs-human beats running',
-      { state: state({ triage: 'running', review: 'needs-human' }) },
+      'release under review',
+      { release: 'drafting', ...train, review: 'running' },
+      'running',
+    ],
+    ['release published', { release: 'published', ...train }, 'done'],
+    // The release-docs pack sets `review: running` but records no review outcome, so a
+    // published release whose review key is still `running` stays in Running.
+    [
+      'release published, review key left running',
+      { release: 'published', ...train, review: 'running' },
+      'running',
+    ],
+    // docs-epic: plan-maintainer-epics, then build-stack-start sets the plan array.
+    ['plan planning', { plan: 'planning' }, 'running'],
+    ['plan decomposed into a stack', { ...stack }, 'waiting'],
+    // docs-epic: review-whole-stack, then record-review-outcome.
+    ['review running', { ...stack, review: 'running' }, 'running'],
+    ['review approved', { ...stack, review: 'approved' }, 'done'],
+    [
+      'review changes requested',
+      { ...stack, review: 'changes-requested' },
+      'waiting',
+    ],
+    ['review commented', { ...stack, review: 'commented' }, 'waiting'],
+    [
+      'review needs a human',
+      { ...stack, review: 'needs-human' },
       'needs-human',
     ],
-    ['blocked', { state: state({ merge: 'blocked' }) }, 'needs-human'],
+    // docs-epic: record-merge-outcome.
+    [
+      'merge merged',
+      { ...stack, review: 'approved', merge: 'merged', announced: true },
+      'done',
+    ],
+    [
+      'merge labelled for merge',
+      { ...stack, review: 'approved', merge: 'labelled-for-merge' },
+      'waiting',
+    ],
+    [
+      'merge rebased with conflicts',
+      { ...stack, review: 'approved', merge: 'rebased-with-conflicts' },
+      'waiting',
+    ],
+    [
+      'merge blocked',
+      { ...stack, review: 'approved', merge: 'blocked' },
+      'needs-human',
+    ],
+    // The triage TaskSpec's outcomes.
+    ['triage running', { triage: 'running' }, 'running'],
+    ['triaged', { triage: 'triaged' }, 'done'],
+    ['triage needs info', { triage: 'needs-info' }, 'waiting'],
+    ['triage promoted', { triage: 'promote' }, 'waiting'],
+    // Vocabulary-free values don't count either way.
+    ['only refs and ids', { ...train }, 'waiting'],
+    ['an unknown word', { review: 'pondering', merge: 'merged' }, 'done'],
+  ])('%s', (_, values, want) => {
+    expect(laneOf(wi({ state: state(values) }))).toBe(want);
+  });
+
+  it.each<[string, WorkItem['status'], LaneId]>([
+    ['no status', undefined, 'waiting'],
     [
       'a pending approval',
       {
-        state: state({ plan: 'planned' }),
+        state: state({ ...stack }),
         approvals: [{ name: 'implement', phase: 'Pending' }],
+      },
+      'needs-human',
+    ],
+    [
+      'a pending approval beats done',
+      {
+        state: state({ review: 'approved' }),
+        approvals: [{ name: 'merge', phase: 'Pending' }],
       },
       'needs-human',
     ],
     [
       'a granted approval',
       {
-        state: state({ plan: 'planned' }),
+        state: state({ ...stack }),
         approvals: [{ name: 'implement', phase: 'Granted' }],
       },
       'waiting',
-    ],
-    [
-      'every key terminal',
-      { state: state({ implement: 'done', merge: 'merged' }) },
-      'done',
-    ],
-    [
-      'one key not terminal',
-      { state: state({ implement: 'done', review: 'changes-requested' }) },
-      'waiting',
-    ],
-    [
-      'non-string values are ignored',
-      { state: state({ merge: 'merged', stackNext: 2, plan: ['a'] }) },
-      'done',
     ],
   ])('%s', (_, status, want) => {
     expect(laneOf(wi(status))).toBe(want);

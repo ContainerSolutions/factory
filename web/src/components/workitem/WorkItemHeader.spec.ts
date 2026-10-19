@@ -28,7 +28,8 @@ describe('WorkItemHeader', () => {
       ['slack-ccf', 'thread', '#ccf-api/1729070000.000100'],
     ]);
     expect(pairs(wrapper, 'state-keys')).toEqual([
-      ['implement', 'done'],
+      ['stackNext', '1'],
+      ['stackTotal', '2'],
       ['review', 'needs-human'],
     ]);
     expect(pairs(wrapper, 'counters')).toEqual([

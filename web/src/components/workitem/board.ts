@@ -12,25 +12,66 @@ export const LANES: readonly { id: LaneId; title: string }[] = [
   { id: 'done', title: 'Done (last 7 days)' },
 ];
 
-/**
+/*
  * The contract has no derived state for a work item, so the lane is derived from its state keys,
- * which rules set by catalog convention (`set: { review: running }`, `review: =run.outcome`).
+ * which rules set by catalog convention: lifecycle words (`set: { review: running }`) and run
+ * outcomes (`set: { review: "=run.outcome" }`). Each string value is classified against the
+ * vocabularies below; a value in none of them (a train ref, a manifest name, an id) is ignored.
+ * The PoC catalog is internal/catalog/testdata/poc/ (TaskSpecs' `output.outcomes`, rules' `set:`);
+ * the triage TaskSpec is design/03's (internal/apis/v1alpha1/testdata/examples/03-09-taskspec.yaml).
+ */
+
+/**
+ * A human has to act. `needs-human`: the docs-review and merge outcomes; `blocked`: the
+ * release-docs, implement and merge outcomes. Both are what the shared `escalate-needs-human`
+ * rule escalates on.
  */
 export const NEEDS_HUMAN_VALUES: readonly string[] = ['needs-human', 'blocked'];
+
+/**
+ * A task is under way: the values rules set when they dispatch. `running`: review-whole-stack and
+ * review-release-docs (`review`); `planning`: plan-maintainer-epics (`plan`); `drafting`:
+ * docs-on-release-train (`release`).
+ */
 export const RUNNING_VALUES: readonly string[] = [
   'running',
   'planning',
   'drafting',
 ];
+
+/**
+ * A terminal result. `merged`: the merge outcome; `published`: announce-release-docs
+ * (`release`); `approved`: the docs-review outcome; `no-docs-change`: the release-docs outcome
+ * for a release that needs no docs; `triaged`, `duplicate`, `not-actionable`: the triage outcomes.
+ */
 export const DONE_VALUES: readonly string[] = [
-  'done',
   'merged',
   'published',
-  'closed',
-  'triaged',
   'approved',
+  'no-docs-change',
+  'triaged',
   'duplicate',
   'not-actionable',
+];
+
+/**
+ * A non-terminal outcome: more work follows, from a rule or a person. `pr-opened`, `pr-updated`:
+ * the implement and release-docs outcomes; `changes-requested`, `commented`: the docs-review
+ * outcomes; `labelled-for-merge`, `rebased-with-conflicts`: the merge outcomes; `decomposed`,
+ * `single`: the plan-epic outcomes; `needs-info`: the implement, plan-epic and triage outcome;
+ * `promote`: the triage outcome.
+ */
+export const OPEN_VALUES: readonly string[] = [
+  'pr-opened',
+  'pr-updated',
+  'changes-requested',
+  'commented',
+  'labelled-for-merge',
+  'rebased-with-conflicts',
+  'decomposed',
+  'single',
+  'needs-info',
+  'promote',
 ];
 
 /** How long a done work item stays on the board after its last activity. */
@@ -51,21 +92,23 @@ export function stateOf(item: WorkItem): Record<string, unknown> {
   return asRecord(item.status?.state);
 }
 
-/** The lane a work item belongs in. */
+/**
+ * The lane a work item belongs in: needs-human for any needs-human value or a pending approval;
+ * running for any running value; done for at least one done value and no needs-human, running or
+ * open value; waiting otherwise. Values in no vocabulary don't count.
+ */
 export function laneOf(item: WorkItem): LaneId {
   const values = Object.values(stateOf(item)).filter(
     (v): v is string => typeof v === 'string',
   );
+  const any = (vocabulary: readonly string[]) =>
+    values.some((v) => vocabulary.includes(v));
   const pending = (item.status?.approvals ?? []).some(
     (a) => a.phase === 'Pending',
   );
-  if (pending || values.some((v) => NEEDS_HUMAN_VALUES.includes(v))) {
-    return 'needs-human';
-  }
-  if (values.some((v) => RUNNING_VALUES.includes(v))) return 'running';
-  if (values.length > 0 && values.every((v) => DONE_VALUES.includes(v))) {
-    return 'done';
-  }
+  if (pending || any(NEEDS_HUMAN_VALUES)) return 'needs-human';
+  if (any(RUNNING_VALUES)) return 'running';
+  if (any(DONE_VALUES) && !any(OPEN_VALUES)) return 'done';
   return 'waiting';
 }
 

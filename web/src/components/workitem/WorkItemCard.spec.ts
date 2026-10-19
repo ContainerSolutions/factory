@@ -21,10 +21,11 @@ describe('WorkItemCard', () => {
     );
     const pills = wrapper.findAll('ul[aria-label="State"] li');
     expect(pills.map((p) => p.text())).toEqual([
-      'implement: done',
+      'stackNext: 1',
+      'stackTotal: 2',
       'review: needs-human',
     ]);
-    expect(pills[1]!.get('span').attributes('data-tone')).toBe('danger');
+    expect(pills[2]!.get('span').attributes('data-tone')).toBe('danger');
     expect(wrapper.text()).toContain('api · 2026-10-17 14:02:01 UTC');
   });
 
@@ -33,12 +34,7 @@ describe('WorkItemCard', () => {
     const { wrapper } = await mountWithApp(WorkItemCard, { props: { item } });
     expect(
       wrapper.findAll('ul[aria-label="State"] li').map((p) => p.text()),
-    ).toEqual([
-      'plan: planned',
-      'stackNext: 0',
-      'stackTotal: 3',
-      'approval implement: Pending',
-    ]);
+    ).toEqual(['stackNext: 0', 'stackTotal: 3', 'approval implement: Pending']);
   });
 
   it('falls back to the name without links, state or decisions', async () => {
