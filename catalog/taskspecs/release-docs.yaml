@@ -1,0 +1,37 @@
+# UC1 author: one docs PR for a finished release train (10 §TaskSpecs, catalog-poc LLD).
+# Skills: docs-release and docs-style (ccf-docs plugin), docs-gif (ccf-docs), ccf-test and
+# sidebyside (skills/, helpers that write no Result), all at the ccf-skills release tag.
+#
+# Labels: docs-release opens its PR without labels; the prompt lets the agent label the docs
+# PR with the docs repo's existing `documentation` label and nothing else, so effects.labels
+# names exactly that (the Effector refuses every other label, since #43).
+#
+# hosts: registry.yarnpkg.com, registry.npmjs.org once workspace.hosts lands
+kind: TaskSpec
+metadata: { name: release-docs }
+spec:
+  description: Document every release in a finished release train, in per-repository versioned docs.
+  inputs:                                   # declared inputs; rules pass values via dispatch.inputs
+    train:       { type: string, required: true }        # e.g. compliance-framework/workflows#123
+    depthPolicy: { type: object, default: { patch: notes, minor: full, major: full } }
+  instructions: { template: prompts/release-docs.md.tmpl, headless: true }
+  skills:
+    - { source: ccf-skills, ref: v0.8.0, use: [docs-release, docs-style, docs-gif, ccf-test, sidebyside] }
+  requires: { labels: [has-local-stack, gif-tooling] }      # matched against agent labels
+  harness:
+    allowed: [{ name: codex, models: ["gpt-5*"], reasoningEffort: "*" }, { name: claude-code, models: ["claude-*-5-*"], reasoningEffort: "*" }]
+    default: { name: codex, config: { model: "gpt-5*", reasoningEffort: high } }
+  workspace:
+    repos:
+      # The docs repo is the task's target, never a literal: the RuleSet's dispatch.target picks
+      # compliance-framework/docs (prod) or mock-docs (dev), and the write token follows it.
+      - { ref: "=task.target.repo + '@main'", mode: rw }        # the only writable repo
+      - { ref: compliance-framework/local-dev@main, mode: ro }  # stack bootstrap
+    publicReads: true                                           # released repos are cloned anonymously at their tags
+  identity: author
+  permissions: { contents: write, pull_requests: write, issues: read }
+  effects: { allow: [push-branch, pr.open, pr.comment, label.add], labels: [documentation] }
+  limits: { maxWallClock: 90m, maxTurns: 200 }
+  output:
+    schema: schemas/results/release-docs.json   # data: train, branch, pr, repos[], checks
+    outcomes: [pr-opened, no-docs-change, blocked]

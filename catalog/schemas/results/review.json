@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "docs-review Result: the base Result plus data as ccf-review:review writes it in headless mode: findings (posted, blocking, the Questions and Nits it held back) and one entry per PR reviewed, with the event posted (the factory review op's: approve, request-changes, comment). A done Result names every PR it reviewed.",
+  "allOf": [
+    { "$ref": "https://factory.ccf.dev/schemas/v1alpha1/result.schema.json" },
+    {
+      "if": { "required": ["status"], "properties": { "status": { "const": "done" } } },
+      "then": { "required": ["data"], "properties": { "data": { "required": ["findings", "prs"], "properties": { "prs": { "minItems": 1 } } } } }
+    }
+  ],
+  "properties": {
+    "outcome": { "enum": ["approved", "changes-requested", "commented", "needs-human"] },
+    "data": {
+      "type": "object",
+      "properties": {
+        "findings": {
+          "type": "object",
+          "properties": {
+            "posted": { "type": "integer", "minimum": 0 },
+            "blocking": { "type": "boolean" },
+            "questions": { "type": "array" },
+            "nits": { "type": "array" }
+          }
+        },
+        "prs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["pr", "event"],
+            "properties": {
+              "pr": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$" },
+              "event": { "enum": ["approve", "request-changes", "comment"] },
+              "threads": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

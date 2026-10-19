@@ -1,0 +1,22 @@
+# UC1 review fixes, UC2 stack PRs and fixes (10 §TaskSpecs, catalog-poc LLD).
+# Skills: lisa (lisa plugin, one pass in headless mode), resolve (skills/, a helper of
+# lisa's address-review pass) and docs-style (ccf-docs). No label ops: lisa adds no label in
+# headless mode.
+kind: TaskSpec
+metadata: { name: implement }
+spec:
+  description: Implement one issue as a PR (optionally stacked), or address review feedback on a PR or stack.
+  inputs:
+    mode:   { type: string, enum: [new, address-review], default: new }
+    target: { type: string, enum: [pr, stack], default: pr }
+    issue:  { type: string }                      # for mode new: the sub-issue, owner/repo#N
+    base:   { type: string, default: main }       # branch to stack on
+  instructions: { template: prompts/implement.md.tmpl, headless: true }
+  skills: [{ source: ccf-skills, ref: v0.8.0, use: [lisa, resolve, docs-style] }]   # lisa one-shot; stack ops via the Effector
+  harness: { default: { name: codex, config: { model: "gpt-5*", reasoningEffort: medium } } }
+  workspace: { repos: [{ ref: "=task.target.repo + '@' + inputs.base", mode: rw }] }
+  identity: author
+  permissions: { contents: write, pull_requests: write, issues: read }
+  effects: { allow: [push-branch, pr.open, pr.update, pr.comment, thread.reply, thread.resolve, stack.push] }
+  limits: { maxWallClock: 45m }
+  output: { schema: schemas/results/implement.json, outcomes: [pr-opened, pr-updated, blocked, needs-info] }

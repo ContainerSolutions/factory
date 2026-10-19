@@ -1,0 +1,17 @@
+# Notified by escalate-needs-human (a needs-human or blocked outcome, or a third review round)
+# on the work item's primary object. Sees: run (spec, outcome, id, result.summary and
+# result.question) and links.ui.
+kind: Template
+metadata: { name: needs-human }
+spec:
+  bodies:
+    github: |
+      🙋 The factory needs a person here.
+
+      - **What blocked:** the `{{ .run.spec }}` run ended `{{ .run.outcome }}`{{ with .run.result.summary }}: {{ . }}{{ end }}
+      {{- with .run.result.question }}
+      - **Question:** {{ . }}
+      {{- end }}
+      - **Last run:** `{{ .run.id }}`, in the [Factory UI]({{ .links.ui }})
+      - **Escalated by:** the `escalate-needs-human` rule, which also added the `needs-human` label.
+      - **To resume:** fix what blocked, then push a commit (a new commit starts a new review), or ask a maintainer to redispatch the last task from the Factory UI. Remove `needs-human` once it's handled. To stop the factory here, add `factory:stop`.
