@@ -116,7 +116,7 @@ func (s *Scheduler) tryLease(ctx context.Context, agentID string) (*Grant, error
 	return nil, nil
 }
 
-// commit leases t to a: mint the git credential, move the task to Leased (compare-and-swap
+// commit leases t to a: mint the git credentials, move the task to Leased (compare-and-swap
 // on the version the snapshot read), record the lease, charge the budgets and the agent's
 // day, and tell the run controller. The caller holds s.mu.
 func (s *Scheduler) commit(ctx context.Context, sn *snapshot, t *v1alpha1.Task, a *v1alpha1.Agent, v verdict) (*Grant, error) {
@@ -125,8 +125,8 @@ func (s *Scheduler) commit(ctx context.Context, sn *snapshot, t *v1alpha1.Task, 
 	now := s.clk.Now()
 	agentID, taskID := a.Metadata.Name, t.Metadata.ID
 
-	// The credential first: a task whose credential can't be minted is left Pending.
-	cred, err := s.mint(ctx, t)
+	// The credentials first: a task whose credentials can't be minted is left Pending.
+	creds, err := s.mint(ctx, t)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -165,9 +165,7 @@ func (s *Scheduler) commit(ctx context.Context, sn *snapshot, t *v1alpha1.Task, 
 		},
 		Status: LeaseStatus{ExpiresAt: st.LeaseExpiresAt},
 	}
-	if cred != nil {
-		l.Status.CredentialExpiresAt = cred.ExpiresAt
-	}
+	l.Status.CredentialExpiresAt = creds.expiresAt()
 	if err := s.d.Store.Create(ctx, l); err != nil {
 		s.unlease(ctx, taskID, agentID)
 		return nil, fmt.Errorf("record lease of %s: %w", taskID, err)
@@ -192,7 +190,7 @@ func (s *Scheduler) commit(ctx context.Context, sn *snapshot, t *v1alpha1.Task, 
 		"harness", v.resolved.Name, "model", v.resolved.Model)
 	g := &Grant{
 		Lease: LeaseInfo{ID: leaseID, Agent: agentID, Task: taskID, ExpiresAt: st.LeaseExpiresAt, HeartbeatEvery: heartbeat},
-		Task:  t, GitCredential: cred,
+		Task:  t, GitCredential: creds.git, ReadCredentials: creds.read,
 	}
 	if run != nil {
 		g.Lease.Run = run.Metadata.Name
@@ -215,16 +213,44 @@ func (s *Scheduler) unlease(ctx context.Context, taskID, agent string) {
 	}
 }
 
-// mint mints a task's git credential (nil when it asks for none): TTL = its
-// credentials.git.ttl (min(1h, maxWallClock + 10m) at compile time), capped at 1 h.
-func (s *Scheduler) mint(ctx context.Context, t *v1alpha1.Task) (*provider.Credential, error) {
+// credentials are the git credentials minted for one lease. They go to the agent and are
+// never stored.
+type credentials struct {
+	// git is the task token: its repo with the TaskSpec permissions; nil when the task asks
+	// for no git credential.
+	git *provider.Credential
+	// read holds one read-only token per private read repo, in readRepos order.
+	read []provider.Credential
+}
+
+// expiresAt is when the first of the credentials expires; zero when there are none.
+func (c credentials) expiresAt() time.Time {
+	var first time.Time
+	if c.git != nil {
+		first = c.git.ExpiresAt
+	}
+	for _, r := range c.read {
+		if first.IsZero() || r.ExpiresAt.Before(first) {
+			first = r.ExpiresAt
+		}
+	}
+	return first
+}
+
+// mint mints a task's git credentials (none when it asks for none): the task token for
+// credentials.git.repo with its permissions (and no read repos, so write access is on that
+// repo only), then a read-only token (contents: read) per read repo unless the read repos are
+// public (credentials.git.publicReads: cloned anonymously). TTL = credentials.git.ttl
+// (min(1h, maxWallClock + 10m) at compile time), capped at 1 h. Either all are minted or the
+// error is returned.
+func (s *Scheduler) mint(ctx context.Context, t *v1alpha1.Task) (credentials, error) {
 	if t.Spec.Credentials == nil || t.Spec.Credentials.Git == nil {
-		return nil, nil
+		return credentials{}, nil
 	}
 	g := t.Spec.Credentials.Git
 	conn, ok := s.d.Conns.Conn(g.Provider)
 	if !ok {
-		return nil, fmt.Errorf("mint credential: no connection for provider %q", g.Provider)
+		return credentials{}, fmt.Errorf("mint credential: no connection for provider %q", g.Provider)
 	}
 	ttl := MaxCredentialTTL
 	if g.TTL != "" {
@@ -233,12 +259,26 @@ func (s *Scheduler) mint(ctx context.Context, t *v1alpha1.Task) (*provider.Crede
 		}
 	}
 	cred, err := conn.MintGitCredential(ctx, provider.GitCredentialRequest{
-		Identity: g.Identity, Repo: g.Repo, ReadRepos: g.ReadRepos, Permissions: g.Permissions, TTL: ttl,
+		Identity: g.Identity, Repo: g.Repo, Permissions: g.Permissions, TTL: ttl,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("mint credential for %s: %w", t.Metadata.ID, err)
+		return credentials{}, fmt.Errorf("mint credential for %s: %w", t.Metadata.ID, err)
 	}
-	return &cred, nil
+	out := credentials{git: &cred}
+	if g.PublicReads {
+		return out, nil
+	}
+	for _, repo := range g.ReadRepos {
+		if repo == g.Repo {
+			continue // the task token already reads it
+		}
+		rc, err := conn.MintGitCredential(ctx, provider.ReadOnlyRequest(g.Identity, repo, ttl))
+		if err != nil {
+			return credentials{}, fmt.Errorf("mint read credential for %s on %s: %w", t.Metadata.ID, repo, err)
+		}
+		out.read = append(out.read, rc)
+	}
+	return out, nil
 }
 
 // setReason records why a pending task waits, if it is still Pending and the reason changed.
@@ -306,7 +346,8 @@ func (s *Scheduler) leasedTask(ctx context.Context, l *Lease) (*v1alpha1.Task, e
 
 // Heartbeat is heartbeatLease: it renews the lease (the task becomes Running on the first
 // one), appends the progress to the run, charges the usage deltas to the budgets and the
-// agent's day, re-mints the git credential when it has under 10 minutes left, and says
+// agent's day, re-mints the git credentials when the first to expire has under 10 minutes
+// left (all of them, the read-only ones included), and says
 // whether to cancel. A lease whose task left it (timeout, cancel, expiry) is ErrLeaseGone.
 func (s *Scheduler) Heartbeat(ctx context.Context, agentID, leaseID string, req HeartbeatRequest) (*HeartbeatResponse, error) {
 	if u := req.Usage; u != nil && (u.InputTokens < 0 || u.OutputTokens < 0 || (u.CostUSD != nil && *u.CostUSD < 0)) {
@@ -347,13 +388,13 @@ func (s *Scheduler) Heartbeat(ctx context.Context, agentID, leaseID string, req 
 	resp := &HeartbeatResponse{ExpiresAt: expires}
 	credExpires := l.Status.CredentialExpiresAt
 	if !credExpires.IsZero() && credExpires.Sub(now) < CredentialRefreshBefore {
-		cred, err := s.mint(ctx, t)
+		creds, err := s.mint(ctx, t)
 		switch {
 		case err != nil:
-			s.log.WarnContext(ctx, "refresh git credential", "lease", leaseID, "err", err)
-		case cred != nil:
-			resp.RefreshedGitCredential = cred
-			credExpires = cred.ExpiresAt
+			s.log.WarnContext(ctx, "refresh git credentials", "lease", leaseID, "err", err)
+		case creds.git != nil:
+			resp.RefreshedGitCredential, resp.RefreshedReadCredentials = creds.git, creds.read
+			credExpires = creds.expiresAt()
 		}
 	}
 	var delta LeaseUsage

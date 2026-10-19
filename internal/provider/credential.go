@@ -11,8 +11,9 @@ import (
 // Redacted replaces a token wherever a Credential is printed, logged or JSON-encoded.
 const Redacted = "[REDACTED]"
 
-// Credential is a minted git token, the API's GitCredential. It is sent to the agent in the
-// lease response and never stored.
+// Credential is a minted git token, the API's GitCredential: the task token (the lease's
+// gitCredential) or a read-only token for one private read repo (one of its readCredentials).
+// It is sent to the agent in the lease and heartbeat responses and never stored.
 //
 // Printing (fmt, any verb), logging (slog) and JSON-encoding it all redact Token, so it can't
 // leak through a log line or a store record. The lease response copies the fields into the

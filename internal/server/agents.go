@@ -143,6 +143,7 @@ func (s *Server) LeaseTask(ctx context.Context, req gen.LeaseTaskRequestObject) 
 	if g.GitCredential != nil {
 		l.GitCredential = gitCredential(*g.GitCredential)
 	}
+	l.ReadCredentials = gitCredentials(g.ReadCredentials)
 	return gen.LeaseTask200JSONResponse(l), nil
 }
 
@@ -158,6 +159,18 @@ func gitCredential(c provider.Credential) gen.GitCredential {
 		Repo:        c.Repo,
 		ReadRepos:   slices.Clone(c.ReadRepos),
 		Permissions: maps.Clone(c.Permissions),
+	}
+	return out
+}
+
+// gitCredentials copies minted credentials into the API type (nil when there are none).
+func gitCredentials(cs []provider.Credential) []gen.GitCredential {
+	if len(cs) == 0 {
+		return nil
+	}
+	out := make([]gen.GitCredential, len(cs))
+	for i, c := range cs {
+		out[i] = gitCredential(c)
 	}
 	return out
 }
@@ -192,6 +205,7 @@ func (s *Server) HeartbeatLease(ctx context.Context, req gen.HeartbeatLeaseReque
 		gc := gitCredential(*c)
 		out.RefreshedGitCredential = &gc
 	}
+	out.RefreshedReadCredentials = gitCredentials(resp.RefreshedReadCredentials)
 	return gen.HeartbeatLease200JSONResponse(out), nil
 }
 

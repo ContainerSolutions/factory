@@ -709,7 +709,8 @@ type Workspace struct {
 	// Repos are mounted repos; at most one is rw.
 	Repos    []RepoMount `json:"repos,omitzero"`
 	Checkout string      `json:"checkout,omitzero"`
-	// PublicReads lets the agent clone public repos anonymously at runtime.
+	// PublicReads lets the agent clone public repos anonymously at runtime, and says the ro
+	// repos are public: they are cloned anonymously and get no read-only token.
 	PublicReads *bool `json:"publicReads,omitzero"`
 }
 

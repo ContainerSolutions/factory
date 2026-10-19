@@ -22,7 +22,7 @@ type Minter interface {
 
 - JWT from App ID + private key (`ghinstallation`), installation ID resolved per org and cached.
 - `POST /app/installations/{id}/access_tokens` with **`repositories: [name]` and `permissions: {…}`** — the body is always populated; a request without `repositories` is a programming error (`panic` in tests, error in prod) → *unscoped tokens are impossible by construction*.
-- Git credentials for agents: `rw` repo token with the TaskSpec permissions (subset of the identity's); read repos: public ones get **no token** (`publicReads`), private ones a separate read-only token.
+- Git credentials for agents: `rw` repo token with the TaskSpec permissions (subset of the identity's), on that repo only; read repos: public ones get **no token** (`publicReads`), private ones a separate read-only token each (`contents: read`, one repo per token). The scheduler asks for each with its own `MintGitCredential` call; the request shapes and how private is decided are in [contracts.md §Refinements](../../foundation/LLD/contracts.md#refinements-fnd-s1-t03).
 - Cache key `(identity, sorted repos, sorted perms)`; reuse until 5 min before expiry (GitHub caps at 1 h).
 - Dispatcher-side API calls use the same minter with the identity the effect requires.
 

@@ -121,8 +121,8 @@ type LeaseSpec struct {
 type LeaseStatus struct {
 	ExpiresAt     time.Time `json:"expiresAt"`
 	LastHeartbeat time.Time `json:"lastHeartbeat,omitzero"`
-	// CredentialExpiresAt is when the last git credential minted for the lease expires
-	// (the credential itself is never stored).
+	// CredentialExpiresAt is when the first of the git credentials last minted for the lease
+	// expires (the credentials themselves are never stored).
 	CredentialExpiresAt time.Time `json:"credentialExpiresAt,omitzero"`
 	// Usage is the sum of the heartbeats' usage deltas.
 	Usage   LeaseUsage `json:"usage"`
@@ -194,6 +194,9 @@ type Grant struct {
 	// GitCredential is minted for this lease and never stored; nil when the task has no git
 	// credential request.
 	GitCredential *provider.Credential
+	// ReadCredentials are the read-only tokens (contents: read), one per private read repo;
+	// none for public reads. Minted for this lease and never stored.
+	ReadCredentials []provider.Credential
 }
 
 // LeaseInfo is the API's LeaseInfo.
@@ -224,8 +227,12 @@ type HeartbeatResponse struct {
 	ExpiresAt time.Time
 	// Cancel tells the agent to stop the run: the task is being cancelled.
 	Cancel bool
-	// RefreshedGitCredential is a new credential when the last one had under 10 minutes left.
+	// RefreshedGitCredential is a new credential when the first of the lease's credentials to
+	// expire had under 10 minutes left.
 	RefreshedGitCredential *provider.Credential
+	// RefreshedReadCredentials replace the lease's read-only credentials, refreshed with
+	// RefreshedGitCredential; empty when the task has none.
+	RefreshedReadCredentials []provider.Credential
 }
 
 // AbandonRequest is abandonLease's body.
