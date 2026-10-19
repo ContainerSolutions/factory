@@ -143,7 +143,7 @@ func (a *applier) dispatch(ctx context.Context, ac *applyCtx, d applied) (string
 	}
 	task, prompt, err := compileTask(ctx, compileInput{
 		cat: ac.cat, d: d.action.Dispatch, wi: ac.wi, ev: ac.ev, ruleSet: d.ruleSet, rule: d.rule,
-		taskID: taskID, deferred: deferred, now: ac.now,
+		taskID: taskID, deferred: deferred, now: ac.now, kindOf: a.objectKind,
 	}, a.skills)
 	if errors.Is(err, errInvalidDispatch) {
 		return err.Error(), nil
@@ -160,6 +160,33 @@ func (a *applier) dispatch(ctx context.Context, ac *applyCtx, d applied) (string
 	a.log.InfoContext(ctx, "task dispatched", "task", taskID, "taskSpec", task.Spec.TaskSpec.Name, "queue", task.Spec.Queue,
 		"workItem", ac.wi.Metadata.Name, "rule", d.rule, "reason", deferred)
 	return "", nil
+}
+
+// objectKind resolves an "owner/name#n" ref's kind (issue or PR) by observing it, with no kind,
+// on its provider. A retryable provider error is returned (the reconcile retries). Without a
+// connection, or when the object is gone or the provider refuses it, the ref is guessed an
+// issue, as addLink does: its content was unreadable anyway, and a gone item reads as gone.
+func (a *applier) objectKind(ctx context.Context, prov, ref string) (string, error) {
+	if a.conns == nil {
+		return provider.KindIssue, nil
+	}
+	conn, ok := a.conns.Conn(prov)
+	if !ok {
+		return provider.KindIssue, nil
+	}
+	obs, err := conn.Observe(ctx, v1alpha1.ObjectRef{Provider: prov, Ref: ref})
+	switch {
+	case err != nil && (errors.Is(err, provider.ErrRetryable) || ctx.Err() != nil):
+		return "", fmt.Errorf("resolve the kind of %s on %s: %w", ref, prov, err)
+	case err != nil:
+		if !isNotFound(err) {
+			a.log.WarnContext(ctx, "context ref kind unresolved: guessed an issue", "provider", prov, "ref", ref, "err", err)
+		}
+		return provider.KindIssue, nil
+	case obs.Ref.Kind == provider.KindPR:
+		return provider.KindPR, nil
+	}
+	return provider.KindIssue, nil
 }
 
 // cancel moves the work item's active tasks of a TaskSpec to Cancelling (the run controller

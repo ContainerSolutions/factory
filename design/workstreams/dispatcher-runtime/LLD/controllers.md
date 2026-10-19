@@ -139,7 +139,9 @@ Webhooks received during rebuild are accepted and stored as Events; the rule con
   - Harness: the dispatch request, else the TaskSpec default.
   - Target: the dispatch target, else the primary link (repo taken from its ref).
   - Workspace `=` refs are evaluated with `inputs` and `task{id, target.repo}`.
-  - Context, in order: `dispatch.context` (`event.object` becomes the object; `event.<fact>` becomes its ref or the event's content ref), the primary link, then the workspace repos mounted at `/work/<name>`. Everything but the repos is `untrusted`.
+  - Context, in order: `dispatch.context` (`event.object` becomes the object; `event.<fact>` becomes its ref or the event's content ref; an `owner/name#n` ref, such as a sub-issue, becomes an `issue` or `pr` on the target's provider, so the agent writes it to `tickets/`; any other string stays a `ref`), the primary link, then the workspace repos mounted at `/work/<name>`. Everything but the repos is `untrusted`.
+  - An `owner/name#n` ref's kind is the event object's or a link's when one of them is that ref, else the provider's (`Conn.Observe` with no kind), because the server reads context content by kind and another kind is not found. A retryable provider error fails the reconcile; without a connection, or when the object is gone or refused, it is guessed an `issue`, as `addLink` does.
+  - Hosts: the TaskSpec's `workspace.hosts` are copied to `Task.spec.hosts` (unset when there are none).
   - The prompt is rendered with `{task, inputs, item{id, state, links}, context}`. There is no blob store, so it is stored as an internal `TaskPrompt` record, and `prompt.ref` is `api://tasks/<id>/prompt`.
   - Skills resolve through `SkillResolver`. The default is `KeepSkills`; `factory serve` wires `GitSkills{Base}` (`gitsource.Head`, cached).
   - Credentials request: the `rw` mount (else the target repo), the other mounts as read repos, `publicReads` from the workspace (the read repos are public: no read-only tokens), TTL `min(1h, maxWallClock + 10m)`.
