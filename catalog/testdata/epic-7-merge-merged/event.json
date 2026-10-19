@@ -1,0 +1,39 @@
+{
+  "kind": "Event",
+  "id": "factory-run-merge-2",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-merge-2",
+        "spec": "merge",
+        "outcome": "merged",
+        "status": "done",
+        "inputs": {
+          "target": "stack",
+          "requiredCheck": "ci / required"
+        },
+        "result": {
+          "merged": [
+            {
+              "pr": "compliance-framework/docs#83",
+              "sha": "cccccccccccccccccccccccccccccccccccccccc"
+            },
+            {
+              "pr": "compliance-framework/docs#84",
+              "sha": "dddddddddddddddddddddddddddddddddddddddd"
+            },
+            {
+              "pr": "compliance-framework/docs#85",
+              "sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "workItem": "wi-epic"
+}

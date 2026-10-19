@@ -1,0 +1,105 @@
+{
+  "event": "gh-111/0",
+  "workItem": "wi-mock-train",
+  "matches": [
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "review-release-docs",
+      "result": "matched",
+      "inputs": [
+        "actor",
+        "event",
+        "item",
+        "params"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "review-release-docs",
+      "action": {
+        "cancel": {
+          "taskSpec": "docs-review"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor",
+        "event",
+        "item",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "review-release-docs",
+      "action": {
+        "dispatch": {
+          "taskSpec": "docs-review",
+          "queue": "poc",
+          "inputs": {
+            "checks": [
+              "version-accuracy",
+              "versioning",
+              "style",
+              "build"
+            ],
+            "target": "pr",
+            "verifyAgainst": {
+              "train": "compliance-framework/workflows#124"
+            }
+          },
+          "requires": {
+            "labels": [
+              "has-local-stack"
+            ]
+          },
+          "target": {
+            "repo": "compliance-framework/mock-docs",
+            "ref": "compliance-framework/mock-docs#12"
+          }
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor",
+        "event",
+        "item",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "review-release-docs",
+      "action": {
+        "set": {
+          "key": "review",
+          "value": "running"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor",
+        "event",
+        "item",
+        "params"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "manifest": "repos.mock.yaml",
+    "release": "drafting",
+    "review": "running",
+    "train": "compliance-framework/workflows#124"
+  }
+}

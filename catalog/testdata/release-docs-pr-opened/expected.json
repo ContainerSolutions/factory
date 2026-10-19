@@ -1,0 +1,114 @@
+{
+  "event": "gh-109/0",
+  "workItem": "wi-train",
+  "matches": [
+    {
+      "ruleSet": "poc-docs-human-review",
+      "rule": "review-human-prs",
+      "result": "not-matched",
+      "inputs": [
+        "actor",
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "review-release-docs",
+      "result": "matched",
+      "inputs": [
+        "actor",
+        "event",
+        "item",
+        "params"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "review-release-docs",
+      "action": {
+        "cancel": {
+          "taskSpec": "docs-review"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor",
+        "event",
+        "item",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "review-release-docs",
+      "action": {
+        "dispatch": {
+          "taskSpec": "docs-review",
+          "queue": "poc",
+          "inputs": {
+            "checks": [
+              "version-accuracy",
+              "versioning",
+              "style",
+              "build"
+            ],
+            "target": "pr",
+            "verifyAgainst": {
+              "train": "compliance-framework/workflows#123"
+            }
+          },
+          "requires": {
+            "labels": [
+              "has-local-stack"
+            ]
+          },
+          "target": {
+            "repo": "compliance-framework/docs",
+            "ref": "compliance-framework/docs#90"
+          }
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor",
+        "event",
+        "item",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "review-release-docs",
+      "action": {
+        "set": {
+          "key": "review",
+          "value": "running"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor",
+        "event",
+        "item",
+        "params"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "manifest": "repos.yaml",
+    "release": "drafting",
+    "review": "running",
+    "train": "compliance-framework/workflows#123"
+  }
+}

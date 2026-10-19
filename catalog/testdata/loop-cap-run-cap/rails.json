@@ -1,0 +1,9 @@
+{
+  "trips": [
+    {
+      "rail": "run-cap",
+      "action": "dispatch",
+      "reason": "work item wi-epic has 20 runs (cap 20)"
+    }
+  ]
+}

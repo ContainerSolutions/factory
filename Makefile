@@ -57,10 +57,10 @@ openapi-lint: ## Lint api/openapi.yaml with vacuum (ruleset api/vacuum.yaml); in
 		--ruleset api/vacuum.yaml --fail-severity info --no-banner --no-style --details api/openapi.yaml
 
 .PHONY: catalog
-catalog: ## Validate the catalog and run its rule tests (once catalog/ exists)
+catalog: ## Validate the catalog, run its rule tests and fail on a selected rule no fixture fires (once catalog/ exists)
 	@if [ -d catalog ]; then \
 		go run ./cmd/factory validate --dir catalog && \
-		go run ./cmd/factory rules test --catalog catalog; \
+		go run ./cmd/factory rules test --catalog catalog --coverage; \
 	fi
 
 .PHONY: reviewable

@@ -1,0 +1,28 @@
+{
+  "kind": "Event",
+  "id": "gh-119/0",
+  "source": "github-public",
+  "type": "issue.opened",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "github-public",
+    "actor": {
+      "id": "github-public:admin",
+      "tier": "maintainer"
+    },
+    "object": {
+      "provider": "github-public",
+      "kind": "issue",
+      "ref": "compliance-framework/docs#70"
+    },
+    "facts": {
+      "issue": {
+        "title": "Docs in PT-BR (i18n)",
+        "labels": [
+          "epic"
+        ],
+        "body": "Translate the documentation site to Brazilian Portuguese: enable Docusaurus i18n, add a glossary, then translate section by section."
+      }
+    }
+  }
+}

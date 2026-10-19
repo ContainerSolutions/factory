@@ -1,5 +1,7 @@
 # Address a change request on the factory's docs PR (up to three implement runs). Targets the
 # docs PR, as review-release-docs does: the work item's primary link is the train issue.
+# Only the factory's reviewer identity or a maintainer can start a fix run: a change request
+# from anyone else would let a non-maintainer steer the agent (its text is untrusted context).
 kind: Rule
 metadata: { name: fix-release-docs-review, labels: { pack: release-docs } }
 spec:
@@ -8,7 +10,8 @@ spec:
   params: { docsRepo: compliance-framework/docs }          # the dev RuleSet's defaults set mock-docs
   where: >
     has(item.state.release) && event.repo == params.docsRepo &&
-    event.review.state == 'changes_requested' && item.count('implement') < 3
+    event.review.state == 'changes_requested' && item.count('implement') < 3 &&
+    (actor.tier == 'maintainer' || (actor.isFactory && actor.identity == 'reviewer'))
   actions:
     - dispatch:
         taskSpec: implement

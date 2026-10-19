@@ -1,0 +1,29 @@
+{
+  "kind": "Event",
+  "id": "factory-run-mock-impl-3",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-impl-3",
+        "spec": "implement",
+        "outcome": "pr-opened",
+        "status": "done",
+        "inputs": {
+          "mode": "new",
+          "target": "pr",
+          "issue": "compliance-framework/mock-docs#33",
+          "base": "factory/stack/wi-mock-epic/1"
+        },
+        "result": {
+          "pr": "compliance-framework/mock-docs#43",
+          "branch": "factory/stack/wi-mock-epic/2"
+        }
+      }
+    }
+  },
+  "workItem": "wi-mock-epic"
+}

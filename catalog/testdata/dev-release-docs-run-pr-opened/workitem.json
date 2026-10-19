@@ -1,0 +1,49 @@
+{
+  "id": "wi-mock-train",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/workflows#124",
+      "kind": "issue",
+      "primary": true
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/mock-docs#12",
+      "kind": "pr"
+    }
+  ],
+  "state": {
+    "release": "drafting",
+    "train": "compliance-framework/workflows#124",
+    "manifest": "repos.mock.yaml"
+  },
+  "pr": {
+    "provider": "github-public",
+    "ref": "compliance-framework/mock-docs#12",
+    "author": {
+      "isFactory": true
+    },
+    "draft": false,
+    "head": "f00d",
+    "labels": [],
+    "checks": {
+      "state": "pending"
+    }
+  },
+  "prs": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/mock-docs#12",
+      "author": {
+        "isFactory": true
+      },
+      "draft": false,
+      "head": "f00d",
+      "labels": [],
+      "checks": {
+        "state": "pending"
+      }
+    }
+  ]
+}

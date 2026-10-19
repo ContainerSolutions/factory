@@ -1,0 +1,11 @@
+{
+  "id": "wi-mock-train",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/workflows#124",
+      "kind": "issue",
+      "primary": true
+    }
+  ]
+}

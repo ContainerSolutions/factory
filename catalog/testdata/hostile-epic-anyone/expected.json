@@ -1,0 +1,18 @@
+{
+  "event": "gh-126/0",
+  "workItem": "wi-epic",
+  "matches": [
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "plan-maintainer-epics",
+      "result": "not-matched",
+      "inputs": [
+        "actor",
+        "event",
+        "params"
+      ]
+    }
+  ],
+  "decisions": [],
+  "stateAfter": {}
+}

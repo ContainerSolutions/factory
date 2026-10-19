@@ -1,0 +1,43 @@
+{
+  "kind": "Event",
+  "id": "factory-run-release-docs-dev-1",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-release-docs-1",
+        "spec": "release-docs",
+        "outcome": "pr-opened",
+        "status": "done",
+        "inputs": {
+          "train": "compliance-framework/workflows#124"
+        },
+        "result": {
+          "train": "compliance-framework/workflows#124",
+          "branch": "factory/release-docs/train-2026-11",
+          "pr": "compliance-framework/mock-docs#12",
+          "repos": [
+            {
+              "repo": "compliance-framework/mock-api",
+              "version": "0.3.0",
+              "instance": "mock-api",
+              "line": "0.3",
+              "action": "cut"
+            },
+            {
+              "repo": "compliance-framework/mock-plugin-policies-2",
+              "version": "0.3.1",
+              "instance": "mock-plugin-2",
+              "line": null,
+              "action": "rows"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "workItem": "wi-mock-train"
+}

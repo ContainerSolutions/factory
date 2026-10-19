@@ -1,0 +1,43 @@
+{
+  "kind": "Event",
+  "id": "factory-run-review-2",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-review-2",
+        "spec": "docs-review",
+        "outcome": "approved",
+        "status": "done",
+        "inputs": {
+          "target": "pr",
+          "verifyAgainst": {
+            "train": "compliance-framework/workflows#123"
+          },
+          "checks": [
+            "version-accuracy",
+            "versioning",
+            "style",
+            "build"
+          ]
+        },
+        "result": {
+          "findings": {
+            "posted": 0,
+            "blocking": false
+          },
+          "prs": [
+            {
+              "pr": "compliance-framework/docs#90",
+              "event": "approve"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "workItem": "wi-train"
+}

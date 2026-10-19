@@ -1,0 +1,58 @@
+{
+  "kind": "Event",
+  "id": "factory-run-release-docs-1",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-release-docs-1",
+        "spec": "release-docs",
+        "outcome": "pr-opened",
+        "status": "done",
+        "inputs": {
+          "train": "compliance-framework/workflows#123"
+        },
+        "result": {
+          "train": "compliance-framework/workflows#123",
+          "branch": "factory/release-docs/train-2026-11",
+          "pr": "compliance-framework/docs#90",
+          "repos": [
+            {
+              "repo": "compliance-framework/api",
+              "version": "0.22.0",
+              "instance": "api",
+              "line": "0.22",
+              "action": "cut"
+            },
+            {
+              "repo": "compliance-framework/ui",
+              "version": "0.14.3",
+              "instance": "ui",
+              "line": "0.14",
+              "action": "edit"
+            },
+            {
+              "repo": "compliance-framework/plugin-aws-s3-policies",
+              "version": "1.1.1",
+              "instance": "plugin-aws-s3",
+              "line": null,
+              "action": "rows"
+            },
+            {
+              "repo": "compliance-framework/helm-charts",
+              "version": null,
+              "instance": null,
+              "line": null,
+              "action": "skip",
+              "skipped": "no-instance"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "workItem": "wi-train"
+}

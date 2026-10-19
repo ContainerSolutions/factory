@@ -1,0 +1,26 @@
+{
+  "kind": "Event",
+  "id": "gh-116/0",
+  "source": "github-public",
+  "type": "pr.opened",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "github-public",
+    "actor": {
+      "id": "github-public:someone",
+      "tier": "anyone"
+    },
+    "object": {
+      "provider": "github-public",
+      "kind": "pr",
+      "ref": "compliance-framework/docs#95"
+    },
+    "facts": {
+      "pr": {
+        "draft": true,
+        "head": "beef",
+        "base": "main"
+      }
+    }
+  }
+}

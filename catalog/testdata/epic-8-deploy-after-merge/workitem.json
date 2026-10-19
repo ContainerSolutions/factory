@@ -1,0 +1,154 @@
+{
+  "id": "wi-epic",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#70",
+      "kind": "issue",
+      "primary": true
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#81",
+      "kind": "pr"
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#82",
+      "kind": "pr"
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#83",
+      "kind": "pr"
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#84",
+      "kind": "pr"
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#85",
+      "kind": "pr"
+    }
+  ],
+  "state": {
+    "plan": [
+      {
+        "issue": "compliance-framework/docs#71",
+        "title": "Enable Docusaurus i18n with pt-BR",
+        "dependsOn": []
+      },
+      {
+        "issue": "compliance-framework/docs#72",
+        "title": "PT-BR glossary",
+        "dependsOn": [
+          "compliance-framework/docs#71"
+        ]
+      },
+      {
+        "issue": "compliance-framework/docs#73",
+        "title": "Translate the general section",
+        "dependsOn": [
+          "compliance-framework/docs#72"
+        ]
+      },
+      {
+        "issue": "compliance-framework/docs#74",
+        "title": "Translate the API reference",
+        "dependsOn": [
+          "compliance-framework/docs#73"
+        ]
+      },
+      {
+        "issue": "compliance-framework/docs#75",
+        "title": "Translate the plugin pages",
+        "dependsOn": [
+          "compliance-framework/docs#74"
+        ]
+      }
+    ],
+    "stackNext": 4,
+    "stackTotal": 5,
+    "review": "approved",
+    "merge": "merged"
+  },
+  "reporter": {
+    "id": "github-public:admin",
+    "tier": "maintainer"
+  },
+  "prs": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#81",
+      "author": {
+        "isFactory": true
+      },
+      "draft": false,
+      "head": "c0de0",
+      "labels": [],
+      "checks": {
+        "state": "pending"
+      }
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#82",
+      "author": {
+        "isFactory": true
+      },
+      "draft": false,
+      "head": "c0de1",
+      "labels": [],
+      "checks": {
+        "state": "pending"
+      }
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#83",
+      "author": {
+        "isFactory": true
+      },
+      "draft": false,
+      "head": "c0de2",
+      "labels": [],
+      "checks": {
+        "state": "pending"
+      }
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#84",
+      "author": {
+        "isFactory": true
+      },
+      "draft": false,
+      "head": "c0de3",
+      "labels": [],
+      "checks": {
+        "state": "pending"
+      }
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#85",
+      "author": {
+        "isFactory": true
+      },
+      "draft": false,
+      "head": "c0de4",
+      "labels": [],
+      "checks": {
+        "state": "pending"
+      }
+    }
+  ],
+  "deploy": {
+    "state": "success",
+    "sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "url": "https://compliance-framework.github.io/docs/",
+    "containsMerge": true
+  }
+}

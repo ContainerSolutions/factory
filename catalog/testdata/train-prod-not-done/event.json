@@ -1,0 +1,61 @@
+{
+  "kind": "Event",
+  "id": "gh-108/0",
+  "source": "github-public",
+  "type": "issue.closed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "github-public",
+    "actor": {
+      "id": "github-public:release-bot[bot]",
+      "tier": "maintainer",
+      "isBot": true
+    },
+    "object": {
+      "provider": "github-public",
+      "kind": "issue",
+      "ref": "compliance-framework/workflows#123"
+    },
+    "facts": {
+      "issue": {
+        "title": "Release train 2026-11",
+        "labels": [
+          "release-train"
+        ]
+      },
+      "train": {
+        "month": "2026-11",
+        "manifest": "repos.yaml",
+        "dryRun": false,
+        "repos": [
+          {
+            "name": "api",
+            "versions": {
+              ".": "0.22.0"
+            },
+            "bump": "minor"
+          },
+          {
+            "name": "ui",
+            "versions": {
+              ".": "0.14.3"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-aws-s3-policies",
+            "versions": {
+              ".": "1.1.1"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "helm-charts",
+            "versions": {},
+            "bump": "none"
+          }
+        ]
+      }
+    }
+  }
+}

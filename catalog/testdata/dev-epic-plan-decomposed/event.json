@@ -1,0 +1,43 @@
+{
+  "kind": "Event",
+  "id": "factory-run-mock-plan-1",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-plan-1",
+        "spec": "plan-epic",
+        "outcome": "decomposed",
+        "status": "done",
+        "inputs": {},
+        "result": {
+          "plan": [
+            {
+              "issue": "compliance-framework/mock-docs#31",
+              "title": "Enable Docusaurus i18n with pt-BR",
+              "dependsOn": []
+            },
+            {
+              "issue": "compliance-framework/mock-docs#32",
+              "title": "PT-BR glossary",
+              "dependsOn": [
+                "compliance-framework/mock-docs#31"
+              ]
+            },
+            {
+              "issue": "compliance-framework/mock-docs#33",
+              "title": "Translate the general section",
+              "dependsOn": [
+                "compliance-framework/mock-docs#32"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "workItem": "wi-mock-epic"
+}

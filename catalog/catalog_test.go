@@ -2,6 +2,9 @@
 // RuleSet overlaps the design calls for, every prompt and Template renders with fixture inputs
 // (golden files under testdata/render, rewritten with go test ./catalog -update), the result
 // schemas accept what the skills write, and no dev RuleSet ever targets compliance-framework/docs.
+// The rule fixtures under testdata/<case> (goldens checked by factory rules test, make catalog)
+// are replayed here too: no untrusted text reaches an action or a prompt, and no dev RuleSet's
+// decision reaches compliance-framework/docs.
 package catalog_test
 
 import (
@@ -20,6 +23,7 @@ import (
 
 	"github.com/compliance-framework/factory/internal/catalog"
 	"github.com/compliance-framework/factory/internal/cel"
+	"github.com/compliance-framework/factory/internal/rules"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files under testdata/render")
@@ -588,6 +592,212 @@ func TestResultSchemas(t *testing.T) {
 	for name := range c.TaskSpecs {
 		if !covered[name] {
 			t.Errorf("no result case for TaskSpec %s", name)
+		}
+	}
+}
+
+// fixtureEval is one rule fixture (testdata/<case>, the cases factory rules test replays)
+// evaluated against the catalog.
+type fixtureEval struct {
+	f  rules.Fixture
+	ev rules.Evaluation
+}
+
+// evalFixtures replays every case under testdata against the catalog, as factory rules test
+// does (make catalog checks the goldens; these tests check properties of the decisions).
+func evalFixtures(t *testing.T, c *catalog.Catalog) []fixtureEval {
+	t.Helper()
+	cases, err := rules.LoadFixtures(os.DirFS("testdata"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) == 0 {
+		t.Fatal("no rule fixture under testdata")
+	}
+	out := make([]fixtureEval, 0, len(cases))
+	for _, f := range cases {
+		ev, err := f.Evaluate(t.Context(), c)
+		if err != nil {
+			t.Fatalf("%s: %v", f.Name, err)
+		}
+		out = append(out, fixtureEval{f, ev})
+	}
+	return out
+}
+
+// TestFixtureUntrustedText: text people outside the task wrote (issue titles and bodies,
+// comments, review text, and an agent's plan that echoes them) never reaches an action's
+// payload or a dispatched task's prompt, in any rule fixture. The hostile cases carry the
+// hostile marker in each of those places. The one exception is a set from a factory run's
+// result (the agent-written plan kept in state): state is not a prompt input (TestPrompts
+// renders the prompts with a hostile plan title, and so does this test).
+func TestFixtureUntrustedText(t *testing.T) {
+	c := load(t)
+	carried := map[string]bool{}
+	for _, fe := range evalFixtures(t, c) {
+		ev := fe.f.Event
+		facts, _ := jsonValue(t, ev.Data.Facts).(map[string]any)
+		issue, _ := facts["issue"].(map[string]any)
+		for where, v := range map[string]any{"title": issue["title"], "body": issue["body"], "comment": facts["text"], "run": facts["run"]} {
+			if b, _ := json.Marshal(v); strings.Contains(string(b), hostile) {
+				carried[where] = true
+			}
+		}
+		factory := ev.Type.IsFactory()
+		for i, d := range fe.ev.Decisions {
+			b, err := json.Marshal(d.Action)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(b), hostile) && (d.Action.Set == nil || !factory) {
+				t.Errorf("%s: decision %d (%s/%s, %s) carries untrusted text: %s", fe.f.Name, i, d.RuleSet, d.Rule, d.Action, b)
+			}
+			if d.Action.Dispatch != nil {
+				checkDispatchPrompt(t, c, fe, i, d.Action.Dispatch)
+			}
+		}
+	}
+	for _, where := range []string{"title", "body", "comment", "run"} {
+		if !carried[where] {
+			t.Errorf("no hostile fixture carries untrusted text in the event's %s", where)
+		}
+	}
+}
+
+// checkDispatchPrompt renders the prompt the dispatch would get (its inputs and target, the
+// work item's links and the state after the event) and checks it holds no untrusted text.
+func checkDispatchPrompt(t *testing.T, c *catalog.Catalog, fe fixtureEval, i int, d *rules.Dispatch) {
+	t.Helper()
+	ts := c.TaskSpecs[d.TaskSpec]
+	if ts == nil {
+		t.Errorf("%s: decision %d dispatches unknown TaskSpec %s", fe.f.Name, i, d.TaskSpec)
+		return
+	}
+	pc := promptCase{name: strings.ReplaceAll(fe.f.Name, "/", "_"), spec: d.TaskSpec, inputs: d.Inputs, state: fe.ev.StateAfter}
+	if d.Target != nil {
+		pc.target = d.Target.Repo
+	}
+	links, _ := jsonValue(t, fe.f.WorkItem.Links).([]any)
+	for _, l := range links {
+		pc.links = append(pc.links, l.(map[string]any))
+	}
+	var b bytes.Buffer
+	if err := ts.Prompt.Template.Execute(&b, promptData(t, ts, pc)); err != nil {
+		t.Errorf("%s: decision %d: render the %s prompt: %v", fe.f.Name, i, d.TaskSpec, err)
+		return
+	}
+	checkRendered(t, b.String())
+	if strings.Contains(b.String(), hostile) {
+		t.Errorf("%s: decision %d: the %s prompt renders untrusted text:\n%s", fe.f.Name, i, d.TaskSpec, b.String())
+	}
+}
+
+// mockDocs is the dev docs repo, the only docs repo a dev (dev-*) RuleSet may write to.
+const mockDocs = "compliance-framework/mock-docs"
+
+// TestFixtureDevSafety: in every rule fixture, a decision through a dev RuleSet only reaches
+// mock objects. Its payload never names compliance-framework/docs; a dispatch names mock-docs
+// as its target, or has none and goes to the work item's primary link, which isn't in
+// compliance-framework/docs; an effect or a notify on the work item's links doesn't land there
+// either. A prod (poc-*) RuleSet's dispatch never targets mock-docs. A dev train
+// (repos.mock.yaml, finished or dry run) dispatches release-docs to mock-docs through
+// dev-release-docs and fires nothing through a prod RuleSet; a prod train nothing through a
+// dev one.
+func TestFixtureDevSafety(t *testing.T) {
+	c := load(t)
+	devDispatches := map[string]int{}
+	trains := map[string]int{}
+	for _, fe := range evalFixtures(t, c) {
+		name := fe.f.Name
+		var primary string
+		var all []string
+		for _, l := range fe.f.WorkItem.Links {
+			all = append(all, l.Ref)
+			if l.Primary {
+				primary = l.Ref
+			}
+		}
+		reach := func(i int, what string, refs ...string) {
+			for _, ref := range refs {
+				if prodDocsRE.MatchString(ref) {
+					t.Errorf("%s: decision %d (%s): a dev RuleSet's %s reaches %s", name, i, fe.ev.Decisions[i].Rule, what, ref)
+				}
+			}
+		}
+		manifest := ""
+		if train, ok := fe.f.Event.Data.Facts["train"].(map[string]any); ok && fe.f.Event.Type == "issue.closed" {
+			manifest, _ = train["manifest"].(string)
+		}
+		releaseDocsTo := ""
+		for i, d := range fe.ev.Decisions {
+			dev := ruleSetDocsRepo(d.RuleSet) == mockDocs
+			if manifest == "repos.mock.yaml" && !dev {
+				t.Errorf("%s: decision %d: a dev train fires %s through prod RuleSet %s", name, i, d.Rule, d.RuleSet)
+			}
+			if manifest == "repos.yaml" && dev {
+				t.Errorf("%s: decision %d: a prod train fires %s through dev RuleSet %s", name, i, d.Rule, d.RuleSet)
+			}
+			a := d.Action
+			if dis := a.Dispatch; dis != nil {
+				repo := ""
+				if dis.Target != nil {
+					repo = dis.Target.Repo
+				}
+				if dis.TaskSpec == "release-docs" {
+					releaseDocsTo = repo
+				}
+				switch {
+				case dev && repo != "" && repo != mockDocs:
+					t.Errorf("%s: decision %d: dev RuleSet %s dispatches %s to %s, want %s", name, i, d.RuleSet, dis.TaskSpec, repo, mockDocs)
+				case dev && repo == "":
+					reach(i, "dispatch (no target: the primary link)", primary)
+				case !dev && repo == mockDocs:
+					t.Errorf("%s: decision %d: prod RuleSet %s dispatches %s to %s", name, i, d.RuleSet, dis.TaskSpec, repo)
+				}
+				if dev {
+					devDispatches[d.RuleSet]++
+				}
+			}
+			if !dev {
+				continue
+			}
+			b, err := json.Marshal(a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if prodDocsRE.Match(b) {
+				t.Errorf("%s: decision %d: dev RuleSet %s's %s names %s: %s", name, i, d.RuleSet, d.Rule, prodDocs, b)
+			}
+			if a.Effect != nil && a.Effect.Target == "primary" {
+				reach(i, "effect", primary)
+			}
+			if a.Notify != nil {
+				for _, to := range a.Notify.To {
+					switch to.Item {
+					case "primary":
+						reach(i, "notify", primary)
+					case "all", "threads":
+						reach(i, "notify", all...)
+					}
+				}
+			}
+		}
+		if manifest != "" && releaseDocsTo != "" {
+			want := map[string]string{"repos.yaml": prodDocs, "repos.mock.yaml": mockDocs}[manifest]
+			if releaseDocsTo != want {
+				t.Errorf("%s: a %s train dispatches release-docs to %s, want %s", name, manifest, releaseDocsTo, want)
+			}
+			trains[manifest]++
+		}
+	}
+	for _, rs := range []string{"dev-docs-epic", "dev-release-docs"} {
+		if devDispatches[rs] == 0 {
+			t.Errorf("no fixture dispatches through %s", rs)
+		}
+	}
+	for _, m := range []string{"repos.yaml", "repos.mock.yaml"} {
+		if trains[m] < 3 {
+			t.Errorf("%d fixtures dispatch release-docs for a %s train, want at least the patch-only, minor and mixed ones", trains[m], m)
 		}
 	}
 }
