@@ -5,3 +5,6 @@ lisa-design:
 - error events don't fail a run (Codex reports retries that way); turn.failed or a non-zero exit do; a 429 Codex is retrying still throttles the agent.
 - Repair state in CODEX_HOME/factory-session.json so one adapter serves concurrent runs; resume with fallback to a new exec.
 - Risks for the smoke run: --output-schema strict subset vs our Result schemas (flip useOutputSchema), read-only sandbox blocks network for review tasks, workspace-write may keep .git read-only, per-turn vs cumulative usage.
+
+lisa-selfreview:
+Pass 1: no findings.
