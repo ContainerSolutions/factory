@@ -377,7 +377,7 @@ spec:
 kind: TaskSpec
 metadata: { name: merge }
 spec:
-  description: Re-verify gates and merge a PR, or a whole stack bottom-up. If the reviewer App's approval doesn't count toward required reviews, add the merge label instead (Q5).
+  description: Re-verify gates and merge a PR, or a whole stack bottom-up. If the reviewer App's approval doesn't count toward required reviews, add the merge label instead (Q5). The merge label is `ready-to-merge`: a signal for a person to merge, with **no automation behind it** (owner decision 2026-10-19: the PoC changes nothing in `workflows`' release automation, whose automerge only handles its own `ccf-bump:automerge` PRs).
   inputs:
     target:        { type: string, enum: [pr, stack], default: pr }
     requiredCheck: { type: string, default: "ci / required" }   # "build" (push-only "Test Build" workflow) until docs is on the shared workflows (DWF)
