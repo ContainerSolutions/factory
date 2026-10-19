@@ -1,0 +1,14 @@
+# The release-docs run's per-repo plan (its data.repos: repo, version, instance, line,
+# action), kept for the release-docs-published Template's per-repo table: the announce rule
+# fires on the merge run, whose result doesn't carry it. A pack factory.* rule, so it requires
+# this RuleSet's train manifest (catalog-poc LLD §Dev and prod RuleSets).
+kind: Rule
+metadata: { name: record-release-docs-repos, labels: { pack: release-docs } }
+spec:
+  on: [factory.run.completed]
+  priority: 100                                            # before the other rules of the event
+  params: { trainManifest: repos.yaml }
+  where: >
+    run.spec == 'release-docs' && has(run.result.repos) && has(item.state.release) &&
+    has(item.state.manifest) && item.state.manifest == params.trainManifest
+  actions: [{ set: { repos: "=run.result.repos" } }]

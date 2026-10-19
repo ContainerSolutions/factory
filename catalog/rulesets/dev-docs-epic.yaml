@@ -1,0 +1,13 @@
+# Dev RuleSet (10 §RuleSets; catalog-poc LLD §Dev and prod RuleSets): the docs-epic pack on
+# mock-docs. No dispatch here may target compliance-framework/docs (catalog_test.go's
+# TestRuleSetTargets).
+kind: RuleSet
+metadata: { name: dev-docs-epic }
+spec:
+  providerSelector: { matchLabels: { family: github, network: public } }
+  scope: { repos: ["compliance-framework/mock-docs"] }
+  rules:
+    selector: { matchExpressions: [{ key: pack, operator: In, values: [docs-epic, shared] }] }
+    exclude: [merge-whole-stack]
+  defaults: { docsRepo: compliance-framework/mock-docs }
+  stateKeys: [plan, stackNext, stackTotal, review, merge, announced]

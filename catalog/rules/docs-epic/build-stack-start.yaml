@@ -1,0 +1,15 @@
+# The plan is in: announce it and implement the first sub-issue on main. The sub-issue is also
+# a context item, for the ticket file lisa reads in headless mode.
+kind: Rule
+metadata: { name: build-stack-start, labels: { pack: docs-epic } }
+spec:
+  on: [factory.run.completed]
+  where: "run.spec == 'plan-epic' && run.outcome == 'decomposed'"
+  actions:
+    - set: { plan: "=run.result.plan", stackNext: 0, stackTotal: "=size(run.result.plan)" }
+    - notify: { template: epic-plan, to: [{ item: primary }] }
+    - dispatch:
+        taskSpec: implement
+        queue: poc
+        context: ["=item.state.plan[0].issue"]
+        inputs: { mode: new, target: pr, issue: "=item.state.plan[0].issue", base: main }

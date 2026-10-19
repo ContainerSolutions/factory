@@ -1,0 +1,9 @@
+kind: Rule
+metadata: { name: review-human-prs, labels: { pack: review-human } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [pr.opened, pr.updated, pr.ready_for_review]
+  where: "!actor.isFactory && !actor.isBot && !item.pr.draft"
+  actions:
+    - cancel: { taskSpec: docs-review }          # a newer commit supersedes an in-flight review
+    - dispatch: { taskSpec: docs-review, queue: poc, inputs: { target: pr, checks: [style, versioning, build] } }

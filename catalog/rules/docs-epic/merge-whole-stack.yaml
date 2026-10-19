@@ -1,0 +1,10 @@
+kind: Rule
+metadata: { name: merge-whole-stack, labels: { pack: docs-epic } }                  # excluded from the RuleSet until everything else is trusted (Q10)
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [factory.run.completed, pr.checks.completed]
+  where: >
+    has(item.state.plan) && item.state.review == 'approved' &&
+    item.prs.all(p, p.checks.state == 'success')
+  params: { requiredCheck: "ci / required" }
+  actions: [{ dispatch: { taskSpec: merge, queue: poc, inputs: { target: stack, requiredCheck: "{{ params.requiredCheck }}" } } }]

@@ -1,0 +1,14 @@
+# UC2 trigger (10 §Rules, use case 2): a maintainer's new issue in the docs repo is planned as
+# an epic. The dispatch names the docs repo as its target (plan-epic's workspace repo is
+# task.target.repo) and the epic as its ref (the prompt's epic); docsRepo is
+# compliance-framework/docs here and compliance-framework/mock-docs in the dev RuleSet.
+kind: Rule
+metadata: { name: plan-maintainer-epics, labels: { pack: docs-epic } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [issue.opened]
+  params: { docsRepo: compliance-framework/docs }          # the dev RuleSet's defaults set mock-docs
+  where: "actor.tier == 'maintainer' && event.repo == params.docsRepo"
+  actions:
+    - dispatch: { taskSpec: plan-epic, queue: poc, target: { repo: "{{ params.docsRepo }}", ref: "=event.object.ref" } }
+    - set: { plan: planning }

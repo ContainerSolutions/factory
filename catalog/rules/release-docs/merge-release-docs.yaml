@@ -1,0 +1,19 @@
+# Excluded from every RuleSet until everything else is trusted (Q10, RUN-S4-T01). Targets the
+# docs PR, as review-release-docs does, so it's safe to include in the dev RuleSet as it is.
+kind: Rule
+metadata: { name: merge-release-docs, labels: { pack: release-docs } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [pr.review.submitted, pr.checks.completed]
+  where: >
+    has(item.state.release) && event.repo == params.docsRepo &&
+    item.pr.approvedBy.exists(a, a.identity == 'reviewer' && a.commit == item.pr.head) &&
+    item.pr.checks.state == 'success' &&
+    !item.pr.labels.exists(l, l in ['do-not-merge', 'factory:hold', 'factory:stop'])
+  params: { requiredCheck: "ci / required", docsRepo: compliance-framework/docs }
+  actions:
+    - dispatch:
+        taskSpec: merge
+        queue: poc
+        target: { repo: "{{ params.docsRepo }}", ref: "=event.object.ref" }
+        inputs: { target: pr, requiredCheck: "{{ params.requiredCheck }}" }
