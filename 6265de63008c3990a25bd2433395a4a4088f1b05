@@ -6,3 +6,6 @@ lisa-design:
 - All calls use the author identity with read scopes; Project writes with issues:write or pull_requests:write on that repo only.
 - List via search per repo (90 days, like retention); globs expand against the App's installation repos using an internal metadata:read token (second internal-only unscoped exception after OrgToken).
 - Gap left for RT: item.deploy is per PR; stacks need containsMerge across all merged PRs (controller change).
+
+lisa-selfreview:
+Pass 1: no blocking findings; flagged the metadata:read installation-repos token and the RT deploy gap.
