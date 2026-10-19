@@ -52,16 +52,27 @@ func stackUsage(w io.Writer) {
   up   [--versions versions.json | --train <owner/repo#n> | --release <repo>@<tag>]
        [--profile showcase|free] [--task <id>] [--local-dev <dir>] [--dry-run]
          runs local-dev's make demo-up-<profile> with the versions pinned, under the compose
-         project factory-<task>; components not pinned run their latest final release.
-         Prints the stack's environment. --dry-run prints the make invocation instead.
+         project factory-<task> (default: factory-manual); components not pinned run their
+         latest final release. Prints the stack's environment. --dry-run prints the make
+         invocation instead.
   wait [--timeout 10m]   polls the API's health and the UI until both answer 200
   down                   compose down --volumes for the stack's project, then releases the lock
   env                    prints FACTORY_STACK_URL, FACTORY_STACK_API, … for the stack that is up
+
+Inside a run only env and wait work: the worker brings the run's stack up and down, and up
+and down refuse (exit 2).
 
 common flags: --config <agent.yaml> (localDev), --state-dir <dir> (the lock; default
 $FACTORY_STACK_DIR, else ~/.factory-agent). One stack per machine: up exits 3 when another
 stack is up.
 `)
+}
+
+// inRun reports whether the command runs inside a harness run (the pipeline sets
+// FACTORY_HEADLESS=1 and FACTORY_TASK_ID): the stack is the worker's there, pipeline-managed
+// only (local-stack.md).
+func inRun(getenv func(string) string) bool {
+	return getenv("FACTORY_HEADLESS") == "1" || getenv("FACTORY_TASK_ID") != ""
 }
 
 // runStack dispatches a stack op.
@@ -87,6 +98,10 @@ func runStack(ctx context.Context, args []string, stdout, stderr io.Writer, d st
 		stackUsage(stderr)
 		return 2
 	}
+	if (op == "up" || op == "down") && inRun(d.Getenv) {
+		fmt.Fprintf(stderr, "factory-agent stack %s: refused inside a run: the worker manages the run's stack (bring it up and down outside the run); use `factory-agent stack env` or `stack wait`\n", op)
+		return 2
+	}
 	s := &stackOp{d: d, stdout: stdout, stderr: stderr, op: op}
 	fs := flag.NewFlagSet("stack "+op, flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -102,7 +117,7 @@ func runStack(ctx context.Context, args []string, stdout, stderr io.Writer, d st
 		fs.StringVar(&up.train, "train", "", "a release train's tracking issue, owner/repo#n")
 		fs.StringVar(&up.release, "release", "", "one release, <repo>@<tag>")
 		fs.StringVar(&up.profile, "profile", stack.ProfileShowcase, "showcase (seeded data, for GIFs) or free")
-		fs.StringVar(&up.task, "task", "", "the task the stack is for: its compose project is factory-<task> (default $FACTORY_TASK_ID, else manual)")
+		fs.StringVar(&up.task, "task", "manual", "the task the stack is for: its compose project is factory-<task>")
 		fs.StringVar(&up.localDev, "local-dev", "", "the local-dev checkout (default: the stack's, else the config's localDev)")
 		fs.BoolVar(&up.dryRun, "dry-run", false, "print the make invocation and its environment; run nothing")
 	case "wait":
@@ -220,9 +235,6 @@ func (s *stackOp) up(ctx context.Context, m *stack.Manager, f upFlags) int {
 		return 2
 	}
 	task := f.task
-	if task == "" {
-		task = s.d.Getenv("FACTORY_TASK_ID")
-	}
 	if task == "" {
 		task = "manual"
 	}

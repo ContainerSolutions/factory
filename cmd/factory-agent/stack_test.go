@@ -103,13 +103,7 @@ func TestStackLifecycle(t *testing.T) {
 	ready := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer ready.Close()
 	state := t.TempDir()
-	d := stackTestDeps(t, r)
-	d.Getenv = func(k string) string {
-		if k == "FACTORY_TASK_ID" {
-			return "tsk_2"
-		}
-		return ""
-	}
+	d := stackTestDeps(t, r) // outside a run: the owner's shell
 	ctx := context.Background()
 	versions := filepath.Join(t.TempDir(), "versions.json")
 	if err := os.WriteFile(versions, []byte(`{"api":"v0.22.0"}`), 0o600); err != nil {
@@ -117,7 +111,7 @@ func TestStackLifecycle(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	code := runStack(ctx, []string{"up", "--versions", versions, "--profile", "free", "--local-dev", "/srv/local-dev", "--state-dir", state}, &out, &errOut, d)
+	code := runStack(ctx, []string{"up", "--versions", versions, "--task", "tsk_2", "--profile", "free", "--local-dev", "/srv/local-dev", "--state-dir", state}, &out, &errOut, d)
 	if code != 0 {
 		t.Fatalf("up = %d\n%s", code, errOut.String())
 	}
@@ -132,30 +126,51 @@ func TestStackLifecycle(t *testing.T) {
 		!strings.Contains(errOut.String(), "factory-tsk-2") {
 		t.Errorf("second up = %d %q", code, errOut.String())
 	}
-	// env finds the stack through $FACTORY_STACK_DIR, as a skill in the run does.
+	// Inside the run (the pipeline's environment): env and wait find the worker's stack
+	// through $FACTORY_STACK_DIR; up and down are refused.
+	inRunEnv := map[string]string{stack.EnvDir: state, "FACTORY_TASK_ID": "tsk_2", "FACTORY_HEADLESS": "1"}
 	d2 := d
-	d2.Getenv = func(k string) string {
+	d2.Getenv = func(k string) string { return inRunEnv[k] }
+	out.Reset()
+	if code := runStack(ctx, []string{"env"}, &out, io.Discard, d2); code != 0 || !strings.Contains(out.String(), "FACTORY_STACK_URL=http://localhost:8000\n") {
+		t.Errorf("env in the run = %d %q", code, out.String())
+	}
+	d2.HTTPClient = &http.Client{Transport: redirectTo(ready.URL)}
+	if code := runStack(ctx, []string{"wait", "--timeout", "1m"}, io.Discard, io.Discard, d2); code != 0 {
+		t.Errorf("wait in the run = %d", code)
+	}
+	for _, env := range []map[string]string{inRunEnv, {"FACTORY_HEADLESS": "1"}, {"FACTORY_TASK_ID": "tsk_2"}} {
+		d3 := d
+		d3.Getenv = func(k string) string { return env[k] }
+		for _, args := range [][]string{
+			{"up", "--task", "tsk_2", "--local-dev", "/srv/local-dev", "--state-dir", state},
+			{"up", "--dry-run", "--local-dev", "/srv/local-dev", "--state-dir", state},
+			{"down", "--state-dir", state},
+		} {
+			errOut.Reset()
+			if code := runStack(ctx, args, io.Discard, &errOut, d3); code != 2 || !strings.Contains(errOut.String(), "the worker manages the run's stack") {
+				t.Errorf("%v in a run (%v) = %d %q", args, env, code, errOut.String())
+			}
+		}
+	}
+	if _, err := os.Stat(filepath.Join(state, stack.LockName)); err != nil {
+		t.Errorf("a refused down touched the lock: %v", err)
+	}
+	// Back in the owner's shell, down works.
+	d.Getenv = func(k string) string {
 		if k == stack.EnvDir {
 			return state
 		}
 		return ""
 	}
-	out.Reset()
-	if code := runStack(ctx, []string{"env"}, &out, io.Discard, d2); code != 0 || !strings.Contains(out.String(), "FACTORY_STACK_URL=http://localhost:8000\n") {
-		t.Errorf("env = %d %q", code, out.String())
-	}
-	d2.HTTPClient = &http.Client{Transport: redirectTo(ready.URL)}
-	if code := runStack(ctx, []string{"wait", "--timeout", "1m"}, io.Discard, io.Discard, d2); code != 0 {
-		t.Errorf("wait = %d", code)
-	}
-	if code := runStack(ctx, []string{"down"}, io.Discard, io.Discard, d2); code != 0 {
+	if code := runStack(ctx, []string{"down"}, io.Discard, io.Discard, d); code != 0 {
 		t.Errorf("down = %d", code)
 	}
 	errOut.Reset()
 	if code := runStack(ctx, []string{"env"}, io.Discard, &errOut, d2); code != 1 || !strings.Contains(errOut.String(), "no stack is up") {
 		t.Errorf("env after down = %d %q", code, errOut.String())
 	}
-	if code := runStack(ctx, []string{"down"}, io.Discard, io.Discard, d2); code != 0 {
+	if code := runStack(ctx, []string{"down"}, io.Discard, io.Discard, d); code != 0 {
 		t.Errorf("down with nothing up = %d", code)
 	}
 	want := []string{
