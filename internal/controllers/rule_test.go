@@ -547,3 +547,76 @@ func TestDecisionsAreBounded(t *testing.T) {
 		t.Errorf("decisions = %d, want %d", n, v1alpha1.MaxDecisions)
 	}
 }
+
+// TestAnnouncePTBRLiveWaitsForWholeStack: a merged docs-epic stack is announced (PoC catalog,
+// announce-ptbr-live) only once the deployment contains every merged PR of the item, not when
+// the first PR's merge is live.
+func TestAnnouncePTBRLiveWaitsForWholeStack(t *testing.T) {
+	e := newEnv(t)
+	epic, pr1, pr2 := docsRepo+"#70", docsRepo+"#81", docsRepo+"#82"
+	deploy := func(sha string, contains bool) func(*provider.Observation) {
+		return func(o *provider.Observation) {
+			o.State, o.PR.MergedAt, o.PR.MergeCommit = provider.StateMerged, t0, "m-"+o.Ref.Ref
+			o.Deploy = &provider.DeployObservation{State: "success", SHA: sha, URL: "https://compliance-framework.github.io/docs/", ContainsMerge: contains}
+		}
+	}
+	e.seed(provider.KindIssue, epic, nil)
+	// The first deployment has #81's merge, not #82's (merged after it started).
+	e.seed(provider.KindPR, pr1, deploy("s1", true))
+	e.seed(provider.KindPR, pr2, deploy("s1", false))
+	wi := &v1alpha1.WorkItem{
+		TypeMeta: v1alpha1.TypeMeta{Kind: v1alpha1.KindWorkItem},
+		Metadata: v1alpha1.ObjectMeta{Name: "wi_epic"},
+		Spec: v1alpha1.WorkItemSpec{Links: []v1alpha1.Link{
+			{Provider: ghProvider, Kind: provider.KindIssue, Ref: epic, Primary: true},
+			{Provider: ghProvider, Kind: provider.KindPR, Ref: pr1},
+			{Provider: ghProvider, Kind: provider.KindPR, Ref: pr2},
+		}},
+		Status: &v1alpha1.WorkItemStatus{State: map[string]any{
+			"plan":      []any{map[string]any{"issue": docsRepo + "#71"}, map[string]any{"issue": docsRepo + "#72"}},
+			"stackNext": float64(2), "stackTotal": float64(2), "review": "approved", "merge": "merged",
+		}},
+	}
+	if err := e.st.Create(e.ctx, wi); err != nil {
+		t.Fatal(err)
+	}
+	// GitHub sends deploy.succeeded once per merged PR the deployment contains.
+	deployed := func(objs ...string) {
+		t.Helper()
+		w := fake.Webhook{Type: v1alpha1.EventDeploySucceeded, Sender: fake.Sender{Login: "github-actions[bot]", Bot: true},
+			Facts: map[string]any{"deploy": map[string]any{"environment": "github-pages"}}}
+		for i, ref := range objs {
+			o := v1alpha1.ObjectRef{Kind: provider.KindPR, Ref: ref}
+			if i == 0 {
+				w.Object = &o
+			} else {
+				w.FanOut = append(w.FanOut, o)
+			}
+		}
+		if evs := e.deliver(w); len(evs) != len(objs) {
+			t.Fatalf("%d events, want %d", len(evs), len(objs))
+		}
+		e.processEvents()
+	}
+	announced := func() bool { return e.getWorkItem(wi.Metadata.Name).Status.State["announced"] == true }
+
+	deployed(pr1)
+	if announced() || len(e.applies(v1alpha1.OpClose)) != 0 {
+		t.Fatalf("announced when only #81's merge is deployed: state %v", e.getWorkItem(wi.Metadata.Name).Status.State)
+	}
+
+	// The next deployment contains both merges.
+	e.clk.Advance(DefaultObservationTTL)
+	for _, ref := range []string{pr1, pr2} {
+		if err := e.gh.Update(ref, deploy("s2", true)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deployed(pr1, pr2)
+	if !announced() {
+		t.Fatalf("not announced once the stack is deployed: state %v", e.getWorkItem(wi.Metadata.Name).Status.State)
+	}
+	if c := e.applies(v1alpha1.OpClose); len(c) != 1 || c[0].Request.Target.Ref != epic {
+		t.Errorf("close applies %+v, want one on %s", c, epic)
+	}
+}

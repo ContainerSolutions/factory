@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"time"
 
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 	"github.com/compliance-framework/factory/internal/provider"
@@ -220,15 +221,16 @@ func jsonValue(v any) any {
 // observations are a work item's links observed (cache) and the ones that failed.
 type observations struct {
 	byLink map[string]provider.Observation // by cacheKey; objects that exist
+	at     map[string]time.Time            // by cacheKey: when each was observed
 	gone   map[string]bool                 // objects the provider doesn't have
 }
 
 // observeLinks observes every link through the cache. A transient error fails the whole view
 // (the reconcile is retried).
 func observeLinks(ctx context.Context, cache *ObservationCache, links []v1alpha1.Link) (observations, error) {
-	out := observations{byLink: map[string]provider.Observation{}, gone: map[string]bool{}}
+	out := observations{byLink: map[string]provider.Observation{}, at: map[string]time.Time{}, gone: map[string]bool{}}
 	for _, l := range links {
-		obs, err := cache.Observe(ctx, l)
+		obs, at, err := cache.observe(ctx, l)
 		switch {
 		case isNotFound(err):
 			out.gone[cacheKey(l)] = true
@@ -236,6 +238,7 @@ func observeLinks(ctx context.Context, cache *ObservationCache, links []v1alpha1
 			return observations{}, fmt.Errorf("observe %s/%s: %w", l.Provider, l.Ref, err)
 		default:
 			out.byLink[cacheKey(l)] = obs
+			out.at[cacheKey(l)] = at
 		}
 	}
 	return out, nil
@@ -269,15 +272,50 @@ func buildView(wi *v1alpha1.WorkItem, runs map[string][]rules.RunSummary, obs ob
 			}
 			lastPR = &pv
 		}
-		if o.Deploy != nil && (v.Deploy == nil || l == primary) {
-			d := o.Deploy
-			v.Deploy = &rules.DeployView{State: d.State, SHA: d.SHA, URL: d.URL, ContainsMerge: d.ContainsMerge}
-		}
 	}
 	if v.PR == nil && lastPR != nil {
 		v.PR = lastPR
 	}
+	v.Deploy = deployView(wi.Spec.Links, obs)
 	return v
+}
+
+// deployView is item.deploy over the work item's merged PRs, since a stack merges several and
+// the provider reports the deployment per PR (containsMerge: the latest deployment contains
+// that PR's merge commit). containsMerge holds only when every merged PR has a deployment
+// containing its merge; state, sha and url are the most recently observed deployment's (the
+// first such link on a tie). Unmerged PRs and other links are ignored; with no merged PR that
+// has a deployment, there is no item.deploy.
+func deployView(links []v1alpha1.Link, obs observations) *rules.DeployView {
+	var (
+		out    *rules.DeployView
+		latest time.Time
+		all    = true
+	)
+	for _, l := range links {
+		o, ok := obs.byLink[cacheKey(l)]
+		if !ok || !merged(o) {
+			continue
+		}
+		d := o.Deploy
+		if d == nil {
+			all = false // merged, not deployed yet
+			continue
+		}
+		all = all && d.ContainsMerge
+		if at := obs.at[cacheKey(l)]; out == nil || at.After(latest) {
+			out, latest = &rules.DeployView{State: d.State, SHA: d.SHA, URL: d.URL}, at
+		}
+	}
+	if out != nil {
+		out.ContainsMerge = all
+	}
+	return out
+}
+
+// merged reports whether an observation is a merged PR.
+func merged(o provider.Observation) bool {
+	return o.PR != nil && (o.State == provider.StateMerged || !o.PR.MergedAt.IsZero())
 }
 
 func prView(l v1alpha1.Link, o provider.Observation) rules.PRView {
