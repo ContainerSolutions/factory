@@ -2,6 +2,7 @@ import { delay, sse, type HttpHandler } from 'msw';
 import { API_BASE, type Schemas } from '@/api/client';
 import type { StreamEventMap, StreamEventName } from '@/api/stream';
 import { examples } from './examples';
+import { backOnline } from './pools';
 import { liveRun } from './workitems';
 
 /** One frame of the mock stream, and how long to wait before sending it. */
@@ -44,7 +45,8 @@ function progress(
 
 /**
  * The contract's `streamEvents` example, then more progress of the mock work items' live run,
- * a frame every 400 ms: what the run view shows arriving.
+ * a frame every 400 ms: what the run view shows arriving. Then, on the `agents` topic, the
+ * offline mock agent comes back: what the pools view shows arriving.
  */
 export const streamFrames: readonly MockFrame[] = [
   ...((examples.get('streamEvents') ?? []) as MockFrame[]),
@@ -63,6 +65,7 @@ export const streamFrames: readonly MockFrame[] = [
     kind: 'phase',
     message: 'drafting the release notes',
   }),
+  { event: 'agent.updated', id: '503', data: backOnline, delayMs: 1000 },
 ];
 
 /**

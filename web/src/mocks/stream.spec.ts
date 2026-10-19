@@ -18,6 +18,7 @@ describe('mock stream', () => {
       ['progress', '500', [LIVE]],
       ['progress', '501', [LIVE]],
       ['progress', '502', [LIVE]],
+      ['agent.updated', '503', ['agents']],
     ]);
   });
 
@@ -27,6 +28,11 @@ describe('mock stream', () => {
       '500',
       '501',
       '502',
+    ]);
+    expect(framesFor(['agents', 'tasks']).map((f) => f.id)).toEqual([
+      '418',
+      '421',
+      '503',
     ]);
     expect(framesFor(['workitems/wi_other'])).toEqual([]);
   });

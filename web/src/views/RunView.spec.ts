@@ -120,7 +120,11 @@ describe('RunView', () => {
     const { wrapper, es } = await mountRun(LIVE);
     const first = es.last!;
     first.open();
-    first.emit('progress', streamFrames.at(-3)!.data, '500');
+    first.emit(
+      'progress',
+      streamFrames.find((f) => f.id === '500')!.data,
+      '500',
+    );
     await flushPromises();
 
     // While disconnected the run moved on: its ring buffer has what the page missed.
