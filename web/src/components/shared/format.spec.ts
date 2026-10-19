@@ -54,6 +54,9 @@ describe('toneOf', () => {
     ['Suppressed', 'danger'],
     ['Deferred', 'warn'],
     ['Pending', 'warn'],
+    ['Ready', 'success'],
+    ['Throttled', 'warn'],
+    ['Offline', 'neutral'],
     ['needs-info', 'neutral'],
     [undefined, 'neutral'],
   ])('%s → %s', (status, want) => {

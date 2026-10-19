@@ -57,6 +57,12 @@ const TONES: Record<string, Tone> = {
   Granted: 'success',
   Denied: 'danger',
   Expired: 'neutral',
+  // Agent phases.
+  Ready: 'success',
+  Busy: 'info',
+  Throttled: 'warn',
+  Draining: 'warn',
+  Offline: 'neutral',
 };
 
 export function toneOf(status: string | undefined): Tone {

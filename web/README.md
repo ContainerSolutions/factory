@@ -38,7 +38,9 @@ at the operation's success status and media type (`src/mocks/operations.gen.ts`,
 with the client). `src/mocks/workitems.ts` overrides `GET /workitems` and `GET /workitems/{id}`
 with a few more work items built around the examples, so the board has every lane, several
 providers, repos and RuleSets, and an unknown work item answers 404. `src/mocks/runs.ts` does
-the same for `GET /runs/{id}` (one run is still going) and its transcript. They are dated around
+the same for `GET /runs/{id}` (one run is still going) and its transcript, and
+`src/mocks/pools.ts` for `GET /queues`, `GET /pools` and `GET /agents` (a queue per pending
+reason; a busy, a throttled and an offline agent; a registered and an ephemeral pool). They are dated around
 2026-10-19, which the specs and the e2e test fix as "now". The unit tests run against the same handlers (`msw/node`, set up in
 `vitest.setup.ts`; an unmatched request fails the spec), and `npm run dev:mock` runs them in
 the browser through MSW's service worker, which the dev server serves from the msw package
@@ -47,12 +49,14 @@ the browser through MSW's service worker, which the dev server serves from the m
 ## Live updates
 
 `useStream(topics, handlers)` (`src/composables/useStream.ts`) subscribes to `GET /stream`
-with an `EventSource`: the board to `workitems`, the run view to `runs/<id>` and `tasks`. The
+with an `EventSource`: the board to `workitems`, the run view to `runs/<id>` and `tasks`, the
+pools view to `agents` and `tasks` (the contract has no queue or pool topic, so a task change
+reloads the queues). The
 browser retries a dropped stream itself and resumes with `Last-Event-ID`; when it gives up, the
 stream is re-created with backoff and the view reloads what it shows, since a new `EventSource`
 can't send `Last-Event-ID`. In `npm run dev:mock`, `src/mocks/stream.ts` serves the stream per
 topic: the contract's `streamEvents` example, then the running mock run's progress a frame at a
-time. Node has no `EventSource`, so the specs inject a fake one (`src/__tests__/eventSource.ts`)
+time, then the offline mock agent coming back. Node has no `EventSource`, so the specs inject a fake one (`src/__tests__/eventSource.ts`)
 through `eventSourceKey`.
 
 ## End-to-end tests

@@ -1,5 +1,6 @@
 import { setupServer } from 'msw/node';
 import { handlers } from './handlers';
+import { poolHandlers } from './pools';
 import { runHandlers } from './runs';
 import { workItemHandlers } from './workitems';
 
@@ -8,5 +9,6 @@ import { workItemHandlers } from './workitems';
 export const server = setupServer(
   ...workItemHandlers,
   ...runHandlers,
+  ...poolHandlers,
   ...handlers,
 );

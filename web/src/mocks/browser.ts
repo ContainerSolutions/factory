@@ -1,5 +1,6 @@
 import { setupWorker } from 'msw/browser';
 import { handlers } from './handlers';
+import { poolHandlers } from './pools';
 import { runHandlers } from './runs';
 import { streamHandlers } from './stream';
 import { workItemHandlers } from './workitems';
@@ -9,5 +10,6 @@ export const worker = setupWorker(
   ...streamHandlers(),
   ...workItemHandlers,
   ...runHandlers,
+  ...poolHandlers,
   ...handlers,
 );
