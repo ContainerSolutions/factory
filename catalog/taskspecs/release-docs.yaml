@@ -23,7 +23,9 @@ spec:
     default: { name: codex, config: { model: "gpt-5*", reasoningEffort: high } }
   workspace:
     repos:
-      - { ref: compliance-framework/docs@main, mode: rw }       # the only writable repo
+      # The docs repo is the task's target, never a literal: the RuleSet's dispatch.target picks
+      # compliance-framework/docs (prod) or mock-docs (dev), and the write token follows it.
+      - { ref: "=task.target.repo + '@main'", mode: rw }        # the only writable repo
       - { ref: compliance-framework/local-dev@main, mode: ro }  # stack bootstrap
     publicReads: true                                           # released repos are cloned anonymously at their tags
   identity: author

@@ -63,6 +63,16 @@ func TestCatalog(t *testing.T) {
 				t.Errorf("%s: skills %s@%s, want ccf-skills@v0.8.0", name, s.Source, s.Ref)
 			}
 		}
+		// The write token follows the first rw mount (controllers.compileTask), so a literal
+		// rw repo would let a dev RuleSet aimed at mock-docs write to compliance-framework/docs.
+		// Docs repos come from the task's target, which the RuleSet's dispatch picks.
+		if ws := ts.Spec.Spec.Workspace; ws != nil {
+			for _, m := range ws.Repos {
+				if strings.Contains(m.Ref, "/docs@") || (m.Mode == "rw" && !strings.Contains(m.Ref, "task.target.repo")) {
+					t.Errorf("%s: workspace repo %q (%s) must come from task.target.repo, not a literal", name, m.Ref, m.Mode)
+				}
+			}
+		}
 	}
 }
 
@@ -79,9 +89,9 @@ type promptCase struct {
 }
 
 const (
-	docs     = "compliance-framework/docs"
-	train    = "compliance-framework/workflows#123"
-	epic     = docs + "#70"
+	docs      = "compliance-framework/docs"
+	train     = "compliance-framework/workflows#123"
+	epic      = docs + "#70"
 	releasePR = docs + "#50"
 	// hostile is text a person outside the task wrote, carried in the work item's state (an
 	// agent-written plan title): a prompt must never render it.

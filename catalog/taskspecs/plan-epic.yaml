@@ -13,7 +13,7 @@ spec:
   instructions: { template: prompts/plan-epic.md.tmpl, headless: true }
   skills: [{ source: ccf-skills, ref: v0.8.0, use: [plan-epic, docs-style] }]
   harness: { default: { name: codex, config: { model: "gpt-5*", reasoningEffort: high } } }
-  workspace: { repos: [{ ref: compliance-framework/docs@main, mode: ro }] }
+  workspace: { repos: [{ ref: "=task.target.repo + '@main'", mode: ro }] }   # the epic's docs repo (docs or mock-docs), never a literal
   identity: author
   permissions: { issues: write, contents: read }
   effects: { allow: [create-issue, sub-issue.add, comment, label.add], labels: [documentation] }
