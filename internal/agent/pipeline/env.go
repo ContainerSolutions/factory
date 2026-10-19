@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"net/url"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -82,11 +83,11 @@ func (r *run) gitEnv() []string { return envList(r.commonEnv()) }
 // buildEnv is the harness's environment (run-pipeline.md §Steps 7).
 func (r *run) buildEnv(context.Context) error {
 	env := r.commonEnv()
+	dirs := append([]string{r.ws.Bin}, r.pluginBins()...)
 	if p := env["PATH"]; p != "" {
-		env["PATH"] = r.ws.Bin + string(filepath.ListSeparator) + p
-	} else {
-		env["PATH"] = r.ws.Bin
+		dirs = append(dirs, p)
 	}
+	env["PATH"] = strings.Join(dirs, string(filepath.ListSeparator))
 	env[EnvHeadless] = "1"
 	env[EnvHarness] = r.adapter.Name()
 	env[EnvTaskID] = r.id
@@ -114,6 +115,26 @@ func (r *run) buildEnv(context.Context) error {
 	r.ws.Env = envList(env)
 	r.ws.Hosts = r.hosts()
 	return nil
+}
+
+// pluginBins are the bin/ directories of the materialised plugins that have one, in plugin
+// name order: on PATH after the workspace's bin/, so `factory` stays the pipeline's.
+func (r *run) pluginBins() []string {
+	var names []string
+	for _, s := range r.ws.SkillList {
+		if !slices.Contains(names, s.Plugin) {
+			names = append(names, s.Plugin)
+		}
+	}
+	sort.Strings(names)
+	var out []string
+	for _, n := range names {
+		d := filepath.Join(r.ws.Skills, n, "bin")
+		if st, err := os.Stat(d); err == nil && st.IsDir() {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // hosts are the git host, the dispatcher's host and, when the stack is up, the hosts of its

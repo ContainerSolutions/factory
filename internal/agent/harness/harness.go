@@ -127,7 +127,9 @@ type Workspace struct {
 	// WorkDir is where the harness runs: Repo, else the first mount, else Root.
 	WorkDir string
 	// Skills is skills/: the selected ccf-skills, materialised as plugin directories
-	// (<plugin>/.claude-plugin/plugin.json + <plugin>/skills/<skill>/SKILL.md).
+	// (<plugin>/.claude-plugin/plugin.json, the plugin's other root files such as bin/ and
+	// rules/, and <plugin>/skills/<skill>/SKILL.md for the selected skills only). Each
+	// plugin's bin/ is on Env's PATH, after Bin.
 	Skills string
 	// SkillList is every materialised skill.
 	SkillList []Skill
@@ -169,6 +171,7 @@ type Skill struct {
 	// Name is the skill's folder name; Plugin the plugin it belongs to.
 	Name   string
 	Plugin string
-	// Dir is skills/<plugin>/skills/<name> (it holds SKILL.md).
+	// Dir is skills/<plugin>/skills/<name> (it holds SKILL.md); the plugin's root is
+	// skills/<plugin>.
 	Dir string
 }

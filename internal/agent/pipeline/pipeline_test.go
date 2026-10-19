@@ -96,6 +96,8 @@ func newFixture(t *testing.T) *fixture {
 		"ccf-docs/skills/docs-gif/SKILL.md":           "---\nname: docs-gif\n---\n",
 		"ccf-review/.claude-plugin/plugin.json":       `{"name": "ccf-review"}`,
 		"ccf-review/skills/review/SKILL.md":           "---\nname: review\n---\n",
+		"ccf-review/bin/ccfr":                         "#!/bin/sh\necho ccfr\n",
+		"ccf-review/rules/core/CORE-1.md":             "---\nid: CORE-1\n---\n",
 		"lisa/.claude-plugin/plugin.json":             `{"name": "lisa"}`,
 		"lisa/skills/review/SKILL.md":                 "---\nname: review\n---\n",
 	}, nil)
@@ -408,6 +410,13 @@ func checkWorkspace(t *testing.T, f *fixture, ws harness.Workspace, prompt strin
 	if _, err := os.Stat(filepath.Join(ws.Skills, "ccf-docs/skills/docs-gif")); err == nil {
 		t.Error("an unselected skill was copied")
 	}
+	// The plugin's root files reach the run, its CLI still executable.
+	if _, err := os.Stat(filepath.Join(ws.Skills, "ccf-review/rules/core/CORE-1.md")); err != nil {
+		t.Errorf("the plugin's rules: %v", err)
+	}
+	if st, err := os.Stat(filepath.Join(ws.Skills, "ccf-review/bin/ccfr")); err != nil || st.Mode()&0o100 == 0 {
+		t.Errorf("the plugin's CLI lost its executable bit: %v %v", st, err)
+	}
 	if len(ws.SkillList) != 2 || ws.SkillList[1].Plugin != "ccf-review" {
 		t.Errorf("skills %+v", ws.SkillList)
 	}
@@ -464,8 +473,14 @@ func checkWorkspace(t *testing.T, f *fixture, ws harness.Workspace, prompt strin
 	if !slices.Equal(ws.Hosts, []string{"127.0.0.1"}) {
 		t.Errorf("hosts %q", ws.Hosts)
 	}
-	if !strings.HasPrefix(env["PATH"], ws.Bin+string(filepath.ListSeparator)) {
-		t.Errorf("PATH %q doesn't start with the factory CLI's directory", env["PATH"])
+	// PATH: the factory CLI's directory, then each plugin's bin/ (ccf-docs has none), then the
+	// owner's.
+	wantPath := []string{ws.Bin, filepath.Join(ws.Skills, "ccf-review", "bin")}
+	if p := os.Getenv("PATH"); p != "" {
+		wantPath = append(wantPath, p)
+	}
+	if want := strings.Join(wantPath, string(filepath.ListSeparator)); env["PATH"] != want {
+		t.Errorf("PATH %q, want %q", env["PATH"], want)
 	}
 	allowed := map[string]bool{"PATH": true, "XDG_CONFIG_HOME": true, "XDG_CACHE_HOME": true, "GIT_CONFIG_GLOBAL": true,
 		"GCM_INTERACTIVE": true, "GIT_ALLOW_PROTOCOL": true, gitcred.EnvSocket: true, "GIT_CONFIG_COUNT": true}

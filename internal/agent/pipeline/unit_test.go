@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
@@ -313,5 +314,274 @@ func TestMaterialiseSkipsSymlinks(t *testing.T) {
 	}
 	if _, err := materialise(tree, v1alpha1.SkillRef{Use: []string{"../a"}}, dst); err == nil {
 		t.Error("a path as a skill name was accepted")
+	}
+}
+
+// writeFiles writes files (slash paths under root to bodies); a file under a bin/ directory
+// or ending in .sh is executable.
+func writeFiles(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	for name, body := range files {
+		p := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(name, ".sh") || strings.Contains("/"+name, "/bin/") {
+			mode = 0o755
+		}
+		if err := os.WriteFile(p, []byte(body), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestMaterialisePluginTree(t *testing.T) {
+	tree := t.TempDir()
+	writeFiles(t, tree, map[string]string{
+		".claude-plugin/marketplace.json":        `{"name": "market"}`,
+		"README.md":                              "the repo",
+		"skills/root-skill/SKILL.md":             "root",
+		"tools/.claude-plugin/plugin.json":       `{"name": "tools"}`,
+		"tools/bin/tool":                         "#!/bin/sh\necho tool\n",
+		"tools/rules/x.yaml":                     "rule: x\n",
+		"tools/docs/guide.md":                    "guide",
+		"tools/.mcp.json":                        "{}",
+		"tools/hooks/hooks.json":                 `{"hooks": {}}`,
+		"tools/commands/x.md":                    "x",
+		"tools/agents/y.md":                      "y",
+		"tools/.lsp.json":                        "{}",
+		"tools/output-styles/terse.md":           "terse",
+		"tools/settings.json":                    "{}",
+		"tools/hooks.json":                       "{}",
+		"tools/monitors/monitors.json":           "[]",
+		"tools/workflows/w.js":                   "w",
+		"tools/themes/t.json":                    "{}",
+		"tools/skills/README.md":                 "not a skill",
+		"tools/skills/one/SKILL.md":              "one",
+		"tools/skills/one/run.sh":                "#!/bin/sh\n",
+		"tools/skills/two/SKILL.md":              "two",
+		"tools/inner/.claude-plugin/plugin.json": `{"name": "inner"}`,
+		"tools/inner/skills/deep/SKILL.md":       "deep",
+		"tools/inner/bin/inner":                  "#!/bin/sh\n",
+	})
+	tests := []struct {
+		name   string
+		use    []string
+		skills []string // plugin:skill, in order
+		have   []string
+		absent []string
+		exec   []string
+	}{
+		{
+			name:   "a plugin's root files and only its selected skill",
+			use:    []string{"tools:one"},
+			skills: []string{"tools:one"},
+			have: []string{"tools/.claude-plugin/plugin.json", "tools/bin/tool", "tools/rules/x.yaml", "tools/docs/guide.md",
+				"tools/skills/one/SKILL.md", "tools/skills/one/run.sh"},
+			absent: []string{"tools/skills/two", "tools/skills/README.md", "tools/inner", "inner", "my-skills"},
+			exec:   []string{"tools/bin/tool", "tools/skills/one/run.sh"},
+		},
+		{
+			name:   "Claude-only components are left out, the plugin's bin/ kept",
+			use:    []string{"tools:one"},
+			skills: []string{"tools:one"},
+			have:   []string{"tools/bin/tool"},
+			absent: []string{"tools/hooks", "tools/commands", "tools/agents", "tools/.mcp.json", "tools/.lsp.json",
+				"tools/output-styles", "tools/settings.json", "tools/hooks.json", "tools/monitors", "tools/workflows", "tools/themes"},
+			exec: []string{"tools/bin/tool"},
+		},
+		{
+			name:   "two skills of one plugin",
+			use:    []string{"one", "two"},
+			skills: []string{"tools:one", "tools:two"},
+			have:   []string{"tools/bin/tool", "tools/skills/one/SKILL.md", "tools/skills/two/SKILL.md"},
+			absent: []string{"tools/inner"},
+		},
+		{
+			name:   "a nested plugin gets its own tree, not its parent's",
+			use:    []string{"deep"},
+			skills: []string{"inner:deep"},
+			have:   []string{"inner/.claude-plugin/plugin.json", "inner/bin/inner", "inner/skills/deep/SKILL.md"},
+			absent: []string{"tools", "inner/inner"},
+			exec:   []string{"inner/bin/inner"},
+		},
+		{
+			name:   "the repo root's skills leave the other plugins out",
+			use:    []string{"root-skill"},
+			skills: []string{"my-skills:root-skill"},
+			have:   []string{"my-skills/.claude-plugin/plugin.json", "my-skills/README.md", "my-skills/skills/root-skill/SKILL.md"},
+			absent: []string{"my-skills/tools", "my-skills/.claude-plugin/marketplace.json", "tools"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := t.TempDir()
+			got, err := materialise(tree, v1alpha1.SkillRef{Source: "https://example.com/acme/my-skills.git", Use: tt.use}, dst)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var names []string
+			for _, s := range got {
+				names = append(names, s.Plugin+":"+s.Name)
+				if want := filepath.Join(dst, s.Plugin, "skills", s.Name); s.Dir != want {
+					t.Errorf("%s: dir %s, want %s", s.Name, s.Dir, want)
+				}
+			}
+			if strings.Join(names, ",") != strings.Join(tt.skills, ",") {
+				t.Errorf("skills %q, want %q", names, tt.skills)
+			}
+			for _, p := range tt.have {
+				if _, err := os.Stat(filepath.Join(dst, filepath.FromSlash(p))); err != nil {
+					t.Errorf("missing %s: %v", p, err)
+				}
+			}
+			for _, p := range tt.absent {
+				if _, err := os.Lstat(filepath.Join(dst, filepath.FromSlash(p))); err == nil {
+					t.Errorf("%s was copied", p)
+				}
+			}
+			for _, p := range tt.exec {
+				if st, err := os.Stat(filepath.Join(dst, filepath.FromSlash(p))); err != nil || st.Mode().Perm() != 0o700 {
+					t.Errorf("%s: %v, %v; want an executable 0700", p, st, err)
+				}
+			}
+			if st, err := os.Stat(filepath.Join(dst, "tools", "rules", "x.yaml")); err == nil && st.Mode().Perm() != 0o600 {
+				t.Errorf("rules/x.yaml mode %v, want 0600", st.Mode().Perm())
+			}
+		})
+	}
+}
+
+func TestMaterialisePluginTreeSkipsSymlinks(t *testing.T) {
+	tree := t.TempDir()
+	secret := filepath.Join(t.TempDir(), "secret")
+	writeFiles(t, filepath.Dir(secret), map[string]string{"secret": "owner secret"})
+	writeFiles(t, tree, map[string]string{
+		".claude-plugin/plugin.json": `{"name": "p"}`,
+		"skills/a/SKILL.md":          "a",
+	})
+	if err := os.Symlink(secret, filepath.Join(tree, "leak")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Dir(secret), filepath.Join(tree, "leakdir")); err != nil {
+		t.Fatal(err)
+	}
+	dst := t.TempDir()
+	if _, err := materialise(tree, v1alpha1.SkillRef{Source: "p", Use: []string{"a"}}, dst); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"leak", "leakdir"} {
+		if _, err := os.Lstat(filepath.Join(dst, "p", p)); err == nil {
+			t.Errorf("the symlink %s was copied", p)
+		}
+	}
+}
+
+func TestCopyTreeBounds(t *testing.T) {
+	src := t.TempDir()
+	writeFiles(t, src, map[string]string{"a": "12345", "d/b": "67890", "d/c": "x"})
+	// Entries: a, d, d/b, d/c (4); bytes: 11.
+	tests := []struct {
+		name     string
+		maxFiles int
+		maxBytes int64
+		err      string
+	}{
+		{"within both", 4, 11, ""},
+		{"over the count", 3, 100, "over 3 files and directories"},
+		{"over the size", 100, 10, "over 10 bytes"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := copyTree(src, t.TempDir(), nil, &budget{maxFiles: tt.maxFiles, maxBytes: tt.maxBytes})
+			if tt.err == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.err) {
+				t.Errorf("err %v, want %q", err, tt.err)
+			}
+		})
+	}
+	if b := pluginBudget(); b.maxFiles != maxPluginFiles || b.maxBytes != maxPluginBytes {
+		t.Errorf("plugin budget %+v", b)
+	}
+}
+
+func TestPluginBins(t *testing.T) {
+	skills := t.TempDir()
+	writeFiles(t, skills, map[string]string{
+		"zeta/bin/z":       "#!/bin/sh\n",
+		"alpha/bin/a":      "#!/bin/sh\n",
+		"nobin/rules/x.md": "x",
+		"filebin/bin":      "a file, not a directory",
+	})
+	r := &run{ws: harness.Workspace{Skills: skills, SkillList: []harness.Skill{
+		{Name: "s1", Plugin: "zeta"}, {Name: "s2", Plugin: "nobin"}, {Name: "s3", Plugin: "alpha"},
+		{Name: "s4", Plugin: "zeta"}, {Name: "s5", Plugin: "filebin"},
+	}}}
+	want := []string{filepath.Join(skills, "alpha", "bin"), filepath.Join(skills, "zeta", "bin")}
+	if got := r.pluginBins(); strings.Join(got, ":") != strings.Join(want, ":") {
+		t.Errorf("plugin bins %q, want %q", got, want)
+	}
+}
+
+func TestReduceManifest(t *testing.T) {
+	tests := []struct {
+		name, in, want, err string
+	}{
+		{
+			name: "component keys dropped",
+			in: `{"name": "tools", "version": "1.0.0", "description": "d", "skills": ["./extra/"], "author": {"name": "a"},
+				"homepage": "https://h", "repository": "https://r", "license": "MIT", "keywords": ["k"],
+				"hooks": "./x.json", "mcpServers": {"s": {"command": "node", "args": ["server.js"]}}, "lspServers": "./.lsp.json",
+				"commands": ["./c/"], "agents": ["./a.md"], "outputStyles": "./o/", "experimental": {"monitors": []},
+				"monitors": [], "settings": {"agent": "x"}, "userConfig": {}}`,
+			want: `{"author":{"name":"a"},"description":"d","homepage":"https://h","keywords":["k"],"license":"MIT",` +
+				`"name":"tools","repository":"https://r","version":"1.0.0"}`,
+		},
+		{name: "name only", in: `{"name": "p", "mcpServers": {"s": {}}, "hooks": "./x.json"}`, want: `{"name":"p"}`},
+		{name: "no name", in: `{"hooks": {}}`, want: `{}`},
+		{name: "an array", in: `["name"]`, err: "not a JSON object"},
+		{name: "null", in: `null`, err: "not a JSON object"},
+		{name: "not JSON", in: `{"name":`, err: "not a JSON object"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := reduceManifest([]byte(tt.in))
+			if tt.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.err) {
+					t.Errorf("err %v, want %q", err, tt.err)
+				}
+				return
+			}
+			if err != nil || string(got) != tt.want {
+				t.Errorf("reduceManifest = %s, %v; want %s", got, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestMaterialiseReducesManifest(t *testing.T) {
+	tree := t.TempDir()
+	writeFiles(t, tree, map[string]string{
+		"p/.claude-plugin/plugin.json":   `{"name": "p", "version": "2.0.0", "hooks": "./x.json", "mcpServers": {"s": {"command": "node"}}}`,
+		"p/x.json":                       `{"hooks": {}}`,
+		"p/skills/a/SKILL.md":            "a",
+		"bad/.claude-plugin/plugin.json": `["bad"]`,
+		"bad/skills/b/SKILL.md":          "b",
+	})
+	dst := t.TempDir()
+	if _, err := materialise(tree, v1alpha1.SkillRef{Source: "s", Use: []string{"a"}}, dst); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dst, "p", ".claude-plugin", "plugin.json")); err != nil || string(b) != `{"name":"p","version":"2.0.0"}` {
+		t.Errorf("manifest %s, %v", b, err)
+	}
+	if _, err := materialise(tree, v1alpha1.SkillRef{Source: "s", Use: []string{"b"}}, t.TempDir()); err == nil || !strings.Contains(err.Error(), "not a JSON object") {
+		t.Errorf("a manifest that isn't an object: %v", err)
 	}
 }

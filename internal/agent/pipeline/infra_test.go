@@ -139,7 +139,7 @@ func (g *gitServer) addRepo(repo string, token string, files map[string]string, 
 				t.Fatal(err)
 			}
 			mode := os.FileMode(0o644)
-			if strings.HasSuffix(name, ".sh") {
+			if strings.HasSuffix(name, ".sh") || strings.Contains("/"+name, "/bin/") {
 				mode = 0o755
 			}
 			if err := os.WriteFile(p, []byte(body), mode); err != nil {
