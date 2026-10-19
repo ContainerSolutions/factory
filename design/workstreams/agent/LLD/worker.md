@@ -62,7 +62,7 @@ for !draining:
 execute(lease):
     hb := ticker(lease.heartbeatEvery)        // POST /leases/{id}/heartbeat with progress batch + token deltas
     on hb response cancel=true → cancel run ctx
-    on hb response refreshedGitCredential → swap credential in the helper
+    on hb response refreshedGitCredential (+ refreshedReadCredentials) → swap credentials in the helper
     result := pipeline.Run(ctx, task, cred)
     switch:
       throttled  → POST abandon{reason: throttled, until}; PATCH agent {phase: Throttled, until}

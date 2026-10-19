@@ -422,7 +422,7 @@ Develop against `factory-mock` (FND-S1-T02).
 **Spec.** Per [run-pipeline.md](agent/LLD/run-pipeline.md):
 
 - the scratch workspace;
-- clones with an in-memory credential helper (rw repo with the scoped token; ro repos and `publicReads` anonymous);
+- clones with an in-memory credential helper (rw repo with the scoped token; private ro repos with their read-only `readCredentials`; public ro repos and `publicReads` anonymous);
 - skills materialisation from `ccf-skills@commit`;
 - prompt rendering (headless preamble, template, inputs, fenced untrusted context);
 - the environment for the harness (`FACTORY_HEADLESS=1` and the rest);

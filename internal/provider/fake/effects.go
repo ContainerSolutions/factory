@@ -316,9 +316,10 @@ func (c *Conn) mutateLocked(e provider.EffectRequest) (provider.EffectResult, er
 }
 
 // MintGitCredential implements provider.Conn: a fake token ("fake-<identity>-<n>") for exactly
-// the requested repos and permissions, expiring after TTL (capped at MaxCredentialTTL). A
-// request without identity, repo or a positive TTL is ErrInvalid, as is an identity the
-// Provider's github.identities doesn't list (when it lists any).
+// the requested repos and permissions (a read-only request gets contents: read), expiring
+// after TTL (capped at MaxCredentialTTL). A request that fails Validate (no identity, no repo,
+// no positive TTL, readRepos on a token that can write) is ErrInvalid, as is an identity the
+// Provider's github.identities doesn't list (when it lists any). Mints records every call.
 func (c *Conn) MintGitCredential(ctx context.Context, req provider.GitCredentialRequest) (provider.Credential, error) {
 	if err := ctx.Err(); err != nil {
 		return provider.Credential{}, err
@@ -336,13 +337,8 @@ func (c *Conn) mintLocked(req provider.GitCredentialRequest) (provider.Credentia
 	if err := c.faultLocked(MethodMintGitCredential); err != nil {
 		return provider.Credential{}, err
 	}
-	switch {
-	case req.Identity == "":
-		return provider.Credential{}, fmt.Errorf("fake: mint: no identity: %w", provider.ErrInvalid)
-	case req.Repo == "":
-		return provider.Credential{}, fmt.Errorf("fake: mint: no repo (unscoped token): %w", provider.ErrInvalid)
-	case req.TTL <= 0:
-		return provider.Credential{}, fmt.Errorf("fake: mint: TTL %s: %w", req.TTL, provider.ErrInvalid)
+	if err := req.Validate(); err != nil {
+		return provider.Credential{}, fmt.Errorf("fake: mint: %w", err)
 	}
 	if gh := c.p.Spec.GitHub; gh != nil && len(gh.Identities) > 0 {
 		if _, ok := gh.Identities[req.Identity]; !ok {

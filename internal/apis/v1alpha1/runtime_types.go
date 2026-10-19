@@ -236,12 +236,18 @@ type TaskCredentials struct {
 	LLM string             `json:"llm,omitzero"`
 }
 
-// GitCredentialSpec describes the scoped git token minted for a task.
+// GitCredentialSpec describes the scoped git tokens minted for a task: one for Repo with the
+// TaskSpec permissions and, unless PublicReads is set, a read-only one per read repo.
 type GitCredentialSpec struct {
-	Provider    string            `json:"provider"`
-	Identity    string            `json:"identity"`
-	Repo        string            `json:"repo"`
-	ReadRepos   []string          `json:"readRepos,omitzero"`
+	Provider string `json:"provider"`
+	Identity string `json:"identity"`
+	Repo     string `json:"repo"`
+	// ReadRepos are the task's other repos, which it only reads. Each gets its own read-only
+	// token (contents: read) at lease time, unless PublicReads is set.
+	ReadRepos []string `json:"readRepos,omitzero"`
+	// PublicReads says the read repos are public (the TaskSpec's workspace.publicReads): the
+	// agent clones them anonymously and they get no token.
+	PublicReads bool              `json:"publicReads,omitzero"`
 	Permissions map[string]string `json:"permissions,omitzero"`
 	TTL         Duration          `json:"ttl,omitzero"`
 }

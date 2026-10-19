@@ -182,9 +182,10 @@ paths:
       summary: Long-poll for a task
       description: |
         Parks the request for up to `wait` while the scheduler looks for a task this agent may
-        take. Returns the lease, the task (with its resolved harness) and a scoped git credential;
-        the credential appears only in this response and is never stored. `204` when nothing
-        matched in time.
+        take. Returns the lease, the task (with its resolved harness), a scoped git credential
+        for the task repo and a read-only one per private read repo (public read repos are
+        cloned anonymously); the credentials appear only in this response and are never stored.
+        `204` when nothing matched in time.
       security:
         - agentToken: []
       parameters:
@@ -225,8 +226,9 @@ paths:
       description: |
         Sent every `pool.lease.heartbeat`. Carries the progress events since the last heartbeat
         (appended to the Run and broadcast on SSE) and token usage **deltas**. The response says
-        whether to cancel the run and may carry a refreshed git credential. `404` or `409` means
-        the lease is gone: the agent must stop the run.
+        whether to cancel the run and may carry refreshed git credentials (the task repo's and
+        the read-only ones, all refreshed together). `404` or `409` means the lease is gone: the
+        agent must stop the run.
       security:
         - agentToken: []
       requestBody:
@@ -1423,7 +1425,7 @@ components:
           $ref: '#/components/schemas/Lending'
     Lease:
       type: object
-      description: A leased task, its lease and a scoped git credential.
+      description: A leased task, its lease and its scoped git credentials.
       required: [lease, task, gitCredential]
       properties:
         lease:
@@ -1432,6 +1434,15 @@ components:
           $ref: '#/components/schemas/Task'
         gitCredential:
           $ref: '#/components/schemas/GitCredential'
+        readCredentials:
+          type: array
+          description: |
+            One read-only credential (`permissions: {contents: read}`) per private read repo of
+            the task (`task.spec.credentials.git.readRepos`), its `repo` being that read repo.
+            Absent when the task has no read repos or they are public (`publicReads`): those are
+            cloned anonymously.
+          items:
+            $ref: '#/components/schemas/GitCredential'
     LeaseInfo:
       type: object
       description: The lease itself.
@@ -1454,7 +1465,9 @@ components:
           description: The heartbeat interval (`pool.lease.heartbeat`), e.g. `30s`.
     GitCredential:
       type: object
-      description: A scoped installation token for the task's repo. Never stored by the dispatcher.
+      description: |
+        A scoped installation token for one repo: the task's repo with the TaskSpec permissions,
+        or a private read repo with `contents: read`. Never stored by the dispatcher.
       required: [provider, host, username, token, expiresAt, repo]
       properties:
         provider:
@@ -1472,10 +1485,10 @@ components:
           format: date-time
         repo:
           type: string
-          description: The read-write (or read-only) task repo, `owner/name`.
+          description: The repo the token is for, `owner/name`.
         readRepos:
           type: array
-          description: Further repos the token may read.
+          description: Further repos a read-only token may read (a token that can write covers `repo` only).
           items:
             type: string
         permissions:
@@ -1510,7 +1523,7 @@ components:
           minimum: 0
     HeartbeatResponse:
       type: object
-      description: The new expiry, whether to cancel, and maybe a refreshed credential.
+      description: The new expiry, whether to cancel, and maybe refreshed credentials.
       required: [expiresAt, cancel]
       properties:
         expiresAt:
@@ -1521,6 +1534,13 @@ components:
           description: Cancel the run now (the task is being cancelled).
         refreshedGitCredential:
           $ref: '#/components/schemas/GitCredential'
+        refreshedReadCredentials:
+          type: array
+          description: |
+            Sent with `refreshedGitCredential` when the task has read-only credentials: they
+            replace the lease's `readCredentials`, one per private read repo.
+          items:
+            $ref: '#/components/schemas/GitCredential'
     CompleteRequest:
       type: object
       description: The run's Result and its transcript.
@@ -2749,7 +2769,7 @@ components:
       x-go-type: v1alpha1.GitCredentialSpec
       x-go-type-import:
         path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      description: GitCredentialSpec describes the scoped git token minted for a task.
+      description: 'GitCredentialSpec describes the scoped git tokens minted for a task: one for Repo with the TaskSpec permissions and, unless PublicReads is set, a read-only one per read repo.'
       type: object
       required:
         - provider
@@ -2763,9 +2783,17 @@ components:
         repo:
           type: string
         readRepos:
+          description: |-
+            ReadRepos are the task's other repos, which it only reads. Each gets its own read-only
+            token (contents: read) at lease time, unless PublicReads is set.
           type: array
           items:
             type: string
+        publicReads:
+          description: |-
+            PublicReads says the read repos are public (the TaskSpec's workspace.publicReads): the
+            agent clones them anonymously and they get no token.
+          type: boolean
         permissions:
           type: object
           additionalProperties:
@@ -4456,7 +4484,9 @@ components:
         checkout:
           type: string
         publicReads:
-          description: PublicReads lets the agent clone public repos anonymously at runtime.
+          description: |-
+            PublicReads lets the agent clone public repos anonymously at runtime, and says the ro
+            repos are public: they are cloned anonymously and get no read-only token.
           type: boolean
       additionalProperties: false
     # ---- END GENERATED ------------------------------------------------------------------------

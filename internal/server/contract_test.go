@@ -5,17 +5,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 
 	"github.com/compliance-framework/factory/api"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/compliance-framework/factory/internal/provider"
 	"github.com/compliance-framework/factory/internal/store"
 )
 
@@ -84,6 +87,57 @@ func (s *shapes) check(opID string, res *http.Response, body []byte, status int)
 	}
 	if err := o.Media.Schema.Value.VisitJSON(v, openapi3.MultiErrors(), openapi3.EnableFormatValidation()); err != nil {
 		s.t.Fatalf("%s: body does not match the schema: %v\n%s", opID, err, body)
+	}
+}
+
+// privateRepo is a private read repo: it gets a read-only credential of its own.
+const privateRepo = "compliance-framework/private-notes"
+
+// TestLeaseReadCredentials: the read-only credentials are copied field by field into the lease
+// and, when refreshed, the heartbeat response; public read repos get none.
+func TestLeaseReadCredentials(t *testing.T) {
+	e := newEnv(t)
+	sh := &shapes{t: t, ops: spec(t), seen: map[string]bool{}}
+	agent, tok := e.register("gus", "mac1")
+	e.task("tsk_1", func(t *v1alpha1.Task) { t.Spec.Credentials.Git.ReadRepos = []string{privateRepo} })
+	wait := "0s"
+	ls, err := e.c.LeaseTaskWithResponse(e.ctx, agent, &apiclient.LeaseTaskParams{Wait: &wait}, bearer(tok))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh.check("leaseTask", ls.HTTPResponse, ls.Body, http.StatusOK)
+	lease := ls.JSON200
+	if len(lease.ReadCredentials) != 1 || strings.Contains(string(ls.Body), provider.Redacted) {
+		t.Fatalf("lease body %s: the read credential must carry its real token", ls.Body)
+	}
+
+	// 46 minutes on, the 55m credentials have under 10 minutes left: all are re-minted.
+	e.clk.Advance(46 * time.Minute)
+	hb, err := e.c.HeartbeatLeaseWithResponse(e.ctx, lease.Lease.Id, apiclient.HeartbeatRequest{}, bearer(tok))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh.check("heartbeatLease", hb.HTTPResponse, hb.Body, http.StatusOK)
+	rc := hb.JSON200.RefreshedReadCredentials
+	if hb.JSON200.RefreshedGitCredential == nil || len(rc) != 1 || rc[0].Repo != privateRepo ||
+		rc[0].Token == lease.ReadCredentials[0].Token || !strings.HasPrefix(rc[0].Token, "fake-author-") ||
+		!rc[0].ExpiresAt.After(lease.ReadCredentials[0].ExpiresAt) {
+		t.Errorf("heartbeat %s: want the refreshed read credential", hb.Body)
+	}
+
+	// Public read repos are cloned anonymously: no read credential.
+	e2 := newEnv(t)
+	agent2, tok2 := e2.register("gus", "mac2")
+	e2.task("tsk_2", func(t *v1alpha1.Task) {
+		t.Spec.Credentials.Git.ReadRepos, t.Spec.Credentials.Git.PublicReads = []string{"compliance-framework/local-dev"}, true
+	})
+	ls2, err := e2.c.LeaseTaskWithResponse(e2.ctx, agent2, &apiclient.LeaseTaskParams{Wait: &wait}, bearer(tok2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh.check("leaseTask", ls2.HTTPResponse, ls2.Body, http.StatusOK)
+	if strings.Contains(string(ls2.Body), "readCredentials") {
+		t.Errorf("lease body %s: public read repos get no credential", ls2.Body)
 	}
 }
 
@@ -178,7 +232,7 @@ func TestContract(t *testing.T) {
 	if none.StatusCode() != http.StatusNoContent {
 		t.Fatalf("lease with no task: %s", none.Status())
 	}
-	e.task("tsk_1", nil)
+	e.task("tsk_1", func(t *v1alpha1.Task) { t.Spec.Credentials.Git.ReadRepos = []string{privateRepo} })
 	ls, err := e.c.LeaseTaskWithResponse(ctx, agent, &apiclient.LeaseTaskParams{Wait: &wait}, bearer(tok))
 	if err != nil {
 		t.Fatal(err)
@@ -187,6 +241,10 @@ func TestContract(t *testing.T) {
 	lease := ls.JSON200
 	if gc := lease.GitCredential; !strings.HasPrefix(gc.Token, "fake-author-") || gc.Repo != docsRepo || gc.Username == "" {
 		t.Errorf("git credential %+v: the token must be the real one, copied field by field", gc)
+	}
+	if rc := lease.ReadCredentials; len(rc) != 1 || !strings.HasPrefix(rc[0].Token, "fake-author-") || rc[0].Repo != privateRepo ||
+		rc[0].Token == lease.GitCredential.Token || !maps.Equal(rc[0].Permissions, map[string]string{"contents": "read"}) {
+		t.Errorf("read credentials %+v: one read-only token for the private read repo", rc)
 	}
 	if lease.Lease.Run == nil || lease.Lease.HeartbeatEvery != "30s" || lease.Task.Metadata.ID != "tsk_1" {
 		t.Errorf("lease %+v", lease.Lease)

@@ -254,6 +254,10 @@ func compileTask(ctx context.Context, in compileInput, skills SkillResolver) (*v
 	if cred.Repo == "" && len(cred.ReadRepos) > 0 {
 		cred.Repo, cred.ReadRepos = cred.ReadRepos[0], cred.ReadRepos[1:]
 	}
+	// Public read repos are cloned anonymously; the others get read-only tokens at lease time.
+	if ws := spec.Workspace; ws != nil && ws.PublicReads != nil {
+		cred.PublicReads = *ws.PublicReads
+	}
 	ttl := MaxCredentialTTL
 	if spec.Limits != nil && spec.Limits.MaxWallClock != "" {
 		if d, err := spec.Limits.MaxWallClock.Parse(); err == nil && d > 0 {

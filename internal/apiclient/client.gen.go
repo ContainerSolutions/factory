@@ -596,7 +596,8 @@ type FieldError struct {
 	Message string `json:"message"`
 }
 
-// GitCredential A scoped installation token for the task's repo. Never stored by the dispatcher.
+// GitCredential A scoped installation token for one repo: the task's repo with the TaskSpec permissions,
+// or a private read repo with `contents: read`. Never stored by the dispatcher.
 type GitCredential struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 
@@ -605,10 +606,10 @@ type GitCredential struct {
 	Permissions map[string]string `json:"permissions,omitempty"`
 	Provider    string            `json:"provider"`
 
-	// ReadRepos Further repos the token may read.
+	// ReadRepos Further repos a read-only token may read (a token that can write covers `repo` only).
 	ReadRepos []string `json:"readRepos,omitempty"`
 
-	// Repo The read-write (or read-only) task repo, `owner/name`.
+	// Repo The repo the token is for, `owner/name`.
 	Repo  string `json:"repo"`
 	Token string `json:"token"`
 
@@ -616,7 +617,7 @@ type GitCredential struct {
 	Username string `json:"username"`
 }
 
-// GitCredentialSpec GitCredentialSpec describes the scoped git token minted for a task.
+// GitCredentialSpec GitCredentialSpec describes the scoped git tokens minted for a task: one for Repo with the TaskSpec permissions and, unless PublicReads is set, a read-only one per read repo.
 type GitCredentialSpec = v1alpha1.GitCredentialSpec
 
 // GitHubActionsBackend GitHubActionsBackend runs agents as a workflow.
@@ -663,14 +664,19 @@ type HeartbeatRequest struct {
 	Usage *UsageDelta `json:"usage,omitempty"`
 }
 
-// HeartbeatResponse The new expiry, whether to cancel, and maybe a refreshed credential.
+// HeartbeatResponse The new expiry, whether to cancel, and maybe refreshed credentials.
 type HeartbeatResponse struct {
 	// Cancel Cancel the run now (the task is being cancelled).
 	Cancel    bool      `json:"cancel"`
 	ExpiresAt time.Time `json:"expiresAt"`
 
-	// RefreshedGitCredential A scoped installation token for the task's repo. Never stored by the dispatcher.
+	// RefreshedGitCredential A scoped installation token for one repo: the task's repo with the TaskSpec permissions,
+	// or a private read repo with `contents: read`. Never stored by the dispatcher.
 	RefreshedGitCredential *GitCredential `json:"refreshedGitCredential,omitempty"`
+
+	// RefreshedReadCredentials Sent with `refreshedGitCredential` when the task has read-only credentials: they
+	// replace the lease's `readCredentials`, one per private read repo.
+	RefreshedReadCredentials []GitCredential `json:"refreshedReadCredentials,omitempty"`
 }
 
 // InlineRule InlineRule is a Rule without its TypeMeta, embedded in a RuleSet.
@@ -691,13 +697,20 @@ type LabelSelector = v1alpha1.LabelSelector
 // LabelSelectorRequirement LabelSelectorRequirement is one matchExpressions entry.
 type LabelSelectorRequirement = v1alpha1.LabelSelectorRequirement
 
-// Lease A leased task, its lease and a scoped git credential.
+// Lease A leased task, its lease and its scoped git credentials.
 type Lease struct {
-	// GitCredential A scoped installation token for the task's repo. Never stored by the dispatcher.
+	// GitCredential A scoped installation token for one repo: the task's repo with the TaskSpec permissions,
+	// or a private read repo with `contents: read`. Never stored by the dispatcher.
 	GitCredential GitCredential `json:"gitCredential"`
 
 	// Lease The lease itself.
 	Lease LeaseInfo `json:"lease"`
+
+	// ReadCredentials One read-only credential (`permissions: {contents: read}`) per private read repo of
+	// the task (`task.spec.credentials.git.readRepos`), its `repo` being that read repo.
+	// Absent when the task has no read repos or they are public (`publicReads`): those are
+	// cloned anonymously.
+	ReadCredentials []GitCredential `json:"readCredentials,omitempty"`
 
 	// Task Task is one instantiation of a TaskSpec for a work item.
 	Task Task `json:"task"`

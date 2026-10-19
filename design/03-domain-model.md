@@ -339,7 +339,7 @@ spec:
   requires: { labels: [] }                  # agent labels needed, e.g. has-local-stack
   workspace:
     repos: [{ ref: "=task.target.repo + '@main'", mode: ro }]   # several repos allowed; at most one rw
-    publicReads: false                      # true: may also clone public repos anonymously at runtime
+    publicReads: false                      # true: the ro repos are public (cloned anonymously, no token) and other public repos may be cloned at runtime; false: each ro repo gets a read-only token
   identity: author
   permissions: { issues: write, contents: read, pull_requests: read }
   effects:

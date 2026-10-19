@@ -186,6 +186,19 @@ func TestCompiledTask(t *testing.T) {
 	if _, ok := task.Metadata.Labels["factory.ccf.dev/requires"]; ok {
 		t.Error("requires is still a label")
 	}
+
+	// Credentials: write on the rw mount, the ro mount a read repo, publicReads carried over
+	// (release-docs: the read repos are public, cloned anonymously).
+	task, _, err = compileTask(e.ctx, compileInput{
+		cat: e.cat, wi: wi, ev: v1alpha1.Event{ID: "ev"}, taskID: "tsk_y", now: e.clk.Now(),
+		d: &rules.Dispatch{TaskSpec: "release-docs", Queue: "poc", Inputs: map[string]any{"train": "compliance-framework/workflows#123"}},
+	}, KeepSkills{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := task.Spec.Credentials.Git; g.Repo != docsRepo || !slices.Equal(g.ReadRepos, []string{"compliance-framework/local-dev"}) || !g.PublicReads {
+		t.Errorf("release-docs credentials = %+v, want docs rw, local-dev read and publicReads", g)
+	}
 }
 
 func TestEventWithoutMatchingRuleMakesNoWorkItem(t *testing.T) {

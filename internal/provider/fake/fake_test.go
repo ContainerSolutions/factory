@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -858,18 +859,30 @@ func TestApplyIdempotency(t *testing.T) {
 
 func TestMintGitCredential(t *testing.T) {
 	ok := provider.GitCredentialRequest{
-		Identity: "author", Repo: "compliance-framework/docs", ReadRepos: []string{"compliance-framework/api"},
+		Identity: "author", Repo: "compliance-framework/docs",
 		Permissions: map[string]string{"contents": "write", "pull_requests": "write"}, TTL: 30 * time.Minute,
 	}
+	readOnly := func(r *provider.GitCredentialRequest) {
+		*r = provider.ReadOnlyRequest(r.Identity, "compliance-framework/private-notes", r.TTL)
+	}
 	tests := []struct {
-		name    string
-		mod     func(*provider.GitCredentialRequest)
-		wantTTL time.Duration
-		wantErr error
+		name     string
+		mod      func(*provider.GitCredentialRequest)
+		wantTTL  time.Duration
+		readOnly bool
+		wantErr  error
 	}{
 		{name: "scoped", mod: func(*provider.GitCredentialRequest) {}, wantTTL: 30 * time.Minute},
+		{name: "read-only", mod: readOnly, wantTTL: 30 * time.Minute, readOnly: true},
+		{name: "read-only, several repos", mod: func(r *provider.GitCredentialRequest) {
+			readOnly(r)
+			r.ReadRepos = []string{"compliance-framework/api"}
+		}, wantTTL: 30 * time.Minute, readOnly: true},
 		{name: "ttl capped", mod: func(r *provider.GitCredentialRequest) { r.TTL = 3 * time.Hour }, wantTTL: time.Hour},
 		{name: "no repo", mod: func(r *provider.GitCredentialRequest) { r.Repo = "" }, wantErr: provider.ErrInvalid},
+		{name: "read repos on a write token", mod: func(r *provider.GitCredentialRequest) {
+			r.ReadRepos = []string{"compliance-framework/api"}
+		}, wantErr: provider.ErrInvalid},
 		{name: "no identity", mod: func(r *provider.GitCredentialRequest) { r.Identity = "" }, wantErr: provider.ErrInvalid},
 		{name: "unknown identity", mod: func(r *provider.GitCredentialRequest) { r.Identity = "admin" }, wantErr: provider.ErrInvalid},
 		{name: "no ttl", mod: func(r *provider.GitCredentialRequest) { r.TTL = 0 }, wantErr: provider.ErrInvalid},
@@ -878,17 +891,21 @@ func TestMintGitCredential(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			c, _ := newConn(t)
 			req := ok
-			req.ReadRepos = append([]string(nil), ok.ReadRepos...)
+			req.Permissions = maps.Clone(ok.Permissions)
 			tt.mod(&req)
 			cred, err := c.MintGitCredential(context.Background(), req)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Mint = %v, want %v", err, tt.wantErr)
 			}
-			if len(c.Mints()) != 1 {
-				t.Fatalf("Mints = %d", len(c.Mints()))
+			mints := c.Mints()
+			if len(mints) != 1 || !reflect.DeepEqual(mints[0].Request, req) {
+				t.Fatalf("Mints = %+v, want the request %+v", mints, req)
 			}
 			if tt.wantErr != nil {
 				return
+			}
+			if got := mints[0].Request; tt.readOnly != (got.ReadOnly() && reflect.DeepEqual(got.Permissions, provider.ReadOnlyPermissions())) {
+				t.Errorf("recorded scope %v, read-only %v", got.Permissions, tt.readOnly)
 			}
 			if cred.Provider != prov || cred.Host != "github.com" || cred.Username != "x-access-token" ||
 				!strings.HasPrefix(cred.Token, "fake-author-") || cred.Repo != req.Repo ||

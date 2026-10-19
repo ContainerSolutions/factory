@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -129,15 +130,62 @@ type EffectResult struct {
 	Replayed bool `json:"replayed,omitzero"`
 }
 
-// GitCredentialRequest asks for an agent's git token: the Task's spec.credentials.git without
-// the provider (the Conn is the provider), with the TTL the scheduler computed at lease time.
+// GitCredentialRequest asks for one of an agent's git tokens, with the TTL the scheduler
+// computed at lease time. The scheduler sends two shapes:
+//
+//   - the task token: the Task's spec.credentials.git repo with the TaskSpec permissions, and
+//     no ReadRepos;
+//   - a read-only token per private read repo: ReadOnlyRequest, that repo with
+//     ReadOnlyPermissions (contents: read).
+//
+// Validate says which requests an adapter must refuse.
 type GitCredentialRequest struct {
 	Identity string
-	// Repo is the task repo ("owner/name"); required, so a token is never unscoped.
-	Repo        string
+	// Repo is the repo ("owner/name") the token is for; required, so a token is never unscoped.
+	Repo string
+	// ReadRepos are further repos for a read-only token (every permission "read"). A token that
+	// can write covers its Repo only, so write access is on at most one repo by construction.
 	ReadRepos   []string
 	Permissions map[string]string
 	TTL         time.Duration
+}
+
+// ReadOnlyPermissions are a read-only token's permissions: contents: read.
+func ReadOnlyPermissions() map[string]string { return map[string]string{"contents": "read"} }
+
+// ReadOnlyRequest asks for a read-only token (ReadOnlyPermissions) on one repo.
+func ReadOnlyRequest(identity, repo string, ttl time.Duration) GitCredentialRequest {
+	return GitCredentialRequest{Identity: identity, Repo: repo, Permissions: ReadOnlyPermissions(), TTL: ttl}
+}
+
+// ReadOnly reports whether the request asks for read access only: it names permissions and
+// every one is "read".
+func (r GitCredentialRequest) ReadOnly() bool {
+	if len(r.Permissions) == 0 {
+		return false
+	}
+	for _, level := range r.Permissions {
+		if level != "read" {
+			return false
+		}
+	}
+	return true
+}
+
+// Validate returns an ErrInvalid error for a request no adapter may mint: no identity, no repo
+// (an unscoped token), a TTL that isn't positive, or ReadRepos on a token that can write.
+func (r GitCredentialRequest) Validate() error {
+	switch {
+	case r.Identity == "":
+		return fmt.Errorf("git credential request: no identity: %w", ErrInvalid)
+	case r.Repo == "":
+		return fmt.Errorf("git credential request: no repo (unscoped token): %w", ErrInvalid)
+	case r.TTL <= 0:
+		return fmt.Errorf("git credential request: TTL %s: %w", r.TTL, ErrInvalid)
+	case len(r.ReadRepos) > 0 && !r.ReadOnly():
+		return fmt.Errorf("git credential request: readRepos on a token that can write (write is on one repo only): %w", ErrInvalid)
+	}
+	return nil
 }
 
 // HealthState is a connection's health, as GET /providers reports it.

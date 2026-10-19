@@ -56,7 +56,8 @@ type Conn interface {
 	// applied creates nothing and returns the first result, with Replayed set.
 	Apply(ctx context.Context, e EffectRequest) (EffectResult, error)
 
-	// MintGitCredential mints a git token scoped to the requested repos and permissions.
+	// MintGitCredential mints a git token scoped to the requested repos and permissions. It
+	// refuses a request that fails GitCredentialRequest.Validate with ErrInvalid.
 	MintGitCredential(ctx context.Context, req GitCredentialRequest) (Credential, error)
 	// Health is the connection's last known health. It doesn't block.
 	Health() HealthStatus

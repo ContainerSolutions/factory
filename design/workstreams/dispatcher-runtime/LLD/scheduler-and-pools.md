@@ -48,13 +48,13 @@ Selection among matching pairs:
 On match:
 
 1. `task.spec.harness.resolved = …`; phase `Leased`; `lease{id, agent, expiresAt: now+ttl}`.
-2. Mint the git credential through `Conn.MintGitCredential` (rw repo with TaskSpec permissions, read repos read-only, TTL = min(1h, maxWallClock+10m)).
-3. Respond `200 {lease, task, gitCredential}` (credential only in this response; never stored).
+2. Mint the git credentials through `Conn.MintGitCredential` (TTL = min(1h, maxWallClock+10m)): the rw repo with TaskSpec permissions, then one read-only token per read repo unless the read repos are public (`publicReads`).
+3. Respond `200 {lease, task, gitCredential, readCredentials}` (credentials only in this response; never stored).
 
 ## Heartbeats and expiry
 
 - `POST /leases/{id}/heartbeat` every `pool.lease.heartbeat` (30 s); body carries progress events (appended to Run, broadcast on SSE) and token usage deltas (`today.tokens`).
-- Response: `{expiresAt, cancel: bool, refreshedGitCredential?}` (credential refreshed when < 10 min left).
+- Response: `{expiresAt, cancel: bool, refreshedGitCredential?, refreshedReadCredentials?}` (all of the lease's credentials refreshed together when the first to expire has < 10 min left).
 - **Usage accounting.** Heartbeats carry **deltas** since the previous heartbeat (`inputTokens`, `outputTokens`, `costUSD`); the scheduler adds them to the `BudgetCounter`s and the agent's `today` as they arrive. `Result.harness.usage` is the **cumulative total** for the run. On `complete`, the scheduler adds `max(0, total − Σ deltas)` per field, so nothing is counted twice, and logs a warning when `Σ deltas > total`. On lease expiry or abandon, only the deltas already received count.
 - No heartbeat for `ttl` (2 min) → lease expired → Task back to `Pending` (`attempts++`, reason `agent-lost`) if retry policy allows, else `Failed{agent-lost}`.
 
@@ -113,4 +113,5 @@ Counters live in a dedicated runtime kind, **`BudgetCounter`**, one object per (
 - **Fairness.** Each pass walks the pending tasks in order (queue priority desc, `createdAt`, id). It gives each task to the fairest *parked* poll not yet given one (prefer-limited by default, then least-recently-leased, then name). A poll takes the first task it is given. The skipped tasks are left to the other parked agents, which the same change has woken. Last-lease times and parked polls are in memory.
 - **Anti-affinity.** The PR's last author run is the newest Run of the work item's tasks whose TaskSpec identity is `author`. The "only Ready agent" test asks whether another serving agent in the pool could take the task at all (lending lists, labels, harness; not hours or daily caps). If none can, the author's agent takes the task once it has waited 10 min (in memory, from the first time it was held back).
 - **Reasons.** The tick (`Refresh`) writes on each pending task the reason of the agent that got furthest down the table (`no-capable-agent` when the pool has no agent), only when it changed. Heartbeat progress is appended to the open Run (CAS, ring of 200).
+- **Read credentials (added later, `fx/gh-s0-read-credentials`).** `mint` returns the task token (its repo only: no read repos, so write access is on one repo) and, unless `credentials.git.publicReads`, a `provider.ReadOnlyRequest` token per `credentials.git.readRepos` entry, all or nothing: a failed read mint is `git-credential` like the task token. `Grant.ReadCredentials` and `HeartbeatResponse.RefreshedReadCredentials` carry them; `Lease.status.credentialExpiresAt` is the first expiry of the set, and a refresh re-mints the whole set. Private vs public is in [contracts.md §Refinements](../../foundation/LLD/contracts.md#refinements-fnd-s1-t03).
 - **Not done here.** There's an SSE broadcast of progress (RT-S2-T03), and metrics (RT-S2-T04). `controllers/run.go` still has `TODO(RT-S2-T02)` in `checkTimeout`; revocation is done here, so that comment can go in a controllers PR.

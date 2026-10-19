@@ -2,6 +2,8 @@ package scheduler
 
 import (
 	"errors"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -9,6 +11,8 @@ import (
 
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 	"github.com/compliance-framework/factory/internal/controllers"
+	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/compliance-framework/factory/internal/provider/fake"
 	"github.com/compliance-framework/factory/internal/store"
 )
 
@@ -289,6 +293,121 @@ func TestCredentialFailureLeavesTaskPending(t *testing.T) {
 	e.mustLease(a, "tsk_b")
 	if got := e.getTask("tsk_a").Status; got.Phase != v1alpha1.TaskPending || got.Reason != ReasonGitCredential {
 		t.Fatalf("task a = %+v, want Pending git-credential", got)
+	}
+}
+
+// TestReadCredentials: a private read repo gets its own read-only token scoped to it (and the
+// task token covers the task repo only); public read repos (publicReads) get none.
+func TestReadCredentials(t *testing.T) {
+	const notesRepo = "compliance-framework/private-notes"
+	tests := []struct {
+		name        string
+		publicReads bool
+		wantRead    []string
+	}{
+		{name: "private read repo", wantRead: []string{notesRepo}},
+		{name: "public read repos", publicReads: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			a, _ := e.register("gus", "mbp", lendQueues(pocQueue))
+			e.task("tsk_a", "implement", func(t *v1alpha1.Task) {
+				t.Spec.Credentials.Git.ReadRepos = []string{notesRepo}
+				t.Spec.Credentials.Git.PublicReads = tt.publicReads
+			})
+			g := e.mustLease(a, "tsk_a")
+
+			mints := e.gh.Mints()
+			if len(mints) != 1+len(tt.wantRead) {
+				t.Fatalf("mints = %+v, want the task token and %d read-only", mints, len(tt.wantRead))
+			}
+			if task := mints[0].Request; task.Repo != docsRepo || len(task.ReadRepos) != 0 || task.ReadOnly() {
+				t.Errorf("task token request %+v: its repo only, with the TaskSpec permissions", task)
+			}
+			var got []string
+			for i, rc := range g.ReadCredentials {
+				req := mints[1+i].Request
+				if !req.ReadOnly() || !reflect.DeepEqual(req.Permissions, provider.ReadOnlyPermissions()) ||
+					req.Repo != rc.Repo || len(req.ReadRepos) != 0 || req.Identity != "author" || req.TTL != 55*time.Minute {
+					t.Errorf("read mint %+v: want read-only on one repo", req)
+				}
+				if rc.Token == "" || rc.Token == g.GitCredential.Token || len(rc.ReadRepos) != 0 ||
+					!reflect.DeepEqual(rc.Permissions, provider.ReadOnlyPermissions()) {
+					t.Errorf("read credential %v", rc)
+				}
+				got = append(got, rc.Repo)
+			}
+			if !reflect.DeepEqual(got, tt.wantRead) {
+				t.Errorf("read credentials for %v, want %v", got, tt.wantRead)
+			}
+			if l := e.getLease(g.Lease.ID); !l.Status.CredentialExpiresAt.Equal(g.GitCredential.ExpiresAt) {
+				t.Errorf("lease credential expiry %s, want %s", l.Status.CredentialExpiresAt, g.GitCredential.ExpiresAt)
+			}
+		})
+	}
+}
+
+// TestReadCredentialsRefreshedNeverStored: the read-only tokens are re-minted with the task
+// token on a heartbeat near their expiry, and no token reaches the store.
+func TestReadCredentialsRefreshedNeverStored(t *testing.T) {
+	const notesRepo = "compliance-framework/private-notes"
+	e := newEnv(t)
+	a, _ := e.register("gus", "mbp", lendQueues(pocQueue))
+	e.task("tsk_a", "implement", func(t *v1alpha1.Task) { t.Spec.Credentials.Git.ReadRepos = []string{notesRepo} })
+	g := e.mustLease(a, "tsk_a")
+	if len(g.ReadCredentials) != 1 {
+		t.Fatalf("read credentials = %v", g.ReadCredentials)
+	}
+	tokens := []string{g.GitCredential.Token, g.ReadCredentials[0].Token}
+	var hb *HeartbeatResponse
+	for range 100 {
+		e.clk.Advance(30 * time.Second)
+		var err error
+		if hb, err = e.s.Heartbeat(e.ctx, a, g.Lease.ID, HeartbeatRequest{}); err != nil {
+			t.Fatal(err)
+		}
+		if hb.RefreshedGitCredential != nil {
+			break
+		}
+		if len(hb.RefreshedReadCredentials) != 0 {
+			t.Fatal("read credentials refreshed without the task token")
+		}
+	}
+	if hb.RefreshedGitCredential == nil {
+		t.Fatal("credentials never refreshed")
+	}
+	if r := hb.RefreshedReadCredentials; len(r) != 1 || r[0].Repo != notesRepo || r[0].Token == "" || slices.Contains(tokens, r[0].Token) {
+		t.Fatalf("refreshed read credentials = %v", r)
+	}
+	tokens = append(tokens, hb.RefreshedGitCredential.Token, hb.RefreshedReadCredentials[0].Token)
+	if n := len(e.gh.Mints()); n != 4 {
+		t.Errorf("%d mints, want 2 at lease time and 2 on refresh", n)
+	}
+	dump := e.dump()
+	for _, tok := range tokens {
+		if strings.Contains(dump, tok) {
+			t.Fatalf("credential token %q found in the store", tok)
+		}
+	}
+}
+
+// TestReadCredentialFailureLeavesTaskPending: a read-only token that can't be minted keeps
+// the task Pending, like the task token.
+func TestReadCredentialFailureLeavesTaskPending(t *testing.T) {
+	e := newEnv(t)
+	a, _ := e.register("gus", "mbp", lendQueues(pocQueue))
+	e.task("tsk_a", "implement", func(t *v1alpha1.Task) {
+		t.Spec.Credentials.Git.ReadRepos = []string{"compliance-framework/private-notes"}
+	})
+	// The task token is minted (a nil fault), the read-only one fails.
+	e.gh.FailNext(fake.MethodMintGitCredential, nil)
+	e.gh.FailNext(fake.MethodMintGitCredential, errors.New("installation not found"))
+	if g := e.lease(a); g != nil {
+		t.Fatalf("leased %s", g.Lease.Task)
+	}
+	if got := e.getTask("tsk_a").Status; got.Phase != v1alpha1.TaskPending || got.Reason != ReasonGitCredential {
+		t.Fatalf("task = %+v, want Pending git-credential", got)
 	}
 }
 

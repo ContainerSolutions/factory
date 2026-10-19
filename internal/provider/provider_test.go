@@ -89,6 +89,47 @@ func TestCredentialEmptyTokenNotMarked(t *testing.T) {
 	}
 }
 
+// TestGitCredentialRequest: the two request shapes the scheduler sends, and what no adapter
+// may mint.
+func TestGitCredentialRequest(t *testing.T) {
+	write := map[string]string{"contents": "write", "pull_requests": "write"}
+	tests := []struct {
+		name     string
+		req      provider.GitCredentialRequest
+		readOnly bool
+		wantErr  bool
+	}{
+		{name: "task token", req: provider.GitCredentialRequest{Identity: "author", Repo: "o/docs", Permissions: write, TTL: time.Hour}},
+		{name: "read-only token", req: provider.ReadOnlyRequest("author", "o/notes", time.Hour), readOnly: true},
+		{name: "read-only, several repos", readOnly: true, req: provider.GitCredentialRequest{
+			Identity: "author", Repo: "o/a", ReadRepos: []string{"o/b"}, Permissions: map[string]string{"contents": "read", "issues": "read"}, TTL: time.Hour,
+		}},
+		{name: "read repos on a write token", wantErr: true, req: provider.GitCredentialRequest{
+			Identity: "author", Repo: "o/docs", ReadRepos: []string{"o/notes"}, Permissions: write, TTL: time.Hour,
+		}},
+		{name: "no permissions is not read-only", wantErr: true, req: provider.GitCredentialRequest{
+			Identity: "author", Repo: "o/docs", ReadRepos: []string{"o/notes"}, TTL: time.Hour,
+		}},
+		{name: "unscoped", wantErr: true, readOnly: true, req: provider.ReadOnlyRequest("author", "", time.Hour)},
+		{name: "no identity", wantErr: true, readOnly: true, req: provider.ReadOnlyRequest("", "o/notes", time.Hour)},
+		{name: "no ttl", wantErr: true, readOnly: true, req: provider.ReadOnlyRequest("author", "o/notes", 0)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.req.ReadOnly(); got != tt.readOnly {
+				t.Errorf("ReadOnly = %v, want %v", got, tt.readOnly)
+			}
+			err := tt.req.Validate()
+			if (err != nil) != tt.wantErr || (err != nil && !errors.Is(err, provider.ErrInvalid)) {
+				t.Errorf("Validate = %v, want error %v (ErrInvalid)", err, tt.wantErr)
+			}
+		})
+	}
+	if p := provider.ReadOnlyPermissions(); len(p) != 1 || p["contents"] != "read" {
+		t.Errorf("ReadOnlyPermissions = %v", p)
+	}
+}
+
 func TestRetryableError(t *testing.T) {
 	cause := errors.New("secondary rate limit")
 	err := fmt.Errorf("apply comment: %w", &provider.RetryableError{RetryAfter: time.Minute, Err: cause})
