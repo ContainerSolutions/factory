@@ -1,0 +1,178 @@
+{
+  "comment": {
+    "args": {
+      "body": "Planning the epic."
+    },
+    "idempotencyKey": "tsk_1/comment/7897cb01741bba53.0",
+    "op": "comment"
+  },
+  "comment with a target, a body file and a key": {
+    "args": {
+      "body": "## Plan\n\nTwo sub-issues.\n"
+    },
+    "idempotencyKey": "tsk_1/comment/plan-summary",
+    "op": "comment",
+    "target": "acme/docs#43"
+  },
+  "issue close": {
+    "args": {
+      "reason": "not_planned"
+    },
+    "idempotencyKey": "tsk_1/close/98160cd315479821.0",
+    "op": "close"
+  },
+  "issue create": {
+    "args": {
+      "body": "## Plan\n\nTwo sub-issues.\n",
+      "labels": [
+        "docs",
+        "triage:todo"
+      ],
+      "title": "Translate the intro"
+    },
+    "idempotencyKey": "tsk_1/create-issue/dfab26b9d59e172d.0",
+    "op": "create-issue"
+  },
+  "issue link-duplicate": {
+    "args": {
+      "duplicateOf": "acme/docs#40"
+    },
+    "idempotencyKey": "tsk_1/link-duplicate/c02bda9b6650a47b.0",
+    "op": "link-duplicate",
+    "target": "acme/docs#44"
+  },
+  "issue sub-add": {
+    "args": {
+      "issue": "acme/docs#43"
+    },
+    "idempotencyKey": "tsk_1/sub-issue.add/491b29419e98bd46.0",
+    "op": "sub-issue.add",
+    "target": "acme/docs#42"
+  },
+  "label add": {
+    "args": {
+      "labels": [
+        "triage:bug",
+        "docs"
+      ]
+    },
+    "idempotencyKey": "tsk_1/label.add/31a4941291565d5c.0",
+    "op": "label.add"
+  },
+  "label remove": {
+    "args": {
+      "labels": [
+        "triage:bug"
+      ]
+    },
+    "idempotencyKey": "tsk_1/label.remove/1b040414ad045775.0",
+    "op": "label.remove",
+    "target": "acme/docs#42"
+  },
+  "pr comment": {
+    "args": {
+      "body": "Rebased on main."
+    },
+    "idempotencyKey": "tsk_1/pr.comment/e6d403ed919082ec.0",
+    "op": "pr.comment",
+    "target": "acme/docs#7"
+  },
+  "pr merge": {
+    "args": {
+      "mergeLabel": "triage:merge",
+      "sha": "4b825dc"
+    },
+    "idempotencyKey": "tsk_1/pr.merge/2a4a8d541d34ed16.0",
+    "op": "pr.merge",
+    "target": "acme/docs#9"
+  },
+  "pr open": {
+    "args": {
+      "base": "main",
+      "body": "Closes #43.",
+      "draft": true,
+      "head": "factory/tsk_1",
+      "labels": [
+        "docs"
+      ],
+      "title": "docs: translate the intro"
+    },
+    "idempotencyKey": "tsk_1/pr.open/4a15a84c3d8b838b.0",
+    "op": "pr.open"
+  },
+  "pr retarget": {
+    "args": {
+      "base": "release-1"
+    },
+    "idempotencyKey": "tsk_1/pr.retarget/d9dabd3a0b894a0f.0",
+    "op": "pr.retarget",
+    "target": "acme/docs#9"
+  },
+  "pr update": {
+    "args": {
+      "title": "docs: the intro"
+    },
+    "idempotencyKey": "tsk_1/pr.update/1e3fd9d6be71e6b2.0",
+    "op": "pr.update",
+    "target": "acme/docs#9"
+  },
+  "review approve": {
+    "idempotencyKey": "tsk_1/review.approve/0060199068f791ba.0",
+    "op": "review.approve",
+    "target": "acme/docs#9"
+  },
+  "review comment": {
+    "args": {
+      "body": "A nit.",
+      "comments": [
+        {
+          "body": "nit",
+          "line": 1,
+          "path": "README.md"
+        }
+      ],
+      "commit": "4b825dc"
+    },
+    "idempotencyKey": "tsk_1/review.comment/4a1212f502636a4f.0",
+    "op": "review.comment",
+    "target": "acme/docs#9"
+  },
+  "review request-changes": {
+    "args": {
+      "body": "Two problems.",
+      "comments": [
+        {
+          "body": "This link is dead.",
+          "line": 12,
+          "path": "docs/intro.md"
+        },
+        {
+          "body": "Typo.",
+          "line": 3,
+          "path": "docs/a.md",
+          "side": "RIGHT",
+          "startLine": 1
+        }
+      ]
+    },
+    "idempotencyKey": "tsk_1/review.request-changes/df72f09b3533e25b.0",
+    "op": "review.request-changes",
+    "target": "acme/docs#9"
+  },
+  "thread reply": {
+    "args": {
+      "body": "Fixed in 4b825dc.",
+      "thread": "PRRT_kwDOA"
+    },
+    "idempotencyKey": "tsk_1/thread.reply/63701179924dc84f.0",
+    "op": "thread.reply"
+  },
+  "thread resolve": {
+    "args": {
+      "thread": "PRRT_kwDOA"
+    },
+    "idempotencyKey": "tsk_1/thread.resolve/718cf87b588977b3.0",
+    "op": "thread.resolve",
+    "target": "acme/docs#9"
+  }
+}

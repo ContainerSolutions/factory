@@ -81,6 +81,8 @@ type served struct {
 	cmd  *exec.Cmd
 	logs *logBuffer
 	done chan error
+	// exited is closed once the process has exited (after done got its error).
+	exited chan struct{}
 }
 
 // startServe builds cmd/factory and runs `factory serve --dev-fake-providers` on the test
@@ -101,16 +103,21 @@ func startServe(t *testing.T, githubURL string) *served {
 		"FACTORY_CLI_TOKEN="+testCLIToken,
 		"FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN="+joinSecret,
 	)
-	s := &served{URL: "http://" + addr, cmd: cmd, logs: &logBuffer{}, done: make(chan error, 1)}
+	s := &served{URL: "http://" + addr, cmd: cmd, logs: &logBuffer{}, done: make(chan error, 1), exited: make(chan struct{})}
 	cmd.Stdout, cmd.Stderr = s.logs, s.logs
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	go func() { s.done <- cmd.Wait() }()
-	t.Cleanup(func() {
-		if cmd.ProcessState == nil {
+	go func() {
+		s.done <- cmd.Wait()
+		close(s.exited)
+	}()
+	t.Cleanup(func() { // after a failure stop wasn't called: kill it
+		select {
+		case <-s.exited:
+		default:
 			_ = cmd.Process.Kill()
-			<-s.done
+			<-s.exited
 		}
 	})
 	deadline := time.Now().Add(60 * time.Second)

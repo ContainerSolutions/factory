@@ -106,6 +106,11 @@ func (r *run) buildEnv(context.Context) error {
 	for k, v := range r.stackEnv {
 		env[k] = v
 	}
+	cfg, err := r.writeEffectorConfig()
+	if err != nil {
+		return err
+	}
+	env[EnvEffector] = cfg
 	r.ws.Env = envList(env)
 	r.ws.Hosts = r.hosts()
 	return nil

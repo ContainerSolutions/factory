@@ -32,8 +32,8 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "fx" {
-		// The workspace's `factory` CLI: the credential helper; any other op (the Effector's
-		// `mcp`, AGT-S1-T05) is a usage error, as in factory-agent today.
+		// The workspace's `factory` CLI: the credential helper; the Effector's ops and `mcp`
+		// aren't needed here (internal/agent/effector tests them): a usage error.
 		if len(os.Args) > 2 && os.Args[2] == "git-credential" {
 			if err := gitcred.Helper(context.Background(), os.Args[3:], os.Stdin, os.Stdout, os.Getenv(gitcred.EnvSocket)); err != nil {
 				fmt.Fprintln(os.Stderr, err)

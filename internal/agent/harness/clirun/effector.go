@@ -10,7 +10,7 @@ import (
 
 // EffectorServer is the Effector's MCP server name in every harness's MCP config. Its command
 // is the workspace's `factory` CLI (`factory-agent fx`) with EffectorArgs, i.e.
-// `factory-agent fx mcp` (AGT-S1-T05).
+// `factory-agent fx mcp`, the same server as `factory-agent mcp` (effector.md).
 const EffectorServer = "factory"
 
 // EffectorArgs are the arguments of the Effector's MCP server.

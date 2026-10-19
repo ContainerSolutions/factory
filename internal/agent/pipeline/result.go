@@ -96,20 +96,8 @@ func (r *run) prepareSchema(ctx context.Context) error {
 		return fmt.Errorf("the output schema: %w", err)
 	}
 	if spec != nil {
-		c, err := newSchemaCompiler()
-		if err != nil {
+		if chk.spec, err = compileSpecSchema(r.task.Spec.TaskSpec.Name, spec); err != nil {
 			return err
-		}
-		parsed, err := jsonschema.UnmarshalJSON(bytes.NewReader(spec))
-		if err != nil {
-			return fmt.Errorf("the output schema: %w", err)
-		}
-		u := outputSchemaURL + r.task.Spec.TaskSpec.Name + ".json"
-		if err := c.AddResource(u, parsed); err != nil {
-			return fmt.Errorf("the output schema: %w", err)
-		}
-		if chk.spec, err = c.Compile(u); err != nil {
-			return fmt.Errorf("the output schema: %w", err)
 		}
 		doc = spec
 	}
