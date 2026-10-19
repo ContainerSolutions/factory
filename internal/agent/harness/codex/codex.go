@@ -16,23 +16,20 @@
 package codex
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/compliance-framework/factory/internal/agent/harness/clirun"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 	"github.com/compliance-framework/factory/internal/clock"
 )
@@ -46,28 +43,13 @@ const (
 	AuthAPIKey       = "apiKey"
 )
 
+// DefaultThrottle is how long a rate-limited agent waits when the error gives no reset
+// (harness-adapters.md: else +15 min).
+const DefaultThrottle = clirun.DefaultThrottle
+
 // DefaultKillGrace is how long codex gets to exit after SIGTERM before its process group is
 // killed.
 const DefaultKillGrace = 5 * time.Second
-
-// Commands runs the short codex commands Probe needs; tests replace it (or the binary).
-type Commands interface {
-	// Output runs name with args and env and returns its combined output.
-	Output(ctx context.Context, env []string, name string, args ...string) ([]byte, error)
-}
-
-// ExecCommands runs real programs.
-type ExecCommands struct{}
-
-// Output implements Commands.
-func (ExecCommands) Output(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
-	var out bytes.Buffer
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = env
-	cmd.Stdout, cmd.Stderr = &out, &out
-	err := cmd.Run()
-	return out.Bytes(), err
-}
 
 // Options configure an Adapter. The zero value (plus Config) is production.
 type Options struct {
@@ -76,8 +58,8 @@ type Options struct {
 	Config config.Harness
 	// Binary is the codex executable. Default: "codex" on PATH.
 	Binary string
-	// Commands runs Probe's commands. Default: ExecCommands.
-	Commands Commands
+	// Commands runs Probe's commands. Default: clirun.ExecCommands.
+	Commands clirun.Commands
 	// Environ is the environment Probe's commands start from (only PATH, HOME, LANG and
 	// TERM are kept). Default: os.Environ.
 	Environ func() []string
@@ -103,7 +85,7 @@ func New(o Options) *Adapter {
 		o.Binary = "codex"
 	}
 	if o.Commands == nil {
-		o.Commands = ExecCommands{}
+		o.Commands = clirun.ExecCommands{}
 	}
 	if o.Environ == nil {
 		o.Environ = os.Environ
@@ -133,8 +115,6 @@ func (a *Adapter) Capabilities() v1alpha1.AdapterCapabilities {
 	}
 }
 
-var versionRE = regexp.MustCompile(`\b([0-9]+)\.([0-9]+)\.([0-9]+)`)
-
 // Probe implements harness.Adapter: codex's version (at least MinVersion) and the login of
 // cfg.Home. The login is told apart by `codex login status`'s wording and by the auth file's
 // presence (os.Stat); neither the file nor the command's output is logged or kept. Models,
@@ -148,11 +128,11 @@ func (a *Adapter) Probe(ctx context.Context, cfg config.Harness) (v1alpha1.Harne
 	if err != nil {
 		return v1alpha1.HarnessOffer{}, fmt.Errorf("codex %s: %w", strings.Join(versionArgs, " "), err)
 	}
-	version, ok := parseVersion(out)
+	version, ok := clirun.ParseVersion(out)
 	if !ok {
 		return v1alpha1.HarnessOffer{}, errors.New("codex: no version in `codex --version`'s output")
 	}
-	if compareVersions(version, MinVersion) < 0 {
+	if clirun.CompareVersions(version, MinVersion) < 0 {
 		return v1alpha1.HarnessOffer{}, fmt.Errorf("codex %s is older than %s, the oldest this agent supports: upgrade it", version, MinVersion)
 	}
 	auth, err := a.loginMode(ctx, env, cfg.Home)
@@ -208,34 +188,4 @@ func probeEnv(environ []string, home string) []string {
 		}
 	}
 	return append(env, "CODEX_HOME="+home)
-}
-
-// parseVersion finds the first x.y.z in codex's version output.
-func parseVersion(out []byte) (string, bool) {
-	m := versionRE.FindSubmatch(out)
-	if m == nil {
-		return "", false
-	}
-	return fmt.Sprintf("%s.%s.%s", m[1], m[2], m[3]), true
-}
-
-// compareVersions orders x.y.z versions numerically.
-func compareVersions(a, b string) int {
-	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
-	for i := range max(len(pa), len(pb)) {
-		var x, y int
-		if i < len(pa) {
-			x, _ = strconv.Atoi(pa[i])
-		}
-		if i < len(pb) {
-			y, _ = strconv.Atoi(pb[i])
-		}
-		if x != y {
-			if x < y {
-				return -1
-			}
-			return 1
-		}
-	}
-	return 0
 }

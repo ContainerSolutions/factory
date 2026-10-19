@@ -1,0 +1,89 @@
+{
+  "progress": [
+    {
+      "kind": "turn",
+      "summary": "turn 1"
+    },
+    {
+      "kind": "message",
+      "summary": "I'll look at the recent history first."
+    },
+    {
+      "kind": "tool",
+      "summary": "$ git log --oneline -5"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 2"
+    },
+    {
+      "kind": "tool",
+      "summary": "edit /w/tsk_1/repo/docs/releases/2026-11.md"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 3"
+    },
+    {
+      "kind": "tool",
+      "summary": "mcp factory.pr_open"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 4"
+    },
+    {
+      "kind": "tool",
+      "summary": "result"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 5"
+    },
+    {
+      "kind": "message",
+      "summary": "Opened acme/docs#13 with the November release notes."
+    }
+  ],
+  "usage": [
+    {
+      "InputTokens": 12003,
+      "OutputTokens": 5,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 0,
+      "OutputTokens": 75,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 12305,
+      "OutputTokens": 200,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 12554,
+      "OutputTokens": 120,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 12652,
+      "OutputTokens": 90,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 12701,
+      "OutputTokens": 20,
+      "CostUSD": null
+    }
+  ],
+  "rateLimited": null,
+  "sessionId": "5d3b1f0e-8c2a-4e57-9b1d-2a6c7e9f0a11",
+  "turns": 5,
+  "result": "{\"status\":\"done\",\"outcome\":\"pr-opened\",\"summary\":\"opened acme/docs#13\",\"data\":{\"prs\":[\"acme/docs#13\"]}}",
+  "failed": false,
+  "lastError": "",
+  "limit": "",
+  "fatal": "",
+  "stopped": false
+}

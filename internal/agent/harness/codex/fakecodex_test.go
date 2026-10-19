@@ -13,13 +13,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
-	"github.com/compliance-framework/factory/internal/agent/harness"
 )
 
 // The test binary doubles as a fake codex (never the real one), as the child process a fake
@@ -273,36 +271,4 @@ func fakeExec(dir string, plan fakePlan, args []string) int {
 		select {}
 	}
 	return run.Exit
-}
-
-// recSink records what a run reported; safe for concurrent use.
-type recSink struct {
-	mu       sync.Mutex
-	progress []harness.ProgressEvent
-	usage    []harness.UsageDelta
-	limits   []time.Time
-	// onLimit runs on RateLimited (the pipeline cancels the run there).
-	onLimit func()
-}
-
-func (s *recSink) Progress(e harness.ProgressEvent) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.progress = append(s.progress, e)
-}
-
-func (s *recSink) Usage(u harness.UsageDelta) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.usage = append(s.usage, u)
-}
-
-func (s *recSink) RateLimited(until time.Time) {
-	s.mu.Lock()
-	s.limits = append(s.limits, until)
-	f := s.onLimit
-	s.mu.Unlock()
-	if f != nil {
-		f()
-	}
 }

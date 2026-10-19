@@ -88,14 +88,3 @@ func TestProbeEnv(t *testing.T) {
 		t.Errorf("probe env %q", env)
 	}
 }
-
-func TestCompareVersions(t *testing.T) {
-	for _, tt := range []struct {
-		a, b string
-		want int
-	}{{"0.72.0", "0.72.0", 0}, {"0.80.1", "0.72.0", 1}, {"0.9.0", "0.72.0", -1}, {"1.0.0", "0.99.99", 1}} {
-		if got := compareVersions(tt.a, tt.b); got != tt.want {
-			t.Errorf("compareVersions(%s, %s) = %d", tt.a, tt.b, got)
-		}
-	}
-}

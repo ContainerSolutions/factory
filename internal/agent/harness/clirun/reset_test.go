@@ -1,4 +1,4 @@
-package codex
+package clirun
 
 import (
 	"testing"
@@ -21,6 +21,8 @@ func TestResetTime(t *testing.T) {
 		{"at a time today", "", "You've hit your usage limit. Try again at 3:05 PM.", time.Date(2026, 10, 19, 15, 5, 0, 0, time.UTC)},
 		{"at a time tomorrow", "", "You've hit your usage limit. Try again at 9:00 AM.", time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)},
 		{"at a date", "", "You've hit your usage limit. Try again at Oct 21st, 2026 3:05 PM.", time.Date(2026, 10, 21, 15, 5, 0, 0, time.UTC)},
+		{"at a lower-case time", "", "usage limit, resets at 3pm", time.Date(2026, 10, 19, 15, 0, 0, 0, time.UTC)},
+		{"at a date without a year", "", "usage limit. Try again at oct 21 at 9:30am.", time.Date(2026, 10, 21, 9, 30, 0, 0, time.UTC)},
 		{"at RFC 3339", "", "usage limit; try again at 2026-10-19T18:00:00Z", time.Date(2026, 10, 19, 18, 0, 0, 0, time.UTC)},
 		{"resets_in_seconds", `{"type":"error","error":{"resets_in_seconds":600}}`, "usage limit", now.Add(10 * time.Minute)},
 		{"resets_at unix", `{"error":{"info":[{"resets_at":1792440000}]}}`, "usage limit", time.Unix(1792440000, 0)},
@@ -30,24 +32,33 @@ func TestResetTime(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := resetTime([]byte(tt.raw), tt.msg, now, def); !got.Equal(tt.want) {
-				t.Errorf("resetTime = %s, want %s", got, tt.want)
+			if got := ResetTime([]byte(tt.raw), tt.msg, now, def); !got.Equal(tt.want) {
+				t.Errorf("ResetTime = %s, want %s", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestIsRateLimit(t *testing.T) {
-	for msg, want := range map[string]bool{
-		"You've hit your usage limit.":                             true,
-		"exceeded retry limit, last status: 429 Too Many Requests": true,
-		"Rate limit reached for requests":                          true,
-		"insufficient_quota":                                       true,
-		"stream disconnected before completion":                    false,
-		"command failed with exit code 1":                          false,
-	} {
-		if got := isRateLimit(msg); got != want {
-			t.Errorf("isRateLimit(%q) = %v", msg, got)
+func TestParseAt(t *testing.T) {
+	now := time.Date(2026, 12, 30, 14, 30, 0, 0, time.UTC)
+	tests := []struct {
+		in   string
+		want time.Time
+	}{
+		{"3pm", time.Date(2026, 12, 30, 15, 0, 0, 0, time.UTC)},
+		{"2 PM", time.Date(2026, 12, 31, 14, 0, 0, 0, time.UTC)},
+		{"14:45", time.Date(2026, 12, 30, 14, 45, 0, 0, time.UTC)},
+		{"Jan 2, 9am", time.Date(2027, 1, 2, 9, 0, 0, 0, time.UTC)},
+		{"Dec 31 at 1:15 pm", time.Date(2026, 12, 31, 13, 15, 0, 0, time.UTC)},
+		{"Oct 21st, 2026 3:05 PM", time.Date(2026, 10, 21, 15, 5, 0, 0, time.UTC)},
+	}
+	for _, tt := range tests {
+		got, ok := ParseAt(tt.in, now)
+		if !ok || !got.Equal(tt.want) {
+			t.Errorf("ParseAt(%q) = %s, %v; want %s", tt.in, got, ok, tt.want)
 		}
+	}
+	if _, ok := ParseAt("whenever", now); ok {
+		t.Error("ParseAt(whenever) parsed")
 	}
 }

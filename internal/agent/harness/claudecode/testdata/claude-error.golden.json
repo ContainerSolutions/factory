@@ -1,0 +1,32 @@
+{
+  "progress": [
+    {
+      "kind": "turn",
+      "summary": "turn 1"
+    },
+    {
+      "kind": "message",
+      "summary": "Checking the build."
+    },
+    {
+      "kind": "error",
+      "summary": "Connection error.; stream ended without a message_stop"
+    }
+  ],
+  "usage": [
+    {
+      "InputTokens": 1003,
+      "OutputTokens": 8,
+      "CostUSD": null
+    }
+  ],
+  "rateLimited": null,
+  "sessionId": "5d3b1f0e-8c2a-4e57-9b1d-2a6c7e9f0a11",
+  "turns": 1,
+  "result": "Checking the build.",
+  "failed": true,
+  "lastError": "Connection error.; stream ended without a message_stop",
+  "limit": "",
+  "fatal": "",
+  "stopped": false
+}

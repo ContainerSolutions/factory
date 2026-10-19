@@ -1,0 +1,42 @@
+{
+  "progress": [
+    {
+      "kind": "message",
+      "summary": "nearing the usage limit (five_hour)"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 1"
+    },
+    {
+      "kind": "tool",
+      "summary": "read /w/tsk_1/repo/README.md"
+    },
+    {
+      "kind": "error",
+      "summary": "usage limit reached (five_hour)"
+    },
+    {
+      "kind": "error",
+      "summary": "5-hour limit reached ∙ resets 1:30pm"
+    }
+  ],
+  "usage": [
+    {
+      "InputTokens": 3004,
+      "OutputTokens": 25,
+      "CostUSD": null
+    }
+  ],
+  "rateLimited": [
+    "2026-10-19T13:30:00Z"
+  ],
+  "sessionId": "5d3b1f0e-8c2a-4e57-9b1d-2a6c7e9f0a11",
+  "turns": 1,
+  "result": "5-hour limit reached ∙ resets 1:30pm",
+  "failed": true,
+  "lastError": "5-hour limit reached ∙ resets 1:30pm",
+  "limit": "",
+  "fatal": "",
+  "stopped": false
+}

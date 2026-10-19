@@ -8,10 +8,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/compliance-framework/factory/internal/agent/harness/clirun"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
@@ -27,12 +27,6 @@ const (
 	// lastMessageFile is where codex writes the final message (--output-last-message).
 	lastMessageFile = "factory-last-message.json"
 )
-
-// mcpServer is the Effector's MCP server in config.toml: the workspace's `factory` CLI
-// (`factory-agent fx`) with mcpArgs, i.e. `factory-agent fx mcp` (AGT-S1-T05).
-const mcpServer = "factory"
-
-var mcpArgs = []string{"mcp"}
 
 // codexHome is the run's scratch CODEX_HOME.
 func codexHome(ws harness.Workspace) string { return filepath.Join(ws.Home, homeDir) }
@@ -100,26 +94,11 @@ func renderConfig(ws harness.Workspace, cache string) string {
 	b.WriteString("\n[" + tableShellEnv + "]\n")
 	line(keyInherit, tomlString("all"))
 	line(keyIgnoreExcludes, "true")
-	b.WriteString("\n[" + tableMCPServers + "." + mcpServer + "]\n")
-	line(keyMCPCommand, tomlString(filepath.Join(ws.Bin, "factory")))
-	line(keyMCPArgs, tomlList(mcpArgs))
-	line(keyMCPEnvVars, tomlList(envNames(ws.Env)))
+	b.WriteString("\n[" + tableMCPServers + "." + clirun.EffectorServer + "]\n")
+	line(keyMCPCommand, tomlString(clirun.FactoryCLI(ws)))
+	line(keyMCPArgs, tomlList(clirun.EffectorArgs()))
+	line(keyMCPEnvVars, tomlList(clirun.EnvNames(ws.Env)))
 	return b.String()
-}
-
-// envNames are the variable names in env, sorted and unique.
-func envNames(env []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, kv := range env {
-		k, _, _ := strings.Cut(kv, "=")
-		if k != "" && !seen[k] {
-			seen[k] = true
-			out = append(out, k)
-		}
-	}
-	sort.Strings(out)
-	return out
 }
 
 // flattenSkills copies each skill folder to dst/<name>/ (codex's layout). Two plugins'

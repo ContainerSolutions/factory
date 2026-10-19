@@ -1,13 +1,13 @@
 //go:build !unix
 
-package codex
+package clirun
 
 import (
 	"os"
 	"os/exec"
 )
 
-// Without process groups only codex itself is signalled.
+// Without process groups only the harness itself is signalled.
 
 func inOwnGroup(*exec.Cmd) {}
 

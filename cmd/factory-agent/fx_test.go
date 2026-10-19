@@ -57,8 +57,39 @@ func TestNewRunnerBuildsThePipeline(t *testing.T) {
 	if _, ok := r.(*pipeline.Pipeline); !ok {
 		t.Errorf("newRunner = %T, want the pipeline", r)
 	}
-	cfg.Harnesses["claude-code"] = config.Harness{Models: []string{"m"}}
-	if _, err := newRunner(cfg, runnerOptions{}); err == nil || !strings.Contains(err.Error(), "claude-code") {
+	cfg.Harnesses["aider"] = config.Harness{Models: []string{"m"}}
+	if _, err := newRunner(cfg, runnerOptions{}); err == nil || !strings.Contains(err.Error(), "no harness adapter for aider") {
 		t.Errorf("a harness without an adapter: %v", err)
+	}
+}
+
+func TestHarnessAdaptersRegistered(t *testing.T) {
+	for _, name := range config.Harnesses() {
+		mk, ok := harnessAdapters[name]
+		if !ok {
+			t.Errorf("no adapter registered for %s", name)
+			continue
+		}
+		if got := mk(config.Harness{}).Name(); got != name {
+			t.Errorf("the %s adapter is named %s", name, got)
+		}
+	}
+}
+
+func TestFxClaudeHook(t *testing.T) {
+	out := t.TempDir()
+	call := func(input string) (int, string) {
+		var stdout, stderr bytes.Buffer
+		code := runFx(context.Background(), []string{"claude-hook", "pre-tool-use", "--write", out}, strings.NewReader(input), &stdout, &stderr, func(string) string { return "" })
+		return code, stderr.String()
+	}
+	if code, msg := call(`{"tool_name":"Write","tool_input":{"file_path":"` + filepath.Join(out, "result.json") + `"}}`); code != 0 {
+		t.Errorf("a write in out/ = %d %q", code, msg)
+	}
+	if code, msg := call(`{"tool_name":"Write","tool_input":{"file_path":"/etc/passwd"}}`); code != 2 || !strings.Contains(msg, "may write only under") {
+		t.Errorf("a write outside = %d %q", code, msg)
+	}
+	if code, msg := call(`{"tool_name":"Bash","tool_input":{"command":"git push origin HEAD"}}`); code != 2 || !strings.Contains(msg, "factory push") {
+		t.Errorf("git push = %d %q", code, msg)
 	}
 }

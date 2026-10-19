@@ -1,0 +1,38 @@
+{
+  "progress": [
+    {
+      "kind": "turn",
+      "summary": "turn 1"
+    },
+    {
+      "kind": "message",
+      "summary": "Let me start."
+    },
+    {
+      "kind": "error",
+      "summary": "Claude AI usage limit reached|1792418700"
+    },
+    {
+      "kind": "error",
+      "summary": "Claude AI usage limit reached|1792418700"
+    }
+  ],
+  "usage": [
+    {
+      "InputTokens": 4003,
+      "OutputTokens": 10,
+      "CostUSD": null
+    }
+  ],
+  "rateLimited": [
+    "2026-10-19T14:05:00Z"
+  ],
+  "sessionId": "5d3b1f0e-8c2a-4e57-9b1d-2a6c7e9f0a11",
+  "turns": 1,
+  "result": "Claude AI usage limit reached|1792418700",
+  "failed": true,
+  "lastError": "Claude AI usage limit reached|1792418700",
+  "limit": "",
+  "fatal": "",
+  "stopped": false
+}
