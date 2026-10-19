@@ -1,0 +1,88 @@
+{
+  "action": "published",
+  "repository": {
+    "id": 698112233,
+    "node_id": "R_kgDOKm698112233",
+    "name": "api",
+    "full_name": "compliance-framework/api",
+    "private": false,
+    "owner": {
+      "login": "compliance-framework",
+      "id": 152837014,
+      "node_id": "U_kgDO152837014",
+      "avatar_url": "https://avatars.githubusercontent.com/u/152837014?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/compliance-framework",
+      "html_url": "https://github.com/compliance-framework",
+      "type": "Organization",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "html_url": "https://github.com/compliance-framework/api",
+    "description": null,
+    "fork": false,
+    "url": "https://api.github.com/repos/compliance-framework/api",
+    "created_at": "2023-11-20T10:02:11Z",
+    "updated_at": "2026-10-15T08:00:00Z",
+    "pushed_at": "2026-10-16T10:58:00Z",
+    "default_branch": "main",
+    "visibility": "public",
+    "topics": [],
+    "archived": false
+  },
+  "organization": {
+    "login": "compliance-framework",
+    "id": 152837014,
+    "node_id": "O_kgDOCRwPlg",
+    "url": "https://api.github.com/orgs/compliance-framework",
+    "repos_url": "https://api.github.com/orgs/compliance-framework/repos",
+    "avatar_url": "https://avatars.githubusercontent.com/u/152837014?v=4",
+    "description": "Continuous Compliance Framework"
+  },
+  "sender": {
+    "login": "ccf-release-bot[bot]",
+    "id": 189000303,
+    "node_id": "U_kgDO189000303",
+    "avatar_url": "https://avatars.githubusercontent.com/u/189000303?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/ccf-release-bot[bot]",
+    "html_url": "https://github.com/ccf-release-bot",
+    "type": "Bot",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "installation": {
+    "id": 61234567,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uNjEyMzQ1Njc="
+  },
+  "release": {
+    "url": "https://api.github.com/repos/compliance-framework/api/releases/180000001",
+    "html_url": "https://github.com/compliance-framework/api/releases/tag/v1.4.0",
+    "id": 180000001,
+    "author": {
+      "login": "ccf-release-bot[bot]",
+      "id": 189000303,
+      "node_id": "U_kgDO189000303",
+      "avatar_url": "https://avatars.githubusercontent.com/u/189000303?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/ccf-release-bot[bot]",
+      "html_url": "https://github.com/ccf-release-bot",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "node_id": "RE_kwDOKm180000001",
+    "tag_name": "v1.4.0",
+    "target_commitish": "main",
+    "name": "v1.4.0",
+    "draft": false,
+    "immutable": false,
+    "prerelease": false,
+    "created_at": "2026-10-16T10:58:00Z",
+    "published_at": "2026-10-16T11:00:00Z",
+    "assets": [],
+    "tarball_url": "https://api.github.com/repos/compliance-framework/api/tarball/v1.4.0",
+    "zipball_url": "https://api.github.com/repos/compliance-framework/api/zipball/v1.4.0",
+    "body": "## What's Changed\n* feat: faster evidence ingestion by @alice in #401"
+  }
+}

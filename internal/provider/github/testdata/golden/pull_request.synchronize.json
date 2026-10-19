@@ -1,0 +1,34 @@
+[
+  {
+    "kind": "Event",
+    "id": "gh-pull_request-synchronize/0",
+    "source": "github-public",
+    "type": "pr.updated",
+    "subject": "compliance-framework/docs#57",
+    "time": "2026-10-16T11:00:00Z",
+    "data": {
+      "provider": "github-public",
+      "actor": {
+        "id": "github-public:ccf-factory[bot]",
+        "tier": "anyone",
+        "isBot": true,
+        "isFactory": true,
+        "identity": "author"
+      },
+      "object": {
+        "provider": "github-public",
+        "kind": "pr",
+        "ref": "compliance-framework/docs#57"
+      },
+      "repo": "compliance-framework/docs",
+      "contentRef": "github://compliance-framework/docs/pull/57#body",
+      "facts": {
+        "pr": {
+          "base": "main",
+          "draft": false,
+          "head": "d00dd00dd00dd00dd00dd00dd00dd00dd00dd00d"
+        }
+      }
+    }
+  }
+]

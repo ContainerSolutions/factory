@@ -1,0 +1,37 @@
+[
+  {
+    "kind": "Event",
+    "id": "gh-release-published-component/0",
+    "source": "github-public",
+    "type": "release.published",
+    "subject": "compliance-framework/helm-charts#ccf-v3.0.0",
+    "time": "2026-10-16T11:00:00Z",
+    "data": {
+      "provider": "github-public",
+      "actor": {
+        "id": "github-public:ccf-release-bot[bot]",
+        "tier": "bot",
+        "isBot": true
+      },
+      "object": {
+        "provider": "github-public",
+        "kind": "release",
+        "ref": "compliance-framework/helm-charts#ccf-v3.0.0"
+      },
+      "repo": "compliance-framework/helm-charts",
+      "facts": {
+        "release": {
+          "previousTag": "ccf-v2.1.0",
+          "semver": {
+            "bump": "major",
+            "major": 3,
+            "minor": 0,
+            "patch": 0,
+            "prerelease": false
+          },
+          "tag": "ccf-v3.0.0"
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,29 @@
+[
+  {
+    "kind": "Event",
+    "id": "gh-release-published-not-semver/0",
+    "source": "github-public",
+    "type": "release.published",
+    "subject": "compliance-framework/api#nightly-2026-10-16",
+    "time": "2026-10-16T11:00:00Z",
+    "data": {
+      "provider": "github-public",
+      "actor": {
+        "id": "github-public:ccf-release-bot[bot]",
+        "tier": "bot",
+        "isBot": true
+      },
+      "object": {
+        "provider": "github-public",
+        "kind": "release",
+        "ref": "compliance-framework/api#nightly-2026-10-16"
+      },
+      "repo": "compliance-framework/api",
+      "facts": {
+        "release": {
+          "tag": "nightly-2026-10-16"
+        }
+      }
+    }
+  }
+]

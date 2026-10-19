@@ -1,0 +1,20 @@
+{
+  "zen": "Keep it logically awesome.",
+  "hook_id": 512345678,
+  "hook": {
+    "type": "App",
+    "id": 512345678,
+    "name": "web",
+    "active": true,
+    "events": [
+      "issues",
+      "pull_request"
+    ],
+    "config": {
+      "content_type": "json",
+      "insecure_ssl": "0",
+      "url": "https://factory.example/hooks/github-public"
+    },
+    "app_id": 101
+  }
+}

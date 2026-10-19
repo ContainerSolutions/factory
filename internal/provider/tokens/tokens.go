@@ -88,6 +88,9 @@ type Minter struct {
 	host     string
 	instTTL  time.Duration
 	idents   map[string]*identity
+	// plain makes the calls authenticated with an installation token (Get); like the App
+	// clients, it never follows a redirect, so a token can't leave APIURL.
+	plain *http.Client
 
 	mu     sync.Mutex
 	tokens map[string]cachedToken   // by tokenKey
@@ -162,6 +165,7 @@ func New(identities map[string]Identity, opts Options) (*Minter, error) {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
+	m.plain = &http.Client{Transport: tr, Timeout: timeout, CheckRedirect: noRedirect}
 	for _, name := range slices.Sorted(maps.Keys(identities)) {
 		id := identities[name]
 		if name == "" {
@@ -183,12 +187,14 @@ func New(identities map[string]Identity, opts Options) (*Minter, error) {
 				Transport: apps,
 				Timeout:   timeout,
 				// Never follow a redirect: the App transport would sign the next hop too.
-				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+				CheckRedirect: noRedirect,
 			},
 		}
 	}
 	return m, nil
 }
+
+func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 // HostForAPI is the git host of a REST API base: github.com for api.github.com, the GHE host
 // otherwise.
@@ -335,7 +341,17 @@ func (m *Minter) mint(ctx context.Context, id *identity, sc scope) (cachedToken,
 // installation returns the identity's installation on the repo's owner, from the cache when
 // it is younger than InstallationTTL; fresh is true when it was just looked up.
 func (m *Minter) installation(ctx context.Context, id *identity, sc scope) (cachedInstall, bool, error) {
-	key := installKey(id.name, sc.owner)
+	return m.installationFor(ctx, id, sc.owner, func() (cachedInstall, error) {
+		return m.findInstallation(ctx, id, sc.owner, sc.name)
+	})
+}
+
+// installationFor returns the identity's installation on owner, from the cache when it is
+// younger than InstallationTTL, else through find (shared by concurrent callers); fresh is
+// true when it was just looked up. An account has one installation per App, so the repo and
+// org lookups share the cache.
+func (m *Minter) installationFor(ctx context.Context, id *identity, owner string, find func() (cachedInstall, error)) (cachedInstall, bool, error) {
+	key := installKey(id.name, owner)
 	m.mu.Lock()
 	inst, ok := m.insts[key]
 	m.mu.Unlock()
@@ -344,7 +360,7 @@ func (m *Minter) installation(ctx context.Context, id *identity, sc scope) (cach
 	}
 	for {
 		inst, retry, err := m.lookup.do(ctx, &m.mu, key, func() (cachedInstall, error) {
-			inst, err := m.findInstallation(ctx, id, sc.owner, sc.name)
+			inst, err := find()
 			if err != nil {
 				return cachedInstall{}, err
 			}
@@ -369,20 +385,8 @@ func (m *Minter) forgetInstallation(id *identity, owner string) {
 // CheckApp authenticates as the identity's App (GET /app): it proves the App ID, the private
 // key and GitHub's reachability, without minting a token.
 func (m *Minter) CheckApp(ctx context.Context, identityName string) error {
-	id, ok := m.idents[identityName]
-	if !ok {
-		return fmt.Errorf("check app: unknown identity %q: %w", identityName, provider.ErrInvalid)
-	}
-	var app struct {
-		ID int64 `json:"id"`
-	}
-	if err := m.call(ctx, id, http.MethodGet, "app", nil, http.StatusOK, &app, "get app"); err != nil {
-		return fmt.Errorf("check app for %s: %w", identityName, err)
-	}
-	if app.ID != id.appID {
-		return fmt.Errorf("check app for %s: GitHub answered for app %d, want %d", identityName, app.ID, id.appID)
-	}
-	return nil
+	_, err := m.App(ctx, identityName)
+	return err
 }
 
 // ---- scope ----------------------------------------------------------------------------------

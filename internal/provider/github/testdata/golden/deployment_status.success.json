@@ -1,0 +1,60 @@
+[
+  {
+    "kind": "Event",
+    "id": "gh-deployment_status-success/0",
+    "source": "github-public",
+    "type": "deploy.succeeded",
+    "subject": "compliance-framework/docs#90",
+    "time": "2026-10-16T11:00:00Z",
+    "data": {
+      "provider": "github-public",
+      "actor": {
+        "id": "github-public:github-actions[bot]",
+        "tier": "anyone",
+        "isBot": true
+      },
+      "object": {
+        "provider": "github-public",
+        "kind": "pr",
+        "ref": "compliance-framework/docs#90"
+      },
+      "repo": "compliance-framework/docs",
+      "facts": {
+        "deploy": {
+          "environment": "github-pages",
+          "sha": "abc123abc123abc123abc123abc123abc123abc1",
+          "url": "https://compliance-framework.github.io/docs/"
+        }
+      }
+    }
+  },
+  {
+    "kind": "Event",
+    "id": "gh-deployment_status-success/1",
+    "source": "github-public",
+    "type": "deploy.succeeded",
+    "subject": "compliance-framework/docs#91",
+    "time": "2026-10-16T11:00:00Z",
+    "data": {
+      "provider": "github-public",
+      "actor": {
+        "id": "github-public:github-actions[bot]",
+        "tier": "anyone",
+        "isBot": true
+      },
+      "object": {
+        "provider": "github-public",
+        "kind": "pr",
+        "ref": "compliance-framework/docs#91"
+      },
+      "repo": "compliance-framework/docs",
+      "facts": {
+        "deploy": {
+          "environment": "github-pages",
+          "sha": "abc123abc123abc123abc123abc123abc123abc1",
+          "url": "https://compliance-framework.github.io/docs/"
+        }
+      }
+    }
+  }
+]

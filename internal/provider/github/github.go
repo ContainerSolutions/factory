@@ -36,9 +36,16 @@ type Options struct {
 	Clock clock.Clock
 	// Logger gets the adapter's logs (default: discarded). Tokens are never logged.
 	Logger *slog.Logger
-	// Groups resolves the catalog Groups named by trust rules (used from GH-S1-T02).
+	// Groups resolves the catalog Groups named by trust rules; nil means group rules never
+	// match.
 	Groups provider.GroupLookup
+	// TrainRepos are the repos ("owner/name") whose closed issues carry a release train's
+	// state, read by the ccf-train extractor (default DefaultTrainRepos).
+	TrainRepos []string
 }
+
+// DefaultTrainRepos is where CCF's release train keeps its tracking issues.
+var DefaultTrainRepos = []string{"compliance-framework/workflows"}
 
 // Adapter connects Provider objects of type github.
 type Adapter struct {
@@ -55,15 +62,19 @@ func NewAdapter(opts Options) *Adapter {
 	if opts.Logger == nil {
 		opts.Logger = slog.New(slog.DiscardHandler)
 	}
+	if opts.TrainRepos == nil {
+		opts.TrainRepos = DefaultTrainRepos
+	}
+	opts.TrainRepos = slices.Clone(opts.TrainRepos)
 	return &Adapter{opts: opts}
 }
 
 // Type implements provider.Adapter.
 func (a *Adapter) Type() string { return Type }
 
-// Connect implements provider.Adapter. It resolves every identity's private key through
-// secrets and parses it, so a missing secret or a bad key fails here; it makes no GitHub call
-// (CheckHealth does).
+// Connect implements provider.Adapter. It resolves the webhook secret and every identity's
+// private key through secrets and parses the keys, so a missing secret or a bad key fails
+// here; it makes no GitHub call (CheckHealth does).
 func (a *Adapter) Connect(ctx context.Context, p v1alpha1.Provider, secrets provider.SecretResolver) (provider.Conn, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -82,6 +93,17 @@ func (a *Adapter) Connect(ctx context.Context, p v1alpha1.Provider, secrets prov
 		return nil, fmt.Errorf("github: connect %q: no secret resolver: %w", name, provider.ErrInvalid)
 	}
 	spec := p.Spec.GitHub
+	hook := spec.Webhook.SecretRef
+	if hook.Name == "" || hook.Key == "" {
+		return nil, fmt.Errorf("github: connect %q: webhook secretRef needs name and key: %w", name, provider.ErrInvalid)
+	}
+	webhookSecret, err := secrets.Resolve(ctx, hook)
+	if err != nil {
+		return nil, fmt.Errorf("github: connect %q: resolve webhook secret %s/%s: %w", name, hook.Name, hook.Key, err)
+	}
+	if len(webhookSecret) == 0 {
+		return nil, fmt.Errorf("github: connect %q: webhook secret %s/%s is empty: %w", name, hook.Name, hook.Key, provider.ErrInvalid)
+	}
 	idents := make(map[string]tokens.Identity, len(spec.Identities))
 	for _, role := range slices.Sorted(maps.Keys(spec.Identities)) {
 		app := spec.Identities[role]
@@ -105,24 +127,49 @@ func (a *Adapter) Connect(ctx context.Context, p v1alpha1.Provider, secrets prov
 	if err != nil {
 		return nil, fmt.Errorf("github: connect %q: %w", name, err)
 	}
+	ids := minter.Identities()
+	readIdentity := ids[0]
+	if slices.Contains(ids, EventIdentity) {
+		readIdentity = EventIdentity
+	}
 	return &Conn{
-		name:   name,
-		minter: minter,
-		clock:  a.opts.Clock,
-		log:    a.opts.Logger.With("provider", name),
-		health: map[string]identityHealth{},
+		name:          name,
+		minter:        minter,
+		clock:         a.opts.Clock,
+		log:           a.opts.Logger.With("provider", name),
+		webhookSecret: webhookSecret,
+		trust:         slices.Clone(p.Spec.Trust),
+		groups:        a.opts.Groups,
+		trainRepos:    a.opts.TrainRepos,
+		readIdentity:  readIdentity,
+		health:        map[string]identityHealth{},
+		memberCache:   map[string]membersEntry{},
 	}, nil
 }
 
+// EventIdentity is the identity whose App is the event source (the only App with a webhook)
+// and holds the read permissions normalisation needs (members, contents, pull requests). When
+// a Provider has no such identity, its first identity by name is used.
+const EventIdentity = "author"
+
 // Conn is a connection to one GitHub Provider instance. It is safe for concurrent use.
 type Conn struct {
-	name   string
-	minter *tokens.Minter
-	clock  clock.Clock
-	log    *slog.Logger
+	name          string
+	minter        *tokens.Minter
+	clock         clock.Clock
+	log           *slog.Logger
+	webhookSecret []byte
+	trust         []v1alpha1.TrustRule
+	groups        provider.GroupLookup
+	trainRepos    []string
+	// readIdentity mints the tokens for the adapter's own reads (EventIdentity).
+	readIdentity string
 
 	mu     sync.Mutex
 	health map[string]identityHealth // by identity; absent until first checked
+	// bots maps the factory Apps' bot logins (lower-case) to identities; nil until learned.
+	bots        map[string]string
+	memberCache map[string]membersEntry // group member sources resolved for trust, by source key
 }
 
 var _ provider.Conn = (*Conn)(nil)
@@ -232,30 +279,6 @@ func healthReason(err error) string {
 }
 
 // ---- Not implemented yet ---------------------------------------------------------------------
-
-// Handler implements provider.Conn. TODO(GH-S1-T02): verify X-Hub-Signature-256 and accept
-// deliveries. Until then it answers 503, so GitHub redelivers.
-func (c *Conn) Handler(provider.IngressSink) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "github webhook ingress is not implemented yet", http.StatusServiceUnavailable)
-	})
-}
-
-// Recover implements provider.Conn. TODO(GH-S1-T02): re-ingest GET /app/hook/deliveries.
-func (c *Conn) Recover(context.Context, time.Time, provider.IngressSink) error {
-	return fmt.Errorf("github %s: recover: %w", c.name, provider.ErrUnsupported)
-}
-
-// Normalise implements provider.Conn. TODO(GH-S1-T02): the mapping table.
-func (c *Conn) Normalise(context.Context, provider.RawEvent) ([]v1alpha1.Event, error) {
-	return nil, fmt.Errorf("github %s: normalise: %w", c.name, provider.ErrUnsupported)
-}
-
-// ResolveGroup implements provider.Conn. TODO(GH-S1-T02): teams and org roles, with actor
-// tier resolution.
-func (c *Conn) ResolveGroup(context.Context, v1alpha1.GroupSource) ([]string, error) {
-	return nil, fmt.Errorf("github %s: resolve group: %w", c.name, provider.ErrUnsupported)
-}
 
 // Observe implements provider.Conn. TODO(GH-S1-T03): one GraphQL query per object.
 func (c *Conn) Observe(context.Context, v1alpha1.ObjectRef) (provider.Observation, error) {

@@ -1,7 +1,11 @@
 // Package githubtest is an httptest GitHub for the GitHub adapter's tests. It serves the App
-// endpoints the token minter uses (GET /app, GET /repos/{owner}/{repo}/installation and
-// POST /app/installations/{id}/access_tokens), verifies every App JWT against the App's public
-// key, records each request for assertions and can be made to fail.
+// endpoints the token minter uses (GET /app, GET /repos/{owner}/{repo}/installation,
+// GET /orgs/{org}/installation and POST /app/installations/{id}/access_tokens) and the webhook
+// deliveries (GET /app/hook/deliveries[/{id}]), verifying every App JWT against the App's
+// public key. With the installation tokens it minted, it serves org members and team members,
+// releases, closed pull requests and commit comparisons (api.go), checking that each token
+// covers the request: the repo and the permission for repo routes, members: read for org
+// routes. It records each request for assertions and can be made to fail.
 //
 // It is safe for concurrent use. Getters return copies.
 package githubtest
@@ -82,9 +86,17 @@ type Failure struct {
 
 // Routes, for FailNext and Count.
 const (
-	RouteApp          = "app"
-	RouteInstallation = "installation"
-	RouteAccessToken  = "access_tokens"
+	RouteApp             = "app"
+	RouteInstallation    = "installation"
+	RouteOrgInstallation = "org_installation"
+	RouteAccessToken     = "access_tokens"
+	RouteDeliveries      = "deliveries"
+	RouteDelivery        = "delivery"
+	RouteMembers         = "members"
+	RouteTeamMembers     = "team_members"
+	RouteReleases        = "releases"
+	RoutePulls           = "pulls"
+	RouteCompare         = "compare"
 )
 
 // Server is an httptest GitHub.
@@ -103,6 +115,25 @@ type Server struct {
 	seq           int
 	gate          chan struct{}
 	inFlight      int
+
+	slugs      map[int64]string
+	minted     map[string]mintedToken // by token value
+	pageSize   int
+	members    map[string]map[string]string // org (lower) → login → role
+	teams      map[string][]string          // "org/slug" (lower) → logins
+	releases   map[string][]Release         // repo (lower)
+	pulls      map[string][]PullRequest     // repo (lower)
+	ancestors  map[string]bool              // "repo\x00ancestor\x00descendant"
+	hooks      map[int64]bool               // apps with a webhook
+	deliveries map[int64][]Delivery         // by app, newest first
+}
+
+// mintedToken is what an installation token the server minted covers.
+type mintedToken struct {
+	installation Installation
+	repos        []string // names; empty for an org token
+	perms        map[string]string
+	expiresAt    time.Time
 }
 
 // NewServer starts a server stamping token expiry with c; it is closed with the test.
@@ -113,11 +144,24 @@ func NewServer(t testing.TB, c clock.Clock) *Server {
 		apps:     map[int64]*rsa.PublicKey{},
 		counts:   map[string]int{},
 		failures: map[string][]Failure{},
+
+		slugs:      map[int64]string{},
+		minted:     map[string]mintedToken{},
+		pageSize:   100,
+		members:    map[string]map[string]string{},
+		teams:      map[string][]string{},
+		releases:   map[string][]Release{},
+		pulls:      map[string][]PullRequest{},
+		ancestors:  map[string]bool{},
+		hooks:      map[int64]bool{},
+		deliveries: map[int64][]Delivery{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /app", s.handleApp)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/installation", s.handleInstallation)
+	mux.HandleFunc("GET /orgs/{org}/installation", s.handleOrgInstallation)
 	mux.HandleFunc("POST /app/installations/{id}/access_tokens", s.handleAccessToken)
+	s.routeAPI(mux)
 	s.Server = httptest.NewServer(mux)
 	t.Cleanup(s.Close)
 	return s
@@ -268,7 +312,42 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": appID, "slug": fmt.Sprintf("app-%d", appID)})
+	s.mu.Lock()
+	slug, ok := s.slugs[appID]
+	s.mu.Unlock()
+	if !ok {
+		slug = fmt.Sprintf("app-%d", appID)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": appID, "slug": slug})
+}
+
+// SetSlug sets an App's slug (default "app-<id>"): it acts as "<slug>[bot]".
+func (s *Server) SetSlug(appID int64, slug string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.slugs[appID] = slug
+}
+
+func (s *Server) handleOrgInstallation(w http.ResponseWriter, r *http.Request) {
+	appID, _, ok := s.begin(w, r, RouteOrgInstallation)
+	if !ok {
+		return
+	}
+	org := r.PathValue("org")
+	s.mu.Lock()
+	in, found := s.findLocked(func(in Installation) bool { return in.AppID == appID && strings.EqualFold(in.Owner, org) })
+	s.mu.Unlock()
+	if !found {
+		writeError(w, http.StatusNotFound, "Not Found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":                   in.ID,
+		"account":              map[string]any{"login": in.Owner},
+		"app_id":               in.AppID,
+		"permissions":          in.Permissions,
+		"repository_selection": selection(in),
+	})
 }
 
 func (s *Server) handleInstallation(w http.ResponseWriter, r *http.Request) {
@@ -365,6 +444,10 @@ func (s *Server) handleAccessToken(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.seq++
 	tok := tokenValue(s.seq)
+	s.minted[tok] = mintedToken{
+		installation: in, repos: slices.Clone(req.Repositories), perms: maps.Clone(perms),
+		expiresAt: s.clock.Now().Add(TokenTTL),
+	}
 	s.mu.Unlock()
 	resp := map[string]any{
 		"token":                tok,

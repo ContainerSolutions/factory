@@ -1,0 +1,31 @@
+[
+  {
+    "kind": "Event",
+    "id": "gh-pull_request-ready_for_review/0",
+    "source": "github-public",
+    "type": "pr.ready_for_review",
+    "subject": "compliance-framework/docs#88",
+    "time": "2026-10-16T11:00:00Z",
+    "data": {
+      "provider": "github-public",
+      "actor": {
+        "id": "github-public:carol",
+        "tier": "contributor"
+      },
+      "object": {
+        "provider": "github-public",
+        "kind": "pr",
+        "ref": "compliance-framework/docs#88"
+      },
+      "repo": "compliance-framework/docs",
+      "contentRef": "github://compliance-framework/docs/pull/88#body",
+      "facts": {
+        "pr": {
+          "base": "main",
+          "draft": false,
+          "head": "c4r01c4r01c4r01c4r01c4r01c4r01c4r01c4r0"
+        }
+      }
+    }
+  }
+]
