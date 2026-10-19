@@ -1,0 +1,7 @@
+lisa-design:
+- Owner decision: Claude Code always runs in its OS sandbox (sandbox.enabled, allowUnsandboxedCommands=false), writes only to writable roots/out/tmp/scratch home, network only to the git host, its API/raw hosts, the dispatcher and api.anthropic.com, unix sockets only the credential helper's; reads of the owner's credential paths denied; no unsandboxed fallback (Probe drops the harness, Prepare refuses).
+- CLAUDE_CONFIG_DIR is the owner's dedicated dir (macOS Keychain is keyed by path, can't be linked); isolation via --setting-sources user, --settings with enabledPlugins {}, --strict-mcp-config, skills only via --plugin-dir.
+- PreToolUse hook (factory-agent fx claude-hook) as a second layer, fails closed: blocks writes outside writable roots and git push / gh writes in every workspace (the LLD's gh pattern would block review reads).
+- bypassPermissions in both modes (nobody can answer prompts; acceptEdits denies Bash); read-only adds --disallowedTools Write,Edit,MultiEdit,NotebookEdit.
+- Shared helpers extracted from codex into harness/clirun (+ harnesstest for tests); codex behaviour unchanged.
+- All flags/keys UNVERIFIED (make smoke-claude, gated, never run here).
