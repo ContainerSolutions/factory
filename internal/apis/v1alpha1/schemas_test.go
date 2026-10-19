@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"bytes"
+	"encoding/json"
 	"testing"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -23,6 +24,40 @@ func TestSchemasDeterministic(t *testing.T) {
 		if !bytes.Equal(a[name], b[name]) {
 			t.Errorf("%s differs between runs", name)
 		}
+	}
+}
+
+// mapFields is a struct with each kind of map the reflector handles.
+type mapFields struct {
+	Free   map[string]any            `json:"free"`
+	Typed  map[string]string         `json:"typed"`
+	Nested map[string]map[string]any `json:"nested"`
+}
+
+// TestReflectorMaps checks that a free-form map is an open object (code generators read an
+// object with no additionalProperties as one with no properties at all) and that a typed
+// map carries its value's schema.
+func TestReflectorMaps(t *testing.T) {
+	s := NewReflector().Reflect(&mapFields{})
+	tests := []struct{ field, want string }{
+		{"free", `{"additionalProperties":true,"type":"object"}`},
+		{"typed", `{"additionalProperties":{"type":"string"},"type":"object"}`},
+		{"nested", `{"additionalProperties":{"additionalProperties":true,"type":"object"},"type":"object"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.field, func(t *testing.T) {
+			p, ok := s.Properties.Get(tt.field)
+			if !ok {
+				t.Fatalf("no property %s", tt.field)
+			}
+			b, err := json.Marshal(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(b) != tt.want {
+				t.Errorf("got %s, want %s", b, tt.want)
+			}
+		})
 	}
 }
 

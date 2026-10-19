@@ -60,14 +60,28 @@ func reflectSchema(v any) *jsonschema.Schema { return NewReflector().Reflect(v) 
 
 // NewReflector returns the JSON Schema reflector Schemas uses: anonymous (no $id), the root
 // struct expanded, other named types under $defs, generic types named without their package
-// paths (ExprOr[…v1alpha1.HarnessRequest] → ExprOrHarnessRequest). Other generators (the
-// OpenAPI components in api/) use it so their schemas match these.
+// paths (ExprOr[…v1alpha1.HarnessRequest] → ExprOrHarnessRequest), free-form maps open
+// (freeFormMap). Other generators (the OpenAPI components in api/) use it so their schemas
+// match these.
 func NewReflector() *jsonschema.Reflector {
 	return &jsonschema.Reflector{
 		Anonymous:      true,
 		ExpandedStruct: true,
 		Namer:          schemaTypeName,
+		Mapper:         freeFormMap,
 	}
+}
+
+// freeFormMap gives an unnamed string-keyed map of interface values (map[string]any) the
+// schema {type: object, additionalProperties: true}. The reflector leaves
+// additionalProperties unset for them, which code generators read as "no properties at all"
+// (openapi-typescript: Record<string, never>). Maps with typed values already get the
+// value's schema; every other type falls through (nil).
+func freeFormMap(t reflect.Type) *jsonschema.Schema {
+	if t.Kind() != reflect.Map || t.Name() != "" || t.Key().Kind() != reflect.String || t.Elem().Kind() != reflect.Interface {
+		return nil
+	}
+	return &jsonschema.Schema{Type: "object", AdditionalProperties: jsonschema.TrueSchema}
 }
 
 // enumSchema is a string enum of the given values, in order.

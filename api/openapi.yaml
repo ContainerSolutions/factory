@@ -1933,7 +1933,10 @@ components:
           enum: [dispatch, set, notify, cancel, link, effect, debounce, unsupported]
     EvaluationRail:
       type: object
-      description: A safety rail's verdict on an action (the rule engine's RailVerdict).
+      description: >-
+        A safety rail's verdict on an action, as the dry-run summarises it. This is a different view
+        from the stored RailVerdict (lowercase allowed, suppressed, deferred, unsupported): an
+        unsupported action shows as Suppressed, and the rail name is prefixed to the reason.
       required: [verdict]
       properties:
         verdict:
@@ -2042,6 +2045,7 @@ components:
         set:
           description: Set updates work-item state keys; values are literals or "=CEL".
           type: object
+          additionalProperties: true
         notify:
           $ref: '#/components/schemas/NotifyAction'
         requestApproval:
@@ -2399,6 +2403,7 @@ components:
         inputs:
           description: Inputs are the values `where` saw.
           type: object
+          additionalProperties: true
         rails:
           type: array
           items:
@@ -2461,6 +2466,7 @@ components:
         inputs:
           description: Inputs must match the TaskSpec's declared inputs.
           type: object
+          additionalProperties: true
         harness:
           $ref: '#/components/schemas/ExprOrHarnessRequest'
         requires:
@@ -2519,7 +2525,7 @@ components:
         target:
           description: 'Target is the object to act on: primary, a ref, or "=CEL".'
           type: string
-      additionalProperties: {}
+      additionalProperties: true
       not:
         required:
           - args
@@ -2586,6 +2592,7 @@ components:
           type: string
         request:
           type: object
+          additionalProperties: true
       additionalProperties: false
     EffectStatus:
       x-go-type: v1alpha1.EffectStatus
@@ -2693,6 +2700,7 @@ components:
           type: string
         facts:
           type: object
+          additionalProperties: true
         raw:
           description: Raw is the provider payload, kept for audit; never shown to rules.
       additionalProperties: false
@@ -3415,6 +3423,7 @@ components:
           type: string
         data:
           type: object
+          additionalProperties: true
       additionalProperties: false
     PromptRef:
       x-go-type: v1alpha1.PromptRef
@@ -3567,7 +3576,7 @@ components:
       x-go-type: v1alpha1.RailVerdict
       x-go-type-import:
         path: github.com/compliance-framework/factory/internal/apis/v1alpha1
-      description: RailVerdict is one safety rail's verdict on a decision.
+      description: RailVerdict is one safety rail's verdict on a decision as the work item stores it (lowercase, unsupported included); the dry-run API's EvaluationRail is a different view of it (Allowed, Suppressed or Deferred), where unsupported shows as Suppressed and the rail name is prefixed to the reason.
       type: object
       required:
         - rail
@@ -3576,7 +3585,13 @@ components:
         rail:
           type: string
         verdict:
+          description: Verdict is the stored verdict; the dry-run's EvaluationRail.verdict is its summary.
           type: string
+          enum:
+            - allowed
+            - suppressed
+            - deferred
+            - unsupported
         reason:
           type: string
       additionalProperties: false
@@ -3636,6 +3651,7 @@ components:
           type: string
         verdict:
           type: object
+          additionalProperties: true
         artifacts:
           type: array
           items:
@@ -3652,6 +3668,7 @@ components:
           $ref: '#/components/schemas/ResultHarness'
         data:
           type: object
+          additionalProperties: true
       additionalProperties: false
     ResultHarness:
       x-go-type: v1alpha1.ResultHarness
@@ -3790,9 +3807,11 @@ components:
           type: object
           additionalProperties:
             type: object
+            additionalProperties: true
         defaults:
           description: Defaults are params applied to every selected rule unless the rule overrides them.
           type: object
+          additionalProperties: true
         budget:
           $ref: '#/components/schemas/Budget'
         stateKeys:
@@ -3829,6 +3848,7 @@ components:
           type: string
         params:
           type: object
+          additionalProperties: true
         actions:
           type: array
           items:
@@ -4036,6 +4056,7 @@ components:
           type: string
         inputs:
           type: object
+          additionalProperties: true
       additionalProperties: false
     Target:
       x-go-type: v1alpha1.Target
@@ -4167,6 +4188,7 @@ components:
           $ref: '#/components/schemas/Target'
         inputs:
           type: object
+          additionalProperties: true
         harness:
           $ref: '#/components/schemas/TaskHarness'
         requires:
@@ -4454,6 +4476,7 @@ components:
       properties:
         state:
           type: object
+          additionalProperties: true
         counters:
           description: Counters are runs per task spec (derived).
           type: object

@@ -74,6 +74,7 @@
           "type": "string"
         },
         "inputs": {
+          "additionalProperties": true,
           "type": "object"
         }
       },
@@ -137,6 +138,7 @@
       "type": "string"
     },
     "verdict": {
+      "additionalProperties": true,
       "type": "object"
     },
     "artifacts": {
@@ -165,6 +167,7 @@
       "$ref": "#/$defs/ResultHarness"
     },
     "data": {
+      "additionalProperties": true,
       "type": "object"
     }
   },

@@ -109,11 +109,38 @@ type Decision struct {
 	Reason  string         `json:"reason,omitzero"`
 }
 
-// RailVerdict is one safety rail's verdict on a decision.
+// RailVerdict is one safety rail's verdict on a decision as the work item stores it
+// (lowercase, unsupported included); the dry-run API's EvaluationRail is a different view of
+// it (Allowed, Suppressed or Deferred), where unsupported shows as Suppressed and the rail
+// name is prefixed to the reason.
+//
+// Only the first sentence becomes the schema description, so it carries the mapping.
 type RailVerdict struct {
-	Rail    string `json:"rail"`
-	Verdict string `json:"verdict"`
-	Reason  string `json:"reason,omitzero"`
+	Rail string `json:"rail"`
+	// Verdict is the stored verdict; the dry-run's EvaluationRail.verdict is its summary.
+	Verdict RailVerdictValue `json:"verdict" jsonschema:"enum=allowed,enum=suppressed,enum=deferred,enum=unsupported"`
+	Reason  string           `json:"reason,omitzero"`
+}
+
+// RailVerdictValue is a stored rail verdict (RailVerdict.Verdict).
+type RailVerdictValue string
+
+// Rail verdicts.
+const (
+	// RailAllowed: the action is applied.
+	RailAllowed RailVerdictValue = "allowed"
+	// RailSuppressed: the action is not applied (kill switch, run cap, active run).
+	RailSuppressed RailVerdictValue = "suppressed"
+	// RailDeferred: the action is applied held back (budget: the Task is created Pending).
+	RailDeferred RailVerdictValue = "deferred"
+	// RailUnsupported: the engine doesn't support the action (requestApproval in the PoC); the
+	// rails are not consulted.
+	RailUnsupported RailVerdictValue = "unsupported"
+)
+
+// RailVerdictValues lists the rail verdicts, in the order of RailVerdict.Verdict's enum.
+func RailVerdictValues() []RailVerdictValue {
+	return []RailVerdictValue{RailAllowed, RailSuppressed, RailDeferred, RailUnsupported}
 }
 
 // ---- Task ----------------------------------------------------------------------------------

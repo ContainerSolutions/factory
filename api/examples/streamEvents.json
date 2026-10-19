@@ -179,7 +179,7 @@
             "rails": [
               {
                 "rail": "run-cap",
-                "verdict": "Allowed"
+                "verdict": "allowed"
               }
             ],
             "actions": [

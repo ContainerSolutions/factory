@@ -17,6 +17,10 @@ func TestConvert(t *testing.T) {
 		{"nullable ref", `{"oneOf": [{"$ref": "#/$defs/X"}, {"type": "null"}]}`, "nullable: true\nallOf:\n  - $ref: '#/components/schemas/X'\n"},
 		{"any", `{"properties": {"raw": true}, "propertyNames": {"enum": ["a"]}}`, "properties:\n  raw: {}\n"},
 		{"order", `{"required": ["a"], "type": "object", "description": "d"}`, "description: d\ntype: object\nrequired:\n  - a\n"},
+		{"free map", `{"type": "object", "additionalProperties": true}`, "type: object\nadditionalProperties: true\n"},
+		{"typed map", `{"type": "object", "additionalProperties": {"type": "string"}}`, "type: object\nadditionalProperties:\n  type: string\n"},
+		{"nested free map", `{"type": "object", "additionalProperties": {"type": "object", "additionalProperties": true}}`, "type: object\nadditionalProperties:\n  type: object\n  additionalProperties: true\n"},
+		{"closed object", `{"type": "object", "additionalProperties": false}`, "type: object\nadditionalProperties: false\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

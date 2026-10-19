@@ -6,7 +6,8 @@
 // Schema 2020-12 output to OpenAPI 3.0.3:
 //   - $ref #/$defs/X → #/components/schemas/X, one component per named v1alpha1 type;
 //   - const → a one-value enum; oneOf [T, null] → T with nullable: true;
-//   - propertyNames (not in 3.0) is dropped; boolean schemas become {};
+//   - propertyNames (not in 3.0) is dropped; boolean schemas become {}, except
+//     additionalProperties, which 3.0 takes as a boolean (true for free-form maps);
 //   - siblings of $ref (descriptions) are dropped, as 3.0 ignores them.
 //
 // Every component gets x-go-type and x-go-type-import, so oapi-codegen aliases the v1alpha1
@@ -292,6 +293,9 @@ func convert(n *yaml.Node) *yaml.Node {
 	}
 	for _, key := range []string{"items", "additionalProperties", "not"} {
 		if v := get(n, key); v != nil {
+			if key == "additionalProperties" && v.Kind == yaml.ScalarNode && v.Tag == "!!bool" {
+				continue // 3.0 takes a boolean here: true is "any values" (a free-form map)
+			}
 			*v = *convert(v)
 		}
 	}

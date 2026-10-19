@@ -68,7 +68,7 @@ func TestRulesReadKillSwitches(t *testing.T) {
 	var verdict string
 	for _, d := range eval.Decisions {
 		if d.Action.Dispatch != nil {
-			verdict = d.Rail.Verdict + " " + d.Rail.Reason
+			verdict = string(d.Rail.Verdict) + " " + d.Rail.Reason
 		}
 	}
 	if verdict != rules.VerdictSuppressed+" paused: queue poc" {

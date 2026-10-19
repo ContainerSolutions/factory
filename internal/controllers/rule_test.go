@@ -472,7 +472,7 @@ func TestStoreRailsCheck(t *testing.T) {
 			var got []string
 			for _, a := range tt.do {
 				v := r.Check(a)
-				got = append(got, v.Rail+":"+v.Verdict)
+				got = append(got, v.Rail+":"+string(v.Verdict))
 			}
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("verdicts = %v, want %v", got, tt.want)
