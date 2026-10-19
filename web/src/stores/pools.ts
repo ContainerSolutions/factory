@@ -1,43 +1,13 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { api, describeProblem, type Schemas } from '@/api/client';
+import { api, type Schemas } from '@/api/client';
+import { collect, pageQuery as query, type PageResult } from '@/api/pages';
 
-/**
- * How many pages of one list are followed. Queues and pools are catalog objects and agents are a
- * team's machines, so one page is the norm; this only bounds a server that keeps paginating.
- */
-export const MAX_PAGES = 20;
-
-type Page<T> = { items: T[]; nextCursor?: string };
-type PageResult<T> = {
-  data?: Page<T>;
-  error?: unknown;
-  response: Response;
-};
+export { MAX_PAGES } from '@/api/pages';
 
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
-
-/** Every page of a list, following `nextCursor`; a failed page fails the whole list. */
-async function collect<T>(
-  fetchPage: (cursor?: string) => Promise<PageResult<T>>,
-): Promise<{ items: T[] } | { error: string }> {
-  const items: T[] = [];
-  let cursor: string | undefined;
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const { data, error, response } = await fetchPage(cursor);
-    if (!data) return { error: describeProblem(error, response) };
-    items.push(...data.items);
-    cursor = data.nextCursor;
-    if (!cursor) break;
-  }
-  return { items };
-}
-
-const query = (cursor?: string) => ({
-  params: { query: cursor ? { cursor } : {} },
-});
 
 /** Whether `a` is an older version than `b`; versions that aren't numbers never are. */
 function isOlder(a: Schemas['Agent'], b: Schemas['Agent']): boolean {

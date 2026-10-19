@@ -40,11 +40,29 @@ with a few more work items built around the examples, so the board has every lan
 providers, repos and RuleSets, and an unknown work item answers 404. `src/mocks/runs.ts` does
 the same for `GET /runs/{id}` (one run is still going) and its transcript, and
 `src/mocks/pools.ts` for `GET /queues`, `GET /pools` and `GET /agents` (a queue per pending
-reason; a busy, a throttled and an offline agent; a registered and an ephemeral pool). They are dated around
+reason; a busy, a throttled and an offline agent; a registered and an ephemeral pool). `src/mocks/catalog.ts`
+serves a catalog with every kind the catalog view shows (`GET /catalog`, `GET /catalog/{kind}/{name}`,
+`GET /providers` with a degraded provider) and answers `POST /catalog/dry-run` with the example
+Evaluation for the posted event. `src/mocks/commands.ts` checks `POST /commands` bodies as the
+dispatcher does. They are dated around
 2026-10-19, which the specs and the e2e test fix as "now". The unit tests run against the same handlers (`msw/node`, set up in
 `vitest.setup.ts`; an unmatched request fails the spec), and `npm run dev:mock` runs them in
 the browser through MSW's service worker, which the dev server serves from the msw package
 (it is never copied into the build).
+
+## Sign-in and controls
+
+The session is the dispatcher's `HttpOnly` cookie: the UI keeps no token. A router guard
+(`src/router/session.ts`) checks `GET /auth/me` before the first page; a 401 there, or from any
+later request, sends the user to `/login?returnTo=…`, whose link starts the GitHub OAuth login
+(`/api/v1/auth/login`). Controls (pause and resume, cancel, re-dispatch, resync) are shown only
+when `me.isAdmin` (the `maintainers` Group); each opens a dialog with the exact `POST /commands`
+JSON, and the UI changes only after a 2xx. A 403 says who may act.
+
+In `npm run dev:mock` the cookie `factory-mock-session` picks the user: none is getMe's example (a
+maintainer), `reader` is a reader, `signed-out` has no session. Signing out lasts until the page
+reloads; the sign-in link is served by the dev server, which clears the cookie and goes back to
+`returnTo`. The e2e tests set the cookie with `context.addCookies`.
 
 ## Live updates
 

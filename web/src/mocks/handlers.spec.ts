@@ -28,11 +28,19 @@ describe('mock handlers', () => {
   });
 
   it('serves path templates and the success status', async () => {
-    const { data, response } = await api.POST('/commands', {
-      body: { type: 'resync-catalog' },
+    const { data, response } = await api.GET('/tasks/{id}', {
+      params: { path: { id: 'tsk_any' } },
     });
-    expect(response.status).toBe(202);
-    expect(data).toEqual(examples.get('postCommand'));
+    expect(response.status).toBe(200);
+    expect(data).toEqual(examples.get('getTask'));
+
+    const res = await fetch(`${window.location.origin}${API_BASE}/agents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual(examples.get('registerAgent'));
   });
 
   it('serves a text example as text', async () => {

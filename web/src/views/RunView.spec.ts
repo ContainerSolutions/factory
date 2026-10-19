@@ -3,7 +3,9 @@ import { flushPromises, type VueWrapper } from '@vue/test-utils';
 import { http, HttpResponse } from 'msw';
 import type { Schemas } from '@/api/client';
 import { fakeEventSources } from '@/__tests__/eventSource';
+import { confirmDialog, recordCommands } from '@/__tests__/commands';
 import { mountWithApp } from '@/__tests__/mount';
+import { maintainer, reader } from '@/mocks/session';
 import { eventSourceKey } from '@/composables/useStream';
 import { examples } from '@/mocks/examples';
 import { server } from '@/mocks/node';
@@ -243,5 +245,55 @@ describe('RunView', () => {
     expect(wrapper.get('[data-testid="run-state"]').text()).toBe('running');
     expect(es.last!.topics).toEqual([`runs/${LIVE}`, 'tasks']);
     expect(es.last!.closed).toBe(false);
+  });
+});
+
+describe('RunView controls', () => {
+  async function mountAs(id: string, me: Schemas['Me']) {
+    const es = fakeEventSources();
+    const { wrapper } = await mountWithApp(RunView, {
+      path: `/runs/${id}`,
+      props: { id },
+      me,
+      attachTo: document.body,
+      global: { provide: { [eventSourceKey]: es.factory } },
+    });
+    mounted = wrapper;
+    return wrapper;
+  }
+
+  it('cancels the live run once a maintainer confirms', async () => {
+    const bodies = recordCommands();
+    const wrapper = await mountAs(LIVE, maintainer);
+    const controls = wrapper.get('[data-testid="run-controls"]');
+    expect(controls.findAll('button').map((b) => b.text())).toEqual([
+      'Cancel run',
+    ]);
+    await controls.get('button').trigger('click');
+    await flushPromises();
+    await confirmDialog('Cancel run');
+    expect(bodies).toEqual([
+      { type: 'cancel', target: { task: liveRun.spec.task } },
+    ]);
+  });
+
+  it('re-dispatches the finished run once a maintainer confirms', async () => {
+    const bodies = recordCommands();
+    const wrapper = await mountAs(EXAMPLE, maintainer);
+    const controls = wrapper.get('[data-testid="run-controls"]');
+    expect(controls.findAll('button').map((b) => b.text())).toEqual([
+      'Re-dispatch',
+    ]);
+    await controls.get('button').trigger('click');
+    await flushPromises();
+    await confirmDialog('Re-dispatch');
+    expect(bodies).toEqual([
+      { type: 'redispatch', target: { task: exampleTask.metadata.id } },
+    ]);
+  });
+
+  it('shows a reader no controls', async () => {
+    const wrapper = await mountAs(LIVE, reader);
+    expect(wrapper.find('[data-testid="run-controls"]').exists()).toBe(false);
   });
 });

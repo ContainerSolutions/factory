@@ -6,6 +6,15 @@ import {
 } from 'vue-router';
 import BoardView from '@/views/BoardView.vue';
 
+declare module 'vue-router' {
+  interface RouteMeta {
+    /** The page's title, before ` · CCF Factory`. */
+    title?: string;
+    /** Shown without a session (the sign-in page), outside the app's shell. */
+    public?: boolean;
+  }
+}
+
 export const routes: RouteRecordRaw[] = [
   { path: '/', name: 'board', component: BoardView, meta: { title: 'Board' } },
   {
@@ -33,6 +42,12 @@ export const routes: RouteRecordRaw[] = [
     name: 'catalog',
     component: () => import('@/views/CatalogView.vue'),
     meta: { title: 'Catalog' },
+  },
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { title: 'Sign in', public: true },
   },
   {
     path: '/:pathMatch(.*)*',

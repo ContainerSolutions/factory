@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
+import PauseControls from '@/components/controls/PauseControls.vue';
 import DecisionWhy from '@/components/shared/DecisionWhy.vue';
 import PageHeader from '@/components/shared/PageHeader.vue';
 import { titleOf } from '@/components/workitem/board';
@@ -57,6 +58,11 @@ const catalogSHA = computed(() =>
     <PageHeader :title="titleOf(detail.workItem)">
       Work item <code class="text-xs">{{ detail.workItem.metadata.name }}</code>
     </PageHeader>
+    <PauseControls
+      scope="workitem"
+      :name="detail.workItem.metadata.name"
+      class="-mt-3 mb-6"
+    />
     <WorkItemHeader :item="detail.workItem" />
     <WorkItemTimeline :detail="detail" @why="whyIndex = $event" />
     <DecisionWhy

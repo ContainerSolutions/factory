@@ -37,6 +37,7 @@ const retry = computed(() => {
         data-testid="queue-depth"
         >{{ formatCount(view.depth) }} pending</span
       >
+      <div class="ms-auto"><slot name="actions" /></div>
     </div>
     <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
       <dt class="text-ccf-600 dark:text-ccf-400">Pool</dt>

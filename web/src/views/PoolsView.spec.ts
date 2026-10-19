@@ -3,7 +3,9 @@ import { flushPromises, type VueWrapper } from '@vue/test-utils';
 import { http, HttpResponse } from 'msw';
 import type { Schemas } from '@/api/client';
 import { fakeEventSources } from '@/__tests__/eventSource';
+import { confirmDialog, recordCommands } from '@/__tests__/commands';
 import { mountWithApp } from '@/__tests__/mount';
+import { maintainer, reader } from '@/mocks/session';
 import { eventSourceKey } from '@/composables/useStream';
 import { examples } from '@/mocks/examples';
 import { server } from '@/mocks/node';
@@ -157,5 +159,47 @@ describe('PoolsView', () => {
     const { wrapper } = await mountPools();
     expect(wrapper.text()).toContain('No queues.');
     expect(wrapper.text()).toContain('No pools.');
+  });
+});
+
+describe('PoolsView controls', () => {
+  it('pauses a queue once a maintainer confirms; there is no pool pause', async () => {
+    const bodies = recordCommands();
+    const es = fakeEventSources();
+    const { wrapper } = await mountWithApp(PoolsView, {
+      path: '/pools',
+      me: maintainer,
+      attachTo: document.body,
+      global: { provide: { [eventSourceKey]: es.factory } },
+    });
+    mounted = wrapper;
+    const labels = wrapper
+      .findAll('button[aria-label^="Pause"]')
+      .map((b) => b.attributes('aria-label'));
+    expect(labels).toEqual([
+      'Pause queue review',
+      'Pause queue triage',
+      'Pause queue default',
+      'Pause queue nightly',
+    ]);
+    await wrapper
+      .get('button[aria-label="Pause queue default"]')
+      .trigger('click');
+    await flushPromises();
+    await confirmDialog('Pause');
+    expect(bodies).toEqual([
+      { type: 'pause', target: { scope: 'queue', name: 'default' } },
+    ]);
+  });
+
+  it('shows a reader no controls', async () => {
+    const es = fakeEventSources();
+    const { wrapper } = await mountWithApp(PoolsView, {
+      path: '/pools',
+      me: reader,
+      global: { provide: { [eventSourceKey]: es.factory } },
+    });
+    mounted = wrapper;
+    expect(wrapper.find('[data-testid="pause-controls"]').exists()).toBe(false);
   });
 });
