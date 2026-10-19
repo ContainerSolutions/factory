@@ -428,7 +428,9 @@ func TestServeUnknownProviderType(t *testing.T) {
 func TestServeInvalidCatalog(t *testing.T) {
 	cfg := testConfig(t, "http://127.0.0.1:1")
 	cfg.CatalogDir = brokenPoC(t)
-	cfg.CatalogTimeout = 300 * time.Millisecond
+	// Long enough for the first load attempt to finish under -race and a busy machine: the
+	// error must carry that attempt's diagnostics, not "no valid catalog loaded yet".
+	cfg.CatalogTimeout = 5 * time.Second
 	err := runServe(context.Background(), cfg, serveDeps{Getenv: getenvOf(testEnv())}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil || !strings.Contains(err.Error(), "no valid catalog") || !strings.Contains(err.Error(), "nope") {
 		t.Fatalf("runServe = %v, want the catalog's errors", err)
