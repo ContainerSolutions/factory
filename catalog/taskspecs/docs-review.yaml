@@ -2,7 +2,8 @@
 # Skills: ccf-review:review (ccf-review plugin, with the docs-site pack), docs-style and
 # docs-verify (ccf-docs), ccf-test (skills/, a helper). No label ops.
 #
-# hosts: registry.yarnpkg.com, registry.npmjs.org once workspace.hosts lands
+# Hosts: the docs site builds with yarn (Node 20), so the sandbox may reach the yarn and npm
+# registries. Widening workspace.hosts needs two approvals (FACTORY-CAT-002).
 kind: TaskSpec
 metadata: { name: docs-review }
 spec:
@@ -15,7 +16,7 @@ spec:
   skills: [{ source: ccf-skills, ref: v0.8.0, use: ["ccf-review:review", docs-style, docs-verify, ccf-test] }]
   requires: { labels: [] }                        # has-local-stack added at dispatch when verifyAgainst is set
   harness: { default: { name: claude-code, config: { model: "claude-{sonnet,opus}-5-*", reasoningEffort: high } } }
-  workspace: { checkout: read-only }
+  workspace: { checkout: read-only, hosts: [registry.yarnpkg.com, registry.npmjs.org] }
   identity: reviewer
   permissions: { pull_requests: write, contents: read }
   effects: { allow: [review.comment, review.request-changes, review.approve, thread.reply] }
