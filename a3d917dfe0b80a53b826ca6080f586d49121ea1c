@@ -1,0 +1,8 @@
+lisa-design:
+- Idempotency: created things carry <!-- factory:effect <key> --> and are looked up before create (only the acting App's markers count); changed things are read first and only differences written; Replayed = found already done.
+- create-issue lookup via the App's newest issues (creator=<bot>), not search (eventually consistent); pr.open replays only the App's own PR for the head.
+- Retries re-run the whole op (lookup included), ≤5 tries, Retry-After / X-RateLimit-Reset else 1s doubling on the injected clock; hints over 1 minute return a RetryableError with RetryAfter.
+- Merge method = first allowed of squash, merge, rebase; mergeLabel from args (no Provider field); typed merge errors map to Invalid (400).
+- ReadContent strips every <!-- factory:… --> marker and drops projection comments; non-GitHub refs return empty content (reference-only).
+- serve registers the GitHub adapter unless --dev-fake-providers; CheckHealth on connect and on catalog change.
+- Gap for RT: the Effector doesn't check pr.merge's mergeLabel against effects.labels.
