@@ -11,6 +11,7 @@ import {
   type BoardFilters as Filters,
 } from '@/components/workitem/board';
 import { useClock } from '@/composables/useClock';
+import { useStream } from '@/composables/useStream';
 import { useWorkItemsStore } from '@/stores/workitems';
 import Message from '@/volt/Message.vue';
 import SecondaryButton from '@/volt/SecondaryButton.vue';
@@ -50,6 +51,13 @@ const others = computed(() => lanes.value.slice(1));
 onMounted(() => {
   store.load();
 });
+
+// Live updates; after a re-created stream (which can't resume) the first page is reloaded.
+useStream(
+  ['workitems'],
+  { 'workitem.updated': (item) => store.upsert(item) },
+  { onResync: () => store.load() },
+);
 </script>
 
 <template>

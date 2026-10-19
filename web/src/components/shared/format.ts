@@ -15,6 +15,11 @@ export function formatValue(value: unknown): string {
   return JSON.stringify(value) ?? String(value);
 }
 
+/** A URL to link to: https only. Anything else (javascript:, data:, http:) is shown as text. */
+export function safeURL(url: string | undefined): string | undefined {
+  return url && /^https:\/\//.test(url) ? url : undefined;
+}
+
 /** The pill tone for a status word, so each status reads the same everywhere. */
 export type Tone = 'neutral' | 'info' | 'success' | 'warn' | 'danger';
 
@@ -40,6 +45,9 @@ const TONES: Record<string, Tone> = {
   failed: 'danger',
   Cancelling: 'warn',
   Cancelled: 'neutral',
+  cancelled: 'neutral',
+  abandoned: 'warn',
+  lost: 'danger',
   // Rail verdicts, by their display label.
   Allowed: 'success',
   Suppressed: 'danger',

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { formatTime, formatValue, railVerdictLabel, toneOf } from './format';
+import {
+  formatTime,
+  formatValue,
+  railVerdictLabel,
+  safeURL,
+  toneOf,
+} from './format';
 
 describe('formatTime', () => {
   it.each<[string | Date | undefined, string]>([
@@ -24,6 +30,19 @@ describe('formatValue', () => {
     [undefined, 'undefined'],
   ])('%o → %s', (value, want) => {
     expect(formatValue(value)).toBe(want);
+  });
+});
+
+describe('safeURL', () => {
+  it.each<[string | undefined, string | undefined]>([
+    ['https://github.com/o/r/pull/1', 'https://github.com/o/r/pull/1'],
+    ['http://github.com/o/r/pull/1', undefined],
+    ['javascript:alert(1)', undefined],
+    [' https://x', undefined],
+    ['', undefined],
+    [undefined, undefined],
+  ])('%s → %s', (url, want) => {
+    expect(safeURL(url)).toBe(want);
   });
 });
 

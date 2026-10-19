@@ -90,6 +90,45 @@ describe('work items store', () => {
     expect(store.currentError).toBe('Internal Error');
   });
 
+  describe('upsert', () => {
+    const [first, second] = items as [Schemas['WorkItem'], Schemas['WorkItem']];
+    const version = (item: Schemas['WorkItem'], v: string) => ({
+      ...item,
+      metadata: { ...item.metadata, resourceVersion: v },
+    });
+
+    it('replaces a loaded work item, adds a new one first, and keeps a newer one', async () => {
+      const store = useWorkItemsStore();
+      store.upsert(first);
+      expect(store.items).toEqual([]);
+
+      await store.load();
+      const updated = version(second, '7');
+      store.upsert(updated);
+      expect(store.items[1]).toEqual(updated);
+      expect(store.items).toHaveLength(items.length);
+
+      store.upsert(version(second, '3'));
+      expect(store.items[1]).toEqual(updated);
+
+      const fresh = {
+        ...first,
+        metadata: { ...first.metadata, name: 'wi_new' },
+      };
+      store.upsert(fresh);
+      expect(store.items[0]).toEqual(fresh);
+      expect(store.items).toHaveLength(items.length + 1);
+    });
+
+    it('replaces when a version is not a number', async () => {
+      const store = useWorkItemsStore();
+      await store.load();
+      const updated = version(second, 'abc');
+      store.upsert(updated);
+      expect(store.items[1]).toEqual(updated);
+    });
+  });
+
   it('drops the response for an earlier work item', async () => {
     server.use(
       http.get('/api/v1/workitems/:id', async ({ params }) => {

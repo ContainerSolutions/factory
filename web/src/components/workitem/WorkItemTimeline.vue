@@ -1,8 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { RouterLink } from 'vue-router';
 import type { Schemas } from '@/api/client';
+import { runStateOf } from '@/components/run/run';
 import StatusPill from '@/components/shared/StatusPill.vue';
-import { formatTime, railVerdictLabel } from '@/components/shared/format';
+import {
+  formatTime,
+  railVerdictLabel,
+  safeURL,
+} from '@/components/shared/format';
 import SecondaryButton from '@/volt/SecondaryButton.vue';
 import { asRecord } from './board';
 import { timelineOf } from './timeline';
@@ -28,11 +34,6 @@ const KIND_LABEL = {
 function eventTitle(event: Schemas['Event']): string | undefined {
   const title = asRecord(event.data.facts).title;
   return typeof title === 'string' ? title : undefined;
-}
-
-/** A link for an https URL only; anything else is shown as text. */
-function safeURL(url: string | undefined): string | undefined {
-  return url && /^https:\/\//.test(url) ? url : undefined;
 }
 
 function blockingRails(
@@ -141,12 +142,16 @@ function blockingRails(
 
         <template v-else-if="entry.kind === 'run'">
           <div class="flex flex-wrap items-center gap-2">
-            <span class="font-mono text-xs">{{ entry.run.metadata.name }}</span>
+            <RouterLink
+              :to="{ name: 'run', params: { id: entry.run.metadata.name } }"
+              class="font-mono text-xs text-ccf-700 underline hover:text-ccf-900 dark:text-ccf-300 dark:hover:text-ccf-100"
+              >{{ entry.run.metadata.name }}</RouterLink
+            >
             <span class="text-xs text-ccf-600 dark:text-ccf-400"
               >attempt {{ entry.run.spec.attempt }} on
               {{ entry.run.spec.agent }}</span
             >
-            <StatusPill :label="entry.run.status?.end ?? 'running'" />
+            <StatusPill :label="runStateOf(entry.run)" />
             <StatusPill
               v-if="entry.run.status?.result?.outcome"
               :label="`outcome: ${entry.run.status.result.outcome}`"
