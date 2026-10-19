@@ -178,16 +178,19 @@ func TestHeartbeatLeaseGone(t *testing.T) {
 	}
 }
 
-// A heartbeat with a refreshed git credential swaps it in the job; a failed heartbeat keeps
+// A heartbeat with refreshed git credentials (the task token and the read-only ones) swaps
+// them in the job; a failed heartbeat keeps
 // its batch for the next one.
 func TestHeartbeatRefreshAndRetry(t *testing.T) {
 	f := newFakeDispatcher(t)
 	clk := clock.NewFake(t0)
 	refreshed := apiclient.GitCredential{Token: "ghs_refreshed-secret", Repo: "compliance-framework/docs", ExpiresAt: t0.Add(2 * time.Hour)}
+	refreshedRead := apiclient.GitCredential{Token: "ghs_refreshed-read-secret", Repo: "compliance-framework/private", Permissions: map[string]string{"contents": "read"}}
 	f.setHeartbeat(func(n int) (int, any) {
 		r := apiclient.HeartbeatResponse{ExpiresAt: t0.Add(2 * time.Minute)}
 		if n == 1 { // the first answered beat (the scripted 503 isn't counted)
 			r.RefreshedGitCredential = &refreshed
+			r.RefreshedReadCredentials = []apiclient.GitCredential{refreshedRead}
 		}
 		return http.StatusOK, r
 	})
@@ -213,6 +216,9 @@ func TestHeartbeatRefreshAndRetry(t *testing.T) {
 	if job.Git.Get().Token != "ghs_refreshed-secret" {
 		t.Errorf("the credential wasn't refreshed: %v", job.Git)
 	}
+	if rc := job.Git.Reads(); len(rc) != 1 || rc[0].Token != "ghs_refreshed-read-secret" {
+		t.Errorf("the read-only credentials weren't refreshed: %v", job.Git)
+	}
 	if s := job.Git.String(); strings.Contains(s, "secret") {
 		t.Errorf("Credentials.String leaks the token: %s", s)
 	}
@@ -224,7 +230,7 @@ func TestHeartbeatRefreshAndRetry(t *testing.T) {
 	if err := h.stop(t); err != nil {
 		t.Fatal(err)
 	}
-	h.assertNoSecretsInLogs(t, "ghs_refreshed-secret")
+	h.assertNoSecretsInLogs(t, "ghs_refreshed-secret", "ghs_refreshed-read-secret")
 }
 
 // A throttled run is handed back (abandon throttled{until}), the agent reports Throttled

@@ -39,7 +39,7 @@ func (w *Worker) execute(ctx context.Context, l *apiclient.Lease) {
 
 	sink := &batch{clk: w.clk}
 	job := &runner.Job{
-		Lease: *l, Git: runner.NewCredentials(l.GitCredential), API: w.api,
+		Lease: *l, Git: runner.NewCredentials(l.GitCredential, l.ReadCredentials...), API: w.api,
 		Dispatcher: w.o.Dispatcher, AgentToken: w.Token, StartedAt: start,
 	}
 	log.Info("task leased", "taskSpec", l.Task.Spec.TaskSpec.Name, "queue", l.Task.Spec.Queue, "heartbeatEvery", l.Lease.HeartbeatEvery)
@@ -259,6 +259,10 @@ func (w *Worker) beat(ctx context.Context, l *apiclient.Lease, sink *batch, git 
 	if c := resp.RefreshedGitCredential; c != nil {
 		git.Set(*c)
 		log.Info("git credential refreshed", "expiresAt", c.ExpiresAt)
+	}
+	if rc := resp.RefreshedReadCredentials; len(rc) > 0 {
+		git.SetReads(rc)
+		log.Info("read-only git credentials refreshed", "count", len(rc))
 	}
 	if resp.Cancel {
 		log.Info("the dispatcher cancelled the task; stopping the run")

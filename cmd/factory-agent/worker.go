@@ -7,15 +7,19 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
+	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/owner"
+	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/probe"
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/agent/worker"
@@ -35,9 +39,28 @@ type workerDeps struct {
 	Owner owner.TokenSource
 	// HTTPClient calls the dispatcher and GitHub.
 	HTTPClient *http.Client
-	// NewRunner builds the Runner; AGT-S1-T02 makes the run pipeline the default.
-	NewRunner func(cfg *config.Config, stubResult string) (runner.Runner, error)
+	// NewRunner builds the Runner. Default: the run pipeline, or the stub with
+	// --stub-result.
+	NewRunner func(cfg *config.Config, o runnerOptions) (runner.Runner, error)
 }
+
+// runnerOptions are the worker flags and dependencies the Runner is built with.
+type runnerOptions struct {
+	// StubResult (development): answer every task with this Result instead of running it.
+	StubResult string
+	// KeepWorkspace keeps each run's workspace (debugging).
+	KeepWorkspace bool
+	Logger        *slog.Logger
+	// Home expands ~ (the skills cache).
+	Home func() (string, error)
+}
+
+// harnessAdapters builds each harness's adapter from its local config, one line per
+// harness: AGT-S1-T03 registers codex and AGT-S1-T04 claude-code.
+var harnessAdapters = map[string]func(config.Harness) harness.Adapter{}
+
+// skillsCache is where skills checkouts are cached by commit (run-pipeline.md §Steps 5).
+const skillsCache = "~/.factory-agent/cache/ccf-skills"
 
 func workerCommand() command {
 	return command{
@@ -49,21 +72,41 @@ func workerCommand() command {
 	}
 }
 
-// newRunner is the Runner `factory-agent worker` uses. The run pipeline lands with
-// AGT-S1-T02; until then only --stub-result (development) runs tasks.
-func newRunner(_ *config.Config, stubResult string) (runner.Runner, error) {
-	if stubResult == "" {
-		return nil, errors.New("the run pipeline isn't built yet (AGT-S1-T02); pass --stub-result <result.json> to run against a development dispatcher")
+// newRunner is the Runner `factory-agent worker` uses: the run pipeline with an adapter for
+// every configured harness, or with --stub-result (development) a stub that answers every
+// task with that Result.
+func newRunner(cfg *config.Config, o runnerOptions) (runner.Runner, error) {
+	if o.StubResult != "" {
+		b, err := os.ReadFile(o.StubResult)
+		if err != nil {
+			return nil, fmt.Errorf("--stub-result: %w", err)
+		}
+		res, err := v1alpha1.DecodeResult(b)
+		if err != nil {
+			return nil, fmt.Errorf("--stub-result %s: %w", o.StubResult, err)
+		}
+		return &runner.Stub{Outcome: runner.Outcome{Result: res}}, nil
 	}
-	b, err := os.ReadFile(stubResult)
+	adapters := map[string]harness.Adapter{}
+	for _, name := range slices.Sorted(maps.Keys(cfg.Harnesses)) {
+		mk, ok := harnessAdapters[name]
+		if !ok {
+			return nil, fmt.Errorf("no harness adapter for %s yet (AGT-S1-T03 codex, AGT-S1-T04 claude-code); pass --stub-result <result.json> to run against a development dispatcher", name)
+		}
+		adapters[name] = mk(cfg.Harnesses[name])
+	}
+	home := o.Home
+	if home == nil {
+		home = os.UserHomeDir
+	}
+	cache, err := config.ExpandPath(skillsCache, home)
 	if err != nil {
-		return nil, fmt.Errorf("--stub-result: %w", err)
+		return nil, err
 	}
-	res, err := v1alpha1.DecodeResult(b)
-	if err != nil {
-		return nil, fmt.Errorf("--stub-result %s: %w", stubResult, err)
-	}
-	return &runner.Stub{Outcome: runner.Outcome{Result: res}}, nil
+	return pipeline.New(pipeline.Options{
+		WorkRoot: cfg.WorkRoot, Adapters: adapters, SkillsCache: cache,
+		Logger: o.Logger, KeepWorkspace: o.KeepWorkspace,
+	})
 }
 
 func runWorker(ctx context.Context, args []string, stderr io.Writer, d workerDeps) int {
@@ -71,6 +114,7 @@ func runWorker(ctx context.Context, args []string, stderr io.Writer, d workerDep
 	fs.SetOutput(stderr)
 	path := fs.String("config", config.DefaultPath, "the agent config file")
 	stubResult := fs.String("stub-result", "", "development only: answer every task with this Result JSON instead of running it")
+	keepWorkspace := fs.Bool("keep-workspace", false, "debugging: keep each run's workspace instead of removing it")
 	logLevel := fs.String("log-level", "info", "debug, info, warn or error")
 	logFormat := fs.String("log-format", "text", "text or json")
 	if err := fs.Parse(args); err != nil {
@@ -110,7 +154,7 @@ func runWorker(ctx context.Context, args []string, stderr io.Writer, d workerDep
 		log.Error("the worker can't start", "why", strings.Join(why, "; "))
 		return 1
 	}
-	rn, err := d.NewRunner(cfg, *stubResult)
+	rn, err := d.NewRunner(cfg, runnerOptions{StubResult: *stubResult, KeepWorkspace: *keepWorkspace, Logger: log, Home: d.Config.Home})
 	if err != nil {
 		log.Error("runner", "err", err)
 		return 1
