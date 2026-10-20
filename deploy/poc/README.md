@@ -13,7 +13,7 @@ the `dev-*` RuleSets target `compliance-framework/mock-docs` and the `poc-*` Rul
 | `run.sh` | loads `.env`, checks it, builds, then runs `factory serve` (`make poc-up`). |
 | `ngrok-policy.yml` | the tunnel's Traffic Policy: it denies `/healthz`, `/readyz` and `/metrics`. |
 | `agent.yaml.example` | a commented `factory-agent` config. |
-| `events/fake-train-mixed.json` | a finished train event for the first dev dispatch (mock-docs only). |
+| `events/mock-train.json` | the closing event of a real mock release train (`workflows#132`), for the first dev dispatch (mock-docs only). |
 | `logs/` | the dispatcher's JSON logs, one file per start (gitignored). |
 
 Commands run from the repository root unless a step says otherwise.
@@ -201,7 +201,7 @@ For each agent owner, on their machine (rollout.md §Agent onboarding). The owne
    To see the stack a train would bring up, without running anything:
 
    ```bash
-   factory-agent stack up --train compliance-framework/workflows#138 --dry-run
+   factory-agent stack up --train compliance-framework/workflows#132 --dry-run
    ```
 
 9. **Smoke the harnesses** (maintainers, from a repo checkout as the agent user; never in CI). Each one runs a trivial task end to end through the real harness. They default to the dedicated dirs above; see `make help` for the overrides. smoke-codex has no default model: set `FACTORY_SMOKE_CODEX_MODEL` to a gpt-5* or gpt-6* model your codex sign-in offers (see `/model` in codex).
@@ -228,31 +228,29 @@ For each agent owner, on their machine (rollout.md §Agent onboarding). The owne
 
 ## 9. First dev dispatch (use case 1 on mock-docs)
 
-A real mock train isn't possible yet: `workflows` has no `repos.mock.yaml`, and `train.yml`'s `workflow_dispatch` takes no manifest input. The dev trigger is a recorded event injected with `factory dispatch`.
-
-Before the first run, merge mock-docs#1 ("chore: seed mock-docs"). It gives mock-docs its `instances.yaml` and `STYLE.md`.
+`compliance-framework/workflows#132` is a real mock release train: it ran over `repos.mock.yaml` and finished on 2026-10-14, releasing mock-plugin-1 and mock-plugin-2 0.1.4. Its issue closed before the factory was listening, and a new mock train can't be started from `workflows` main today (`repos.mock.yaml` isn't there), so the dev trigger is that train's closing event, recorded, and injected with `factory dispatch`.
 
 ```bash
-bin/factory dispatch --event deploy/poc/events/fake-train-mixed.json
+bin/factory dispatch --event deploy/poc/events/mock-train.json
 ```
 
 It posts to `http://127.0.0.1:8080` by default (`--server`, or env `FACTORY_SERVER`) with `FACTORY_CLI_TOKEN` (§7), and prints the stored event's id (`inject/…`).
 
 About the event:
 
-- It is train `compliance-framework/workflows#138` (a finished, real train) with its manifest set to `repos.mock.yaml`. So only `dev-release-docs` fires, and it targets mock-docs. `cmd/factory/deploykit_test.go` checks that no `poc-*` rule fires and that no decision names `compliance-framework/docs`.
+- It is the `issue.closed` event GitHub would have sent for `compliance-framework/workflows#132`, with the train facts the GitHub adapter derives from the issue's train state (manifest `repos.mock.yaml`, ten mock repos, two patch releases). So only `dev-release-docs` fires, and it targets mock-docs. `cmd/factory/deploykit_test.go` checks that no `poc-*` rule fires and that no decision names `compliance-framework/docs`.
 - The event has no id, so you can dispatch it again; each dispatch is a new event. Only one release-docs run per work item is active at a time.
 - The agent reads the train's versions from the real issue, and escalations (`needs-human` plus a comment) land on that issue.
 
 To see the decisions without storing anything:
 
 ```bash
-jq '{event: (. + {id: "preview"})}' deploy/poc/events/fake-train-mixed.json | curl -s -H "Authorization: Bearer $FACTORY_CLI_TOKEN" -H 'Content-Type: application/json' -d @- http://127.0.0.1:8080/api/v1/catalog/dry-run | jq '.decisions'
+jq '{event: (. + {id: "preview"})}' deploy/poc/events/mock-train.json | curl -s -H "Authorization: Bearer $FACTORY_CLI_TOKEN" -H 'Content-Type: application/json' -d @- http://127.0.0.1:8080/api/v1/catalog/dry-run | jq '.decisions'
 ```
 
 What you should see (the UI's board and work-item pages, or `GET /api/v1/workitems` and `/api/v1/tasks`):
 
-1. A work item linked to `workflows#138`, with state `release: drafting`, `manifest: repos.mock.yaml` and `train: …#138`.
+1. A work item linked to `workflows#132`, with state `release: drafting`, `manifest: repos.mock.yaml` and `train: …#132`.
 2. A `release-docs` task for `compliance-framework/mock-docs`. It stays `Pending` with reason `no-capable-agent` until an agent offers codex `gpt-5*` or `gpt-6*`, `has-local-stack` and `gif-tooling`. The agent brings the stack up at the train's versions and opens a PR on mock-docs.
 3. A `docs-review` task (claude-code, reviewer identity). Anti-affinity keeps a review off the agent that wrote the PR. With a single agent it waits **10 minutes** (`scheduler.DefaultAntiAffinityWait`) before the author's own agent may take it.
 4. On changes requested, `implement` (codex, mode address-review) pushes a fix, and the review runs again, at most 3 implement runs per item. The 3rd changes-requested, or a `needs-human` or `blocked` outcome, escalates.

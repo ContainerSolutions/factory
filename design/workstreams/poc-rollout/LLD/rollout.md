@@ -59,7 +59,7 @@ PoC: Gustavo's machine (or a small VM) running `factory serve` (built with `make
 
 | Step | Action | Expect |
 |---|---|---|
-| 1 | `factory dispatch --event deploy/poc/events/fake-train-mixed.json` (dev RuleSet, mock-docs) | `release-docs` task leased by an agent with `has-local-stack`; PR on mock-docs; `docs-review` runs on the **other harness** |
+| 1 | `factory dispatch --event deploy/poc/events/mock-train.json` (dev RuleSet, mock-docs) | `release-docs` task leased by an agent with `has-local-stack`; PR on mock-docs; `docs-review` runs on the **other harness** |
 | 2 | Seed a wrong default in a fixture train's docs (or let the review find a real one) | review requests changes citing `DOCS-ACC-001`; `implement address-review` fixes; re-review approves |
 | 3 | Run a real **mock train** in `workflows` (`workflow_dispatch`, manifest `repos.mock.yaml`, not dry run) | train closes `train:done` → dev flow runs end to end on mock-docs |
 | 4 | Restart the dispatcher mid-flow | UI shows the same work item/state after rebuild; flow continues (criterion 6) |
