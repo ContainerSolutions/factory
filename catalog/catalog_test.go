@@ -23,6 +23,7 @@ import (
 
 	"github.com/compliance-framework/factory/internal/catalog"
 	"github.com/compliance-framework/factory/internal/cel"
+	"github.com/compliance-framework/factory/internal/patterns"
 	"github.com/compliance-framework/factory/internal/rules"
 )
 
@@ -134,6 +135,48 @@ func TestWorkspace(t *testing.T) {
 		if ws != nil && ws.PublicReads != nil && *ws.PublicReads {
 			t.Errorf("%s: workspace.publicReads is true: its ro repos would get no read-only token", name)
 		}
+	}
+}
+
+// TestCodexModels pins the codex models the TaskSpecs accept: the gpt-5 and gpt-6 families,
+// which ChatGPT-account sign-ins offer (gpt-6.1-sol passed make smoke-codex), and nothing older.
+func TestCodexModels(t *testing.T) {
+	c := load(t)
+	accept, refuse := []string{"gpt-5.5", "gpt-6.1-sol"}, []string{"gpt-4o", "o4-mini", "gpt-7"}
+	check := func(name, field string, v any) {
+		p, err := patterns.Compile(v)
+		if err != nil {
+			t.Fatalf("%s %s: %v", name, field, err)
+		}
+		for _, m := range accept {
+			if !p.Match(m) {
+				t.Errorf("%s %s %s: refuses %s", name, field, p, m)
+			}
+		}
+		for _, m := range refuse {
+			if p.Match(m) {
+				t.Errorf("%s %s %s: accepts %s", name, field, p, m)
+			}
+		}
+	}
+	n := 0
+	for _, name := range keys(c.TaskSpecs) {
+		h := c.TaskSpecs[name].Spec.Spec.Harness
+		if h == nil {
+			continue
+		}
+		if d := h.Default; d != nil && d.Name == "codex" && d.Config != nil {
+			check(name, "default.config.model", d.Config.Model)
+			n++
+		}
+		for _, a := range h.Allowed {
+			if a.Name == "codex" {
+				check(name, "allowed.models", a.Models)
+			}
+		}
+	}
+	if n == 0 {
+		t.Fatal("no TaskSpec defaults to codex")
 	}
 }
 
