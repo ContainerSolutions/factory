@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/compliance-framework/factory/internal/catalog"
 	"github.com/compliance-framework/factory/internal/clock"
 	"github.com/compliance-framework/factory/internal/controllers"
 	"github.com/compliance-framework/factory/internal/provider"
@@ -141,6 +142,12 @@ type Scheduler struct {
 	// heldSince is when anti-affinity first held a task back with no other agent able to
 	// take it (the 10-minute soft fallback).
 	heldSince map[string]time.Time
+	// mintBackoff holds the pending tasks whose git credentials failed to mint, until when
+	// each isn't offered (mintbackoff.go). An entry goes on a successful mint, when its task
+	// leaves Pending (the tick), and all of them when the catalog changes (mintCatalog is the
+	// catalog they were recorded under).
+	mintBackoff map[string]mintBackoff
+	mintCatalog *catalog.Catalog
 
 	wakeMu sync.Mutex
 	wakeCh chan struct{}
@@ -166,15 +173,16 @@ func New(d Deps, opts Options) (*Scheduler, error) {
 	}
 	opts = opts.withDefaults()
 	s := &Scheduler{
-		d:          d,
-		opts:       opts,
-		clk:        opts.Clock,
-		log:        opts.Logger.With("component", "scheduler"),
-		groups:     newGroupCache(d.Conns, opts.Clock, opts.GroupCacheTTL),
-		waiting:    map[string]int{},
-		lastLeased: map[string]time.Time{},
-		heldSince:  map[string]time.Time{},
-		wakeCh:     make(chan struct{}),
+		d:           d,
+		opts:        opts,
+		clk:         opts.Clock,
+		log:         opts.Logger.With("component", "scheduler"),
+		groups:      newGroupCache(d.Conns, opts.Clock, opts.GroupCacheTTL),
+		waiting:     map[string]int{},
+		lastLeased:  map[string]time.Time{},
+		heldSince:   map[string]time.Time{},
+		mintBackoff: map[string]mintBackoff{},
+		wakeCh:      make(chan struct{}),
 	}
 	s.ctrl = controllers.NewController("scheduler", controllers.ReconcilerFunc(s.Reconcile),
 		controllers.Options{Workers: opts.Workers, Clock: opts.Clock, Logger: opts.Logger})

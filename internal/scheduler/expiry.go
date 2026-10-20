@@ -145,7 +145,9 @@ func mayRetry(cat *catalog.Catalog, t *v1alpha1.Task, reason v1alpha1.RetryReaso
 
 // Refresh is the tick's housekeeping: agents whose token expired go Offline, throttles that
 // passed end, the agents' today mirrors follow the day, and each pending task's reason says
-// why no agent can take it now (the reason of the agent that got furthest down the table).
+// why no agent can take it now (the reason of the agent that got furthest down the table; a
+// task backing off after a failed mint keeps git-credential). The anti-affinity waits and the
+// mint backoffs of tasks no longer Pending are dropped.
 func (s *Scheduler) Refresh(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -194,6 +196,9 @@ func (s *Scheduler) Refresh(ctx context.Context) error {
 	pending := map[string]bool{}
 	for _, t := range sn.pending {
 		pending[t.Metadata.ID] = true
+		if s.mintBackingOff(t.Metadata.ID, sn.now) {
+			continue // it keeps git-credential while it backs off
+		}
 		reason, err := sn.blockingReason(t)
 		if err != nil {
 			return err
@@ -205,6 +210,11 @@ func (s *Scheduler) Refresh(ctx context.Context) error {
 	for id := range s.heldSince {
 		if !pending[id] {
 			delete(s.heldSince, id)
+		}
+	}
+	for id := range s.mintBackoff {
+		if !pending[id] {
+			delete(s.mintBackoff, id) // leased, cancelled or deleted
 		}
 	}
 	return nil

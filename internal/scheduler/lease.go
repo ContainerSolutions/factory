@@ -92,6 +92,9 @@ func (s *Scheduler) tryLease(ctx context.Context, agentID string) (*Grant, error
 	// given one in this pass; this poll takes the first task it is given.
 	given := map[string]bool{}
 	for _, t := range sn.pending {
+		if s.mintBackingOff(t.Metadata.ID, sn.now) {
+			continue // its credentials failed to mint: no agent is offered it before the delay
+		}
 		p, err := sn.preferred(t, given)
 		if err != nil {
 			return nil, err
@@ -125,16 +128,20 @@ func (s *Scheduler) commit(ctx context.Context, sn *snapshot, t *v1alpha1.Task, 
 	now := s.clk.Now()
 	agentID, taskID := a.Metadata.Name, t.Metadata.ID
 
-	// The credentials first: a task whose credentials can't be minted is left Pending.
+	// The credentials first: a task whose credentials can't be minted is left Pending and
+	// backs off (no agent is offered it before the delay; one warning per failed try).
 	creds, err := s.mint(ctx, t)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		s.log.WarnContext(ctx, "git credential not minted; task left pending", "task", taskID, "err", err)
+		b := s.backOffMint(taskID, now)
+		s.log.WarnContext(ctx, "git credential not minted; task left pending", "task", taskID, "err", err,
+			"retryIn", b.delay.String(), "retryAt", b.next)
 		s.setReason(ctx, taskID, ReasonGitCredential)
 		return nil, errSkip
 	}
+	delete(s.mintBackoff, taskID)
 	leaseID, err := s.newLeaseID()
 	if err != nil {
 		return nil, err
