@@ -13,7 +13,7 @@ binary embeds a placeholder page.
 ```sh
 npm ci
 npm run dev:mock         # dev server over the MSW mocks of ../api/examples; no dispatcher needed
-npm run dev              # dev server proxying /api to a local `factory serve` (FACTORY_API_URL, default http://127.0.0.1:8080)
+npm run dev              # dev server proxying /api to a local `factory serve` (FACTORY_API_URL, default http://127.0.0.1:8800)
 npm run reviewable       # generated-code check + format check + lint + unit tests + type-check + build: what CI runs
 npm run gen:api          # regenerate src/api/schema.d.ts and src/mocks/operations.gen.ts from ../api/openapi.yaml
 npx vitest run src/App.spec.ts   # one spec

@@ -79,12 +79,12 @@ export default defineConfig(({ mode }) => ({
         fileURLToPath(new URL('../api/examples', import.meta.url)),
       ],
     },
-    // `npm run dev` talks to a local dispatcher (`factory serve`, --addr :8080).
+    // `npm run dev` talks to a local dispatcher (`factory serve`, --addr :8800).
     proxy:
       mode === 'mock'
         ? undefined
         : {
-            '/api': process.env.FACTORY_API_URL ?? 'http://127.0.0.1:8080',
+            '/api': process.env.FACTORY_API_URL ?? 'http://127.0.0.1:8800',
           },
   },
 }));
