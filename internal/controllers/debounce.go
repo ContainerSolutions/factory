@@ -90,7 +90,7 @@ func (d *DebounceController) fireLocked(ctx context.Context, cat *catalog.Catalo
 	if err != nil {
 		return err
 	}
-	obs, err := observeLinks(ctx, r.opts.Cache, wi.Spec.Links)
+	obs, err := r.observeItem(ctx, wi.Metadata.Name, wi.Spec.Links)
 	if err != nil {
 		return err
 	}

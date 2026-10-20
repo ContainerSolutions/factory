@@ -22,6 +22,7 @@ func (c *Controller) Run(ctx context.Context) error
 - A key is processed by at most one worker at a time.
 - `Reconcile` must be **idempotent**: it re-reads state, never trusts the triggering event alone (P4).
 - Panics in `Reconcile` are recovered, logged, counted (`controller_panics_total`) and retried.
+- An error marked `Permanent(err)` (a provider refusing access, `provider.ErrForbidden`) is not retried: it is logged once at WARN ("reconcile failed permanently; dropped") and the key is forgotten until it is added again. A 403 rate limit is `ErrRetryable`, never permanent.
 - A `Manager` starts all controllers, the store sweeper and the server; stops them on context cancel.
 
 ## Controllers
@@ -47,6 +48,7 @@ Implemented in RT-S2-T04 as `ProviderController` (the built-in `factory` provide
 | Watches | `Event` (added) |
 | Does | 1) find/create WorkItem (`links` index; create when no match and ≥1 rule would match — the engine is called with an empty view first); 2) build `WorkItemView` (store + `Conn.Observe` of the primary link, cached 30 s); 3) `engine.Evaluate`; 4) **apply decisions in order** inside a store transaction-like sequence guarded by `Lock("wi/<id>")`: `Set` → WorkItem.status.state; `Dispatch` → create `Task{phase: Pending}` (with `status.reason: budget` when the rails deferred it; there is no separate deferred phase) with compiled Task spec (TaskSpec + inputs + resolved prompt ref + context refs + credentials request); `Cancel` → mark active Tasks of that spec `Cancelling`; `Link` → add link; `Notify` → render Template per destination and `Conn.Apply(comment/message)`; `Effect` → `Conn.Apply`; `Debounce` → upsert internal `Debounce` object; 5) append Decisions (bounded) to WorkItem; 6) mark Event processed |
 | Idempotency | Event has `status.processed`; reprocessing a processed event is a no-op. Effects carry idempotency keys `evt/<eventID>/<rule>/<i>` |
+| Scope first | Before a new work item's object is observed, `rules.CouldFire` asks whether any RuleSet in scope has a rule on the event (the engine's own scope, `on` and providers check): an event no RuleSet covers is marked processed with no observation. The object is observed only when a `where` that could fire reads `item` (`rules.ReadsItem`); a forbidden observation there is `Permanent` (the event is marked processed, no work item). On an existing work item a forbidden link is evaluated as gone, so its other links still count, with one WARN until it observes again |
 
 Task compilation (part of `Dispatch` apply):
 

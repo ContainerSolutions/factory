@@ -191,6 +191,11 @@ func eventLink(ev v1alpha1.Event) (v1alpha1.Link, bool) {
 // workItemFor finds the event's work item, or creates one when at least one rule would fire
 // for the event (asked with the new item's view: no state, its object observed, permissive
 // rails). "" means no work item: the event changes nothing.
+//
+// For a new work item, nothing is observed unless it can matter: an event no rule could fire
+// for (its repo in no RuleSet's scope, say) is dropped first, and the object is observed only
+// when a where that could fire reads item. A provider refusing that observation is Permanent:
+// the event is marked processed, with no work item.
 func (r *RuleController) workItemFor(ctx context.Context, cat *catalog.Catalog, ev v1alpha1.Event) (string, error) {
 	if ev.Source == v1alpha1.FactoryProvider {
 		if ev.WorkItem == "" {
@@ -235,13 +240,29 @@ func (r *RuleController) workItemFor(ctx context.Context, cat *catalog.Catalog, 
 		rep := *a
 		wi.Status.Reporter = &rep
 	}
-	// Would any rule fire? Ask with the work item as it would be: no state, no runs, its
-	// object observed (rules read item.pr and the like), and permissive rails.
-	obs, err := observeLinks(ctx, r.opts.Cache, wi.Spec.Links)
-	if err != nil {
-		return "", err
+	// Could any rule fire at all? Scope, on and providers need no observation.
+	unobserved := buildView(wi, nil, observations{})
+	if !rules.CouldFire(cat, ev, unobserved) {
+		r.log.DebugContext(ctx, "no rule could fire for the event; skipped", "event", ev.ID, "type", ev.Type, "link", link.Ref)
+		return "", nil
 	}
-	eval, err := r.engine.Evaluate(ctx, cat, ev, buildView(wi, nil, obs), rules.AllowAll)
+	// Would any rule fire? Ask with the work item as it would be: no state, no runs, its
+	// object observed when a where reads item (item.pr and the like), and permissive rails.
+	view := unobserved
+	if rules.ReadsItem(cat, ev, unobserved) {
+		obs, err := observeLinks(ctx, r.opts.Cache, wi.Spec.Links)
+		if err != nil {
+			return "", err
+		}
+		if ferr := obs.forbiddenErr(wi.Spec.Links); ferr != nil {
+			if err := r.markProcessed(ctx, ev.ID, ""); err != nil {
+				return "", err
+			}
+			return "", Permanent(fmt.Errorf("event %s: %w", ev.ID, ferr))
+		}
+		view = buildView(wi, nil, obs)
+	}
+	eval, err := r.engine.Evaluate(ctx, cat, ev, view, rules.AllowAll)
 	if err != nil {
 		return "", err
 	}
@@ -253,6 +274,22 @@ func (r *RuleController) workItemFor(ctx context.Context, cat *catalog.Catalog, 
 	}
 	r.log.InfoContext(ctx, "work item created", "workItem", wi.Metadata.Name, "event", ev.ID, "link", link.Ref)
 	return wi.Metadata.Name, nil
+}
+
+// observeItem observes a work item's links for an evaluation. A link the provider won't show
+// is evaluated as gone, so the other links still count; it is reported once at WARN (until it
+// observes again), not on every evaluation.
+func (r *RuleController) observeItem(ctx context.Context, wiID string, links []v1alpha1.Link) (observations, error) {
+	obs, err := observeLinks(ctx, r.opts.Cache, links)
+	if err != nil {
+		return observations{}, err
+	}
+	for _, l := range links {
+		if ferr := obs.forbidden[cacheKey(l)]; ferr != nil && r.opts.Cache.firstForbidden(l) {
+			r.log.WarnContext(ctx, "link observation forbidden; evaluating it as gone", "workItem", wiID, "link", l.Provider+"/"+l.Ref, "err", ferr)
+		}
+	}
+	return obs, nil
 }
 
 // process evaluates and applies one event for one work item under the item's lock.
@@ -279,7 +316,7 @@ func (r *RuleController) processLocked(ctx context.Context, cat *catalog.Catalog
 	if err != nil {
 		return err
 	}
-	obs, err := observeLinks(ctx, r.opts.Cache, wi.Spec.Links)
+	obs, err := r.observeItem(ctx, wiID, wi.Spec.Links)
 	if err != nil {
 		return err
 	}
@@ -361,7 +398,7 @@ func (r *RuleController) DryRun(ctx context.Context, ev v1alpha1.Event, wiID str
 	} else if link, ok := eventLink(ev); ok {
 		wi.Spec.Links = []v1alpha1.Link{link}
 	}
-	obs, err := observeLinks(ctx, r.opts.Cache, wi.Spec.Links)
+	obs, err := r.observeItem(ctx, wiID, wi.Spec.Links)
 	if err != nil {
 		return rules.Evaluation{}, err
 	}

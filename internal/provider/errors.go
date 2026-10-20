@@ -12,6 +12,10 @@ var (
 	ErrDuplicateDelivery = errors.New("provider: duplicate delivery")
 	// ErrNotFound is an object, team or group that doesn't exist on the provider.
 	ErrNotFound = errors.New("provider: not found")
+	// ErrForbidden is a request the provider refuses for lack of access (the integration may
+	// not read or do this). It lasts until the installation or its permissions change; a
+	// rate limit is ErrRetryable instead.
+	ErrForbidden = errors.New("provider: forbidden")
 	// ErrInvalid is a request the adapter rejects: a missing idempotency key, an unscoped
 	// credential request, a malformed delivery, …
 	ErrInvalid = errors.New("provider: invalid request")

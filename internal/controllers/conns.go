@@ -40,11 +40,12 @@ type ObservationCache struct {
 
 	mu      sync.Mutex
 	entries map[string]cachedObservation
+	warned  map[string]bool // forbidden links already reported, until they observe again
 }
 
 type cachedObservation struct {
 	obs provider.Observation
-	err error // provider.ErrNotFound is cached too: the object is gone
+	err error // provider.ErrNotFound and a forbidden error are cached too: neither is transient
 	at  time.Time
 }
 
@@ -56,13 +57,13 @@ func NewObservationCache(conns ConnSource, clk clock.Clock, ttl time.Duration) *
 	if ttl <= 0 {
 		ttl = DefaultObservationTTL
 	}
-	return &ObservationCache{conns: conns, clk: clk, ttl: ttl, entries: map[string]cachedObservation{}}
+	return &ObservationCache{conns: conns, clk: clk, ttl: ttl, entries: map[string]cachedObservation{}, warned: map[string]bool{}}
 }
 
 func cacheKey(l v1alpha1.Link) string { return l.Provider + "/" + l.Ref }
 
 // Observe returns the link's observation, from the cache when it is fresher than the TTL.
-// A missing object is provider.ErrNotFound.
+// A missing object is provider.ErrNotFound; one the provider won't show, provider.ErrForbidden.
 func (c *ObservationCache) Observe(ctx context.Context, l v1alpha1.Link) (provider.Observation, error) {
 	obs, _, err := c.observe(ctx, l)
 	return obs, err
@@ -92,14 +93,29 @@ func (c *ObservationCache) refresh(ctx context.Context, l v1alpha1.Link) (provid
 		return provider.Observation{}, time.Time{}, fmt.Errorf("observe %s: no connection for provider %q", l.Ref, l.Provider)
 	}
 	obs, err := conn.Observe(ctx, v1alpha1.ObjectRef{Provider: l.Provider, Kind: l.Kind, Ref: l.Ref})
-	if err != nil && !isNotFound(err) {
+	if err != nil && !isNotFound(err) && !isForbidden(err) {
 		return provider.Observation{}, time.Time{}, err // transient: not cached
 	}
 	at := c.clk.Now()
 	c.mu.Lock()
 	c.entries[cacheKey(l)] = cachedObservation{obs: obs, err: err, at: at}
+	if !isForbidden(err) {
+		delete(c.warned, cacheKey(l)) // visible again: a later refusal is news
+	}
 	c.mu.Unlock()
 	return obs, at, err
+}
+
+// firstForbidden reports whether the link's refusal is news: true the first time it is asked
+// since the link was last observed (or ever), so a forbidden link is reported once.
+func (c *ObservationCache) firstForbidden(l v1alpha1.Link) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.warned[cacheKey(l)] {
+		return false
+	}
+	c.warned[cacheKey(l)] = true
+	return true
 }
 
 // Forget drops the link's cached observation.

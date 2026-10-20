@@ -172,6 +172,27 @@ func candidates(c *catalog.Catalog, ev v1alpha1.Event, wi WorkItemView) []candid
 	return out
 }
 
+// CouldFire reports whether any rule could fire for ev against wi: some RuleSet in scope (the
+// RuleSet's providers and scope, as Evaluate decides it) has a rule whose on has the event
+// type and whose providers have its source. It reads only the catalog, the event and, for a
+// factory.* event, wi's links, so the rule controller asks it before observing anything.
+func CouldFire(c *catalog.Catalog, ev v1alpha1.Event, wi WorkItemView) bool {
+	return c != nil && len(candidates(c, ev, wi)) > 0
+}
+
+// ReadsItem reports whether the where of any rule that could fire for ev reads item. When none
+// does, which rules fire doesn't depend on the work item (its observations included): an
+// evaluation against an unobserved view decides the same.
+func ReadsItem(c *catalog.Catalog, ev v1alpha1.Event, wi WorkItemView) bool {
+	if c == nil {
+		return false
+	}
+	return slices.ContainsFunc(candidates(c, ev, wi), func(cand candidate) bool {
+		w := cand.rule.Where
+		return w != nil && slices.Contains(w.Variables(), cel.VarItem)
+	})
+}
+
 func evalWhere(ctx context.Context, where *cel.Program, act cel.Activation) (bool, error) {
 	if where == nil {
 		return false, errors.New("where is not compiled")

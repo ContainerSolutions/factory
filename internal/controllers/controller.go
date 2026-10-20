@@ -39,6 +39,29 @@ type Result struct {
 	RequeueAfter time.Duration
 }
 
+// Permanent marks err as permanent: retrying the key won't help (the provider refuses access,
+// say), so the controller logs it once at WARN and drops the key instead of requeueing it.
+// The key is reconciled again only when it is added again. Permanent(nil) is nil.
+func Permanent(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &permanentError{err: err}
+}
+
+// IsPermanent reports whether err, or an error it wraps, was marked with Permanent.
+func IsPermanent(err error) bool {
+	var p *permanentError
+	return errors.As(err, &p)
+}
+
+type permanentError struct{ err error }
+
+func (e *permanentError) Error() string { return e.err.Error() }
+
+// Unwrap returns the underlying error.
+func (e *permanentError) Unwrap() error { return e.err }
+
 // DefaultWorkers is the default number of workers per controller.
 const DefaultWorkers = 2
 
@@ -57,7 +80,8 @@ type Options struct {
 
 // Controller runs a Reconciler over a keyed work queue fed by store watches (Watch) and
 // direct adds (Enqueue). A key is reconciled by at most one worker at a time; a failed
-// Reconcile (an error or a panic) is retried with exponential backoff.
+// Reconcile (an error or a panic) is retried with exponential backoff, unless its error is
+// Permanent.
 type Controller struct {
 	name    string
 	rec     Reconciler
@@ -185,6 +209,9 @@ func (c *Controller) processNext(ctx context.Context) bool {
 	switch {
 	case err != nil && ctx.Err() != nil && errors.Is(err, ctx.Err()):
 		// Stopping: don't retry.
+	case err != nil && IsPermanent(err):
+		c.log.Warn("reconcile failed permanently; dropped", "key", key, "err", err)
+		c.queue.Forget(key)
 	case err != nil:
 		c.log.Warn("reconcile failed; retrying", "key", key, "attempt", c.queue.NumRequeues(key)+1, "err", err)
 		c.queue.AddRateLimited(key)
