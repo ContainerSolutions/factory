@@ -12,6 +12,12 @@
 # identity (author: ccf-factory, reviewer: ccf-factory-reviewer) must be installed on every
 # private repo a TaskSpec reads, or the task stays Pending with a git-credential error.
 # Public ro repos (publicReads: true) get no token: they are cloned anonymously.
+# No shipped TaskSpec sets publicReads (catalog_test.go), as the repos they read are private.
+# So install:
+#   - both Apps on compliance-framework/ccf-skills: every TaskSpec's skills come from it;
+#   - the author App (ccf-factory) on compliance-framework/local-dev: release-docs reads it.
+# Repos a run clones at runtime without listing them (release-docs' released api, ui, agent
+# and plugins, all public) get no credential and are cloned anonymously.
 kind: Provider
 metadata: { name: github-public, labels: { family: github, network: public } }
 spec:
