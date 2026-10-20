@@ -81,7 +81,7 @@ exec > >(
 	exec tee -a "$log"
 ) 2>&1
 exec bin/factory serve \
-	--addr "${FACTORY_ADDR:-127.0.0.1:8080}" \
+	--addr "${FACTORY_ADDR:-127.0.0.1:8800}" \
 	--ops-addr 127.0.0.1:9090 \
 	--public-url "$FACTORY_PUBLIC_URL" \
 	"${catalog[@]}" \

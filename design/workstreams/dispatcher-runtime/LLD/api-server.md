@@ -61,7 +61,7 @@ Body: `{type, target, args}`.
 ## `factory serve`
 
 ```text
-factory serve [--addr :8080] [--ops-addr 127.0.0.1:9090] [--public-url https://…]
+factory serve [--addr :8800] [--ops-addr 127.0.0.1:9090] [--public-url https://…]
               [--catalog-repo URL --catalog-ref main --catalog-path catalog | --catalog-dir ./catalog]
               [--catalog-interval 60s] [--catalog-timeout 2m] [--retention 2160h] [--shutdown-timeout 30s]
               [--auth-provider NAME] [--github-url https://github.com] [--github-api-url URL]
@@ -71,7 +71,7 @@ factory serve [--addr :8080] [--ops-addr 127.0.0.1:9090] [--public-url https://�
 
 | Flag | Default | Use |
 |---|---|---|
-| `--addr` | `:8080` | public listener: UI, `/api/v1`, `/hooks/{provider}` (what the tunnel forwards to) |
+| `--addr` | `:8800` | public listener: UI, `/api/v1`, `/hooks/{provider}` (what the tunnel forwards to) |
 | `--ops-addr` | `127.0.0.1:9090` | ops listener (`/healthz`, `/readyz`, `/metrics`); **must be loopback** (`127.0.0.0/8`, `::1`, `localhost`), else startup refuses |
 | `--public-url` | `$FACTORY_PUBLIC_URL`, else `http://localhost:<port>` (warned) | OAuth callback (`<url>/api/v1/auth/callback`), webhook URLs in the logs, UI links in templates, the origin cookie writes must come from |
 | `--catalog-repo`, `--catalog-ref`, `--catalog-path` | the factory repo, `main`, `catalog` | git catalog source |
@@ -99,7 +99,7 @@ Environment (names only; values from the secret store — see [rollout](../../po
 
 Wiring order is in [controllers.md §Ordering](controllers.md#ordering-and-startup). Graceful shutdown: stop accepting leases, wait ≤ 30 s for in-flight requests, cancel controllers.
 
-`factory dispatch --event file.json [--server URL]` posts `{type: dispatch, args: {event}}` to `<server>/api/v1/commands` with `FACTORY_CLI_TOKEN` (env only) and prints the stored event's id. `--server` defaults to `$FACTORY_SERVER`, else `http://127.0.0.1:8080`.
+`factory dispatch --event file.json [--server URL]` posts `{type: dispatch, args: {event}}` to `<server>/api/v1/commands` with `FACTORY_CLI_TOKEN` (env only) and prints the stored event's id. `--server` defaults to `$FACTORY_SERVER`, else `http://127.0.0.1:8800`.
 
 ## Tests
 

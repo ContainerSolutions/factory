@@ -35,7 +35,7 @@ const minSecretLen = 32
 
 // Defaults of `factory serve`.
 const (
-	defaultAddr            = ":8080"
+	defaultAddr            = ":8800"
 	defaultOpsAddr         = "127.0.0.1:9090"
 	defaultRetention       = 2160 * time.Hour // 90 days
 	defaultCatalogTimeout  = 2 * time.Minute
@@ -260,7 +260,7 @@ func isLoopback(host string) bool {
 }
 
 func serveUsage(w io.Writer, fl *flag.FlagSet) {
-	fmt.Fprintln(w, `usage: factory serve [--addr :8080] [--ops-addr 127.0.0.1:9090] [--public-url URL]
+	fmt.Fprintln(w, `usage: factory serve [--addr :8800] [--ops-addr 127.0.0.1:9090] [--public-url URL]
                      [--catalog-repo URL --catalog-ref main --catalog-path catalog | --catalog-dir DIR]
                      [--retention 2160h] [--deploy-environment github-pages] [--log-level info]
                      [--log-format json|text] [--dev-fake-providers]

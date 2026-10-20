@@ -461,9 +461,9 @@ func TestParseServeConfig(t *testing.T) {
 		check   func(*testing.T, serveConfig, []string)
 	}{
 		{name: "defaults", env: testEnv(), check: func(t *testing.T, c serveConfig, w []string) {
-			if c.Addr != ":8080" || c.OpsAddr != "127.0.0.1:9090" || c.Retention != 2160*time.Hour || c.LogFormat != "json" ||
+			if c.Addr != ":8800" || c.OpsAddr != "127.0.0.1:9090" || c.Retention != 2160*time.Hour || c.LogFormat != "json" ||
 				c.CatalogRepo != "https://github.com/compliance-framework/factory" || c.CatalogRef != "main" || c.CatalogPath != "catalog" ||
-				c.DevFakeProviders || c.PublicURL != "http://localhost:8080" || c.DeployEnvironment != "github-pages" {
+				c.DevFakeProviders || c.PublicURL != "http://localhost:8800" || c.DeployEnvironment != "github-pages" {
 				t.Errorf("defaults %+v", c)
 			}
 			if len(w) != 1 || !strings.Contains(w[0], "no --public-url") {
@@ -499,7 +499,7 @@ func TestParseServeConfig(t *testing.T) {
 		{name: "ops on localhost", args: []string{"--ops-addr", "localhost:9090"}, env: testEnv()},
 		{name: "ops on ::1", args: []string{"--ops-addr", "[::1]:9090"}, env: testEnv()},
 		{name: "ops same as public", args: []string{"--addr", "127.0.0.1:9090"}, env: testEnv(), wantErr: []string{"--ops-addr must differ"}},
-		{name: "bad addr", args: []string{"--addr", "8080"}, env: testEnv(), wantErr: []string{"--addr"}},
+		{name: "bad addr", args: []string{"--addr", "8800"}, env: testEnv(), wantErr: []string{"--addr"}},
 		{name: "dir and repo", args: []string{"--catalog-dir", dir, "--catalog-repo", "https://example.com/r"}, env: testEnv(),
 			wantErr: []string{"--catalog-dir and --catalog-repo are exclusive"}},
 		{name: "dir and ref", args: []string{"--catalog-dir", dir, "--catalog-ref", "v1"}, env: testEnv(),

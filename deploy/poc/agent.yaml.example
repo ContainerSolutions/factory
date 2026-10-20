@@ -5,7 +5,7 @@
 # cmd/factory-agent/deploykit_test.go parses this file with the real loader.
 
 # The dispatcher's base URL. https off the dispatcher's machine (the tunnel); plain http only on
-# a loopback host, e.g. http://127.0.0.1:8080 for an agent on the dispatcher's own machine.
+# a loopback host, e.g. http://127.0.0.1:8800 for an agent on the dispatcher's own machine.
 dispatcher: https://your-name.ngrok-free.dev
 
 # The registered Pool to join (catalog/pools/local.yaml).
