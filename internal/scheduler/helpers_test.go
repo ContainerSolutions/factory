@@ -64,7 +64,9 @@ var (
 func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
 // swapCatalog is a CatalogProvider whose catalog a test can swap, as catalog-sync does.
-type swapCatalog struct{ p atomic.Pointer[catalog.Catalog] }
+type swapCatalog struct {
+	p atomic.Pointer[catalog.Catalog]
+}
 
 func newSwapCatalog(c *catalog.Catalog) *swapCatalog {
 	s := &swapCatalog{}
