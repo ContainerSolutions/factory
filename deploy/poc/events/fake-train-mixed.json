@@ -1,0 +1,201 @@
+{
+  "source": "github-public",
+  "type": "issue.closed",
+  "data": {
+    "provider": "github-public",
+    "actor": {
+      "id": "github-public:release-bot[bot]",
+      "tier": "maintainer",
+      "isBot": true
+    },
+    "object": {
+      "provider": "github-public",
+      "kind": "issue",
+      "ref": "compliance-framework/workflows#138"
+    },
+    "facts": {
+      "issue": {
+        "title": "Release train 2026-10 (7)",
+        "labels": [
+          "train",
+          "train:done"
+        ]
+      },
+      "train": {
+        "month": "2026-10",
+        "manifest": "repos.mock.yaml",
+        "dryRun": false,
+        "repos": [
+          {
+            "name": "plugin-apt-versions",
+            "versions": {
+              ".": "0.7.0"
+            },
+            "bump": "minor"
+          },
+          {
+            "name": "plugin-aws-acm",
+            "versions": {
+              ".": "0.1.1"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-aws-apigateway",
+            "versions": {
+              ".": "0.1.0"
+            },
+            "bump": "minor"
+          },
+          {
+            "name": "plugin-aws-cloudfront",
+            "versions": {
+              ".": "0.1.0"
+            },
+            "bump": "minor"
+          },
+          {
+            "name": "plugin-aws-ec2",
+            "versions": {
+              ".": "0.4.1"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-aws-ecr",
+            "versions": {
+              ".": "0.1.1"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-aws-eks",
+            "versions": {
+              ".": "0.1.2"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-aws-elb",
+            "versions": {
+              ".": "0.1.1"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-aws-rds-aurora-psql",
+            "versions": {
+              ".": "0.3.2"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-aws-s3",
+            "versions": {
+              ".": "0.1.1"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-aws-secretsmanager",
+            "versions": {
+              ".": "0.1.2"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-aws-vpc",
+            "versions": {
+              ".": "0.3.1"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-cloud-custodian",
+            "versions": {
+              ".": "0.3.0"
+            },
+            "bump": "minor"
+          },
+          {
+            "name": "plugin-cloud-custodian-policies",
+            "versions": {
+              ".": "0.2.2"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-dependabot",
+            "versions": {
+              ".": "0.8.0"
+            },
+            "bump": "minor"
+          },
+          {
+            "name": "plugin-file-attestation",
+            "versions": {
+              ".": "0.2.1"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-github-repositories",
+            "versions": {
+              ".": "0.10.0"
+            },
+            "bump": "minor"
+          },
+          {
+            "name": "plugin-github-settings",
+            "versions": {
+              ".": "0.6.0"
+            },
+            "bump": "minor"
+          },
+          {
+            "name": "plugin-gitlab-repositories",
+            "versions": {
+              ".": "0.1.1"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-http-collector",
+            "versions": {
+              ".": "0.2.0"
+            },
+            "bump": "minor"
+          },
+          {
+            "name": "plugin-intruder",
+            "versions": {
+              ".": "0.2.0"
+            },
+            "bump": "minor"
+          },
+          {
+            "name": "plugin-jira",
+            "versions": {
+              ".": "0.2.3"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-k8s",
+            "versions": {
+              ".": "0.2.1"
+            },
+            "bump": "patch"
+          },
+          {
+            "name": "plugin-local-ssh",
+            "versions": {
+              ".": "0.5.0"
+            },
+            "bump": "minor"
+          }
+        ]
+      }
+    }
+  }
+}

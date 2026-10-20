@@ -1,0 +1,62 @@
+# factory-agent's config (deploy/poc/README.md §Agent onboarding). Copy it to
+# ~/.config/factory-agent/agent.yaml (the default --config of worker and probe) and chmod 600 it:
+# the worker refuses a config that group or others can write. It is decoded strictly: an
+# unknown or misspelt key is an error. A leading ~/ in paths is the running user's home.
+# cmd/factory-agent/deploykit_test.go parses this file with the real loader.
+
+# The dispatcher's base URL. https off the dispatcher's machine (the tunnel); plain http only on
+# a loopback host, e.g. http://127.0.0.1:8080 for an agent on the dispatcher's own machine.
+dispatcher: https://your-name.ngrok-free.dev
+
+# The registered Pool to join (catalog/pools/local.yaml).
+pool: local
+
+# A file holding the Pool's join token (one line), given by the dispatcher operator out of
+# band. It must be absolute (or start with ~/) and readable by you only (chmod 600).
+joinTokenFile: ~/.config/factory-agent/join-token
+
+# Optional: names the agent agt_<owner login>-<host>. Default: this machine's short host name,
+# lower-cased.
+# host: mymac
+
+# Optional: the GitHub the owner's device-flow login runs against. Default https://github.com.
+# githubURL: https://github.com
+
+# Capability labels to advertise. Each is probed at start, and a failing one is dropped with a
+# warning. release-docs needs both; docs-review needs has-local-stack when it verifies against
+# a train.
+labels: [has-local-stack, gif-tooling]
+
+# The local-dev checkout the local stack runs from. Required with has-local-stack.
+localDev: ~/repos/local-dev
+
+# Optional: where per-task workspaces go. Default ~/.factory-agent/work.
+# workRoot: ~/.factory-agent/work
+
+# One entry per harness this machine offers (at least one). Each needs its own dedicated
+# config dir, signed in once by you (README §Agent onboarding); models are what your plan
+# allows, default one of them; efforts from minimal, low, medium, high, max.
+harnesses:
+  codex:
+    home: ~/.factory-agent/codex-home          # codex's dedicated CODEX_HOME
+    models: [gpt-5-codex]                      # release-docs, implement, plan-epic and merge ask gpt-5*
+    efforts: [low, medium, high]               # merge asks low, implement medium, the others high
+    default: gpt-5-codex
+  claude-code:
+    configDir: ~/.factory-agent/claude         # claude's dedicated CLAUDE_CONFIG_DIR
+    models: [claude-sonnet-5-5, claude-opus-5-5]   # docs-review asks claude-{sonnet,opus}-5-* at high
+    efforts: [low, medium, high, max]
+    default: claude-sonnet-5-5
+
+# Your consent: what this agent may take. Either unlimited: true (only maxConcurrent then
+# applies), or a list of queues plus optional limits. SIGHUP to the worker re-reads this block.
+lending:
+  unlimited: true
+  # maxConcurrent: 1                # tasks at once; default 1
+  # Instead of unlimited:
+  # queues: [poc]
+  # ruleSets: [dev-release-docs, dev-docs-epic]
+  # harnesses: [codex, claude-code]
+  # maxRunsPerDay: 10
+  # maxTokensPerDay: 2000000
+  # hours: "Mon-Fri 08:00-20:00 Europe/Lisbon"   # [days] HH:MM-HH:MM [zone]; default zone UTC
