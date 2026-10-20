@@ -36,7 +36,7 @@
           "nodes": [ { "isResolved": false }, { "isResolved": true }, { "isResolved": false } ]
         },
         "commits": {
-          "nodes": [ { "commit": { "oid": "c0ffee0000000000000000000000000000000003", "statusCheckRollup": { "state": "SUCCESS" } } } ]
+          "nodes": [ { "commit": { "oid": "c0ffee0000000000000000000000000000000003", "checkSuites": { "nodes": [ { "status": "COMPLETED", "conclusion": "SUCCESS", "checkRuns": { "totalCount": 3 } }, { "status": "COMPLETED", "conclusion": "SKIPPED", "checkRuns": { "totalCount": 1 } }, { "status": "QUEUED", "conclusion": null, "checkRuns": { "totalCount": 0 } } ] } } } ]
         },
         "comments": {
           "totalCount": 2,

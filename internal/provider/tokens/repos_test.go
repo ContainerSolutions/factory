@@ -124,8 +124,8 @@ func TestGraphQLAndDo(t *testing.T) {
 		t.Errorf("rate limited: %v, want ErrRetryable", err)
 	}
 	e.srv.SetGraphQL("Denied", nil, []byte(`{"data":null,"errors":[{"type":"FORBIDDEN","message":"Resource not accessible by integration"}]}`))
-	if err := e.m.GraphQL(ctx, cred.Token, "Denied", "query Denied { x }", nil, &data); !errors.Is(err, tokens.ErrForbidden) {
-		t.Errorf("forbidden: %v, want ErrForbidden", err)
+	if err := e.m.GraphQL(ctx, cred.Token, "Denied", "query Denied { x }", nil, &data); !errors.Is(err, tokens.ErrForbidden) || !errors.Is(err, provider.ErrForbidden) {
+		t.Errorf("forbidden: %v, want ErrForbidden and provider.ErrForbidden", err)
 	}
 	e.srv.FailNext(githubtest.RouteGraphQL, githubtest.Failure{Status: http.StatusBadGateway, Message: "Server Error"})
 	if err := e.m.GraphQL(ctx, cred.Token, "Observe", "query Observe { … }", vars, &data); !errors.Is(err, provider.ErrRetryable) {
