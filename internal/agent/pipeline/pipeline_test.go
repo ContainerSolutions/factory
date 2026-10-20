@@ -586,8 +586,8 @@ func TestRunSpecSchemaRepair(t *testing.T) {
 	if len(probs) != 1 || len(probs[0]) != 1 || !strings.Contains(probs[0][0], "/data") || !strings.Contains(probs[0][0], "prs") {
 		t.Fatalf("repair problems %q, want only the spec schema's data.prs", probs)
 	}
-	if string(seen) != releaseDocsSchema {
-		t.Errorf("the harness's schema file is %s, want the served spec schema", seen)
+	if want, err := pipeline.BundleSchema([]byte(releaseDocsSchema)); err != nil || string(seen) != string(want) {
+		t.Errorf("the harness's schema file is %s, want the served spec schema, bundled (%v)", seen, err)
 	}
 	f.disp.mu.Lock()
 	calls, auths := slices.Clone(f.disp.calls), slices.Clone(f.disp.auths)

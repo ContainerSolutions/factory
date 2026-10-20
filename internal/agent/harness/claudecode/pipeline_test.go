@@ -77,8 +77,9 @@ func TestPipelineEndToEnd(t *testing.T) {
 	if !strings.Contains(run.Stdin, "Open a PR on acme/docs.") || !strings.Contains(run.flag("--append-system-prompt"), "unattended inside CCF Factory (task "+e2eTaskID) {
 		t.Errorf("run prompt %q", run.Stdin)
 	}
-	if !strings.Contains(run.flag("--json-schema"), `"$id"`) {
-		t.Errorf("the Result schema isn't passed: %q", run.flag("--json-schema"))
+	if js := run.flag("--json-schema"); !strings.Contains(js, `"title":"Result"`) || !strings.Contains(js, `"#/definitions/Artifact"`) ||
+		strings.Contains(js, `"$schema"`) || strings.Contains(js, `"$id"`) || strings.Contains(js, `$defs`) {
+		t.Errorf("the Result schema isn't passed as draft-07: %q", js)
 	}
 	var codes []int
 	for _, h := range run.Hooks {

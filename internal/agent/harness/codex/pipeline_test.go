@@ -54,8 +54,8 @@ func TestPipelineEndToEnd(t *testing.T) {
 	}
 	run, repair := calls[0], calls[1]
 	repo := filepath.Join(e.WorkRoot, e2eTaskID, "repo")
-	for _, w := range []string{"--sandbox", "workspace-write", "--cd", repo, "--model", "gpt-5-codex", `model_reasoning_effort="high"`,
-		"--output-schema", filepath.Join(e.WorkRoot, e2eTaskID, "result.schema.json")} {
+	checkSchemaArgs(t, run.Args, filepath.Join(e.WorkRoot, e2eTaskID, "result.schema.json"))
+	for _, w := range []string{"--sandbox", "workspace-write", "--cd", repo, "--model", "gpt-5-codex", `model_reasoning_effort="high"`} {
 		if !slices.Contains(run.Args, w) {
 			t.Errorf("run args %q lack %q", run.Args, w)
 		}
@@ -125,7 +125,7 @@ func TestPipelineRateLimited(t *testing.T) {
 // `make test`: it needs FACTORY_SMOKE_CODEX=1.
 //
 //	FACTORY_SMOKE_CODEX_HOME   the dedicated CODEX_HOME (default ~/.factory-agent/codex-home)
-//	FACTORY_SMOKE_CODEX_MODEL  the model (default gpt-5-codex)
+//	FACTORY_SMOKE_CODEX_MODEL  the model (required: no default, the models a sign-in offers vary)
 //	FACTORY_SMOKE_CODEX_EFFORT the normalised effort (default low)
 //	FACTORY_SMOKE_CODEX_BIN    the codex binary (default codex on PATH)
 func TestSmokeCodex(t *testing.T) {
@@ -142,7 +142,11 @@ func TestSmokeCodex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := env("FACTORY_SMOKE_CODEX_MODEL", "gpt-5-codex")
+	model := os.Getenv("FACTORY_SMOKE_CODEX_MODEL")
+	if model == "" {
+		t.Fatal("set FACTORY_SMOKE_CODEX_MODEL to a model your codex sign-in offers (see /model in codex); " +
+			"the catalog's codex TaskSpecs ask for a gpt-5* or gpt-6* model")
+	}
 	effort := env("FACTORY_SMOKE_CODEX_EFFORT", "low")
 	a := New(Options{Config: config.Harness{Home: home, Default: model}, Binary: env("FACTORY_SMOKE_CODEX_BIN", "codex")})
 	off, err := a.Probe(context.Background(), config.Harness{Home: home, Models: []string{model}, Default: model})

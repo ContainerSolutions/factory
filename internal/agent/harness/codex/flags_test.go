@@ -29,6 +29,27 @@ func TestNativeEffort(t *testing.T) {
 	}
 }
 
+// schemaArgs are the --output-schema arguments execArgs passes for p: none while
+// useOutputSchema is off.
+func schemaArgs(p string) []string {
+	if !useOutputSchema {
+		return nil
+	}
+	return []string{flagOutputSchema, p}
+}
+
+// checkSchemaArgs fails when args don't pass the schema p as useOutputSchema says.
+func checkSchemaArgs(t *testing.T, args []string, p string) {
+	t.Helper()
+	i := slices.Index(args, flagOutputSchema)
+	switch {
+	case useOutputSchema && (i < 0 || i+1 >= len(args) || args[i+1] != p):
+		t.Errorf("args %q don't pass the schema %s", args, p)
+	case !useOutputSchema && i >= 0:
+		t.Errorf("args %q pass %s while useOutputSchema is off", args, flagOutputSchema)
+	}
+}
+
 func TestExecArgs(t *testing.T) {
 	base := []string{"exec", "--json"}
 	tail := func(extra ...string) []string { return append(extra, "-") }
@@ -39,7 +60,7 @@ func TestExecArgs(t *testing.T) {
 	}{
 		{"read-write with schema", execOptions{Model: "gpt-5-codex", Effort: "high", Sandbox: sandboxWorkspaceWrite, WorkDir: "/w/repo", Schema: "/w/s.json", LastMessage: "/w/last"},
 			append(slices.Clone(base), append([]string{"--model", "gpt-5-codex", "-c", `model_reasoning_effort="high"`, "-c", `approval_policy="never"`,
-				"--sandbox", "workspace-write", "--cd", "/w/repo", "--skip-git-repo-check", "--output-schema", "/w/s.json", "--output-last-message", "/w/last"}, tail()...)...)},
+				"--sandbox", "workspace-write", "--cd", "/w/repo", "--skip-git-repo-check"}, append(schemaArgs("/w/s.json"), tail("--output-last-message", "/w/last")...)...)...)},
 		{"read-only, max on a codex-max model", execOptions{Model: "gpt-5.1-codex-max", Effort: "max", Sandbox: sandboxReadOnly, WorkDir: "/w/repo"},
 			append(slices.Clone(base), tail("--model", "gpt-5.1-codex-max", "-c", `model_reasoning_effort="xhigh"`, "-c", `approval_policy="never"`,
 				"--sandbox", "read-only", "--cd", "/w/repo", "--skip-git-repo-check")...)},

@@ -100,7 +100,7 @@ func TestRun(t *testing.T) {
 			dir := filepath.Join(ws.Home, ".factory-claude")
 			for _, w := range append(tt.wantArgs, "--print", "--output-format", "stream-json", "--verbose", "--append-system-prompt", ws.Preamble,
 				"--settings", filepath.Join(dir, "settings.json"), "--setting-sources", "user", "--mcp-config", filepath.Join(dir, "mcp.json"),
-				"--strict-mcp-config", "--json-schema", `{"type":"object","required":["status"]}`, "--permission-mode", "bypassPermissions",
+				"--strict-mcp-config", "--json-schema", `{"required":["status"],"type":"object"}`, "--permission-mode", "bypassPermissions",
 				filepath.Join(ws.Skills, "ccf-docs"), filepath.Join(ws.Skills, "ccf-review"), filepath.Join(ws.Skills, "lisa"), ws.Out, ws.Mounts[1].Dir) {
 				if !slices.Contains(c.Args, w) {
 					t.Errorf("args %q lack %q", c.Args, w)
