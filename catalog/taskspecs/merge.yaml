@@ -22,7 +22,7 @@ spec:
     requiredCheck: { type: string, default: "ci / required" }   # "build" (push-only "Test Build" workflow) until docs is on the shared workflows (DWF)
   instructions: { template: prompts/merge.md.tmpl, headless: true }
   skills: [{ source: ccf-skills, ref: v0.8.0, use: [merge] }]
-  harness: { default: { name: codex, config: { model: "gpt-5*", reasoningEffort: low } } }
+  harness: { default: { name: codex, config: { model: "gpt-{5,6}*", reasoningEffort: low } } }
   workspace: { checkout: rebase-only }
   identity: reviewer
   permissions: { contents: write, pull_requests: write }

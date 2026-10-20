@@ -13,7 +13,7 @@ spec:
     base:   { type: string, default: main }       # branch to stack on
   instructions: { template: prompts/implement.md.tmpl, headless: true }
   skills: [{ source: ccf-skills, ref: v0.8.0, use: [lisa, resolve, docs-style] }]   # lisa one-shot; stack ops via the Effector
-  harness: { default: { name: codex, config: { model: "gpt-5*", reasoningEffort: medium } } }
+  harness: { default: { name: codex, config: { model: "gpt-{5,6}*", reasoningEffort: medium } } }
   workspace: { repos: [{ ref: "=task.target.repo + '@' + inputs.base", mode: rw }] }
   identity: author
   permissions: { contents: write, pull_requests: write, issues: read }
