@@ -27,6 +27,12 @@ const (
 
 func isNotFound(err error) bool { return errors.Is(err, provider.ErrNotFound) }
 
+// isForbidden reports a provider refusing access: permanent until its installation changes.
+// A rate limit (a 403 GitHub sends with rate-limit headers, say) is retryable, never this.
+func isForbidden(err error) bool {
+	return errors.Is(err, provider.ErrForbidden) && !errors.Is(err, provider.ErrRetryable)
+}
+
 // counted reports whether a run counts as one of the work item's runs (item.count, RunsBySpec).
 func counted(r *v1alpha1.Run) bool {
 	if r.Status == nil {
@@ -220,20 +226,35 @@ func jsonValue(v any) any {
 
 // observations are a work item's links observed (cache) and the ones that failed.
 type observations struct {
-	byLink map[string]provider.Observation // by cacheKey; objects that exist
-	at     map[string]time.Time            // by cacheKey: when each was observed
-	gone   map[string]bool                 // objects the provider doesn't have
+	byLink    map[string]provider.Observation // by cacheKey; objects that exist
+	at        map[string]time.Time            // by cacheKey: when each was observed
+	gone      map[string]bool                 // objects the provider doesn't have, or won't show
+	forbidden map[string]error                // by cacheKey: the links the provider won't show (also gone)
+}
+
+// forbiddenErr is the first forbidden link's error, in link order; nil when there is none.
+func (o observations) forbiddenErr(links []v1alpha1.Link) error {
+	for _, l := range links {
+		if err := o.forbidden[cacheKey(l)]; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // observeLinks observes every link through the cache. A transient error fails the whole view
-// (the reconcile is retried).
+// (the reconcile is retried). A link the provider won't show (forbidden) is evaluated as gone
+// and recorded in forbidden, for the caller to report.
 func observeLinks(ctx context.Context, cache *ObservationCache, links []v1alpha1.Link) (observations, error) {
-	out := observations{byLink: map[string]provider.Observation{}, at: map[string]time.Time{}, gone: map[string]bool{}}
+	out := observations{byLink: map[string]provider.Observation{}, at: map[string]time.Time{}, gone: map[string]bool{}, forbidden: map[string]error{}}
 	for _, l := range links {
 		obs, at, err := cache.observe(ctx, l)
 		switch {
 		case isNotFound(err):
 			out.gone[cacheKey(l)] = true
+		case isForbidden(err):
+			out.gone[cacheKey(l)] = true
+			out.forbidden[cacheKey(l)] = fmt.Errorf("observe %s/%s: %w", l.Provider, l.Ref, err)
 		case err != nil:
 			return observations{}, fmt.Errorf("observe %s/%s: %w", l.Provider, l.Ref, err)
 		default:

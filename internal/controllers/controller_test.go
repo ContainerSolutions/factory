@@ -3,6 +3,9 @@ package controllers
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -163,5 +166,62 @@ func TestControllerStopsCleanly(t *testing.T) {
 	}
 	if err := c.Watch(memory.New(store.Options{}), "Agent", nil, InformerOptions{}); err == nil {
 		t.Error("Watch after Run succeeded")
+	}
+}
+
+func TestControllerDropsPermanentErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		err        error
+		wantRetry  bool
+		wantLogged string
+	}{
+		{name: "permanent", err: Permanent(errors.New("forbidden")), wantLogged: "reconcile failed permanently; dropped"},
+		{name: "wrapped permanent", err: fmt.Errorf("event e1: %w", Permanent(errors.New("forbidden"))), wantLogged: "reconcile failed permanently; dropped"},
+		{name: "transient", err: errors.New("transient"), wantRetry: true, wantLogged: "reconcile failed; retrying"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clk := clock.NewFake(t0)
+			calls := make(chan struct{}, 10)
+			logs := &logRecorder{}
+			c := NewController("test", ReconcilerFunc(func(context.Context, string) (Result, error) {
+				calls <- struct{}{}
+				return Result{}, tc.err
+			}), Options{Workers: 1, Clock: clk, Backoff: noJitter, Logger: slog.New(logs)})
+			stop := runInBackground(t, c.Run)
+
+			c.Enqueue("k")
+			recv(t, calls, "the reconcile")
+			if tc.wantRetry {
+				clk.BlockUntil(1) // the backoff timer
+			} else {
+				eventually(t, "the key dropped", func() bool { return logs.count(slog.LevelWarn, tc.wantLogged) == 1 })
+			}
+			if err := stop(); err != nil {
+				t.Fatalf("Run = %v", err)
+			}
+			if n := logs.count(slog.LevelWarn, tc.wantLogged); n != 1 {
+				t.Errorf("%q logged %d times, want 1", tc.wantLogged, n)
+			}
+			wantRequeues := 0
+			if tc.wantRetry {
+				wantRequeues = 1
+			}
+			if r := c.Queue().NumRequeues("k"); r != wantRequeues {
+				t.Errorf("NumRequeues = %d, want %d", r, wantRequeues)
+			}
+			if !tc.wantRetry && clk.Timers() != 0 {
+				t.Errorf("%d timers: a permanent failure was scheduled for retry", clk.Timers())
+			}
+			if len(calls) != 0 {
+				t.Errorf("%d more reconciles", len(calls))
+			}
+		})
+	}
+	if Permanent(nil) != nil {
+		t.Error("Permanent(nil) is not nil")
+	}
+	if err := Permanent(io.EOF); !errors.Is(err, io.EOF) || err.Error() != io.EOF.Error() || !IsPermanent(err) || IsPermanent(io.EOF) {
+		t.Errorf("Permanent(io.EOF) = %v: should wrap it, keep its message and be permanent", err)
 	}
 }
