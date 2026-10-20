@@ -22,7 +22,7 @@ import (
 const envServer = "FACTORY_SERVER"
 
 // defaultServer is where factory dispatch posts when neither --server nor FACTORY_SERVER is set.
-const defaultServer = "http://127.0.0.1:8080"
+const defaultServer = "http://127.0.0.1:8800"
 
 // dispatchTimeout bounds the request.
 const dispatchTimeout = 30 * time.Second

@@ -119,7 +119,7 @@ func TestDispatch(t *testing.T) {
 		{"no token", []string{"--event", event}, map[string]string{}, envCLIToken + " is not set"},
 		{"missing file", []string{"--event", "nope.json"}, env, "nope.json"},
 		{"unknown field", []string{"--event", bad}, env, "unknown field"},
-		{"bad server", []string{"--event", event, "--server", "localhost:8080"}, env, "--server"},
+		{"bad server", []string{"--event", event, "--server", "localhost:8800"}, env, "--server"},
 		{"extra args", []string{"--event", event, "x"}, env, "unexpected arguments"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

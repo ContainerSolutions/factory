@@ -15,7 +15,7 @@ go run ./cmd/factory rules test --catalog catalog [--update | --base-catalog <di
 make build-release              # web/ build + go build -tags webui
 cd web && npm ci && npm run gen:api   # after changing api/openapi.yaml or api/examples: regenerates web's committed client (CI's web job checks it)
 bin/factory serve --dev-fake-providers --catalog-dir internal/catalog/testdata/poc   # local dispatcher, fake GitHub (needs FACTORY_OAUTH_CLIENT_ID/_SECRET, FACTORY_SESSION_KEY, FACTORY_CLI_TOKEN in env)
-bin/factory dispatch --event event.json --server http://127.0.0.1:8080             # inject an event (FACTORY_CLI_TOKEN in env)
+bin/factory dispatch --event event.json --server http://127.0.0.1:8800             # inject an event (FACTORY_CLI_TOKEN in env)
 ```
 
 Backend work never needs Node: without `-tags webui` the binary embeds `internal/webui/placeholder/`.

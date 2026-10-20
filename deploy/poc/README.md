@@ -101,10 +101,10 @@ Expect `valid (dir:…): 0 errors, 11 warnings`. The warnings are the expected C
 In its own terminal, with `FACTORY_PUBLIC_URL` in the environment (for example `export FACTORY_PUBLIC_URL=https://<name>.ngrok-free.dev`):
 
 ```bash
-ngrok http --url="$FACTORY_PUBLIC_URL" --traffic-policy-file=deploy/poc/ngrok-policy.yml 8080
+ngrok http --url="$FACTORY_PUBLIC_URL" --traffic-policy-file=deploy/poc/ngrok-policy.yml 8800
 ```
 
-The tunnel reaches only the public listener on port 8080: the UI, `/api/v1/*` and `/hooks/*`. The ops routes are on a separate loopback-only listener, and the policy denies their paths too. Set ccf-factory's webhook URL to `$FACTORY_PUBLIC_URL/hooks/github-public` and its callback URL to `$FACTORY_PUBLIC_URL/api/v1/auth/callback`.
+The dispatcher listens on **8800**, not 8080 or 8000: local-dev's CCF stack binds those (its API and UI), and release-docs and docs-review bring that stack up on this machine. `make poc-up POC_ADDR=127.0.0.1:<port>` picks another; if your `.env` sets `FACTORY_ADDR`, that wins, so update it too. The tunnel reaches only the public listener on port 8800: the UI, `/api/v1/*` and `/hooks/*`. The ops routes are on a separate loopback-only listener, and the policy denies their paths too. Set ccf-factory's webhook URL to `$FACTORY_PUBLIC_URL/hooks/github-public` and its callback URL to `$FACTORY_PUBLIC_URL/api/v1/auth/callback`.
 
 ## 6. Start the dispatcher
 
@@ -116,7 +116,7 @@ make poc-up
 
 1. loads and checks `.env` (§3);
 2. runs `make build-release` (`web/` with `npm ci`, then `go build -tags webui`). Use `SKIP_BUILD=1 make poc-up` to reuse `bin/factory`;
-3. runs `bin/factory serve --addr 127.0.0.1:8080 --ops-addr 127.0.0.1:9090 --public-url "$FACTORY_PUBLIC_URL" <catalog flags> --retention 2160h --log-format json`, plus any arguments given to `run.sh` (for example `deploy/poc/run.sh --log-level debug`). `FACTORY_ADDR` in `.env` overrides `--addr`.
+3. runs `bin/factory serve --addr 127.0.0.1:8800 --ops-addr 127.0.0.1:9090 --public-url "$FACTORY_PUBLIC_URL" <catalog flags> --retention 2160h --log-format json`, plus any arguments given to `run.sh` (for example `deploy/poc/run.sh --log-level debug`). `FACTORY_ADDR` in `.env` overrides `--addr`.
 
 The JSON log goes to the terminal and to `deploy/poc/logs/factory-serve-<UTC time>.log` (one file per start).
 
@@ -148,7 +148,7 @@ export FACTORY_CLI_TOKEN="$(sed -n 's/^FACTORY_CLI_TOKEN=//p' deploy/poc/.env)"
 ```
 
 ```bash
-curl -s -H "Authorization: Bearer $FACTORY_CLI_TOKEN" http://127.0.0.1:8080/api/v1/providers | jq '.items[] | {name: .provider.metadata.name, health}'
+curl -s -H "Authorization: Bearer $FACTORY_CLI_TOKEN" http://127.0.0.1:8800/api/v1/providers | jq '.items[] | {name: .provider.metadata.name, health}'
 ```
 
 Expect `"status": "ok"`. Then:
@@ -187,7 +187,7 @@ For each agent owner, on their machine (rollout.md §Agent onboarding). The owne
 
    Paste the token, press Enter, then Ctrl-D.
 7. **The config.** Copy `deploy/poc/agent.yaml.example` to `~/.config/factory-agent/agent.yaml`, then `chmod 600` it. Edit:
-   - `dispatcher`: `$FACTORY_PUBLIC_URL`, or `http://127.0.0.1:8080` on the dispatcher's own machine;
+   - `dispatcher`: `$FACTORY_PUBLIC_URL`, or `http://127.0.0.1:8800` on the dispatcher's own machine;
    - `localDev`;
    - the harnesses and models your plans allow. The codex model in the example (`gpt-6.1-sol`) is a placeholder: put `<a gpt-5* or gpt-6* model your codex sign-in offers>` (see `/model` in codex) in `models` and `default`;
    - `lending`.
@@ -235,7 +235,7 @@ For each agent owner, on their machine (rollout.md §Agent onboarding). The owne
 bin/factory dispatch --event deploy/poc/events/mock-train.json
 ```
 
-It posts to `http://127.0.0.1:8080` by default (`--server`, or env `FACTORY_SERVER`) with `FACTORY_CLI_TOKEN` (§7), and prints the stored event's id (`inject/…`).
+It posts to `http://127.0.0.1:8800` by default (`--server`, or env `FACTORY_SERVER`) with `FACTORY_CLI_TOKEN` (§7), and prints the stored event's id (`inject/…`).
 
 About the event:
 
@@ -246,7 +246,7 @@ About the event:
 To see the decisions without storing anything:
 
 ```bash
-jq '{event: (. + {id: "preview"})}' deploy/poc/events/mock-train.json | curl -s -H "Authorization: Bearer $FACTORY_CLI_TOKEN" -H 'Content-Type: application/json' -d @- http://127.0.0.1:8080/api/v1/catalog/dry-run | jq '.decisions'
+jq '{event: (. + {id: "preview"})}' deploy/poc/events/mock-train.json | curl -s -H "Authorization: Bearer $FACTORY_CLI_TOKEN" -H 'Content-Type: application/json' -d @- http://127.0.0.1:8800/api/v1/catalog/dry-run | jq '.decisions'
 ```
 
 What you should see (the UI's board and work-item pages, or `GET /api/v1/workitems` and `/api/v1/tasks`):
@@ -263,7 +263,7 @@ The commands below go to `POST /api/v1/commands` with the CLI token. The UI show
 
 | Need | How |
 |---|---|
-| Stop everything | The UI's pause, or `curl -s -H "Authorization: Bearer $FACTORY_CLI_TOKEN" -H 'Content-Type: application/json' -d '{"type":"pause","target":{"scope":"global"}}' http://127.0.0.1:8080/api/v1/commands`. Resume with `"type":"resume"`. Scopes: `global`, `provider`, `queue` and `workitem`, each with `"name"` except global. |
+| Stop everything | The UI's pause, or `curl -s -H "Authorization: Bearer $FACTORY_CLI_TOKEN" -H 'Content-Type: application/json' -d '{"type":"pause","target":{"scope":"global"}}' http://127.0.0.1:8800/api/v1/commands`. Resume with `"type":"resume"`. Scopes: `global`, `provider`, `queue` and `workitem`, each with `"name"` except global. |
 | Stop one work item | Label any object linked to it `factory:stop`. Every action of that item is then suppressed. `factory:hold` and `do-not-merge` keep the merge rules off a PR. |
 | Cancel or re-run a task | `{"type":"cancel","target":{"task":"<tsk_id>"}}`, or `{"type":"redispatch","target":{"task":"<tsk_id>"},"args":{"harness":{"name":"claude-code"}}}`; or from the UI's run page. |
 | Re-read the catalog now | `{"type":"resync-catalog"}`, or the UI's Catalog page. |
