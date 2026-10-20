@@ -180,8 +180,11 @@ func NewPlan(s State) (Plan, error) {
 		// <project>-api-1 (ccf-api-1 under local-dev's own project).
 		vars = append(vars, Var{"KIND_HOST_ALIAS", s.Project + "-api-1"})
 	}
-	return Plan{Dir: s.LocalDev, Target: "demo-up-" + s.Profile, Vars: vars, Plugins: maps.Clone(s.Versions.Plugins)}, nil
+	return Plan{Dir: s.LocalDev, Target: upTarget(s.Profile), Vars: vars, Plugins: maps.Clone(s.Versions.Plugins)}, nil
 }
+
+// upTarget is local-dev's make target for a profile.
+func upTarget(profile string) string { return "demo-up-" + profile }
 
 // env is the plan's overrides as KEY=VALUE.
 func (p Plan) env() []string {
@@ -430,6 +433,11 @@ func (m *Manager) Up(ctx context.Context, s State) error {
 		return err
 	}
 	if err := m.o.Runner.Run(ctx, plan.Command(), m.o.Output); err != nil {
+		// Taking the stack down writes to the same output: an output that keeps make's
+		// last line (tail) notes it first.
+		if mk, ok := m.o.Output.(failureMarker); ok {
+			mk.markFailure()
+		}
 		if derr := m.Down(context.WithoutCancel(ctx), s.Project); derr != nil {
 			err = errors.Join(err, fmt.Errorf("and taking it down: %w", derr))
 		}
@@ -578,10 +586,18 @@ func (m *Manager) get(ctx context.Context, u string) error {
 	return nil
 }
 
-// tail keeps the last n bytes written to it.
+// failureMarker is an output that notes where make's output ends when make fails, before
+// the commands that take the stack down write to it.
+type failureMarker interface{ markFailure() }
+
+// tail keeps the last n bytes written to it. The runner writes stdout and stderr through
+// one writer (exec serialises the writes), so it needs no lock.
 type tail struct {
 	n   int
 	buf bytes.Buffer
+	// failed is the last line when markFailure was called.
+	failed   string
+	isFailed bool
 }
 
 func (t *tail) Write(p []byte) (int, error) {
@@ -593,3 +609,16 @@ func (t *tail) Write(p []byte) (int, error) {
 }
 
 func (t *tail) String() string { return t.buf.String() }
+
+func (t *tail) markFailure() {
+	t.failed, t.isFailed = lastLine(t.buf.String()), true
+}
+
+// failedLine is the last line of the output when markFailure was called, or else the last
+// line so far.
+func (t *tail) failedLine() string {
+	if t.isFailed {
+		return t.failed
+	}
+	return lastLine(t.buf.String())
+}

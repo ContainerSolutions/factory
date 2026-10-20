@@ -269,7 +269,7 @@ The commands below go to `POST /api/v1/commands` with the CLI token. The UI show
 | Inspect a decision | The UI's work item, then the decision's "why" drawer. |
 | Stop an agent | The owner presses Ctrl-C (or sends SIGTERM) to drain; a second one aborts the running task. SIGHUP re-reads `lending` only. There is no `factory-agent pause` command; to stop lending, change `lending` and send SIGHUP, or stop the worker. |
 | Dispatcher logs | `deploy/poc/logs/factory-serve-<UTC time>.log`, JSON. Follow the latest with `tail -f "$(ls -t deploy/poc/logs/factory-serve-*.log \| head -1)" \| jq -c '{time, level, msg}'`. |
-| Agent logs | the worker's stderr (§8 step 10). Per-task workspaces are under `~/.factory-agent/work/<task>/`, removed after each run unless `--keep-workspace`. |
+| Agent logs | the worker's stderr (§8 step 10). Per-task workspaces are under `~/.factory-agent/work/<task>/`, removed after each run unless `--keep-workspace`. A failed stack up leaves make's output in `<state dir>/logs/stack-*.log` (state dir default `~/.factory-agent`; the newest 20 are kept), and the run's summary names the file. |
 | Transcripts | `GET /api/v1/runs/<run_id>/transcript` (gzip JSONL), or the UI's run page. They are lost on a dispatcher restart. |
 
 ## 11. Stopping

@@ -13,9 +13,10 @@ import (
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
-// maxOutputTail is how much of make's output a failed Up logs (at debug level: local-dev's
-// output is the owner's, not the task's).
-const maxOutputTail = 8 << 10
+// maxOutputTail is how much of make's output a failed Up keeps: written to a failure log
+// under the state directory (failurelog.go), never logged above debug, since local-dev's
+// output is the owner's, not the task's, and can hold credentials.
+const maxOutputTail = 64 << 10
 
 // ForPipeline is the run pipeline's Stack (pipeline.Stack): Up resolves the task's
 // versions (inputs.train or inputs.verifyAgainst), brings the stack up under the task's
@@ -76,14 +77,14 @@ func (p *ForPipeline) Up(ctx context.Context, _ harness.Workspace, t v1alpha1.Ta
 	m := p.Manager.WithOutput(out)
 	log.Info("stack up", "project", s.Project, "source", s.Source, "api", v.API, "ui", v.UI, "agent", v.Agent)
 	if err := m.Up(ctx, s); err != nil {
-		log.Debug("stack up output", "tail", out.String())
-		return nil, err
+		return nil, p.upFailed(log, clk, s, out, err)
 	}
 	if err := m.Wait(ctx, p.WaitTimeout); err != nil {
+		out.markFailure()
 		if derr := m.Down(context.WithoutCancel(ctx), s.Project); derr != nil {
 			err = errors.Join(err, fmt.Errorf("and taking it down: %w", derr))
 		}
-		return nil, err
+		return nil, p.upFailed(log, clk, s, out, err)
 	}
 	p.mu.Lock()
 	p.project = s.Project
@@ -101,4 +102,25 @@ func (p *ForPipeline) Down(ctx context.Context) error {
 		return nil
 	}
 	return p.Manager.WithOutput(&tail{n: maxOutputTail}).Down(ctx, project)
+}
+
+// upFailed handles a failed Up or Wait: it writes make's output to a failure log, logs the
+// failure at warn with only the output's last line (redacted), and returns err naming the
+// log (a path on the agent's machine, never the output: the error becomes the Result's
+// summary).
+func (p *ForPipeline) upFailed(log *slog.Logger, clk clock.Clock, s State, out *tail, err error) error {
+	target := upTarget(s.Profile)
+	attrs := []any{"project", s.Project, "target", target, "err", err, "last", redactLine(out.failedLine())}
+	path, lerr := writeFailureLog(p.Manager.StateDir(), s.Project, target, clk.Now(), err, out.String())
+	if path != "" {
+		attrs = append(attrs, "log", path)
+	}
+	if lerr != nil {
+		attrs = append(attrs, "logErr", lerr)
+	}
+	log.Warn("stack up failed", attrs...)
+	if path == "" {
+		return err
+	}
+	return fmt.Errorf("%w (make output: %s, on the agent)", err, path)
 }
