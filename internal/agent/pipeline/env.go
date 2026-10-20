@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
+	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
 // Harness environment variables (run-pipeline.md §Steps 7, the ccf-skills HEADLESS.md
@@ -137,9 +138,9 @@ func (r *run) pluginBins() []string {
 	return out
 }
 
-// hosts are the git host, the dispatcher's host and, when the stack is up, the hosts of its
-// UI and API (FACTORY_STACK_URL, FACTORY_STACK_API), each once: a sandboxed harness reaches
-// only these.
+// hosts are the git host, the dispatcher's host, when the stack is up the hosts of its UI
+// and API (FACTORY_STACK_URL, FACTORY_STACK_API), and then the Task's spec.hosts, each
+// once and in that order: a sandboxed harness reaches only these.
 func (r *run) hosts() []string {
 	var out []string
 	add := func(h string) {
@@ -159,6 +160,30 @@ func (r *run) hosts() []string {
 				add(u.Hostname())
 			}
 		}
+	}
+	for _, h := range r.taskHosts() {
+		add(h)
+	}
+	return out
+}
+
+// taskHosts are the Task's spec.hosts the agent accepts. The dispatcher validated them when
+// it compiled the Task, but the wire is not trusted: past MaxWorkspaceHosts entries, and
+// any entry ValidateHost refuses, are skipped with a warning, never failing the run.
+func (r *run) taskHosts() []string {
+	hosts := r.task.Spec.Hosts
+	if n := len(hosts); n > v1alpha1.MaxWorkspaceHosts {
+		r.log.Warn("the task lists too many hosts: ignoring the rest",
+			"hosts", n, "max", v1alpha1.MaxWorkspaceHosts)
+		hosts = hosts[:v1alpha1.MaxWorkspaceHosts]
+	}
+	out := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		if err := v1alpha1.ValidateHost(h); err != nil {
+			r.log.Warn("skipping an invalid task host", "err", err)
+			continue
+		}
+		out = append(out, h)
 	}
 	return out
 }
