@@ -521,6 +521,10 @@ func TestErrors(t *testing.T) {
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("Token = %v, want %v", err, tt.want)
 			}
+			// Only a 403 that isn't a rate limit is forbidden, for the provider too.
+			if got, want := errors.Is(err, provider.ErrForbidden), tt.name == "403"; got != want || errors.Is(err, tokens.ErrForbidden) != want {
+				t.Errorf("forbidden = %v, want %v (%v)", got, want, err)
+			}
 			if got := errors.Is(err, provider.ErrRetryable); got != tt.retryable {
 				t.Errorf("retryable = %v, want %v (%v)", got, tt.retryable, err)
 			}

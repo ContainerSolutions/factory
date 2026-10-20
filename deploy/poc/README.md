@@ -41,6 +41,7 @@ An org owner creates two Apps: Organization settings → Developer settings → 
 | Callback URL (UI login) | `https://<tunnel-host>/api/v1/auth/callback`. "Request user authorization (OAuth) during installation": **no**. | none |
 
 - **Never** give either App a ruleset bypass.
+- **No Commit statuses permission.** Observe reads a PR's commits (Contents R) and its head's check suites (Checks R) for `item.pr.checks`; it doesn't read commit statuses, so neither App needs Commit statuses. A CI that only posts statuses doesn't count there (GitHub Actions reports check suites).
 - **Private repos.** `ccf-skills` and `local-dev` are private, so a run gets a read-only token for them, minted with the App of its TaskSpec's identity. Each App needs the private repos its runs read:
   - `ccf-skills`: **both** Apps, since every TaskSpec uses skills (docs-review and merge run as the reviewer).
   - `local-dev`: **ccf-factory**, for release-docs (identity `author`), which mounts it read-only.

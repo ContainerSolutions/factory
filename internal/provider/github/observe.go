@@ -20,9 +20,13 @@ const KindRepo = "repo"
 // threads): 100 per page.
 const maxFollowPages = 10
 
-// observePerms are the read identity's permissions for Observe and List: the issue, the PR
-// with its reviews, threads and checks.
-var observePerms = map[string]string{"issues": "read", "pull_requests": "read", "checks": "read"}
+// observePerms are the read identity's permissions for Observe, exactly what observeQuery
+// reads: the issue or the PR with its reviews and threads (issues, pull_requests), the
+// commits it reaches (the head, the merge commit, each review's commit: contents) and the head
+// commit's check suites (checks). List, ReadContent and Project's reads share the set, so one
+// cached token per repo serves them all. No statuses: the head's statusCheckRollup also
+// covers commit statuses, which the factory's Apps aren't granted (see checksOf).
+var observePerms = map[string]string{"issues": "read", "pull_requests": "read", "contents": "read", "checks": "read"}
 
 // observeQuery reads one issue or PR (github-provider.md §Observe): whichever the number is,
 // so a ref of the wrong kind is told apart from a missing one.
@@ -58,7 +62,7 @@ const observeQuery = `query Observe($owner: String!, $name: String!, $number: In
         labels(first: 100) { nodes { name } }
         reviews(last: 100) { nodes { author { __typename login } state commit { oid } } }
         reviewThreads(first: 100) { pageInfo { hasNextPage endCursor } nodes { isResolved } }
-        commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
+        commits(last: 1) { nodes { commit { oid checkSuites(first: 100) { nodes { status conclusion checkRuns(first: 1) { totalCount } } } } } }
         comments(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { databaseId author { __typename login } body } }
       }
     }
@@ -159,13 +163,22 @@ type (
 		Commits       struct {
 			Nodes []struct {
 				Commit struct {
-					Oid               string `json:"oid"`
-					StatusCheckRollup *struct {
-						State string `json:"state"`
-					} `json:"statusCheckRollup"`
+					Oid         string `json:"oid"`
+					CheckSuites *struct {
+						Nodes []gqlCheckSuite `json:"nodes"`
+					} `json:"checkSuites"`
 				} `json:"commit"`
 			} `json:"nodes"`
 		} `json:"commits"`
+	}
+	// gqlCheckSuite is one check suite of a commit: an App's checks (GitHub Actions: one
+	// workflow run's jobs).
+	gqlCheckSuite struct {
+		Status     string `json:"status"`
+		Conclusion string `json:"conclusion"`
+		CheckRuns  struct {
+			TotalCount int `json:"totalCount"`
+		} `json:"checkRuns"`
 	}
 	gqlObserve struct {
 		Repository *struct {
@@ -184,8 +197,8 @@ type (
 //
 //   - Issues: state, labels, author, sub-issues, the PRs that close it (linked PRs), the
 //     comment count.
-//   - PRs: draft, head SHA, base branch, labels, author, checks (the head commit's status
-//     rollup, lower-case; settled once success, failure or error), approvals (the latest
+//   - PRs: draft, head SHA, base branch, labels, author, checks (the head commit's check
+//     suites rolled up, see checksOf), approvals (the latest
 //     approving, changes-requesting or dismissing review of each reviewer: the factory's
 //     Apps map to their identity, "reviewer" or "author", anyone else to their login),
 //     unresolved threads, merged-at and the merge commit; a merged PR also gets Deploy.
@@ -365,8 +378,8 @@ func (c *Conn) followThreads(ctx context.Context, tok string, o *gqlObject) erro
 func prObservation(o *gqlObject, bots map[string]string) *provider.PRObservation {
 	pr := &provider.PRObservation{Draft: o.IsDraft, Head: o.HeadRefOid, Base: o.BaseRefName}
 	if n := len(o.Commits.Nodes); n > 0 {
-		if r := o.Commits.Nodes[n-1].Commit.StatusCheckRollup; r != nil {
-			pr.Checks = checksOf(r.State)
+		if cs := o.Commits.Nodes[n-1].Commit.CheckSuites; cs != nil {
+			pr.Checks = checksOf(cs.Nodes)
 		}
 	}
 	// The latest opinion of each reviewer: an approval stands until the same reviewer requests
@@ -417,11 +430,47 @@ func prObservation(o *gqlObject, bots map[string]string) *provider.PRObservation
 	return pr
 }
 
-// checksOf maps a status rollup state (EXPECTED, PENDING, SUCCESS, FAILURE, ERROR) to
-// checks{state, settled}: lower-case, settled once nothing is left to run.
-func checksOf(state string) provider.Checks {
-	s := strings.ToLower(state)
-	return provider.Checks{State: s, Settled: s == "success" || s == "failure" || s == "error"}
+// checksOf rolls the head commit's check suites up into checks{state, settled}, as GitHub's
+// combined state does: "failure" once a suite concluded failing (failure, timed out,
+// cancelled, action required, startup failure, stale), else "pending" while one hasn't
+// concluded, else "success" (success, neutral, skipped); settled for success and failure.
+// Suites without check runs don't count: GitHub leaves one queued for every App that could
+// run checks (Actions with no workflow for the event), and they never complete. No suite
+// with runs leaves checks empty. The first 100 suites are read (one page; a commit has one per
+// App and workflow run).
+//
+// Check suites are what checks: read reaches, and what pr.checks.completed (check_suite
+// webhooks) reports; commit statuses (the statuses API) aren't read: the App isn't granted
+// them, so a status-only CI doesn't count here (branch protection still gates the merge on
+// required statuses).
+func checksOf(suites []gqlCheckSuite) provider.Checks {
+	var counted, failed, pending bool
+	for _, s := range suites {
+		if s.CheckRuns.TotalCount == 0 {
+			continue
+		}
+		counted = true
+		if s.Status != "COMPLETED" {
+			pending = true
+			continue
+		}
+		switch s.Conclusion {
+		case "SUCCESS", "NEUTRAL", "SKIPPED":
+		case "FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE":
+			failed = true
+		default:
+			pending = true // completed without a conclusion GitHub has documented
+		}
+	}
+	switch {
+	case !counted:
+		return provider.Checks{}
+	case failed:
+		return provider.Checks{State: "failure", Settled: true}
+	case pending:
+		return provider.Checks{State: "pending"}
+	}
+	return provider.Checks{State: "success", Settled: true}
 }
 
 // objectState maps an issue's or PR's GraphQL state.

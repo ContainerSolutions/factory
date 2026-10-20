@@ -24,13 +24,15 @@ import (
 var (
 	// ErrUnauthorized is a 401: GitHub rejected the App JWT (wrong App ID or key, clock skew).
 	ErrUnauthorized = errors.New("github: unauthorized")
-	// ErrForbidden is a 403 that isn't a rate limit: the App may not do this.
+	// ErrForbidden is a 403 that isn't a rate limit: the App may not do this. Errors that
+	// match it match provider.ErrForbidden too.
 	ErrForbidden = errors.New("github: forbidden")
 )
 
 // APIError is a GitHub error response. errors.Is maps its status: 401 → ErrUnauthorized,
-// 403 → ErrForbidden, 404 and 410 (a deleted issue) → provider.ErrNotFound, 422 →
-// provider.ErrInvalid. Rate limits and 5xx come wrapped in a *provider.RetryableError instead.
+// 403 → ErrForbidden and provider.ErrForbidden (not a 403 that is a rate limit), 404 and 410
+// (a deleted issue) → provider.ErrNotFound, 422 → provider.ErrInvalid. Rate limits and 5xx come
+// wrapped in a *provider.RetryableError instead.
 type APIError struct {
 	// Op is the call that failed ("create installation token").
 	Op         string
@@ -39,6 +41,8 @@ type APIError struct {
 	Message string
 	// RequestID is GitHub's X-GitHub-Request-Id, for support.
 	RequestID string
+	// rateLimited is a 403 that is a rate limit: retryable, not forbidden.
+	rateLimited bool
 }
 
 func (e *APIError) Error() string {
@@ -59,7 +63,7 @@ func (e *APIError) Is(target error) bool {
 	case http.StatusUnauthorized:
 		return target == ErrUnauthorized
 	case http.StatusForbidden:
-		return target == ErrForbidden
+		return !e.rateLimited && (target == ErrForbidden || target == provider.ErrForbidden)
 	case http.StatusNotFound, http.StatusGone:
 		return target == provider.ErrNotFound
 	case http.StatusUnprocessableEntity:
@@ -223,6 +227,7 @@ func (m *Minter) statusError(op string, res *http.Response, data []byte) error {
 	}
 	apiErr := &APIError{Op: op, StatusCode: res.StatusCode, Message: msg, RequestID: res.Header.Get("X-GitHub-Request-Id")}
 	retryAfter, limited := m.rateLimit(res, msg)
+	apiErr.rateLimited = limited && res.StatusCode == http.StatusForbidden
 	switch {
 	case res.StatusCode == http.StatusTooManyRequests,
 		res.StatusCode == http.StatusForbidden && limited,

@@ -25,6 +25,8 @@ Created by an org owner (RUN-S0-T02). Settings → Developer settings → GitHub
 | Device flow (agent registration) | **Enable Device Flow: yes** (required by `factory-agent register`) | — |
 | User authorization (UI login) | enable "Request user authorization (OAuth) during installation": **no**; use its OAuth client for UI login (callback `https://<tunnel-host>/api/v1/auth/callback`) | — |
 
+Neither App needs Commit statuses: Observe derives `item.pr.checks` from the head commit's check suites (Checks R), reading the commits with Contents R.
+
 Neither App is ever given a ruleset **bypass**. `ccf-release-bot` and `ccf-repo-admin` are never used by the factory.
 
 ## Secrets

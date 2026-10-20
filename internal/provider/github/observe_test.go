@@ -268,12 +268,13 @@ func TestObserveFields(t *testing.T) {
 	})
 
 	t.Run("tokens", func(t *testing.T) {
-		// Observe reads with the author identity's read-only token on the object's repo, and
-		// the deployment with contents and deployments read.
+		// Observe reads with the author identity's read-only token on the object's repo (the
+		// commits it reaches need contents, their check suites checks; never statuses, which
+		// the App isn't granted), and the deployment with contents and deployments read.
 		var sawObserve, sawDeploy bool
 		for _, r := range e.srv.TokenRequests() {
 			switch {
-			case reflect.DeepEqual(r.Permissions, map[string]string{"checks": "read", "issues": "read", "pull_requests": "read"}):
+			case reflect.DeepEqual(r.Permissions, map[string]string{"checks": "read", "contents": "read", "issues": "read", "pull_requests": "read"}):
 				sawObserve = true
 			case reflect.DeepEqual(r.Permissions, map[string]string{"contents": "read", "deployments": "read"}):
 				sawDeploy = true
@@ -296,6 +297,12 @@ func TestObserveErrors(t *testing.T) {
 	e.srv.SetGraphQL("Observe", map[string]any{"owner": org, "name": "docs", "number": 404}, readGraphQL(t, "not-found"))
 	e.srv.SetGraphQL("Observe", map[string]any{"owner": org, "name": "docs", "number": 429},
 		[]byte(`{"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded for installation ID 1."}]}`))
+	// As seen live when the token lacked contents: one FORBIDDEN error per commit reached.
+	e.srv.SetGraphQL("Observe", map[string]any{"owner": org, "name": "docs", "number": 403},
+		[]byte(`{"data":{"repository":{"issueOrPullRequest":{"commits":{"nodes":[{"commit":null}]}}}},"errors":[`+
+			`{"type":"FORBIDDEN","path":["repository","issueOrPullRequest","commits","nodes",0,"commit"],"message":"Resource not accessible by integration"},`+
+			`{"type":"FORBIDDEN","path":["repository","issueOrPullRequest","reviews","nodes",0,"commit"],"message":"Resource not accessible by integration"},`+
+			`{"type":"FORBIDDEN","path":["repository","issueOrPullRequest","mergeCommit"],"message":"Resource not accessible by integration"}]}`))
 	c := e.connect(t)
 	ctx := context.Background()
 	for _, tc := range []struct {
@@ -308,6 +315,7 @@ func TestObserveErrors(t *testing.T) {
 		{"issue ref names a PR", objRef(provider.KindIssue, docs+"#90"), nil, provider.ErrNotFound},
 		{"PR ref names an issue", objRef(provider.KindPR, docs+"#57"), nil, provider.ErrNotFound},
 		{"rate limited", objRef(provider.KindIssue, docs+"#429"), nil, provider.ErrRetryable},
+		{"forbidden", objRef(provider.KindPR, docs+"#403"), nil, provider.ErrForbidden},
 		{"5xx", objRef(provider.KindIssue, docs+"#57"), &githubtest.Failure{Status: http.StatusBadGateway, Message: "Server Error"}, provider.ErrRetryable},
 		{"secondary rate limit", objRef(provider.KindIssue, docs+"#57"), &githubtest.Failure{Status: http.StatusForbidden, Message: "You have exceeded a secondary rate limit", Header: http.Header{"Retry-After": {"30"}}}, provider.ErrRetryable},
 		{"bad ref", objRef(provider.KindIssue, "docs-57"), nil, provider.ErrInvalid},
@@ -349,5 +357,86 @@ func TestObserveOtherKinds(t *testing.T) {
 	}
 	if _, err := c.Observe(ctx, objRef(github.KindRepo, docs+"#1")); !errors.Is(err, provider.ErrInvalid) {
 		t.Errorf("repo ref with a number: %v, want ErrInvalid", err)
+	}
+}
+
+// TestObserveChecks rolls a PR head's check suites up into checks{state, settled}, the way the
+// merge rules read item.pr.checks.state.
+func TestObserveChecks(t *testing.T) {
+	suite := func(status, conclusion string, runs int) githubtest.CheckSuite {
+		return githubtest.CheckSuite{Status: status, Conclusion: conclusion, Runs: runs}
+	}
+	for i, tc := range []struct {
+		name   string
+		suites []githubtest.CheckSuite
+		want   provider.Checks
+	}{
+		{"no suites", nil, provider.Checks{}},
+		{"only suites without runs", []githubtest.CheckSuite{suite("QUEUED", "", 0)}, provider.Checks{}},
+		{"success", []githubtest.CheckSuite{suite("COMPLETED", "SUCCESS", 3)}, provider.Checks{State: "success", Settled: true}},
+		{"neutral and skipped pass", []githubtest.CheckSuite{suite("COMPLETED", "NEUTRAL", 1), suite("COMPLETED", "SKIPPED", 2), suite("COMPLETED", "SUCCESS", 1)},
+			provider.Checks{State: "success", Settled: true}},
+		{"an empty queued suite doesn't hold it", []githubtest.CheckSuite{suite("COMPLETED", "SUCCESS", 2), suite("QUEUED", "", 0)},
+			provider.Checks{State: "success", Settled: true}},
+		{"in progress", []githubtest.CheckSuite{suite("COMPLETED", "SUCCESS", 2), suite("IN_PROGRESS", "", 1)}, provider.Checks{State: "pending"}},
+		{"queued with runs", []githubtest.CheckSuite{suite("QUEUED", "", 1)}, provider.Checks{State: "pending"}},
+		{"failure", []githubtest.CheckSuite{suite("COMPLETED", "FAILURE", 2)}, provider.Checks{State: "failure", Settled: true}},
+		{"failure wins over pending", []githubtest.CheckSuite{suite("IN_PROGRESS", "", 1), suite("COMPLETED", "FAILURE", 1)},
+			provider.Checks{State: "failure", Settled: true}},
+		{"cancelled", []githubtest.CheckSuite{suite("COMPLETED", "CANCELLED", 1)}, provider.Checks{State: "failure", Settled: true}},
+		{"timed out", []githubtest.CheckSuite{suite("COMPLETED", "TIMED_OUT", 1)}, provider.Checks{State: "failure", Settled: true}},
+		{"action required", []githubtest.CheckSuite{suite("COMPLETED", "ACTION_REQUIRED", 1)}, provider.Checks{State: "failure", Settled: true}},
+		{"startup failure", []githubtest.CheckSuite{suite("COMPLETED", "STARTUP_FAILURE", 1)}, provider.Checks{State: "failure", Settled: true}},
+		{"stale", []githubtest.CheckSuite{suite("COMPLETED", "STALE", 1)}, provider.Checks{State: "failure", Settled: true}},
+		{"unknown conclusion", []githubtest.CheckSuite{suite("COMPLETED", "SOMETHING_NEW", 1)}, provider.Checks{State: "pending"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			n := 100 + i
+			e.srv.AddObject(githubtest.Object{Repo: docs, Number: n, PR: true, State: "open", Author: githubtest.User{Login: "dave"},
+				Head: "c0ffee00000000000000000000000000000000aa", Base: "main", CheckSuites: tc.suites})
+			o, err := e.connect(t).Observe(context.Background(), objRef(provider.KindPR, docs+"#"+strconv.Itoa(n)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if o.PR == nil || o.PR.Checks != tc.want {
+				t.Errorf("checks = %+v, want %+v", o.PR, tc.want)
+			}
+		})
+	}
+}
+
+// TestObserveFieldPermissions checks the query against the permissions its fields need (the
+// githubtest server answers FORBIDDEN as GitHub does): Observe's token covers them, and an
+// installation without one of them fails with ErrInvalid before any GitHub call, not
+// FORBIDDEN on every PR.
+func TestObserveFieldPermissions(t *testing.T) {
+	ctx := context.Background()
+	ref := objRef(provider.KindPR, docs+"#60")
+	pr := githubtest.Object{Repo: docs, Number: 60, PR: true, State: "open", Author: githubtest.User{Login: "dave"}, Head: "c0ffee00000000000000000000000000000000bb", Base: "main",
+		CheckSuites: []githubtest.CheckSuite{{Status: "COMPLETED", Conclusion: "SUCCESS", Runs: 1}}}
+	e := newEnv(t)
+	e.srv.AddObject(pr)
+	if o, err := e.connect(t).Observe(ctx, ref); err != nil || o.PR.Checks.State != "success" {
+		t.Fatalf("Observe = %+v, %v", o.PR, err)
+	}
+	if q := e.srv.GraphQLRequests(); len(q) != 1 || q[0].Operation != "Observe" {
+		t.Errorf("GraphQL requests = %+v", q)
+	}
+	for _, missing := range []string{"contents", "checks"} {
+		t.Run("installation without "+missing, func(t *testing.T) {
+			e := newEnv(t)
+			e.srv.AddObject(pr)
+			perms := map[string]string{"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read", "members": "read", "checks": "read"}
+			delete(perms, missing)
+			e.srv.SetInstallationPermissions(1, perms)
+			_, err := e.connect(t).Observe(ctx, ref)
+			if !errors.Is(err, provider.ErrInvalid) || !strings.Contains(err.Error(), missing) {
+				t.Errorf("Observe = %v, want ErrInvalid naming %s", err, missing)
+			}
+			if n := e.srv.Count(githubtest.RouteGraphQL); n != 0 {
+				t.Errorf("%d GraphQL calls, want none", n)
+			}
+		})
 	}
 }

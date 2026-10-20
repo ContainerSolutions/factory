@@ -392,7 +392,7 @@ func TestList(t *testing.T) {
 		t.Errorf("%d searches: pagination not exercised", n)
 	}
 	for _, r := range e.srv.TokenRequests() {
-		if r.HasRepositories && !reflect.DeepEqual(r.Permissions, map[string]string{"checks": "read", "issues": "read", "pull_requests": "read"}) {
+		if r.HasRepositories && !reflect.DeepEqual(r.Permissions, map[string]string{"checks": "read", "contents": "read", "issues": "read", "pull_requests": "read"}) {
 			t.Errorf("List token request %+v", r)
 		}
 	}

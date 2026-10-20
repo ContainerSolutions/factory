@@ -24,8 +24,9 @@ func GraphQLURL(api *url.URL) *url.URL {
 }
 
 // GraphQLError is a GraphQL response's first error (GitHub answers 200 with "errors").
-// errors.Is maps its type: NOT_FOUND → provider.ErrNotFound, FORBIDDEN → ErrForbidden; a
-// RATE_LIMITED error comes wrapped in a *provider.RetryableError instead.
+// errors.Is maps its type: NOT_FOUND → provider.ErrNotFound, FORBIDDEN (a field or object the
+// token's permissions don't reach) → ErrForbidden and provider.ErrForbidden; a RATE_LIMITED
+// error comes wrapped in a *provider.RetryableError instead.
 type GraphQLError struct {
 	// Op is the operation that failed ("Observe").
 	Op string
@@ -58,7 +59,7 @@ func (e *GraphQLError) Is(target error) bool {
 	case "NOT_FOUND":
 		return target == provider.ErrNotFound
 	case "FORBIDDEN":
-		return target == ErrForbidden
+		return target == ErrForbidden || target == provider.ErrForbidden
 	}
 	return false
 }

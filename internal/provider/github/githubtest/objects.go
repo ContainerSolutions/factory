@@ -56,7 +56,7 @@ type Thread struct {
 
 // Object is an issue or a PR in the object model. The REST routes read and change it, and
 // GraphQL queries without a canned response are answered from it (labels, author, state,
-// comments; a PR's draft, head and base, with no reviews, threads or checks).
+// comments; a PR's draft, head, base, threads and head check suites, with no reviews).
 type Object struct {
 	// Repo is "owner/name".
 	Repo   string
@@ -82,11 +82,22 @@ type Object struct {
 	SubIssues []int
 	Reviews   []Review
 	Threads   []Thread
+	// CheckSuites are the PR head commit's check suites, as GraphQL's Commit.checkSuites shows
+	// them.
+	CheckSuites []CheckSuite
 	// MergeBlock makes PUT …/merge refuse with 405: MergeReviewRequired or MergeNotMergeable.
 	MergeBlock string
 	// MergeMethod and MergeCommit are set by a merge.
 	MergeMethod string
 	MergeCommit string
+}
+
+// CheckSuite is one check suite of a commit: Status (QUEUED, IN_PROGRESS, COMPLETED, …),
+// Conclusion once completed (SUCCESS, FAILURE, …) and how many check runs it has.
+type CheckSuite struct {
+	Status     string
+	Conclusion string
+	Runs       int
 }
 
 // Merge blocks (Object.MergeBlock).
@@ -103,6 +114,7 @@ func (o Object) clone() Object {
 	for i := range o.Reviews {
 		o.Reviews[i].Comments = slices.Clone(o.Reviews[i].Comments)
 	}
+	o.CheckSuites = slices.Clone(o.CheckSuites)
 	o.Threads = slices.Clone(o.Threads)
 	for i := range o.Threads {
 		o.Threads[i].Comments = slices.Clone(o.Threads[i].Comments)
@@ -673,7 +685,9 @@ var operationName = regexp.MustCompile(`^\s*(?:query|mutation)\s+([A-Za-z_][A-Za
 // model for the adapter's operations (Observe, ObserveComments, ObserveThreads, ObserveRepo,
 // and the review-thread effects: ApplyThread, ApplyThreadReply, ApplyResolveThread).
 // A query naming a repo needs a token covering it with issues or pull_requests read (metadata
-// read for ObserveRepo).
+// read for ObserveRepo), and every query the permissions of the fields it selects
+// (fieldPerms): without them GitHub answers 200 with a FORBIDDEN error per field, and so does
+// the server.
 func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
 	m, ok := s.beginToken(w, r, RouteGraphQL)
 	if !ok {
@@ -709,6 +723,14 @@ func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if missing := missingFieldPerms(req.Query, m.perms); len(missing) > 0 {
+		errs := make([]any, len(missing))
+		for i, p := range missing {
+			errs[i] = map[string]any{"type": "FORBIDDEN", "message": "Resource not accessible by integration (needs " + p + ": read)"}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"data": nil, "errors": errs})
+		return
+	}
 	if isCanned {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_, _ = w.Write(canned)
@@ -735,6 +757,31 @@ func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusOK, gqlErrors("", "githubtest: no canned response for "+op))
 	}
+}
+
+// fieldPerms are the permissions an installation token needs for GraphQL fields, as GitHub
+// checks them: Commit objects (a PR's commits, its merge commit, a review's commit) need
+// contents, a commit's check suites checks, its status rollup and status statuses. The server
+// matches the query text, so it is stricter than GitHub, which checks only the fields it
+// resolves (an issue's observation doesn't reach the PR fragment's commits).
+var fieldPerms = []struct {
+	field *regexp.Regexp
+	perm  string
+}{
+	{regexp.MustCompile(`\b(?:commit|mergeCommit)\s*\{`), "contents"},
+	{regexp.MustCompile(`\b(?:checkSuites|checkRuns)\b`), "checks"},
+	{regexp.MustCompile(`\b(?:statusCheckRollup|status)\s*\{`), "statuses"},
+}
+
+// missingFieldPerms are the fieldPerms query selects that perms lack.
+func missingFieldPerms(query string, perms map[string]string) []string {
+	var missing []string
+	for _, f := range fieldPerms {
+		if f.field.MatchString(query) && rank(perms[f.perm]) == 0 && !slices.Contains(missing, f.perm) {
+			missing = append(missing, f.perm)
+		}
+	}
+	return missing
 }
 
 func gqlErrors(typ, msg string) map[string]any {
@@ -813,7 +860,15 @@ func (s *Server) gqlObserve(repo string, n int) map[string]any {
 			threads[i] = map[string]any{"isResolved": th.Resolved}
 		}
 		obj["reviewThreads"] = map[string]any{"pageInfo": map[string]any{"hasNextPage": false, "endCursor": nil}, "nodes": threads}
-		obj["commits"] = map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"oid": o.Head, "statusCheckRollup": nil}}}}
+		suites := make([]any, len(o.CheckSuites))
+		for i, cs := range o.CheckSuites {
+			var conclusion any
+			if cs.Conclusion != "" {
+				conclusion = cs.Conclusion
+			}
+			suites[i] = map[string]any{"status": cs.Status, "conclusion": conclusion, "checkRuns": map[string]any{"totalCount": cs.Runs}}
+		}
+		obj["commits"] = map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"oid": o.Head, "checkSuites": map[string]any{"nodes": suites}}}}}
 	} else {
 		obj["__typename"] = "Issue"
 		obj["state"] = strings.ToUpper(o.State)
