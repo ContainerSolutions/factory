@@ -1,10 +1,12 @@
 // Package gitsource loads a catalog from a git ref: a shallow fetch into a temporary
 // directory with the git CLI, then catalog.LoadDir on the catalog's directory in it, with the
 // commit as the snapshot's SHA (design/workstreams/dispatcher-core/LLD/catalog.md §Loading).
-// Head resolves a ref to its commit with git ls-remote, for catalog-sync's polling.
+// Head resolves a ref to its commit with git ls-remote, for catalog-sync's polling; HeadAuth
+// does the same on a private repository with a token (Auth).
 //
 // Errors never carry credentials: user info in the repository URL (a token in
-// https://x-access-token:<token>@host/…) is redacted from every error message.
+// https://x-access-token:<token>@host/…) and an Auth token are redacted from every error
+// message.
 //
 // It is the one part of catalog loading that runs a process and touches the network, so it
 // is kept out of the pure catalog package. It shells out to git rather than linking go-git,
@@ -15,6 +17,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -23,6 +26,8 @@ import (
 	"os/exec"
 	"path"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/compliance-framework/factory/internal/catalog"
@@ -57,11 +62,11 @@ func Load(ctx context.Context, repoURL, ref, dir string, opts catalog.Options) (
 		{"-C", tmp, "-c", "advice.detachedHead=false", "checkout", "--quiet", "FETCH_HEAD"},
 	}
 	for _, args := range steps {
-		if _, err := git(ctx, args...); err != nil {
+		if _, err := git(ctx, nil, args...); err != nil {
 			return nil, nil, err
 		}
 	}
-	sha, err := git(ctx, "-C", tmp, "rev-parse", "HEAD")
+	sha, err := git(ctx, nil, "-C", tmp, "rev-parse", "HEAD")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -93,19 +98,75 @@ func Load(ctx context.Context, repoURL, ref, dir string, opts catalog.Options) (
 // commitRE matches a full commit SHA (SHA-1 or SHA-256).
 var commitRE = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 
+// IsCommit reports whether ref is a full commit SHA, which Head returns as is (no git, no
+// credential needed).
+func IsCommit(ref string) bool { return commitRE.MatchString(ref) }
+
+// Auth is an HTTP credential for a private repository: a token and the username that goes
+// with it ("x-access-token" for a GitHub installation token, the default). The zero value is
+// anonymous.
+type Auth struct {
+	Username string
+	Token    string
+}
+
+// defaultUsername goes with a token when Auth names no username.
+const defaultUsername = "x-access-token"
+
+// header is the Authorization header value: Basic base64(username:token).
+func (a Auth) header() string {
+	user := a.Username
+	if user == "" {
+		user = defaultUsername
+	}
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+a.Token))
+}
+
+// config is the process-scoped git config that sends the credential: an extra Authorization
+// header scoped to repoURL (http.<url>.extraHeader applies to that URL and the paths under
+// it; curl doesn't forward it to another host on a redirect), as actions/checkout does. It
+// reaches git in its environment (GIT_CONFIG_KEY_n/VALUE_n): never the URL, argv or a file.
+func (a Auth) config(repoURL string) [][2]string {
+	if a.Token == "" {
+		return nil
+	}
+	return [][2]string{{"http." + repoURL + ".extraHeader", "Authorization: " + a.header()}}
+}
+
+// secrets are the strings redacted from errors: the token and its header encoding.
+func (a Auth) secrets() []string {
+	if a.Token == "" {
+		return nil
+	}
+	return []string{a.Token, strings.TrimPrefix(a.header(), "Basic ")}
+}
+
 // Head returns the commit ref points to in repoURL, with git ls-remote (no clone). A ref
 // that is already a full commit SHA is returned as is. A branch wins over a tag of the same
 // name, and an annotated tag resolves to its commit. Errors wrap ErrGit (or the context's
 // error) and carry no credentials.
-func Head(ctx context.Context, repoURL, ref string) (_ string, err error) {
-	defer func() { err = redactError(err, repoURL) }()
+func Head(ctx context.Context, repoURL, ref string) (string, error) {
+	return HeadAuth(ctx, repoURL, ref, Auth{})
+}
+
+// HeadAuth is Head on a repository that needs a credential: auth's token goes to git as an
+// Authorization header scoped to repoURL (Auth.config), so the URL must be http(s) and carry
+// no user info. A zero Auth is Head. The token never appears in an error.
+func HeadAuth(ctx context.Context, repoURL, ref string, auth Auth) (_ string, err error) {
+	defer func() { err = redactError(err, repoURL, auth.secrets()...) }()
 	if repoURL == "" || ref == "" {
 		return "", fmt.Errorf("%w: repository URL and ref are required", ErrGit)
 	}
-	if commitRE.MatchString(ref) {
+	if auth.Token != "" {
+		u, perr := url.Parse(repoURL)
+		if perr != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil {
+			return "", fmt.Errorf("%w: a token needs an http(s) repository URL without user info", ErrGit)
+		}
+	}
+	if IsCommit(ref) {
 		return ref, nil
 	}
-	out, err := git(ctx, "ls-remote", "--", repoURL, ref, ref+"^{}")
+	out, err := git(ctx, auth.config(repoURL), "ls-remote", "--", repoURL, ref, ref+"^{}")
 	if err != nil {
 		return "", err
 	}
@@ -162,33 +223,58 @@ type redactedError struct {
 func (e *redactedError) Error() string { return e.msg }
 func (e *redactedError) Unwrap() error { return e.err }
 
-func redactError(err error, repoURL string) error {
+// redactError redacts repoURL's user info and each secret from err's message.
+func redactError(err error, repoURL string, secrets ...string) error {
 	if err == nil {
 		return nil
 	}
-	if msg := redact(err.Error(), repoURL); msg != err.Error() {
+	msg := redact(err.Error(), repoURL)
+	for _, sec := range secrets {
+		if sec != "" {
+			msg = strings.ReplaceAll(msg, sec, "redacted")
+		}
+	}
+	if msg != err.Error() {
 		return &redactedError{msg: msg, err: err}
 	}
 	return err
 }
 
-// gitEnv locks git down: no prompts, only allowed transports, no system config, and no
-// automatic gc or maintenance. A fetch or commit can otherwise leave a detached background gc
-// writing into the temporary checkout while it is being removed.
-var gitEnv = []string{
-	"GIT_TERMINAL_PROMPT=0",
-	"GIT_ALLOW_PROTOCOL=" + allowedProtocols,
-	"GIT_CONFIG_NOSYSTEM=1",
-	"GIT_CONFIG_COUNT=3",
-	"GIT_CONFIG_KEY_0=gc.auto", "GIT_CONFIG_VALUE_0=0",
-	"GIT_CONFIG_KEY_1=gc.autoDetach", "GIT_CONFIG_VALUE_1=false",
-	"GIT_CONFIG_KEY_2=maintenance.auto", "GIT_CONFIG_VALUE_2=false",
+// gitConfig is the process-scoped config every command gets: no automatic gc or
+// maintenance. A fetch or commit can otherwise leave a detached background gc writing into
+// the temporary checkout while it is being removed.
+var gitConfig = [][2]string{
+	{"gc.auto", "0"},
+	{"gc.autoDetach", "false"},
+	{"maintenance.auto", "false"},
 }
 
-// git runs git with a locked-down environment and returns its trimmed stdout.
-func git(ctx context.Context, args ...string) (string, error) {
+// gitEnv locks git down: no prompts, only allowed transports, no system config, and
+// gitConfig.
+var gitEnv = environ(nil)
+
+// environ is the locked-down environment with extra config after gitConfig, as
+// GIT_CONFIG_COUNT/KEY_n/VALUE_n entries (process-scoped config, never written to a file).
+func environ(extra [][2]string) []string {
+	pairs := append(slices.Clone(gitConfig), extra...)
+	env := []string{
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ALLOW_PROTOCOL=" + allowedProtocols,
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_COUNT=" + strconv.Itoa(len(pairs)),
+	}
+	for i, kv := range pairs {
+		n := strconv.Itoa(i)
+		env = append(env, "GIT_CONFIG_KEY_"+n+"="+kv[0], "GIT_CONFIG_VALUE_"+n+"="+kv[1])
+	}
+	return env
+}
+
+// git runs git with a locked-down environment plus config (Auth.config) and returns its
+// trimmed stdout.
+func git(ctx context.Context, config [][2]string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = append(os.Environ(), gitEnv...)
+	cmd.Env = append(os.Environ(), environ(config)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {

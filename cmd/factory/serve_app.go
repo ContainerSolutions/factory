@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -273,7 +274,11 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	cache := controllers.NewObservationCache(pc, clk, 0)
 	var skills controllers.SkillResolver = controllers.KeepSkills{}
 	if cfg.SkillsBase != "" {
-		skills = &controllers.GitSkills{Base: cfg.SkillsBase}
+		gs := &controllers.GitSkills{Base: cfg.SkillsBase}
+		if !cfg.DevFakeProviders { // the fake's tokens open nothing: resolve anonymously
+			gs.Token = skillsToken(cs.Current, pc, cfg.SkillsBase, authProvider)
+		}
+		skills = gs
 	}
 	rule, err := controllers.NewRuleController(st, cs, pc, controllers.RuleOptions{
 		Clock: clk, Logger: log, Cache: cache, Skills: skills, UIBaseURL: cfg.PublicURL,
@@ -509,6 +514,64 @@ func githubAuth(cfg serveConfig, cat *catalog.Catalog) (string, string, error) {
 		api = auth.DefaultAPIBase
 	}
 	return name, api, nil
+}
+
+// Skills tokens: the identity they are minted as and their TTL (one ls-remote each, cached by
+// url@ref).
+const (
+	skillsIdentity = "author"
+	skillsTokenTTL = 10 * time.Minute
+)
+
+// skillsToken is GitSkills.Token: a read-only token (contents: read, that repo only) for a
+// skills repo, minted as the author identity on the connection of the github Provider whose
+// git host is the skills base's (the auth Provider when several are). The Provider is looked
+// up at each call, so a catalog change applies. So the author App must be installed on a
+// private skills repo for refs to resolve; the agent's fetch uses a read-only token of the
+// TaskSpec's identity (credentials.git.readRepos), so the reviewer App needs it too.
+func skillsToken(current func() *catalog.Catalog, conns controllers.ConnSource, base, preferred string) func(context.Context, string) (string, error) {
+	host := ""
+	if u, err := url.Parse(base); err == nil {
+		host = u.Host
+	}
+	return func(ctx context.Context, repo string) (string, error) {
+		name, err := skillsProvider(current(), host, preferred)
+		if err != nil {
+			return "", err
+		}
+		conn, ok := conns.Conn(name)
+		if !ok {
+			return "", fmt.Errorf("no connection for provider %q", name)
+		}
+		cred, err := conn.MintGitCredential(ctx, provider.ReadOnlyRequest(skillsIdentity, repo, skillsTokenTTL))
+		if err != nil {
+			return "", fmt.Errorf("provider %s as %s: %w", name, skillsIdentity, err)
+		}
+		return cred.Token, nil
+	}
+}
+
+// skillsProvider is the github Provider whose git host is host: the only one, else preferred
+// when it is one of them.
+func skillsProvider(cat *catalog.Catalog, host, preferred string) (string, error) {
+	var names []string
+	if cat != nil {
+		for n, p := range cat.Providers {
+			if h := controllers.GitHost(p); h != "" && strings.EqualFold(h, host) {
+				names = append(names, n)
+			}
+		}
+	}
+	slices.Sort(names)
+	switch {
+	case len(names) == 1:
+		return names[0], nil
+	case slices.Contains(names, preferred):
+		return preferred, nil
+	case len(names) == 0:
+		return "", fmt.Errorf("no github Provider has the skills base's git host %q", host)
+	}
+	return "", fmt.Errorf("github Providers %v share the skills base's git host %q and none is the auth Provider", names, host)
 }
 
 // warnPoolSecrets warns about registered Pools whose join token isn't set: no agent can join

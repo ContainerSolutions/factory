@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	neturl "net/url"
 	"path"
 	"regexp"
 	"slices"
@@ -20,6 +21,7 @@ import (
 	"github.com/compliance-framework/factory/internal/catalog/gitsource"
 	"github.com/compliance-framework/factory/internal/cel"
 	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/compliance-framework/factory/internal/provider/tokens"
 	"github.com/compliance-framework/factory/internal/rules"
 )
 
@@ -56,6 +58,15 @@ func (KeepSkills) Resolve(_ context.Context, source, _ string) (string, string, 
 // "https://github.com/compliance-framework/ccf-skills"). It is safe for concurrent use.
 type GitSkills struct {
 	Base string
+	// Token, when set, mints a read-only token for a skills repo ("owner/name") on Base's git
+	// host, so that a private skills repo resolves: the ls-remote sends it as a header in git's
+	// environment (gitsource.HeadAuth), never in the URL or argv. When the mint fails the
+	// ls-remote runs anonymously (a public repo still resolves), and a failure then reports
+	// both errors. Sources on another host always resolve anonymously. Nil: all anonymous.
+	Token func(ctx context.Context, repo string) (string, error)
+
+	// lsRemote is gitsource.HeadAuth; tests replace it.
+	lsRemote func(ctx context.Context, url, ref string, auth gitsource.Auth) (string, error)
 
 	mu    sync.Mutex
 	cache map[string]string
@@ -77,7 +88,7 @@ func (g *GitSkills) Resolve(ctx context.Context, source, ref string) (string, st
 	if ok {
 		return url, commit, nil
 	}
-	commit, err := gitsource.Head(ctx, url, ref)
+	commit, err := g.head(ctx, url, ref)
 	if err != nil {
 		return "", "", fmt.Errorf("resolve skills %s@%s: %w", gitsource.RedactURL(url), ref, err)
 	}
@@ -88,6 +99,77 @@ func (g *GitSkills) Resolve(ctx context.Context, source, ref string) (string, st
 	g.cache[k] = commit
 	g.mu.Unlock()
 	return url, commit, nil
+}
+
+// head is ref's commit in url: with a minted token when url is a repo on Base's git host
+// and Token is set, else anonymously.
+func (g *GitSkills) head(ctx context.Context, url, ref string) (string, error) {
+	ls := g.lsRemote
+	if ls == nil {
+		ls = gitsource.HeadAuth
+	}
+	repo, ok := RepoOnHost(url, urlHost(g.Base))
+	if g.Token == nil || !ok || gitsource.IsCommit(ref) {
+		return ls(ctx, url, ref, gitsource.Auth{})
+	}
+	tok, mintErr := g.Token(ctx, repo)
+	if mintErr == nil && tok == "" {
+		mintErr = errors.New("empty token")
+	}
+	if mintErr != nil {
+		commit, err := ls(ctx, url, ref, gitsource.Auth{})
+		if err != nil {
+			return "", fmt.Errorf("mint a read token for %s: %w; anonymously: %w", repo, mintErr, err)
+		}
+		return commit, nil
+	}
+	return ls(ctx, url, ref, gitsource.Auth{Token: tok})
+}
+
+// urlHost is raw's host ("github.com"; with its port when it has one), or "".
+func urlHost(raw string) string {
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}
+
+// repoPathRE is a repo path, owner/name (an optional ".git" is trimmed first).
+var repoPathRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+
+// RepoOnHost is the "owner/name" of an http(s) repository URL on host
+// ("https://github.com/o/r" or ".../o/r.git" → "o/r"), with ok false for a URL on another
+// host, with user info, a query or a fragment, or with a path that isn't exactly a repo.
+func RepoOnHost(raw, host string) (repo string, ok bool) {
+	u, err := neturl.Parse(raw)
+	if err != nil || host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil ||
+		u.RawQuery != "" || u.Fragment != "" || !strings.EqualFold(u.Host, host) {
+		return "", false
+	}
+	p := strings.TrimSuffix(strings.Trim(u.Path, "/"), ".git")
+	if !repoPathRE.MatchString(p) || strings.Contains(p, "..") {
+		return "", false
+	}
+	return p, true
+}
+
+// GitHost is the git host of a Provider's repositories, which its tokens are for: for a
+// github Provider, the host of spec.github.apiURL (github.com for api.github.com, the GHE
+// host otherwise, as the token minter sets it). Other types, and nil, have none ("").
+func GitHost(p *v1alpha1.Provider) string {
+	if p == nil || p.Spec.Type != v1alpha1.ProviderTypeGitHub {
+		return ""
+	}
+	api := tokens.DefaultAPIURL
+	if gh := p.Spec.GitHub; gh != nil && gh.APIURL != "" {
+		api = gh.APIURL
+	}
+	u, err := neturl.Parse(strings.TrimRight(api, "/"))
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return tokens.HostForAPI(u)
 }
 
 // objectID is a deterministic id for an idempotency key: "<prefix>_<20 hex>".
@@ -266,7 +348,14 @@ func compileTask(ctx context.Context, in compileInput, skills SkillResolver) (*v
 	if cred.Repo == "" && len(cred.ReadRepos) > 0 {
 		cred.Repo, cred.ReadRepos = cred.ReadRepos[0], cred.ReadRepos[1:]
 	}
+	// Skills repos on the task's git host are read repos too, so a private one gets a
+	// read-only token that the agent's credential helper answers its skills fetch with. They
+	// are added after the task repo is chosen: a skills repo never gets the TaskSpec's
+	// permissions. Skills the agent doesn't fetch (no use) and sources the resolver left as
+	// written (not a URL) are skipped.
+	cred.ReadRepos = appendSkillRepos(cred.ReadRepos, cred.Repo, GitHost(in.cat.Providers[target.Provider]), skillRefs)
 	// Public read repos are cloned anonymously; the others get read-only tokens at lease time.
+	// With publicReads the skills repos get none either: they must be public too.
 	if ws := spec.Workspace; ws != nil && ws.PublicReads != nil {
 		cred.PublicReads = *ws.PublicReads
 	}
@@ -331,6 +420,27 @@ func compileTask(ctx context.Context, in compileInput, skills SkillResolver) (*v
 		task.Spec.Hosts = slices.Clone(ws.Hosts)
 	}
 	return task, prompt, nil
+}
+
+// appendSkillRepos adds to readRepos the "owner/name" of each fetched skills source on host
+// (RepoOnHost) that is neither the task repo nor already there (case-insensitively, as the
+// agent's credential helper matches them).
+func appendSkillRepos(readRepos []string, taskRepo, host string, skills []v1alpha1.SkillRef) []string {
+	if host == "" {
+		return readRepos
+	}
+	for _, s := range skills {
+		if len(s.Use) == 0 {
+			continue
+		}
+		repo, ok := RepoOnHost(s.Source, host)
+		if !ok || strings.EqualFold(repo, taskRepo) ||
+			slices.ContainsFunc(readRepos, func(r string) bool { return strings.EqualFold(r, repo) }) {
+			continue
+		}
+		readRepos = append(readRepos, repo)
+	}
+	return readRepos
 }
 
 // taskTarget is the dispatch target, completed from the work item's primary link.
