@@ -8,7 +8,10 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,9 +63,75 @@ var (
 
 func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
-type staticCatalog struct{ c *catalog.Catalog }
+// swapCatalog is a CatalogProvider whose catalog a test can swap, as catalog-sync does.
+type swapCatalog struct {
+	p atomic.Pointer[catalog.Catalog]
+}
 
-func (s staticCatalog) Current() *catalog.Catalog { return s.c }
+func newSwapCatalog(c *catalog.Catalog) *swapCatalog {
+	s := &swapCatalog{}
+	s.p.Store(c)
+	return s
+}
+
+func (s *swapCatalog) Current() *catalog.Catalog { return s.p.Load() }
+
+// logRecorder is a slog.Handler that keeps every record (all levels), for the tests that
+// check what is logged.
+type logRecorder struct {
+	mu      *sync.Mutex
+	records *[]slog.Record
+	attrs   []slog.Attr
+}
+
+func newLogRecorder() *logRecorder {
+	return &logRecorder{mu: &sync.Mutex{}, records: &[]slog.Record{}}
+}
+
+func (h *logRecorder) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *logRecorder) Handle(_ context.Context, r slog.Record) error {
+	r = r.Clone()
+	r.AddAttrs(h.attrs...)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	*h.records = append(*h.records, r)
+	return nil
+}
+
+func (h *logRecorder) WithAttrs(attrs []slog.Attr) slog.Handler {
+	c := *h
+	c.attrs = append(slices.Clone(h.attrs), attrs...)
+	return &c
+}
+
+func (h *logRecorder) WithGroup(string) slog.Handler { return h }
+
+// find returns the records at level with message msg.
+func (h *logRecorder) find(level slog.Level, msg string) []slog.Record {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out []slog.Record
+	for _, r := range *h.records {
+		if r.Level == level && r.Message == msg {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// attr returns the value of r's attribute key ("" when it has none).
+func attr(r slog.Record, key string) string {
+	v := ""
+	r.Attrs(func(a slog.Attr) bool {
+		if a.Key == key {
+			v = a.Value.String()
+			return false
+		}
+		return true
+	})
+	return v
+}
 
 // env is a scheduler in a test: the memory store, the PoC catalog, the fake GitHub, the real
 // run controller (not running: its RunAPI methods are synchronous) and a fake clock.
@@ -72,6 +141,8 @@ type env struct {
 	clk  *clock.Fake
 	st   *memory.Store
 	cat  *catalog.Catalog
+	cats *swapCatalog
+	logs *logRecorder
 	gh   *fake.Conn
 	runs *controllers.RunController
 	s    *Scheduler
@@ -87,7 +158,8 @@ func newEnv(t *testing.T) *env {
 	gh := fake.NewConn(*cat.Providers[ghProvider], fake.Options{Clock: clk})
 	gh.SetOrgRole("compliance-framework", "admin", "gus", "ana", "bob")
 	st := memory.New(store.Options{Clock: clk, Logger: discardLogger()})
-	cp := staticCatalog{cat}
+	cp := newSwapCatalog(cat)
+	logs := newLogRecorder()
 	runs, err := controllers.NewRunController(st, cp, controllers.NewFactoryProvider(st, clk), controllers.RunOptions{Clock: clk, Logger: discardLogger()})
 	if err != nil {
 		t.Fatal(err)
@@ -101,11 +173,11 @@ func newEnv(t *testing.T) *env {
 	s, err := New(Deps{
 		Store: st, Catalog: cp, Conns: controllers.StaticConns{ghProvider: gh},
 		Runs: runs, Secrets: secrets, Owners: owners,
-	}, Options{Clock: clk, Logger: discardLogger()})
+	}, Options{Clock: clk, Logger: slog.New(logs)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &env{t: t, ctx: context.Background(), clk: clk, st: st, cat: cat, gh: gh, runs: runs, s: s}
+	return &env{t: t, ctx: context.Background(), clk: clk, st: st, cat: cat, cats: cp, logs: logs, gh: gh, runs: runs, s: s}
 }
 
 // run starts the scheduler (lease controller and tick) until the test ends.

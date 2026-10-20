@@ -81,6 +81,7 @@ func (s *Scheduler) loadSnapshot(ctx context.Context) (*snapshot, error) {
 	if cat == nil {
 		return nil, errNoCatalog
 	}
+	s.forgetMintBackoffs(cat)
 	sn := &snapshot{
 		ctx: ctx, s: s, now: s.clk.Now(), cat: cat,
 		agents:         map[string]*v1alpha1.Agent{},
@@ -530,8 +531,9 @@ func (sn *snapshot) blockingReason(t *v1alpha1.Task) (string, error) {
 }
 
 // Explain runs the matching table for a task and an agent now and returns the first reason
-// it fails ("" when the agent could take it; ReasonNotInPool when it isn't a candidate). It
-// changes nothing but the anti-affinity wait.
+// it fails ("" when the agent could take it; ReasonNotInPool when it isn't a candidate;
+// git-credential while the task backs off after a failed mint). It changes nothing but the
+// anti-affinity wait.
 func (s *Scheduler) Explain(ctx context.Context, taskID, agentID string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -551,6 +553,9 @@ func (s *Scheduler) Explain(ctx context.Context, taskID, agentID string) (string
 		return "", fmt.Errorf("get task %s: %w", taskID, err)
 	}
 	ensureTaskStatus(&t)
+	if t.Status.Phase == v1alpha1.TaskPending && s.mintBackingOff(taskID, sn.now) {
+		return ReasonGitCredential, nil
+	}
 	v, err := sn.check(&t, a)
 	if err != nil || v.ok() {
 		return "", err
