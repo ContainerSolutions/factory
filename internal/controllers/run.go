@@ -155,28 +155,21 @@ func (r *RunController) Reconcile(ctx context.Context, id string) (Result, error
 	if err != nil {
 		return Result{}, err
 	}
+	if holdsRun(t) {
+		res, left, err := r.reconcileHeld(ctx, t)
+		if err != nil || left == nil {
+			return res, err
+		}
+		t = left // a finish moved it on before the lock was ours
+	}
 	switch t.Status.Phase {
-	case v1alpha1.TaskLeased, v1alpha1.TaskRunning:
-		run, err := r.ensureRun(ctx, t)
-		if err != nil {
-			return Result{}, err
-		}
-		return r.checkTimeout(ctx, t, run)
 	case v1alpha1.TaskCancelling:
-		if t.Status.Agent == nil {
-			// No agent holds it: nobody to tell, it is cancelled now.
-			run, err := r.openRun(ctx, t.Metadata.ID)
-			if err != nil {
-				return Result{}, err
-			}
-			return Result{}, r.finish(ctx, t, run, finish{phase: v1alpha1.TaskCancelled, reason: ReasonCancelled, end: v1alpha1.RunCancelled})
-		}
-		// The agent learns it from its next heartbeat (CancelRequested) and acknowledges.
-		run, err := r.ensureRun(ctx, t)
+		// No agent holds it: nobody to tell, it is cancelled now.
+		run, err := r.openRun(ctx, t.Metadata.ID)
 		if err != nil {
 			return Result{}, err
 		}
-		return r.checkTimeout(ctx, t, run)
+		return Result{}, r.finish(ctx, t, run, finish{phase: v1alpha1.TaskCancelled, reason: ReasonCancelled, end: v1alpha1.RunCancelled})
 	default:
 		// Pending or finished: a run still open lost its lease (the scheduler moved the task).
 		run, err := r.openRun(ctx, t.Metadata.ID)
@@ -194,8 +187,57 @@ func (r *RunController) Reconcile(ctx context.Context, id string) (Result, error
 	}
 }
 
+// holdsRun reports whether t's phase has an open run: Leased, Running, or Cancelling with an
+// agent still to acknowledge (it learns it from its next heartbeat, CancelRequested).
+func holdsRun(t *v1alpha1.Task) bool {
+	switch t.Status.Phase {
+	case v1alpha1.TaskLeased, v1alpha1.TaskRunning:
+		return true
+	case v1alpha1.TaskCancelling:
+		return t.Status.Agent != nil
+	}
+	return false
+}
+
+// reconcileHeld keeps the run of a task that holds one, and times it out, under the work
+// item's lock. A finish holds that lock between ending the run and moving the task, so the
+// task re-read here is never caught between those writes (seen there, a Leased task with an
+// ended run would get a second run for the same attempt). It returns that re-read task when
+// it no longer holds a run, for Reconcile to go on with.
+func (r *RunController) reconcileHeld(ctx context.Context, t *v1alpha1.Task) (Result, *v1alpha1.Task, error) {
+	var (
+		res  Result
+		left *v1alpha1.Task
+	)
+	err := withItemLock(ctx, r.s, t.Metadata.WorkItem, r.opts.LockTTL, func(ctx context.Context) error {
+		cur, err := r.getTask(ctx, t.Metadata.ID)
+		if err != nil {
+			return err
+		}
+		if !holdsRun(cur) {
+			left = cur
+			return nil
+		}
+		run, err := r.ensureRun(ctx, cur)
+		if err != nil {
+			return err
+		}
+		if ended(run) {
+			// The attempt's run ended but its finish didn't move the task (it failed after
+			// the run's write): the agent's retried complete finishes it, or the lease expires.
+			return nil
+		}
+		res, err = r.checkTimeout(ctx, cur, run)
+		return err
+	})
+	if errors.Is(err, ErrUnknownTask) {
+		return Result{}, nil, nil
+	}
+	return res, left, err
+}
+
 // checkTimeout fails the run once it has run maxWallClock plus the grace; until then it
-// requeues the task for its deadline.
+// requeues the task for its deadline. The caller holds the work item's lock.
 func (r *RunController) checkTimeout(ctx context.Context, t *v1alpha1.Task, run *v1alpha1.Run) (Result, error) {
 	if t.Spec.Limits == nil || t.Spec.Limits.MaxWallClock == "" || run.Status == nil {
 		return Result{}, nil
@@ -214,7 +256,7 @@ func (r *RunController) checkTimeout(ctx context.Context, t *v1alpha1.Task, run 
 	}
 	r.log.InfoContext(ctx, "run timed out", "task", t.Metadata.ID, "run", run.Metadata.Name, "limit", limit)
 	// The scheduler revokes the lease of a task that left Leased/Running (internal/scheduler).
-	return Result{}, r.finish(ctx, t, run, f)
+	return Result{}, r.finishLocked(ctx, t, run, f)
 }
 
 // openRun returns the task's open run, or nil.
@@ -231,7 +273,12 @@ func (r *RunController) openRun(ctx context.Context, taskID string) (*v1alpha1.R
 	return nil, nil
 }
 
-// ensureRun returns the task's open run, creating it for the current lease.
+// ensureRun returns the task's open run, creating it for the current lease. An attempt has
+// one run: when the newest run is the current attempt's and a finish ended it (completed,
+// failed or cancelled), ensureRun returns it, ended, and creates none. That finish is in
+// flight or failed after the run's write; a second run would have no Result and emit a
+// second factory.run.* event. An abandoned or lost run doesn't end its attempt: the next
+// lease of that attempt (a throttled requeue) gets a new run.
 func (r *RunController) ensureRun(ctx context.Context, t *v1alpha1.Task) (*v1alpha1.Run, error) {
 	runs, err := listRuns(ctx, r.s, t.Metadata.ID)
 	if err != nil {
@@ -241,6 +288,9 @@ func (r *RunController) ensureRun(ctx context.Context, t *v1alpha1.Task) (*v1alp
 		if !ended(runs[i]) {
 			return runs[i], nil
 		}
+	}
+	if n := len(runs); n > 0 && counted(runs[n-1]) && runs[n-1].Spec.Attempt == t.Status.Attempts+1 {
+		return runs[n-1], nil
 	}
 	agent := ""
 	if t.Status.Agent != nil {

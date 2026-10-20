@@ -70,7 +70,7 @@ Task compilation (part of `Dispatch` apply):
 | | |
 |---|---|
 | Watches | `Task` (phase changes), `Run` (modified), timer (1 min) |
-| Does | Lease issued → create `Run`; `complete` → validate `Result` against TaskSpec output schema & outcomes (invalid → `failed{invalid-result}`), set Task `Succeeded/Failed`, update WorkItem counters, emit `factory.run.completed` (or `.failed`) with `{spec, outcome, status, inputs, result, agent, harness}`; wall-clock (`limits.maxWallClock` + 2 min grace) exceeded → mark `Failed{timeout}` and revoke lease; `Cancelling` → tell agent via heartbeat response `{cancel: true}`; `abandon{throttled}` → Task back to `Pending` (not counted as attempt) |
+| Does | Lease issued → create `Run`; `complete` → validate `Result` against TaskSpec output schema & outcomes (invalid → `failed{invalid-result}`), set Task `Succeeded/Failed`, update WorkItem counters, emit `factory.run.completed` (or `.failed`) with `{spec, outcome, status, inputs, result, agent, harness}`; wall-clock (`limits.maxWallClock` + 2 min grace) exceeded → mark `Failed{timeout}` and revoke lease; `Cancelling` → tell agent via heartbeat response `{cancel: true}`; `abandon{throttled}` → Task back to `Pending` (not counted as attempt). One run per attempt: a leased task's run is reconciled under the work item lock a finish holds between ending the run and moving the task, and an attempt whose run a finish ended never gets a second one |
 
 ### debounce (part of rule controller)
 
