@@ -188,7 +188,7 @@ For each agent owner, on their machine (rollout.md §Agent onboarding). The owne
 7. **The config.** Copy `deploy/poc/agent.yaml.example` to `~/.config/factory-agent/agent.yaml`, then `chmod 600` it. Edit:
    - `dispatcher`: `$FACTORY_PUBLIC_URL`, or `http://127.0.0.1:8080` on the dispatcher's own machine;
    - `localDev`;
-   - the harnesses and models your plans allow;
+   - the harnesses and models your plans allow. The codex model in the example (`gpt-6.1-sol`) is a placeholder: put `<a gpt-5* or gpt-6* model your codex sign-in offers>` (see `/model` in codex) in `models` and `default`;
    - `lending`.
 
    Unknown keys are errors.
@@ -204,10 +204,10 @@ For each agent owner, on their machine (rollout.md §Agent onboarding). The owne
    factory-agent stack up --train compliance-framework/workflows#138 --dry-run
    ```
 
-9. **Smoke the harnesses** (maintainers, from a repo checkout as the agent user; never in CI). Each one runs a trivial task end to end through the real harness. They default to the dedicated dirs above; see `make help` for the overrides.
+9. **Smoke the harnesses** (maintainers, from a repo checkout as the agent user; never in CI). Each one runs a trivial task end to end through the real harness. They default to the dedicated dirs above; see `make help` for the overrides. smoke-codex has no default model: set `FACTORY_SMOKE_CODEX_MODEL` to a gpt-5* or gpt-6* model your codex sign-in offers (see `/model` in codex).
 
    ```bash
-   make smoke-codex
+   FACTORY_SMOKE_CODEX_MODEL=<a gpt-5* or gpt-6* model your codex sign-in offers> make smoke-codex
    ```
 
    ```bash
@@ -253,7 +253,7 @@ jq '{event: (. + {id: "preview"})}' deploy/poc/events/fake-train-mixed.json | cu
 What you should see (the UI's board and work-item pages, or `GET /api/v1/workitems` and `/api/v1/tasks`):
 
 1. A work item linked to `workflows#138`, with state `release: drafting`, `manifest: repos.mock.yaml` and `train: …#138`.
-2. A `release-docs` task for `compliance-framework/mock-docs`. It stays `Pending` with reason `no-capable-agent` until an agent offers codex `gpt-5*`, `has-local-stack` and `gif-tooling`. The agent brings the stack up at the train's versions and opens a PR on mock-docs.
+2. A `release-docs` task for `compliance-framework/mock-docs`. It stays `Pending` with reason `no-capable-agent` until an agent offers codex `gpt-5*` or `gpt-6*`, `has-local-stack` and `gif-tooling`. The agent brings the stack up at the train's versions and opens a PR on mock-docs.
 3. A `docs-review` task (claude-code, reviewer identity). Anti-affinity keeps a review off the agent that wrote the PR. With a single agent it waits **10 minutes** (`scheduler.DefaultAntiAffinityWait`) before the author's own agent may take it.
 4. On changes requested, `implement` (codex, mode address-review) pushes a fix, and the review runs again, at most 3 implement runs per item. The 3rd changes-requested, or a `needs-human` or `blocked` outcome, escalates.
 5. **It ends at the reviewer's approval.** `merge-release-docs` is excluded in every RuleSet until RUN-S4-T01. A human merge announces nothing, because `announce-release-docs` fires only after a factory merge run.

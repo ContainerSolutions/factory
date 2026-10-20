@@ -69,11 +69,12 @@ func TestRun(t *testing.T) {
 				t.Fatalf("%d execs", len(calls))
 			}
 			c := calls[0]
-			for _, w := range append(tt.wantArgs, "exec", "--json", "--cd", ws.Repo, "--output-schema", ws.Schema, "--output-last-message", `approval_policy="never"`) {
+			for _, w := range append(tt.wantArgs, "exec", "--json", "--cd", ws.Repo, "--output-last-message", `approval_policy="never"`) {
 				if !slices.Contains(c.Args, w) {
 					t.Errorf("args %q lack %q", c.Args, w)
 				}
 			}
+			checkSchemaArgs(t, c.Args, ws.Schema)
 			if c.Args[len(c.Args)-1] != "-" || c.Stdin != "the prompt\n" {
 				t.Errorf("the prompt isn't on stdin: args %q, stdin %q", c.Args, c.Stdin)
 			}

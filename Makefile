@@ -26,7 +26,7 @@ test: ## Run Go tests with the race detector
 	go test -race -count=1 ./...
 
 .PHONY: smoke-codex
-smoke-codex: ## Maintainer machine only, never CI: a trivial task end to end through the real codex (FACTORY_SMOKE_CODEX_HOME, _MODEL, _EFFORT, _BIN)
+smoke-codex: ## Maintainer machine only, never CI: a trivial task end to end through the real codex. FACTORY_SMOKE_CODEX_MODEL is required: a gpt-5* or gpt-6* model your codex sign-in offers (see /model in codex). Optional: FACTORY_SMOKE_CODEX_HOME, _EFFORT, _BIN
 	FACTORY_SMOKE_CODEX=1 go test -count=1 -v -run '^TestSmokeCodex$$' ./internal/agent/harness/codex/
 
 .PHONY: smoke-claude

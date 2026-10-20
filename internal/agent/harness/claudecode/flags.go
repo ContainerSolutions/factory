@@ -9,9 +9,10 @@ import (
 // minimum version, the environment variables and files of its login, its print-mode flags,
 // the settings and MCP config keys, the hook protocol, tool names and the stream-json event
 // names. The LLD (harness-adapters.md §Claude Code) marks most of them *verify*. The owner
-// decided (2026-10-19) that claude isn't run while the adapter is written, so none of them
-// was checked against an installed claude: each is marked UNVERIFIED and is fixed here, in
-// one place, after `make smoke-claude`.
+// decided (2026-10-19) that claude isn't run while the adapter is written, so they were
+// written unchecked and marked UNVERIFIED, to be fixed here, in one place, after
+// `make smoke-claude`. The owner's smoke run with claude 2.1.304 (2026-10-20) accepted the
+// print-mode flags it passes; those are no longer marked. The rest still are.
 
 // ---- Version and login ---------------------------------------------------------------------
 
@@ -68,67 +69,60 @@ var runEnv = [][2]string{
 const (
 	// flagPrint runs one prompt headless and exits; with no prompt argument it reads the
 	// prompt from stdin.
-	// UNVERIFIED (owner to verify with make smoke-claude)
 	flagPrint = "--print"
 	// flagOutputFormat stream-json prints one JSON event per line; print mode needs
 	// flagVerbose with it.
-	// UNVERIFIED (owner to verify with make smoke-claude)
 	flagOutputFormat = "--output-format"
 	outputStreamJSON = "stream-json"
 	flagVerbose      = "--verbose"
 	// flagModel picks the model.
-	// UNVERIFIED (owner to verify with make smoke-claude)
 	flagModel = "--model"
 	// flagAppendSystemPrompt appends to claude's own system prompt (the headless preamble).
-	// UNVERIFIED (owner to verify with make smoke-claude)
 	flagAppendSystemPrompt = "--append-system-prompt"
 	// flagPluginDir loads a plugin from a directory (<dir>/.claude-plugin/plugin.json and
 	// <dir>/skills/), for this session only; repeated once per plugin.
-	// UNVERIFIED (owner to verify with make smoke-claude)
 	flagPluginDir = "--plugin-dir"
 	// flagMCPConfig loads MCP servers from a JSON file; flagStrictMCPConfig ignores every
 	// other MCP config (the target repo's .mcp.json, the user's).
-	// UNVERIFIED (owner to verify with make smoke-claude)
 	flagMCPConfig       = "--mcp-config"
 	flagStrictMCPConfig = "--strict-mcp-config"
 	// flagJSONSchema is the JSON Schema the final output must match, given inline (not a
-	// path); the result event then carries structured_output.
-	// UNVERIFIED (owner to verify with make smoke-claude)
+	// path) and in draft-07 (see useJSONSchema); the result event then carries
+	// structured_output.
 	flagJSONSchema = "--json-schema"
 	// flagMaxTurns stops the run after that many turns (result subtype error_max_turns).
-	// UNVERIFIED (owner to verify with make smoke-claude)
 	flagMaxTurns = "--max-turns"
 	// flagMaxBudget stops the run past a USD budget (error_max_budget_usd); API keys only.
 	// UNVERIFIED (owner to verify with make smoke-claude)
 	flagMaxBudget = "--max-budget-usd"
 	// flagPermissionMode bypassPermissions: no permission prompts (there is no one to
 	// answer them); --disallowedTools and the PreToolUse hook still apply.
-	// UNVERIFIED (owner to verify with make smoke-claude)
 	flagPermissionMode = "--permission-mode"
 	permissionBypass   = "bypassPermissions"
 	// flagDisallowedTools removes tools, as one comma-separated list.
 	// UNVERIFIED (owner to verify with make smoke-claude)
 	flagDisallowedTools = "--disallowedTools"
 	// flagSettings loads a settings file on top of the setting sources.
-	// UNVERIFIED (owner to verify with make smoke-claude)
 	flagSettings = "--settings"
 	// flagSettingSources limits the settings files read: user only (the dedicated config
 	// dir's), never the target repo's project or local settings (.claude/settings*.json),
 	// which could add hooks or permissions.
-	// UNVERIFIED (owner to verify with make smoke-claude)
 	flagSettingSources = "--setting-sources"
 	settingSourcesUser = "user"
 	// flagAddDir gives the tools another directory besides the working directory.
-	// UNVERIFIED (owner to verify with make smoke-claude)
 	flagAddDir = "--add-dir"
 	// flagResume continues a session by id (from the same working directory).
 	// UNVERIFIED (owner to verify with make smoke-claude)
 	flagResume = "--resume"
 )
 
-// useJSONSchema passes --json-schema (the LLD's invocation). Set it to false if claude
-// refuses the Result schemas: the agent still writes $FACTORY_RESULT and the final message.
-// UNVERIFIED (owner to verify with make smoke-claude)
+// useJSONSchema passes --json-schema (the LLD's invocation). claude 2.1.304 validates it as
+// draft-07 and refused the Result schema's draft 2020-12 $schema ("--json-schema is not a
+// valid JSON Schema: no schema with key or ref
+// "https://json-schema.org/draft/2020-12/schema""), so compactSchema hands it the
+// workspace's self-contained schema converted to draft-07 (toDraft7). Set it to false if
+// claude refuses a Result schema anyway: the agent still writes $FACTORY_RESULT and the
+// final message, which the pipeline validates with its repair turn.
 const useJSONSchema = true
 
 // repairMaxTurns bounds the repair run (the pipeline doesn't count its turns against

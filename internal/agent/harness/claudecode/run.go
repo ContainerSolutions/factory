@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -216,7 +217,9 @@ func mountDirs(ws harness.Workspace) []string {
 	return out
 }
 
-// compactSchema is the Result schema file as one line of JSON ("" when there is none).
+// compactSchema is the Result schema file converted to draft-07 (toDraft7) as one line of
+// JSON ("" when there is none). claude's --json-schema validator knows draft-07 only: it
+// refuses a document whose $schema is draft 2020-12.
 func compactSchema(p string) (string, error) {
 	b, err := clirun.ReadLimited(p, maxSchema+1)
 	if os.IsNotExist(err) || (err == nil && len(bytes.TrimSpace(b)) == 0) {
@@ -228,11 +231,27 @@ func compactSchema(p string) (string, error) {
 	if len(b) > maxSchema {
 		return "", fmt.Errorf("claude-code: the Result schema is over %d bytes", maxSchema)
 	}
-	var out bytes.Buffer
-	if err := json.Compact(&out, b); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var doc any
+	if err := dec.Decode(&doc); err != nil {
 		return "", fmt.Errorf("claude-code: the Result schema: %w", err)
 	}
-	return out.String(), nil
+	if dec.More() {
+		return "", errors.New("claude-code: the Result schema has more than one JSON value")
+	}
+	if m, ok := doc.(map[string]any); ok {
+		if err := toDraft7(m); err != nil {
+			return "", fmt.Errorf("claude-code: %w", err)
+		}
+	}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(doc); err != nil {
+		return "", fmt.Errorf("claude-code: the Result schema: %w", err)
+	}
+	return strings.TrimSpace(out.String()), nil
 }
 
 func writeSession(dir string, s session) error {

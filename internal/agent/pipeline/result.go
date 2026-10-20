@@ -76,7 +76,8 @@ type resultCheck struct {
 }
 
 // prepareSchema compiles the task's output schema and writes the schema the harness is
-// given (the spec's when known, else the Result schema) to the workspace.
+// given (the spec's when known, else the Result schema) to the workspace, self-contained
+// (BundleSchema). The run's Result is checked against the original documents.
 func (r *run) prepareSchema(ctx context.Context) error {
 	generic, err := resultSchema()
 	if err != nil {
@@ -102,6 +103,10 @@ func (r *run) prepareSchema(ctx context.Context) error {
 		doc = spec
 	}
 	r.check = chk
+	// The harness gets the schema self-contained: it can't resolve the Result schema's $id.
+	if doc, err = BundleSchema(doc); err != nil {
+		return err
+	}
 	if err := os.WriteFile(r.ws.Schema, doc, 0o600); err != nil {
 		return fmt.Errorf("the output schema: %w", err)
 	}

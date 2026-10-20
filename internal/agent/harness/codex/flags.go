@@ -88,7 +88,7 @@ const (
 	flagCd = "--cd"
 	// flagOutputSchema is the JSON Schema the final message must match. OpenAI's strict
 	// structured outputs accept a subset of JSON Schema (no remote $ref, every property
-	// required); a Result schema outside it would fail the run: see useOutputSchema.
+	// required) the Result schemas are outside of: not passed, see useOutputSchema.
 	// UNVERIFIED (owner to verify with make smoke-codex)
 	flagOutputSchema = "--output-schema"
 	// flagLastMessage writes the final message to a file.
@@ -103,10 +103,16 @@ const (
 	promptStdin = "-"
 )
 
-// useOutputSchema passes --output-schema (the LLD's invocation). Set it to false if codex
-// refuses the Result schemas: the agent still writes $FACTORY_RESULT and the final message.
-// UNVERIFIED (owner to verify with make smoke-codex)
-const useOutputSchema = true
+// useOutputSchema passes --output-schema (the LLD's invocation). It is off: codex sends the
+// schema as an OpenAI strict structured output, which needs every property required and
+// additionalProperties false everywhere, so it can't express the Result (optional fields,
+// data a free-form map). The owner's smoke run (codex 0.163.0, 2026-10-20) failed with
+// 400 "Invalid schema for response_format 'codex_output_schema': 'schema.required' is
+// required to include every key in properties. Missing 'outcome'." The agent still writes
+// $FACTORY_RESULT (else the final message, --output-last-message, is the Result), which the
+// pipeline validates with its repair turn. The code path stays: flipping this constant
+// passes the workspace's schema again.
+const useOutputSchema = false
 
 // Sandbox modes.
 // UNVERIFIED (owner to verify with make smoke-codex)
@@ -282,7 +288,7 @@ type execOptions struct {
 	Effort  string // normalised
 	Sandbox string
 	WorkDir string
-	// Schema, when set (and useOutputSchema), is passed as --output-schema.
+	// Schema, when set and useOutputSchema (off), is passed as --output-schema.
 	Schema string
 	// LastMessage is the file the final message is written to.
 	LastMessage string

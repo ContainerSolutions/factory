@@ -39,9 +39,11 @@ localDev: ~/repos/local-dev
 harnesses:
   codex:
     home: ~/.factory-agent/codex-home          # codex's dedicated CODEX_HOME
-    models: [gpt-5-codex]                      # release-docs, implement, plan-epic and merge ask gpt-5*
+    # Change the model: put <a gpt-5* or gpt-6* model your codex sign-in offers> (see /model
+    # in codex). The TaskSpecs match a glob, and a model the sign-in doesn't offer fails the run.
+    models: [gpt-6.1-sol]                      # release-docs, implement, plan-epic and merge ask gpt-5* or gpt-6*
     efforts: [low, medium, high]               # merge asks low, implement medium, the others high
-    default: gpt-5-codex
+    default: gpt-6.1-sol
   claude-code:
     configDir: ~/.factory-agent/claude         # claude's dedicated CLAUDE_CONFIG_DIR
     models: [claude-sonnet-5-5, claude-opus-5-5]   # docs-review asks claude-{sonnet,opus}-5-* at high
