@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
+	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
@@ -34,13 +35,19 @@ const (
 var secrets = []string{gitSecret, readSecret, readSecret2, agentSecret}
 
 // TestMain doubles as the credential helper: the pipeline runs `<test binary> fx
-// git-credential get` through the helper wrapper, exactly as it runs factory-agent.
+// git-credential get` through the helper wrapper, exactly as it runs factory-agent. It is
+// also what the workspace's bin/factory-agent runs (`fx agent-shim …`).
 func TestMain(m *testing.M) {
 	if len(os.Args) > 2 && os.Args[1] == "fx" && os.Args[2] == "git-credential" {
 		if err := gitcred.Helper(context.Background(), os.Args[3:], os.Stdin, os.Stdout, os.Getenv(gitcred.EnvSocket)); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(5)
 		}
+		os.Exit(0)
+	}
+	// bin/factory-agent's target: the arguments and the run's stack URL, one per line.
+	if len(os.Args) > 2 && os.Args[1] == "fx" && os.Args[2] == pipeline.AgentShimOp {
+		fmt.Printf("%s\n%s\n", strings.Join(os.Args[1:], " "), os.Getenv("FACTORY_STACK_URL"))
 		os.Exit(0)
 	}
 	os.Exit(m.Run())

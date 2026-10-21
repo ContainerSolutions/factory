@@ -500,8 +500,20 @@ func checkWorkspace(t *testing.T, f *fixture, ws harness.Workspace, prompt strin
 			t.Errorf("the harness environment sets %s", v)
 		}
 	}
-	if st, err := os.Stat(filepath.Join(ws.Bin, "factory")); err != nil || st.Mode()&0o100 == 0 {
-		t.Errorf("the factory CLI: %v %v", st, err)
+	// The CLI shims: `factory` is `factory-agent fx`, `factory-agent` is its agent-shim op
+	// (stack env|wait only).
+	exe, _ := os.Executable()
+	for name, args := range map[string]string{"factory": "fx", "factory-agent": "fx " + pipeline.AgentShimOp} {
+		p := filepath.Join(ws.Bin, name)
+		st, err := os.Stat(p)
+		if err != nil || st.Mode().Perm() != 0o700 {
+			t.Errorf("the %s CLI: %v %v, want an executable 0700 file", name, st, err)
+			continue
+		}
+		want := "#!/bin/sh\nexec " + gitcred.ShellQuote(exe) + " " + args + " \"$@\"\n"
+		if b, err := os.ReadFile(p); err != nil || string(b) != want {
+			t.Errorf("the %s CLI is %q (%v), want %q", name, b, err, want)
+		}
 	}
 }
 
@@ -910,6 +922,13 @@ func TestRunWithStack(t *testing.T) {
 		Do: func(_ context.Context, ws harness.Workspace, _ string) error {
 			if !slices.Contains(ws.Env, "FACTORY_STACK_URL=http://localhost:8000") {
 				t.Errorf("the harness's environment lacks the stack: %q", ws.Env)
+			}
+			// `factory-agent stack env` on the harness's PATH is the agent's fx agent-shim op,
+			// with the run's stack in its environment.
+			cmd := exec.Command("/bin/sh", "-c", "factory-agent stack env")
+			cmd.Env, cmd.Dir = ws.Env, ws.Root
+			if out, err := cmd.Output(); err != nil || string(out) != "fx "+pipeline.AgentShimOp+" stack env\nhttp://localhost:8000\n" {
+				t.Errorf("factory-agent stack env in the run: %q %v", out, err)
 			}
 			// A sandboxed harness reaches the stack's UI and API hosts, besides the git host
 			// and the dispatcher (both the loopback here).

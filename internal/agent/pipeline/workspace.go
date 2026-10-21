@@ -12,8 +12,13 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/harness"
 )
 
+// AgentShimOp is the `factory-agent fx` op behind the workspace's bin/factory-agent: the
+// factory-agent a run sees, with only `stack env` and `stack wait` (run-pipeline.md
+// §Environment, local-stack.md).
+const AgentShimOp = "agent-shim"
+
 // makeWorkspace creates workRoot/<taskID>/ and its directories, all 0700
-// (run-pipeline.md §Steps 1), and the `factory` CLI shim in bin/.
+// (run-pipeline.md §Steps 1), and the CLI shims in bin/: `factory` and `factory-agent`.
 func (r *run) makeWorkspace(context.Context) error {
 	if err := os.MkdirAll(r.p.o.WorkRoot, 0o700); err != nil {
 		return fmt.Errorf("work root: %w", err)
@@ -49,10 +54,18 @@ func (r *run) makeWorkspace(context.Context) error {
 			return fmt.Errorf("workspace: %w", err)
 		}
 	}
-	// `factory` on the harness's PATH is `factory-agent fx` (effector.md §Shape).
-	shim := "#!/bin/sh\nexec " + gitcred.ShellQuote(r.p.o.AgentBinary) + " fx \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(ws.Bin, "factory"), []byte(shim), 0o700); err != nil {
-		return fmt.Errorf("workspace: the factory CLI: %w", err)
+	// `factory` on the harness's PATH is `factory-agent fx` (effector.md §Shape), and
+	// `factory-agent` is `factory-agent fx agent-shim`, which skills call for the run's stack
+	// (`factory-agent stack env|wait`): the owner's PATH needn't have the agent binary.
+	agent := gitcred.ShellQuote(r.p.o.AgentBinary)
+	for _, s := range []struct{ name, args string }{
+		{"factory", "fx"},
+		{"factory-agent", "fx " + AgentShimOp},
+	} {
+		shim := "#!/bin/sh\nexec " + agent + " " + s.args + " \"$@\"\n"
+		if err := os.WriteFile(filepath.Join(ws.Bin, s.name), []byte(shim), 0o700); err != nil {
+			return fmt.Errorf("workspace: the %s CLI: %w", s.name, err)
+		}
 	}
 	ws.WorkDir = root
 	r.ws = ws

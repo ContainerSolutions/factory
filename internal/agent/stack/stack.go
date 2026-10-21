@@ -364,6 +364,11 @@ func New(o Options) (*Manager, error) {
 	if o.StateDir == "" || !filepath.IsAbs(o.StateDir) {
 		return nil, fmt.Errorf("stack: the state directory %q must be absolute", o.StateDir)
 	}
+	return &Manager{o: o.withDefaults()}, nil
+}
+
+// withDefaults is o with the zero fields but StateDir set to their defaults.
+func (o Options) withDefaults() Options {
 	if o.Runner == nil {
 		o.Runner = ExecRunner{}
 	}
@@ -385,7 +390,7 @@ func New(o Options) (*Manager, error) {
 	if o.PollInterval <= 0 {
 		o.PollInterval = DefaultPollInterval
 	}
-	return &Manager{o: o}, nil
+	return o
 }
 
 // WithOutput is m with the commands' output going to w.

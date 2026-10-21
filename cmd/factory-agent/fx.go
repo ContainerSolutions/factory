@@ -10,12 +10,13 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/effector"
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
 	"github.com/compliance-framework/factory/internal/agent/harness/claudecode"
+	"github.com/compliance-framework/factory/internal/agent/pipeline"
 )
 
 // fxCommand is the Effector CLI (effector.md), on a run's PATH as `factory`: the effect ops
 // (internal/agent/effector), `mcp` (the same ops as a stdio MCP server), and the internal
-// ops the run pipeline and the adapters need: the git credential helper and Claude Code's
-// PreToolUse hook.
+// ops the run pipeline and the adapters need: the git credential helper, Claude Code's
+// PreToolUse hook, and agent-shim, the run's `factory-agent` (stack env|wait only).
 func fxCommand() command {
 	return command{
 		name:    "fx",
@@ -52,6 +53,8 @@ func runFx(ctx context.Context, args []string, stdin io.Reader, stdout, stderr i
 		return 0
 	case claudecode.HookOp:
 		return claudecode.HookMain(args[1:], stdin, stderr)
+	case pipeline.AgentShimOp:
+		return runAgentShim(ctx, args[1:], stdout, stderr, agentShimDeps{Getenv: getenv})
 	}
 	if !effector.IsOp(args) {
 		fmt.Fprintf(stderr, "factory-agent fx: unknown op %q\n\n", strings.Join(args, " "))
@@ -70,5 +73,6 @@ func runFx(ctx context.Context, args []string, stdin io.Reader, stdout, stderr i
 func fxUsage(w io.Writer) {
 	effector.Usage(w)
 	fmt.Fprintln(w, "\ninternal ops:\n  git-credential get|store|erase   the run's git credential helper (git calls it)\n"+
-		"  claude-hook pre-tool-use         Claude Code's PreToolUse hook (claude calls it)")
+		"  claude-hook pre-tool-use         Claude Code's PreToolUse hook (claude calls it)\n"+
+		"  agent-shim stack env|wait        the run's `factory-agent` (bin/factory-agent calls it)")
 }
