@@ -42,8 +42,10 @@ Implement the sub-issue "compliance-framework/docs#72" as one pull request on
   it covers checks only, not git, the `factory` CLI or anything the change itself needs. A
   check that runs and fails must be fixed, or the run ends `blocked` naming it.
 - Screenshots of the CCF UI, when the change needs them: use the factory's local stack if one
-  is up (`FACTORY_STACK_URL` and `FACTORY_STACK_API` set, `factory-agent stack env`). If none
-  is up, don't stop: bring up your own temporary environment and take them there. It stands in
+  is up: then `FACTORY_STACK_URL` and `FACTORY_STACK_API` are set in your environment (check
+  them with `printenv`; don't run `factory-agent`, which may not be on `PATH`, and its absence
+  is not a reason to stop). If they're unset, no stack is up: don't stop, bring up your own
+  temporary environment and take the screenshots there. It stands in
   for local-dev's seeded showcase (`make demo-up-showcase`) wherever the docs repo's STYLE.md or
   the issue asks for that: local-dev isn't available to this run, and that is not a reason to
   stop. Say in the PR body that the screenshots come from a temporary environment with fake
