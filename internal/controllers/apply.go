@@ -73,7 +73,7 @@ func (a *applier) apply(ctx context.Context, ac *applyCtx, d applied) (note stri
 		st.State[act.Set.Key] = jsonValue(act.Set.Value)
 		return "", nil
 	case act.Link != nil:
-		addLink(ac.wi, act.Link.Ref, ac.ev.Source)
+		AddLink(ac.wi, act.Link.Ref, ac.ev.Source)
 		return "", nil
 	case act.Dispatch != nil:
 		return a.dispatch(ctx, ac, d)
@@ -96,9 +96,11 @@ func ensureStatus(wi *v1alpha1.WorkItem) *v1alpha1.WorkItemStatus {
 	return wi.Status
 }
 
-// addLink adds ref to the work item unless it is linked already. A ref without a provider is
-// on the primary link's provider (else on fallback).
-func addLink(wi *v1alpha1.WorkItem, ref v1alpha1.ObjectRef, fallback string) bool {
+// AddLink adds ref to the work item unless it is linked already (same provider and ref), and
+// reports whether it did. A ref without a provider is on the primary link's provider (else on
+// fallback); one without a kind gets guessKind's. The new link is primary only when it is the
+// item's first.
+func AddLink(wi *v1alpha1.WorkItem, ref v1alpha1.ObjectRef, fallback string) bool {
 	p := ref.Provider
 	if p == "" {
 		if l, ok := primaryLink(wi.Spec.Links); ok {
@@ -116,6 +118,39 @@ func addLink(wi *v1alpha1.WorkItem, ref v1alpha1.ObjectRef, fallback string) boo
 	}
 	wi.Spec.Links = append(wi.Spec.Links, v1alpha1.Link{Provider: p, Ref: ref.Ref, Kind: kind, Primary: len(wi.Spec.Links) == 0})
 	return true
+}
+
+// maxLinkCAS bounds LinkObject's compare-and-swap retries.
+const maxLinkCAS = 10
+
+// LinkObject adds ref to the stored work item id (AddLink's rules) outside a rule evaluation:
+// the Effector links the object an effect created. It re-reads and retries an update that
+// lost to a concurrent writer (the store's optimistic concurrency), writes nothing when the
+// ref is linked already, and is a no-op for a work item that's gone. It reports whether it
+// added the link.
+func LinkObject(ctx context.Context, s store.Store, id string, ref v1alpha1.ObjectRef, fallback string) (bool, error) {
+	for range maxLinkCAS {
+		var wi v1alpha1.WorkItem
+		switch err := s.Get(ctx, store.Key{Kind: v1alpha1.KindWorkItem, Name: id}, &wi); {
+		case errors.Is(err, store.ErrNotFound):
+			return false, nil
+		case err != nil:
+			return false, fmt.Errorf("get work item %s: %w", id, err)
+		}
+		if !AddLink(&wi, ref, fallback) {
+			return false, nil
+		}
+		err := s.Update(ctx, &wi)
+		switch {
+		case err == nil:
+			return true, nil
+		case errors.Is(err, store.ErrNotFound):
+			return false, nil
+		case !errors.Is(err, store.ErrConflict):
+			return false, fmt.Errorf("link %s to work item %s: %w", ref.Ref, id, err)
+		}
+	}
+	return false, fmt.Errorf("link %s to work item %s: %d conflicting updates: %w", ref.Ref, id, maxLinkCAS, store.ErrConflict)
 }
 
 // guessKind is "issue" for an "owner/name#n" ref and "" otherwise (the provider knows).
@@ -165,7 +200,7 @@ func (a *applier) dispatch(ctx context.Context, ac *applyCtx, d applied) (string
 // objectKind resolves an "owner/name#n" ref's kind (issue or PR) by observing it, with no kind,
 // on its provider. A retryable provider error is returned (the reconcile retries). Without a
 // connection, or when the object is gone or the provider refuses it, the ref is guessed an
-// issue, as addLink does: its content was unreadable anyway, and a gone item reads as gone.
+// issue, as AddLink does: its content was unreadable anyway, and a gone item reads as gone.
 func (a *applier) objectKind(ctx context.Context, prov, ref string) (string, error) {
 	if a.conns == nil {
 		return provider.KindIssue, nil

@@ -192,6 +192,7 @@ type env struct {
 	sink   *sink
 	status *statusSource
 	sched  *scheduler.Scheduler
+	rule   *controllers.RuleController
 	srv    *Server
 	ts     *httptest.Server
 	github *httptest.Server
@@ -288,7 +289,7 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 	}
 	e := &env{
 		t: t, ctx: context.Background(), clk: clk, st: st, cat: cat, gh: gh, status: status,
-		sched: sched, srv: srv, ts: ts, github: github, c: c, hc: hc,
+		sched: sched, rule: rule, srv: srv, ts: ts, github: github, c: c, hc: hc,
 	}
 	e.sink = srv.d.Sink.(*sink)
 	return e

@@ -243,7 +243,7 @@ func (r *RuleController) workItemFor(ctx context.Context, cat *catalog.Catalog, 
 	// Could any rule fire at all? Scope, on and providers need no observation.
 	unobserved := buildView(wi, nil, observations{})
 	if !rules.CouldFire(cat, ev, unobserved) {
-		r.log.DebugContext(ctx, "no rule could fire for the event; skipped", "event", ev.ID, "type", ev.Type, "link", link.Ref)
+		r.skipped(ctx, ev, link, "no rule could fire for the event; skipped")
 		return "", nil
 	}
 	// Would any rule fire? Ask with the work item as it would be: no state, no runs, its
@@ -267,6 +267,7 @@ func (r *RuleController) workItemFor(ctx context.Context, cat *catalog.Catalog, 
 		return "", err
 	}
 	if !slices.ContainsFunc(eval.Matches, rules.Match.Fired) {
+		r.skipped(ctx, ev, link, "no rule fires for the event; skipped")
 		return "", nil
 	}
 	if err := r.s.Create(ctx, wi); err != nil && !errors.Is(err, store.ErrAlreadyExists) {
@@ -274,6 +275,19 @@ func (r *RuleController) workItemFor(ctx context.Context, cat *catalog.Catalog, 
 	}
 	r.log.InfoContext(ctx, "work item created", "workItem", wi.Metadata.Name, "event", ev.ID, "link", link.Ref)
 	return wi.Metadata.Name, nil
+}
+
+// skipped logs a provider event that no work item links and no rule fires for: at Debug, but
+// at Info when the factory caused it. The objects the factory creates are linked to their
+// task's work item when the Effector applies them, so a factory event about an object no work
+// item links is unexpected (an unlinked PR's review never dispatched, say) and should show.
+// Only the event's id, type and ref are logged, no provider text.
+func (r *RuleController) skipped(ctx context.Context, ev v1alpha1.Event, link v1alpha1.Link, msg string) {
+	if a := ev.Data.Actor; a != nil && a.IsFactory {
+		r.log.InfoContext(ctx, "factory event about an object no work item links; skipped", "event", ev.ID, "type", ev.Type, "ref", link.Ref)
+		return
+	}
+	r.log.DebugContext(ctx, msg, "event", ev.ID, "type", ev.Type, "link", link.Ref)
 }
 
 // observeItem observes a work item's links for an evaluation. A link the provider won't show
