@@ -20,6 +20,7 @@
         "pr": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$" },
         "branch": { "type": "string", "minLength": 1 },
         "threadsResolved": { "type": "integer", "minimum": 0 },
+        "checks": { "type": "object", "additionalProperties": { "enum": ["pass", "fail", "not-run"] } },
         "stack": {
           "type": "array",
           "items": {

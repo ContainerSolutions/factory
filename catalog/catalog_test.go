@@ -595,7 +595,7 @@ var resultCases = []resultCase{
 		"data": {"plan": [{"issue": 71, "title": "a"}, {"issue": 72, "title": "b"}, {"issue": 73, "title": "c"}]}}`},
 	{"plan-epic plan at the top level", "plan-epic", false, `{"task": "t", "status": "done", "outcome": "decomposed", "question": null, "plan": []}`},
 
-	// implement: lisa's data (pr as owner/repo#N, the stack push report).
+	// implement: lisa's data (pr as owner/repo#N, checks, the stack push report).
 	{"implement pr-opened", "implement", true, `{"task": "t", "status": "done", "outcome": "pr-opened", "summary": "Opened #81.", "question": null,
 		"artifacts": [{"kind": "pr", "ref": "compliance-framework/docs#81"}],
 		"data": {"pr": "compliance-framework/docs#81", "branch": "factory/stack/wi_1/0", "threadsResolved": 0}}`},
@@ -606,6 +606,10 @@ var resultCases = []resultCase{
 	{"implement pr-opened without branch", "implement", false, `{"task": "t", "status": "done", "outcome": "pr-opened", "question": null,
 		"data": {"pr": "compliance-framework/docs#81"}}`},
 	{"implement pr as a number", "implement", false, `{"task": "t", "status": "done", "outcome": "pr-updated", "question": null, "data": {"pr": 81}}`},
+	{"implement pr-updated checks not-run", "implement", true, `{"task": "t", "status": "done", "outcome": "pr-updated", "summary": "Fixed the link; build not-run: yarn isn't on the agent, the PR's CI builds it.", "question": null,
+		"data": {"pr": "compliance-framework/mock-docs#3", "threadsResolved": 1, "checks": {"tests": "pass", "build": "not-run"}}}`},
+	{"implement check skipped", "implement", false, `{"task": "t", "status": "done", "outcome": "pr-updated", "question": null,
+		"data": {"pr": "compliance-framework/mock-docs#3", "checks": {"build": "skipped"}}}`},
 
 	// docs-review: ccf-review's headless data.
 	{"review approved", "docs-review", true, `{"task": "t", "status": "done", "outcome": "approved", "question": null,
