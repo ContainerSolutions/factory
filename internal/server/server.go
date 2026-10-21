@@ -97,6 +97,9 @@ type Deps struct {
 	KillSwitches KillSwitchWriter
 	Evaluator    Evaluator
 	Auth         *auth.Authenticator
+	// Skills resolves a redispatched task's skills (the rule controller's resolver); nil:
+	// controllers.KeepSkills.
+	Skills controllers.SkillResolver
 }
 
 // Options configure the server. Zero fields take the defaults.
@@ -195,6 +198,9 @@ func New(d Deps, opts Options) (*Server, error) {
 		return nil, errors.New("server: no evaluator")
 	case d.Auth == nil:
 		return nil, errors.New("server: no authenticator")
+	}
+	if d.Skills == nil {
+		d.Skills = controllers.KeepSkills{}
 	}
 	opts = opts.withDefaults()
 	s := &Server{

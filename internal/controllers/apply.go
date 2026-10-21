@@ -180,7 +180,7 @@ func (a *applier) dispatch(ctx context.Context, ac *applyCtx, d applied) (string
 		cat: ac.cat, d: d.action.Dispatch, wi: ac.wi, ev: ac.ev, ruleSet: d.ruleSet, rule: d.rule,
 		taskID: taskID, deferred: deferred, now: ac.now, kindOf: a.objectKind,
 	}, a.skills)
-	if errors.Is(err, errInvalidDispatch) {
+	if errors.Is(err, ErrInvalidDispatch) {
 		return err.Error(), nil
 	}
 	if err != nil {

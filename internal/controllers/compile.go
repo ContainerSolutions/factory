@@ -178,9 +178,13 @@ func objectID(prefix, key string) string {
 	return prefix + "_" + hex.EncodeToString(sum[:10])
 }
 
-// errInvalidDispatch is a dispatch that can't become a Task (recorded on the decision, not
-// retried).
-var errInvalidDispatch = errors.New("invalid dispatch")
+// ErrInvalidDispatch is a dispatch that can't become a Task: the rule controller records it on
+// the decision (not retried); Recompile returns it for a task the current catalog can't
+// compile again.
+var ErrInvalidDispatch = errors.New("invalid dispatch")
+
+// ErrNotInCatalog is an ErrInvalidDispatch whose TaskSpec or queue the catalog doesn't have.
+var ErrNotInCatalog = errors.New("not in the catalog")
 
 // compileInput is what one Dispatch compiles from.
 type compileInput struct {
@@ -198,19 +202,142 @@ type compileInput struct {
 	kindOf func(ctx context.Context, provider, ref string) (string, error)
 }
 
+// taskBasis is what a Task is built from besides its TaskSpec and queue: what the dispatch
+// decided (compileTask) or what the original task kept (Recompile).
+type taskBasis struct {
+	cat *catalog.Catalog
+	ts  *catalog.CompiledTaskSpec
+	q   *v1alpha1.Queue
+	wi  *v1alpha1.WorkItem
+	// taskSpec and queue are the names ts and q have in cat.
+	taskSpec, queue string
+	// target is the requested target, completed from the work item (taskTarget).
+	target *v1alpha1.Target
+	// inputs overlay the TaskSpec's defaults.
+	inputs map[string]any
+	// context is the requested context, resolved for the completed target; the primary link
+	// and the workspace repos follow it.
+	context func(ctx context.Context, target v1alpha1.Target) ([]v1alpha1.ContextItem, error)
+	// harness is the requested harness; nil: the TaskSpec's default.
+	harness *v1alpha1.HarnessRequest
+	// requires are merged with the TaskSpec's.
+	requires []string
+	// labels are the task's labels besides LabelTaskSpec.
+	labels   map[string]string
+	prov     v1alpha1.Provenance // CatalogSHA is set to cat's
+	taskID   string
+	deferred string
+	now      time.Time
+}
+
+// lookupSpec is the TaskSpec and the queue a task names in cat.
+func lookupSpec(cat *catalog.Catalog, taskSpec, queue string) (*catalog.CompiledTaskSpec, *v1alpha1.Queue, error) {
+	ts := cat.TaskSpecs[taskSpec]
+	if ts == nil {
+		return nil, nil, fmt.Errorf("%w: TaskSpec %q is %w", ErrInvalidDispatch, taskSpec, ErrNotInCatalog)
+	}
+	q := cat.Queues[queue]
+	if q == nil {
+		return nil, nil, fmt.Errorf("%w: queue %q is %w", ErrInvalidDispatch, queue, ErrNotInCatalog)
+	}
+	return ts, q, nil
+}
+
 // compileTask compiles a Dispatch into a Pending Task and its prompt (controllers.md §Task
 // compilation): inputs merged with the TaskSpec defaults and validated, workspace "=" fields
 // evaluated, the prompt rendered from context refs (never inline bodies), skills resolved and
 // the credentials request (minted at lease time) filled in.
 func compileTask(ctx context.Context, in compileInput, skills SkillResolver) (*v1alpha1.Task, *TaskPrompt, error) {
-	ts := in.cat.TaskSpecs[in.d.TaskSpec]
-	if ts == nil {
-		return nil, nil, fmt.Errorf("%w: TaskSpec %q does not exist", errInvalidDispatch, in.d.TaskSpec)
+	ts, q, err := lookupSpec(in.cat, in.d.TaskSpec, in.d.Queue)
+	if err != nil {
+		return nil, nil, err
 	}
-	q := in.cat.Queues[in.d.Queue]
-	if q == nil {
-		return nil, nil, fmt.Errorf("%w: queue %q does not exist", errInvalidDispatch, in.d.Queue)
+	b := taskBasis{
+		cat: in.cat, ts: ts, q: q, wi: in.wi, taskSpec: in.d.TaskSpec, queue: in.d.Queue,
+		target: in.d.Target, inputs: in.d.Inputs, harness: in.d.Harness,
+		prov:   v1alpha1.Provenance{Event: in.ev.ID, RuleSet: in.ruleSet, Rule: in.rule},
+		taskID: in.taskID, deferred: in.deferred, now: in.now,
+		context: func(ctx context.Context, target v1alpha1.Target) ([]v1alpha1.ContextItem, error) {
+			var items []v1alpha1.ContextItem
+			for _, c := range in.d.Context {
+				it := contextItem(c, in.ev)
+				if it.Kind == "ref" && ticketRefRE.MatchString(it.Ref) {
+					var err error
+					if it, err = ticketItem(ctx, in, target.Provider, it.Ref); err != nil {
+						return nil, err // transient (provider): retried
+					}
+				}
+				items = append(items, it)
+			}
+			return items, nil
+		},
 	}
+	if in.d.Requires != nil {
+		b.requires = in.d.Requires.Labels
+	}
+	return buildTask(ctx, b, skills)
+}
+
+// RecompileOptions are what Recompile takes besides the original task.
+type RecompileOptions struct {
+	// TaskID is the new task's id.
+	TaskID string
+	// Harness, when set, replaces the harness request.
+	Harness *v1alpha1.HarnessRequest
+	Now     time.Time
+}
+
+// Recompile compiles orig again against cat, as a new Pending task opts.TaskID, with the code
+// path compileTask uses (the redispatch command). It keeps what the original dispatch
+// decided: the TaskSpec and queue names, the target, the inputs (as merged then, over the
+// current defaults), the dispatch's context refs, the requires labels, the labels and the
+// rule provenance. It recomputes everything the current TaskSpec gives: the prompt (with wi's
+// current summary), skills (resolved again), workspace, context mounts, credentials request,
+// effects, limits, output and hosts; the provenance's CatalogSHA is cat's and its Event is
+// left for the caller. The harness request is opts.Harness, else the original's while the
+// TaskSpec is unchanged (same digest), else the current TaskSpec's default: a stored task
+// can't tell a dispatch's request from the default it was given.
+//
+// A TaskSpec or queue cat no longer has is ErrNotInCatalog; a task the current TaskSpec can't
+// express (an input it no longer declares, a prompt that doesn't render) is
+// ErrInvalidDispatch; any other error (skills resolution) is transient.
+func Recompile(ctx context.Context, cat *catalog.Catalog, skills SkillResolver, wi *v1alpha1.WorkItem, orig *v1alpha1.Task, opts RecompileOptions) (*v1alpha1.Task, *TaskPrompt, error) {
+	if skills == nil {
+		skills = KeepSkills{}
+	}
+	ts, q, err := lookupSpec(cat, orig.Spec.TaskSpec.Name, orig.Spec.Queue)
+	if err != nil {
+		return nil, nil, err
+	}
+	// The dispatch's context: the original's without the workspace repos (recomputed).
+	var kept []v1alpha1.ContextItem
+	for _, c := range orig.Spec.Context {
+		if c.Mount == "" {
+			kept = append(kept, c)
+		}
+	}
+	harness := opts.Harness
+	if harness == nil && orig.Spec.TaskSpec.Digest == ts.Digest && orig.Spec.Harness != nil {
+		harness = orig.Spec.Harness.Request
+	}
+	b := taskBasis{
+		cat: cat, ts: ts, q: q, wi: wi, taskSpec: orig.Spec.TaskSpec.Name, queue: orig.Spec.Queue,
+		target: orig.Spec.Target, inputs: orig.Spec.Inputs, harness: harness,
+		labels: orig.Metadata.Labels, taskID: opts.TaskID, now: opts.Now,
+		context: func(context.Context, v1alpha1.Target) ([]v1alpha1.ContextItem, error) { return kept, nil },
+	}
+	if p := orig.Metadata.Provenance; p != nil {
+		b.prov.RuleSet, b.prov.Rule = p.RuleSet, p.Rule
+	}
+	if orig.Spec.Requires != nil {
+		b.requires = orig.Spec.Requires.Labels
+	}
+	return buildTask(ctx, b, skills)
+}
+
+// buildTask builds a Pending Task and its prompt from b and its TaskSpec (compileTask's steps).
+func buildTask(ctx context.Context, b taskBasis, skills SkillResolver) (*v1alpha1.Task, *TaskPrompt, error) {
+	ts := b.ts
 	spec := ts.Spec.Spec
 
 	// 1. Inputs: TaskSpec defaults ← dispatch inputs, validated.
@@ -220,18 +347,18 @@ func compileTask(ctx context.Context, in compileInput, skills SkillResolver) (*v
 			inputs[k] = decl.Default
 		}
 	}
-	maps.Copy(inputs, in.d.Inputs)
+	maps.Copy(inputs, b.inputs)
 	if errs := ts.ValidateInputs(inputs); len(errs) > 0 {
-		return nil, nil, fmt.Errorf("%w: inputs: %w", errInvalidDispatch, errors.Join(errs...))
+		return nil, nil, fmt.Errorf("%w: inputs: %w", ErrInvalidDispatch, errors.Join(errs...))
 	}
 
-	target := taskTarget(in.d.Target, in.wi)
+	target := taskTarget(b.target, b.wi)
 
 	// 2. Workspace: evaluate the "=" refs with inputs and task.
 	act := cel.Activation{
 		Inputs: inputs,
-		Task:   map[string]any{"id": in.taskID, "target": map[string]any{"repo": target.Repo}},
-		Now:    in.now,
+		Task:   map[string]any{"id": b.taskID, "target": map[string]any{"repo": target.Repo}},
+		Now:    b.now,
 	}
 	type mount struct{ repo, branch, mode string }
 	var mounts []mount
@@ -241,15 +368,15 @@ func compileTask(ctx context.Context, in compileInput, skills SkillResolver) (*v
 			if _, ok := cel.CELSource(ref); ok {
 				p := ts.Expressions[fmt.Sprintf("spec.workspace.repos[%d].ref", i)]
 				if p == nil {
-					return nil, nil, fmt.Errorf("%w: workspace.repos[%d].ref is not compiled", errInvalidDispatch, i)
+					return nil, nil, fmt.Errorf("%w: workspace.repos[%d].ref is not compiled", ErrInvalidDispatch, i)
 				}
 				v, err := p.EvalValue(ctx, act)
 				if err != nil {
-					return nil, nil, fmt.Errorf("%w: workspace.repos[%d].ref: %w", errInvalidDispatch, i, err)
+					return nil, nil, fmt.Errorf("%w: workspace.repos[%d].ref: %w", ErrInvalidDispatch, i, err)
 				}
 				s, ok := v.(string)
 				if !ok {
-					return nil, nil, fmt.Errorf("%w: workspace.repos[%d].ref is %T, want a string", errInvalidDispatch, i, v)
+					return nil, nil, fmt.Errorf("%w: workspace.repos[%d].ref is %T, want a string", ErrInvalidDispatch, i, v)
 				}
 				ref = s
 			} else {
@@ -275,17 +402,14 @@ func compileTask(ctx context.Context, in compileInput, skills SkillResolver) (*v
 		seen[k] = true
 		ctxItems = append(ctxItems, c)
 	}
-	for _, c := range in.d.Context {
-		it := contextItem(c, in.ev)
-		if it.Kind == "ref" && ticketRefRE.MatchString(it.Ref) {
-			var err error
-			if it, err = ticketItem(ctx, in, target.Provider, it.Ref); err != nil {
-				return nil, nil, err // transient (provider): retried
-			}
-		}
-		add(it)
+	requested, err := b.context(ctx, target)
+	if err != nil {
+		return nil, nil, err
 	}
-	if l, ok := primaryLink(in.wi.Spec.Links); ok {
+	for _, c := range requested {
+		add(c)
+	}
+	if l, ok := primaryLink(b.wi.Spec.Links); ok {
 		add(v1alpha1.ContextItem{Kind: l.Kind, Provider: l.Provider, Ref: l.Ref, Trust: TrustUntrusted})
 	}
 	for _, m := range mounts {
@@ -297,22 +421,22 @@ func compileTask(ctx context.Context, in compileInput, skills SkillResolver) (*v
 	}
 
 	// 4. Prompt.
-	prompt := &TaskPrompt{TypeMeta: v1alpha1.TypeMeta{Kind: KindTaskPrompt}, Metadata: v1alpha1.ObjectMeta{Name: in.taskID}}
+	prompt := &TaskPrompt{TypeMeta: v1alpha1.TypeMeta{Kind: KindTaskPrompt}, Metadata: v1alpha1.ObjectMeta{Name: b.taskID}}
 	if ts.Prompt != nil && ts.Prompt.Template != nil {
-		var b bytes.Buffer
+		var buf bytes.Buffer
 		data := map[string]any{
 			"task": map[string]any{
-				"id": in.taskID, "spec": in.d.TaskSpec,
+				"id": b.taskID, "spec": b.taskSpec,
 				"target": map[string]any{"provider": target.Provider, "repo": target.Repo, "ref": target.Ref},
 			},
 			"inputs":  inputs,
-			"item":    itemSummary(in.wi),
+			"item":    itemSummary(b.wi),
 			"context": jsonValue(ctxItems),
 		}
-		if err := ts.Prompt.Template.Execute(&b, data); err != nil {
-			return nil, nil, fmt.Errorf("%w: render prompt %s: %w", errInvalidDispatch, ts.Prompt.Path, err)
+		if err := ts.Prompt.Template.Execute(&buf, data); err != nil {
+			return nil, nil, fmt.Errorf("%w: render prompt %s: %w", ErrInvalidDispatch, ts.Prompt.Path, err)
 		}
-		prompt.Text = b.String()
+		prompt.Text = buf.String()
 	}
 	sum := sha256.Sum256([]byte(prompt.Text))
 	prompt.Digest = "sha256:" + hex.EncodeToString(sum[:])
@@ -353,7 +477,7 @@ func compileTask(ctx context.Context, in compileInput, skills SkillResolver) (*v
 	// are added after the task repo is chosen: a skills repo never gets the TaskSpec's
 	// permissions. Skills the agent doesn't fetch (no use) and sources the resolver left as
 	// written (not a URL) are skipped.
-	cred.ReadRepos = appendSkillRepos(cred.ReadRepos, cred.Repo, GitHost(in.cat.Providers[target.Provider]), skillRefs)
+	cred.ReadRepos = appendSkillRepos(cred.ReadRepos, cred.Repo, GitHost(b.cat.Providers[target.Provider]), skillRefs)
 	// Public read repos are cloned anonymously; the others get read-only tokens at lease time.
 	// With publicReads the skills repos get none either: they must be public too.
 	if ws := spec.Workspace; ws != nil && ws.PublicReads != nil {
@@ -370,8 +494,8 @@ func compileTask(ctx context.Context, in compileInput, skills SkillResolver) (*v
 	// Harness and requires: the dispatch's request, else the TaskSpec default.
 	var harness *v1alpha1.TaskHarness
 	switch {
-	case in.d.Harness != nil:
-		h := *in.d.Harness
+	case b.harness != nil:
+		h := *b.harness
 		harness = &v1alpha1.TaskHarness{Request: &h}
 	case spec.Harness != nil && spec.Harness.Default != nil:
 		h := *spec.Harness.Default
@@ -381,37 +505,43 @@ func compileTask(ctx context.Context, in compileInput, skills SkillResolver) (*v
 	if spec.Requires != nil {
 		requires = append(requires, spec.Requires.Labels...)
 	}
-	if in.d.Requires != nil {
-		requires = append(requires, in.d.Requires.Labels...)
-	}
+	requires = append(requires, b.requires...)
 	slices.Sort(requires)
 	requires = slices.Compact(requires)
+
+	labels := maps.Clone(b.labels)
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	labels[LabelTaskSpec] = b.taskSpec
+	prov := b.prov
+	prov.CatalogSHA = b.cat.SHA
 
 	task := &v1alpha1.Task{
 		TypeMeta: v1alpha1.TypeMeta{Kind: v1alpha1.KindTask},
 		Metadata: v1alpha1.TaskMeta{
-			ID:         in.taskID,
-			WorkItem:   in.wi.Metadata.Name,
-			Provenance: &v1alpha1.Provenance{Event: in.ev.ID, RuleSet: in.ruleSet, Rule: in.rule, CatalogSHA: in.cat.SHA},
-			Labels:     map[string]string{LabelTaskSpec: in.d.TaskSpec},
+			ID:         b.taskID,
+			WorkItem:   b.wi.Metadata.Name,
+			Provenance: &prov,
+			Labels:     labels,
 		},
 		Spec: v1alpha1.TaskRunSpec{
-			TaskSpec:    v1alpha1.TaskSpecRef{Name: in.d.TaskSpec, Digest: ts.Digest},
-			Queue:       in.d.Queue,
-			Pool:        q.Spec.Pool,
+			TaskSpec:    v1alpha1.TaskSpecRef{Name: b.taskSpec, Digest: ts.Digest},
+			Queue:       b.queue,
+			Pool:        b.q.Spec.Pool,
 			Provider:    target.Provider,
 			Target:      &target,
 			Inputs:      inputs,
 			Harness:     harness,
 			Skills:      skillRefs,
-			Prompt:      &v1alpha1.PromptRef{Ref: "api://tasks/" + in.taskID + "/prompt", Digest: prompt.Digest},
+			Prompt:      &v1alpha1.PromptRef{Ref: "api://tasks/" + b.taskID + "/prompt", Digest: prompt.Digest},
 			Context:     ctxItems,
 			Credentials: &v1alpha1.TaskCredentials{Git: cred, LLM: LLMAgentLocal},
 			Effects:     cloneEffects(spec.Effects),
 			Limits:      cloneLimits(spec.Limits),
 			Output:      cloneOutput(spec.Output),
 		},
-		Status: &v1alpha1.TaskStatus{Phase: v1alpha1.TaskPending, Reason: in.deferred},
+		Status: &v1alpha1.TaskStatus{Phase: v1alpha1.TaskPending, Reason: b.deferred},
 	}
 	if len(requires) > 0 {
 		task.Spec.Requires = &v1alpha1.Requires{Labels: requires}
