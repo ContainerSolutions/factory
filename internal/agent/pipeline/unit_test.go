@@ -4,14 +4,17 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/compliance-framework/factory/internal/agent/gitsafe/gitsafetest"
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apiclient"
@@ -97,6 +100,56 @@ func TestPlanMounts(t *testing.T) {
 				t.Errorf("got %v\nwant %v", gm, tt.want)
 			}
 		})
+	}
+}
+
+// TestGitRunnerIgnoresPlantedCode: the pipeline's git never runs the hooks or the fsmonitor
+// planted in a checkout's .git, while plain git there does.
+func TestGitRunnerIgnoresPlantedCode(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + filepath.Join(home, ".gitconfig"),
+		"GIT_TERMINAL_PROMPT=0", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com"}
+	g := &gitRunner{bin: "git", env: env, red: newRedactor(nil)}
+	ctx := context.Background()
+	must := func(dir string, args ...string) {
+		t.Helper()
+		if _, err := g.run(ctx, dir, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bare := filepath.Join(t.TempDir(), "app.git")
+	must(".", "init", "--quiet", "--bare", "-b", "main", bare)
+	repo := filepath.Join(t.TempDir(), "repo")
+	must(".", "clone", "--quiet", bare, repo)
+	must(repo, "commit", "--quiet", "--allow-empty", "--no-gpg-sign", "-m", "initial")
+	must(repo, "push", "--quiet", "origin", "main")
+	trap := gitsafetest.Plant(t, repo, gitsafetest.All)
+
+	// What clone and fetchTree run in a checkout: fetch, a detached checkout, config, the
+	// push URL; and an index read, which consults the fsmonitor.
+	for _, args := range [][]string{
+		{"fetch", "--quiet", "origin", "+refs/heads/main:refs/remotes/origin/pr/1"},
+		{"-c", "advice.detachedHead=false", "checkout", "--quiet", "--detach", "refs/remotes/origin/pr/1"},
+		{"-C", repo, "-c", "advice.detachedHead=false", "checkout", "--quiet", "main"},
+		{"config", "user.name", "ccf-factory[bot]"},
+		{"remote", "set-url", "--push", "origin", "read-only://this-checkout-is-read-only"},
+		{"status", "--porcelain"},
+		{"commit", "--quiet", "--allow-empty", "--no-gpg-sign", "-m", "more"},
+	} {
+		must(repo, args...)
+	}
+	if fired := trap.Fired(t); len(fired) > 0 {
+		t.Errorf("planted code ran: %v", fired)
+	}
+	// The fixture is live: plain git runs it.
+	cmd := exec.Command("git", "checkout", "--quiet", "--detach")
+	cmd.Dir, cmd.Env = repo, env
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if len(trap.Fired(t)) == 0 {
+		t.Error("plain git ran nothing planted: the fixture is dead")
 	}
 }
 

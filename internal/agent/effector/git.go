@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/compliance-framework/factory/internal/agent/gitsafe"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
@@ -64,15 +65,18 @@ func (e *Effector) gitEnv() []string {
 }
 
 // ghEnv is gh's environment: the run's (GH_TOKEN is the task's scoped token and HOME is the
-// run's scratch one, so the owner's gh login is never used), never prompting.
+// run's scratch one, so the owner's gh login is never used), never prompting. gh stack runs
+// git itself and takes no -c, so gitsafe's pairs go in the environment, after the
+// credential helper's.
 func (e *Effector) ghEnv() []string {
-	return append(append([]string(nil), e.env()...), "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "GIT_TERMINAL_PROMPT=0", "NO_COLOR=1")
+	return append(gitsafe.Env(e.env()), "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "GIT_TERMINAL_PROMPT=0", "NO_COLOR=1")
 }
 
 // git runs git in the workspace and returns its trimmed stdout. No argument ever carries a
-// credential.
+// credential. The checkout's hooks and fsmonitor never run (gitsafe): the agent can write
+// its .git, and this git may run outside the harness's sandbox (the MCP server).
 func (e *Effector) git(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, e.o.Git, args...)
+	cmd := exec.CommandContext(ctx, e.o.Git, gitsafe.Args(args...)...)
 	cmd.Dir = e.o.Dir
 	cmd.Env = e.gitEnv()
 	var stdout, stderr bytes.Buffer

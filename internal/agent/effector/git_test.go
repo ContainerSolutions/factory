@@ -18,6 +18,7 @@ import (
 
 	"github.com/compliance-framework/factory/internal/agent/effector"
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
+	"github.com/compliance-framework/factory/internal/agent/gitsafe/gitsafetest"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 )
 
@@ -398,15 +399,23 @@ func TestStackGH(t *testing.T) {
 	writeFile(t, filepath.Join(w.repo, ".git", "gh-stack"), "{}\n")
 	log := filepath.Join(t.TempDir(), "gh.log")
 	gh := filepath.Join(t.TempDir(), "gh")
+	// gh stack push runs git itself, as gh-stack does: with gh's environment (its GH_TOKEN
+	// dropped, as the run's git never has it), so through the credential helper and
+	// gitsafe's pairs, in a checkout with planted hooks.
 	writeFile(t, gh, "#!/bin/sh\nprintf '%s|token=%s|prompt=%s\\n' \"$*\" \"${GH_TOKEN:+set}\" \"$GH_PROMPT_DISABLED\" >> "+gitcred.ShellQuote(log)+"\n"+
-		"case \"$*\" in 'stack --help'|'stack push --remote origin'|'stack rebase --remote origin') exit 0;; esac\necho unknown >&2\nexit 1\n")
+		"case \"$*\" in 'stack push --remote origin') GH_TOKEN= exec git push --quiet origin refs/heads/stack/1:refs/heads/stack/1;; esac\n"+
+		"case \"$*\" in 'stack --help'|'stack rebase --remote origin') exit 0;; esac\necho unknown >&2\nexit 1\n")
 	if err := os.Chmod(gh, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	e := w.effector(gh)
-	w.commit("stack/1", "one.md", "one\n")
+	sha := w.commit("stack/1", "one.md", "one\n")
+	trap := gitsafetest.Plant(t, w.repo, gitsafetest.All)
 	if _, err := w.do(e, "stack_push", nil); err != nil {
 		t.Fatal(err)
+	}
+	if got := w.remoteSHA("stack/1"); got != sha {
+		t.Errorf("gh stack's git push: remote stack/1 = %q, want %q", got, sha)
 	}
 	if _, err := w.do(e, "stack_rebase", nil); err != nil {
 		t.Fatal(err)
@@ -432,6 +441,47 @@ func TestStackGH(t *testing.T) {
 	}
 	if w.lastRecord()["args"].(map[string]any)["via"] != "git" {
 		t.Error("--git didn't use git")
+	}
+	if fired := trap.Fired(t); len(fired) > 0 {
+		t.Errorf("planted code ran: %v", fired)
+	}
+	w.checkNoToken()
+}
+
+// TestGitIgnoresPlantedCode: the git-side ops never run the hooks or the fsmonitor an agent
+// can plant in the checkout's .git (the Effector may run outside the harness's sandbox).
+func TestGitIgnoresPlantedCode(t *testing.T) {
+	t.Parallel()
+	w := newWorkspace(t, nil)
+	e := w.effector(filepath.Join(t.TempDir(), "no-gh"))
+	w.commit("stack/1", "one.md", "one\n")
+	w.commit("stack/2", "two.md", "two\n")
+	// main moves on origin, with a change that conflicts with stack/2.
+	other := filepath.Join(t.TempDir(), "other")
+	w.git(t.TempDir(), "clone", "--quiet", w.server.URL+"/acme/app.git", other)
+	writeFile(t, filepath.Join(other, "two.md"), "conflicting\n")
+	w.git(other, "add", "-A")
+	w.git(other, "commit", "--quiet", "--no-gpg-sign", "-m", "conflict")
+	w.git(other, "push", "--quiet", "origin", "main")
+
+	trap := gitsafetest.Plant(t, w.repo, gitsafetest.All)
+	if _, err := w.do(e, "push", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.do(e, "stack_push", nil); err != nil {
+		t.Fatal(err)
+	}
+	// The rebase checks out, rewrites and stops on the conflict (then lists it).
+	if _, err := w.do(e, "stack_rebase", nil); exitOf(err) != effector.ExitGit || !strings.Contains(err.Error(), "two.md") {
+		t.Fatalf("stack rebase: %v", err)
+	}
+	if fired := trap.Fired(t); len(fired) > 0 {
+		t.Errorf("planted code ran: %v", fired)
+	}
+	// The fixture is live: the test's own git runs it.
+	w.git(w.repo, "rebase", "--abort")
+	if len(trap.Fired(t)) == 0 {
+		t.Error("plain git ran nothing planted: the fixture is dead")
 	}
 	w.checkNoToken()
 }

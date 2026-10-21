@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
+	"github.com/compliance-framework/factory/internal/agent/gitsafe"
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apiclient"
@@ -142,8 +143,10 @@ type gitRunner struct {
 }
 
 // run runs git in dir and returns its trimmed stdout. Errors carry git's stderr, redacted.
+// The checkout's hooks and fsmonitor never run (gitsafe): this git runs in the worker,
+// outside the harness's sandbox, in checkouts the agent can write.
 func (g *gitRunner) run(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, g.bin, args...)
+	cmd := exec.CommandContext(ctx, g.bin, gitsafe.Args(args...)...)
 	cmd.Dir = dir
 	cmd.Env = g.env
 	var stdout, stderr bytes.Buffer
