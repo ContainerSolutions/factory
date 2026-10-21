@@ -6,10 +6,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/compliance-framework/factory/internal/catalog"
 	"github.com/compliance-framework/factory/internal/controllers"
+	"github.com/compliance-framework/factory/internal/provider"
 	"github.com/compliance-framework/factory/internal/store"
 )
 
@@ -172,7 +175,7 @@ func TestCancelAndRedispatch(t *testing.T) {
 	}
 	var p controllers.TaskPrompt
 	if err := e.st.Get(e.ctx, store.Key{Kind: controllers.KindTaskPrompt, Name: nt.Metadata.ID}, &p); err != nil || p.Text == "" {
-		t.Errorf("the prompt was not copied: %v", err)
+		t.Errorf("no prompt for the new task: %v", err)
 	}
 	r = e.command(redispatch("tsk_1", ""))
 	if r.StatusCode() != http.StatusAccepted {
@@ -304,5 +307,118 @@ func TestNotFound(t *testing.T) {
 	r, _ := e.c.GetCatalogObjectWithResponse(e.ctx, "Widget", "x", cli)
 	if r.StatusCode() != http.StatusBadRequest {
 		t.Errorf("an unknown kind: %s", r.Status())
+	}
+}
+
+// TestRedispatchRecompiles: a redispatch compiles the task against the current catalog (a
+// prompt changed after the original ran reaches the new task), keeps what the dispatch
+// decided, and is refused, with nothing written, when the catalog can't compile it.
+func TestRedispatchRecompiles(t *testing.T) {
+	e := newEnv(t)
+	sub := docsRepo + "#43"
+	failed := func(id string, mut func(*v1alpha1.Task)) {
+		e.task(id, func(tk *v1alpha1.Task) {
+			tk.Status.Phase = v1alpha1.TaskFailed
+			tk.Spec.Inputs = map[string]any{"issue": sub, "base": "dev"}
+			tk.Spec.Context = append(tk.Spec.Context, v1alpha1.ContextItem{Kind: provider.KindIssue, Provider: ghProvider, Ref: sub, Trust: "untrusted"})
+			tk.Spec.Requires = &v1alpha1.Requires{Labels: []string{"gpu"}}
+			tk.Metadata.Labels = map[string]string{"pack": "docs"}
+			if mut != nil {
+				mut(tk)
+			}
+		})
+	}
+	redispatch := func(id string, harness string) *apiclient.PostCommandResponse {
+		c := apiclient.Command{Type: apiclient.CommandTypeRedispatch, Target: &apiclient.CommandTarget{Task: &id}}
+		if harness != "" {
+			c.Args = &apiclient.CommandArgs{Harness: &v1alpha1.HarnessRequest{Name: harness}}
+		}
+		return e.command(c)
+	}
+	pending := func() []v1alpha1.Task {
+		var tasks []v1alpha1.Task
+		if _, err := e.st.List(e.ctx, v1alpha1.KindTask, store.ListOptions{Field: map[string]string{store.FieldTaskPhase: string(v1alpha1.TaskPending)}}, &tasks); err != nil {
+			t.Fatal(err)
+		}
+		return tasks
+	}
+	events := func() int {
+		var evs []v1alpha1.Event
+		if _, err := e.st.List(e.ctx, v1alpha1.KindEvent, store.ListOptions{}, &evs); err != nil {
+			t.Fatal(err)
+		}
+		return len(evs)
+	}
+
+	// The operator fixes the prompt after the task failed.
+	failed("tsk_1", nil)
+	ts := e.cat.TaskSpecs["implement"]
+	ts.Prompt = &catalog.Prompt{Path: ts.Prompt.Path, Template: template.Must(template.New("p").Parse("fixed {{.task.id}} {{.inputs.issue}} {{.item.id}}"))}
+
+	r := redispatch("tsk_1", "")
+	if r.JSON202 == nil || r.JSON202.Event == nil {
+		t.Fatalf("redispatch: %s %s", r.Status(), r.Body)
+	}
+	tasks := pending()
+	if len(tasks) != 1 {
+		t.Fatalf("%d pending tasks", len(tasks))
+	}
+	nt := tasks[0]
+	var p controllers.TaskPrompt
+	if err := e.st.Get(e.ctx, store.Key{Kind: controllers.KindTaskPrompt, Name: nt.Metadata.ID}, &p); err != nil {
+		t.Fatal(err)
+	}
+	if want := "fixed " + nt.Metadata.ID + " " + sub + " " + workItemID; p.Text != want || p.Digest == "sha256:abc" || nt.Spec.Prompt.Digest != p.Digest {
+		t.Errorf("prompt %q (%s), task digest %s; want %q", p.Text, p.Digest, nt.Spec.Prompt.Digest, want)
+	}
+	wantContext := []v1alpha1.ContextItem{
+		{Kind: provider.KindIssue, Provider: ghProvider, Ref: docsIssue, Trust: "untrusted"},
+		{Kind: provider.KindIssue, Provider: ghProvider, Ref: sub, Trust: "untrusted"},
+		{Kind: "repo", Provider: ghProvider, Ref: docsRepo + "@dev", Mount: "/work/docs"},
+	}
+	if nt.Spec.Inputs["issue"] != sub || nt.Spec.Inputs["base"] != "dev" || nt.Spec.Inputs["mode"] != "new" ||
+		*nt.Spec.Target != (v1alpha1.Target{Provider: ghProvider, Repo: docsRepo, Ref: docsIssue}) ||
+		!slices.Equal(nt.Spec.Context, wantContext) || !slices.Equal(nt.Spec.Requires.Labels, []string{"gpu"}) ||
+		nt.Metadata.Labels["pack"] != "docs" || nt.Metadata.WorkItem != workItemID {
+		t.Errorf("kept: inputs %v target %+v context %+v requires %+v labels %v", nt.Spec.Inputs, nt.Spec.Target, nt.Spec.Context, nt.Spec.Requires, nt.Metadata.Labels)
+	}
+	// From the catalog: the TaskSpec's digest, harness default, skills, limits and effects.
+	if nt.Spec.TaskSpec.Digest != ts.Digest || nt.Spec.Harness.Request.Name != "codex" || len(nt.Spec.Skills) != 1 ||
+		nt.Spec.Limits.MaxWallClock != "45m" || !slices.Contains(nt.Spec.Effects.Allow, v1alpha1.OpStackPush) ||
+		nt.Metadata.Provenance.Event != *r.JSON202.Event || nt.Metadata.Provenance.CatalogSHA != e.cat.SHA ||
+		nt.Metadata.Provenance.RuleSet != "poc-docs-epic" {
+		t.Errorf("recompiled: %+v %+v", nt.Spec, nt.Metadata.Provenance)
+	}
+
+	// The harness override applies.
+	failed("tsk_2", nil)
+	if r := redispatch("tsk_2", "claude-code"); r.JSON202 == nil {
+		t.Fatalf("redispatch with a harness: %s", r.Body)
+	}
+	for _, tk := range pending() {
+		if tk.Metadata.ID != nt.Metadata.ID && tk.Spec.Harness.Request.Name != "claude-code" {
+			t.Errorf("override: harness %+v", tk.Spec.Harness)
+		}
+	}
+
+	// Refused, with no event or task written.
+	failed("tsk_gone", func(tk *v1alpha1.Task) { tk.Spec.TaskSpec.Name = "retired" })
+	failed("tsk_input", func(tk *v1alpha1.Task) { tk.Spec.Inputs["dropped"] = "x" })
+	failed("tsk_orphan", func(tk *v1alpha1.Task) { tk.Metadata.WorkItem = "wi_gone" })
+	before, nPending := events(), len(pending())
+	for _, c := range []struct {
+		task   string
+		status int
+		code   string
+	}{
+		{"tsk_gone", http.StatusConflict, CodeNotInCatalog},
+		{"tsk_input", http.StatusUnprocessableEntity, CodeNotCompilable},
+		{"tsk_orphan", http.StatusConflict, CodeWorkItemGone},
+	} {
+		r := redispatch(c.task, "")
+		wantProblem(t, "redispatch "+c.task, r.HTTPResponse, r.Body, c.status, c.code)
+	}
+	if events() != before || len(pending()) != nPending {
+		t.Errorf("a refused redispatch wrote: %d events (was %d), %d pending tasks (was %d)", events(), before, len(pending()), nPending)
 	}
 }

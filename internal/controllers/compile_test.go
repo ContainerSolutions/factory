@@ -122,7 +122,7 @@ func TestCompileTicketContext(t *testing.T) {
 				d: &rules.Dispatch{TaskSpec: "docs-review", Queue: "poc", Context: tc.context, Target: tc.target},
 			}, KeepSkills{})
 			if tc.wantErr != nil {
-				if !errors.Is(err, tc.wantErr) || errors.Is(err, errInvalidDispatch) {
+				if !errors.Is(err, tc.wantErr) || errors.Is(err, ErrInvalidDispatch) {
 					t.Fatalf("err = %v, want a transient %v", err, tc.wantErr)
 				}
 				return

@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 	"github.com/compliance-framework/factory/internal/apiserver/gen"
@@ -196,8 +196,10 @@ func (s *Server) cancel(ctx context.Context, cmd *gen.Command, key string, actor
 	return ev.ID, nil
 }
 
-// redispatch clones a finished task, with an optional harness override, as a new Pending task
-// (and its prompt), and emits factory.command.redispatch.
+// redispatch compiles a finished task again against the current catalog
+// (controllers.Recompile), with an optional harness override, as a new Pending task (and its
+// prompt), and emits factory.command.redispatch. A task the current catalog can't compile is
+// refused before anything is written: the new run would not use the current catalog.
 func (s *Server) redispatch(ctx context.Context, cmd *gen.Command, key string, actor *v1alpha1.Actor) (string, error) {
 	id, err := commandTask(cmd)
 	if err != nil {
@@ -221,59 +223,49 @@ func (s *Server) redispatch(ctx context.Context, cmd *gen.Command, key string, a
 			return "", problemf(http.StatusConflict, "task-active", "task %s is %s: cancel it first", id, orig.Status.Phase)
 		}
 	}
+	cat, err := s.catalog()
+	if err != nil {
+		return "", err
+	}
+	var wi v1alpha1.WorkItem
+	if err := s.d.Store.Get(ctx, store.Key{Kind: v1alpha1.KindWorkItem, Name: orig.Metadata.WorkItem}, &wi); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return "", problemf(http.StatusConflict, CodeWorkItemGone, "task %s's work item %s is gone", id, orig.Metadata.WorkItem)
+		}
+		return "", fmt.Errorf("get work item %s: %w", orig.Metadata.WorkItem, err)
+	}
 	sum := sha256.Sum256([]byte("redispatch/" + id + "/" + key))
 	newID := "tsk_" + hex.EncodeToString(sum[:10])
+	task, prompt, err := controllers.Recompile(ctx, cat, s.d.Skills, &wi, orig,
+		controllers.RecompileOptions{TaskID: newID, Harness: override, Now: s.clk.Now()})
+	switch {
+	case errors.Is(err, controllers.ErrNotInCatalog):
+		return "", problemf(http.StatusConflict, CodeNotInCatalog, "task %s can't be redispatched with catalog %s: %v", id, cat.SHA, err)
+	case errors.Is(err, controllers.ErrInvalidDispatch):
+		return "", problemf(http.StatusUnprocessableEntity, CodeNotCompilable, "task %s can't be redispatched with catalog %s: %v", id, cat.SHA, err)
+	case err != nil:
+		return "", &apiError{status: http.StatusServiceUnavailable, code: CodeUnavailable, retryAfter: time.Second,
+			err: fmt.Errorf("recompile task %s: %w", id, err)}
+	}
+
 	ev, err := s.d.Factory.EmitCommand(ctx, evRedispatch, orig.Metadata.WorkItem, key,
 		map[string]any{"type": "redispatch", "task": id, "newTask": newID}, actor)
 	if err != nil {
 		return "", err
 	}
-
-	var clone v1alpha1.Task
-	b, err := json.Marshal(orig)
-	if err == nil {
-		err = json.Unmarshal(b, &clone)
+	task.Metadata.Provenance.Event = ev.ID
+	if err := s.d.Store.Create(ctx, prompt); err != nil && !errors.Is(err, store.ErrAlreadyExists) {
+		return "", fmt.Errorf("store prompt of %s: %w", newID, err)
 	}
-	if err != nil {
-		return "", fmt.Errorf("clone task %s: %w", id, err)
-	}
-	prov := &v1alpha1.Provenance{Event: ev.ID}
-	if p := orig.Metadata.Provenance; p != nil {
-		prov.RuleSet, prov.Rule, prov.CatalogSHA = p.RuleSet, p.Rule, p.CatalogSHA
-	}
-	if cat := s.d.Catalog.Current(); cat != nil {
-		prov.CatalogSHA = cat.SHA
-	}
-	clone.Metadata = v1alpha1.TaskMeta{ID: newID, WorkItem: orig.Metadata.WorkItem, Provenance: prov, Labels: clone.Metadata.Labels}
-	if clone.Spec.Harness == nil {
-		clone.Spec.Harness = &v1alpha1.TaskHarness{}
-	}
-	clone.Spec.Harness.Resolved = nil
-	if override != nil {
-		clone.Spec.Harness.Request = override
-	}
-	if clone.Spec.Prompt != nil {
-		clone.Spec.Prompt.Ref = "api://tasks/" + newID + "/prompt"
-	}
-	clone.Status = &v1alpha1.TaskStatus{Phase: v1alpha1.TaskPending}
-
-	var prompt controllers.TaskPrompt
-	switch err := s.d.Store.Get(ctx, store.Key{Kind: controllers.KindTaskPrompt, Name: id}, &prompt); {
-	case err == nil:
-		np := &controllers.TaskPrompt{
-			TypeMeta: v1alpha1.TypeMeta{Kind: controllers.KindTaskPrompt},
-			Metadata: v1alpha1.ObjectMeta{Name: newID}, Text: prompt.Text, Digest: prompt.Digest,
-		}
-		if err := s.d.Store.Create(ctx, np); err != nil && !errors.Is(err, store.ErrAlreadyExists) {
-			return "", fmt.Errorf("copy prompt of %s: %w", id, err)
-		}
-	case !errors.Is(err, store.ErrNotFound):
-		return "", fmt.Errorf("get prompt of %s: %w", id, err)
-	}
-	if err := s.d.Store.Create(ctx, &clone); err != nil && !errors.Is(err, store.ErrAlreadyExists) {
+	if err := s.d.Store.Create(ctx, task); err != nil && !errors.Is(err, store.ErrAlreadyExists) {
 		return "", fmt.Errorf("create task %s: %w", newID, err)
 	}
-	s.log.InfoContext(ctx, "task redispatched", "task", id, "newTask", newID)
+	oldDigest := ""
+	if orig.Spec.Prompt != nil {
+		oldDigest = orig.Spec.Prompt.Digest
+	}
+	s.log.InfoContext(ctx, "task redispatched", "task", id, "newTask", newID, "taskSpec", task.Spec.TaskSpec.Name,
+		"catalogSHA", cat.SHA, "promptChanged", oldDigest != prompt.Digest)
 	return ev.ID, nil
 }
 

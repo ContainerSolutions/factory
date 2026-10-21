@@ -50,6 +50,9 @@ const (
 	CodeUnavailable            = "unavailable"
 	CodeTooManySubscribers     = "too-many-subscribers"
 	CodeTaskNotActive          = "task-not-active"
+	CodeWorkItemGone           = "workitem-gone"
+	CodeNotInCatalog           = "not-in-catalog"
+	CodeNotCompilable          = "not-compilable"
 	CodeInternal               = "internal"
 )
 
