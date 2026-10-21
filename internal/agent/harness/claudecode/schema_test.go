@@ -139,6 +139,7 @@ func TestCompactSchemaDraft7(t *testing.T) {
 			if strings.Contains(got, `"$schema"`) || strings.Contains(got, `"$id"`) || strings.Contains(got, "$defs") || strings.Contains(got, "\n") {
 				t.Errorf("not converted: %s", got)
 			}
+			checkObjectRoot(t, docs[0], got)
 			orig, conv := compileOriginal(t, docs[0]), compileDraft7(t, got)
 			accepted, rejected := 0, 0
 			for _, fx := range draft7Fixtures {
@@ -147,8 +148,12 @@ func TestCompactSchemaDraft7(t *testing.T) {
 					t.Fatal(err)
 				}
 				want, have := orig.Validate(inst), conv.Validate(inst)
-				if (want == nil) != (have == nil) {
-					t.Errorf("%s: original %v, draft-07 %v", fx, want, have)
+				switch {
+				case want == nil && have != nil:
+					t.Errorf("%s: a valid Result is refused by claude's schema: %v", fx, have)
+				case want != nil && have == nil && !strings.Contains(fx, `"status": "done"`):
+					// objectRoot drops only the TaskSpecs' if/then rules, all on status done.
+					t.Errorf("%s: original %v, claude's schema accepts it", fx, want)
 				}
 				if want == nil {
 					accepted++
@@ -158,6 +163,106 @@ func TestCompactSchemaDraft7(t *testing.T) {
 			}
 			if accepted == 0 || rejected == 0 {
 				t.Errorf("the fixtures don't exercise the schema: %d accepted, %d rejected", accepted, rejected)
+			}
+		})
+	}
+}
+
+// checkObjectRoot: claude's schema (got) has a plain object root that keeps the base
+// Result's fields and the TaskSpec's outcomes (orig's properties.outcome.enum).
+func checkObjectRoot(t *testing.T, orig []byte, got string) {
+	t.Helper()
+	var root map[string]any
+	if err := json.Unmarshal([]byte(got), &root); err != nil {
+		t.Fatal(err)
+	}
+	if root["type"] != "object" || root["additionalProperties"] != false {
+		t.Errorf("root type %v, additionalProperties %v: %s", root["type"], root["additionalProperties"], got)
+	}
+	for k := range rootCombinators {
+		if _, ok := root[k]; ok {
+			t.Errorf("the root has %s: %s", k, got)
+		}
+	}
+	props, _ := root["properties"].(map[string]any)
+	for _, n := range []string{"task", "status", "outcome", "question", "harness", "data"} {
+		if props[n] == nil {
+			t.Errorf("the root lacks property %s: %s", n, got)
+		}
+	}
+	if req, _ := json.Marshal(root["required"]); string(req) != `["task","status","question"]` {
+		t.Errorf("required %s", req)
+	}
+	var o struct {
+		Properties struct {
+			Outcome struct {
+				Enum []any `json:"enum"`
+			} `json:"outcome"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(orig, &o); err != nil {
+		t.Fatal(err)
+	}
+	if want := o.Properties.Outcome.Enum; len(want) > 0 {
+		b, _ := json.Marshal(want)
+		out, _ := json.Marshal(props["outcome"])
+		if !strings.Contains(string(out), `"enum":`+string(b)) {
+			t.Errorf("the outcomes %s are lost: outcome is %s", b, out)
+		}
+	}
+}
+
+func TestObjectRoot(t *testing.T) {
+	tests := []struct {
+		name, in, want, wantErr string
+	}{
+		{"a TaskSpec schema: the base folded, its properties merged, if/then dropped",
+			`{"$comment": "c", "allOf": [{"$ref": "#/definitions/base"}, {"if": {"required": ["a"]}, "then": {"required": ["b"]}}],
+			  "properties": {"a": {"enum": ["x"]}, "c": {"type": "string"}}, "required": ["c"],
+			  "definitions": {"base": {"title": "B", "type": "object", "properties": {"a": {"type": "string"}, "b": {"$ref": "#/definitions/base/definitions/n"}},
+			    "required": ["a"], "additionalProperties": false, "definitions": {"n": {"type": "integer"}}}}}`,
+			`{"$comment":"c","additionalProperties":false,"definitions":{"base":{"additionalProperties":false,"definitions":{"n":{"type":"integer"}},"properties":{"a":{"type":"string"},"b":{"$ref":"#/definitions/base/definitions/n"}},"required":["a"],"title":"B","type":"object"}},` +
+				`"properties":{"a":{"allOf":[{"type":"string"},{"enum":["x"]}]},"b":{"$ref":"#/definitions/base/definitions/n"},"c":{"type":"string"}},"required":["a","c"],"title":"B","type":"object"}`, ""},
+		{"plain object members folded, others dropped",
+			`{"allOf": [{"type": "object", "properties": {"a": {}}, "required": ["a"]}, {"minProperties": 1, "properties": {"z": {}}}, {"$ref": "#/definitions/x", "title": "t"}, {"$ref": "#/definitions/none"}, true],
+			  "anyOf": [{"required": ["a"]}], "oneOf": [{}], "not": {}, "else": {}, "definitions": {"x": {"type": "object"}}}`,
+			`{"definitions":{"x":{"type":"object"}},"properties":{"a":{}},"required":["a"],"type":"object"}`, ""},
+		{"a member $ref to a non-object definition is dropped",
+			`{"allOf": [{"$ref": "#/definitions/s"}], "definitions": {"s": {"type": "string", "properties": {"q": {}}}}}`,
+			`{"definitions":{"s":{"properties":{"q":{}},"type":"string"}},"type":"object"}`, ""},
+		{"additionalProperties joined, the root's annotations kept",
+			`{"title": "R", "allOf": [{"$ref": "#/definitions/b"}], "additionalProperties": {"type": "string"}, "definitions": {"b": {"title": "B", "description": "d", "additionalProperties": false}}}`,
+			`{"additionalProperties":{"allOf":[false,{"type":"string"}]},"definitions":{"b":{"additionalProperties":false,"description":"d","title":"B"}},"description":"d","title":"R","type":"object"}`, ""},
+		{"a plain object schema gets its type",
+			`{"properties": {"a": {}}}`, `{"properties":{"a":{}},"type":"object"}`, ""},
+		{"a root of another type is refused", `{"type": "array", "items": {}}`, "", "root has type array"},
+		{"a root of several types is refused", `{"type": ["object", "null"]}`, "", "root has type [object null]"},
+		{"a ref into the root is refused",
+			`{"allOf": [{"properties": {"a": {}}}], "properties": {"b": {"$ref": "#/allOf/0/properties/a"}, "c": {"$ref": "#"}}, "const": {"$ref": "#/x"}}`,
+			"", "#, #/allOf/0/properties/a"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var doc map[string]any
+			if err := json.Unmarshal([]byte(tt.in), &doc); err != nil {
+				t.Fatal(err)
+			}
+			err := objectRoot(doc)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := json.Marshal(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(b) != tt.want {
+				t.Errorf("got  %s\nwant %s", b, tt.want)
 			}
 		})
 	}

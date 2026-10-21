@@ -335,7 +335,7 @@ func TestCompactSchema(t *testing.T) {
 		t.Errorf("no schema: %q, %v", s, err)
 	}
 	p := filepath.Join(dir, "s.json")
-	for body, want := range map[string]string{"": "", "{\n \"a\": [1, 2]\n}\n": `{"a":[1,2]}`} {
+	for body, want := range map[string]string{"": "", "{\n \"a\": [1, 2]\n}\n": `{"a":[1,2],"type":"object"}`} {
 		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -343,11 +343,13 @@ func TestCompactSchema(t *testing.T) {
 			t.Errorf("compactSchema(%q) = %q, %v", body, s, err)
 		}
 	}
-	if err := os.WriteFile(p, []byte("{not json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := compactSchema(p); err == nil {
-		t.Error("a broken schema compacted")
+	for body, want := range map[string]string{"{not json": "", "true": "not a JSON object", `{"type": "string"}`: "root has type string"} {
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := compactSchema(p); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("compactSchema(%q): %v, want an error with %q", body, err, want)
+		}
 	}
 }
 

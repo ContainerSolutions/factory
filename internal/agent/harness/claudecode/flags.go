@@ -120,9 +120,11 @@ const (
 // draft-07 and refused the Result schema's draft 2020-12 $schema ("--json-schema is not a
 // valid JSON Schema: no schema with key or ref
 // "https://json-schema.org/draft/2020-12/schema""), so compactSchema hands it the
-// workspace's self-contained schema converted to draft-07 (toDraft7). Set it to false if
-// claude refuses a Result schema anyway: the agent still writes $FACTORY_RESULT and the
-// final message, which the pipeline validates with its repair turn.
+// workspace's self-contained schema converted to draft-07 (toDraft7), with a plain object
+// root (objectRoot: the Messages API's rule for the StructuredOutput tool's input_schema,
+// which a TaskSpec schema's root allOf broke). Set it to false if claude refuses a Result
+// schema anyway: the agent still writes $FACTORY_RESULT and the final message, which the
+// pipeline validates with its repair turn.
 const useJSONSchema = true
 
 // repairMaxTurns bounds the repair run (the pipeline doesn't count its turns against
