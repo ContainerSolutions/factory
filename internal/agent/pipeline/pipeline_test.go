@@ -490,6 +490,13 @@ func checkWorkspace(t *testing.T, f *fixture, ws harness.Workspace, prompt strin
 		}
 		t.Errorf("unexpected variable in the harness environment: %s", k)
 	}
+	// The agent's own git keeps the repo's hooks (it runs in the sandbox): gitsafe's pairs
+	// are the worker's only.
+	for k, v := range env {
+		if strings.HasPrefix(k, "GIT_CONFIG_KEY_") && (v == "core.hooksPath" || v == "core.fsmonitor") {
+			t.Errorf("the harness environment sets %s", v)
+		}
+	}
 	if st, err := os.Stat(filepath.Join(ws.Bin, "factory")); err != nil || st.Mode()&0o100 == 0 {
 		t.Errorf("the factory CLI: %v %v", st, err)
 	}
