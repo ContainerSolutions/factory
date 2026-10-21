@@ -39,7 +39,11 @@ fixes to every branch of the stack at once.
   check that runs and fails must be fixed, or the run ends `blocked` naming it.
 - Screenshots of the CCF UI, when the change needs them: use the factory's local stack if one
   is up (`FACTORY_STACK_URL` and `FACTORY_STACK_API` set, `factory-agent stack env`). If none
-  is up, don't stop: bring up your own temporary environment and take them there.
+  is up, don't stop: bring up your own temporary environment and take them there. It stands in
+  for local-dev's seeded showcase (`make demo-up-showcase`) wherever the docs repo's STYLE.md or
+  the issue asks for that: local-dev isn't available to this run, and that is not a reason to
+  stop. Say in the PR body that the screenshots come from a temporary environment with fake
+  data, at which API and UI versions.
   - Clone `compliance-framework/api` and `compliance-framework/ui` at their latest releases
     (public, anonymous HTTPS) under `$FACTORY_OUT` or `$TMPDIR`, never in the docs checkout.
   - Run the API, anything it needs (a database in a container, say) and the UI on random free
