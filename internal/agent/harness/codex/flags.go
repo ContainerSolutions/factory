@@ -138,7 +138,8 @@ const (
 	// keyUpdateCheck off: no update check (and no version file) at every start.
 	keyUpdateCheck = "check_for_update_on_startup"
 	// tableSandboxWrite tunes workspace-write: network_access (git, gh and the factory CLI
-	// need the network) and writable_roots (out/ and the scratch caches besides the cwd).
+	// need the network) and writable_roots (out/, the scratch caches and the writable
+	// checkouts' git dirs besides the cwd, see gitDirName).
 	tableSandboxWrite = "sandbox_workspace_write"
 	keyNetworkAccess  = "network_access"
 	keyWritableRoots  = "writable_roots"
@@ -154,6 +155,26 @@ const (
 	keyMCPCommand   = "command"
 	keyMCPArgs      = "args"
 	keyMCPEnvVars   = "env_vars"
+)
+
+// gitDirName and gitDirPointerKey are git's names for a checkout's git dir: .git, a directory
+// or a "gitdir: <path>" pointer file. codex's workspace-write keeps <writable root>/.git (and
+// the gitdir a pointer names) read-only, the cwd included, unless that path is itself a
+// writable root; gitDirs lists the writable checkouts' git dirs for that. From codex's source
+// (openai/codex at af91f6e, 2026-10-21), not a run:
+//   - codex-rs/protocol/src/permissions.rs: get_writable_roots_with_cwd_impl and
+//     from_legacy_sandbox_policy_for_cwd skip a default read-only subpath (.git, the
+//     resolved gitdir) that has an explicit entry; metadata_write_denial allows a write
+//     under a writable root at or below the protected path; at equal depth write beats read;
+//   - codex-rs/sandboxing/src/seatbelt.rs: each writable root is its own (allow file-write*)
+//     clause, so the git dir's clause grants it whatever the cwd's clause excludes;
+//   - codex-rs/linux-sandbox/src/bwrap.rs: writable roots are bound shallowest first, so the
+//     git dir's rw bind comes after the cwd's read-only carveouts.
+//
+// UNVERIFIED (owner to verify with a release-docs or implement run that commits and pushes)
+const (
+	gitDirName       = ".git"
+	gitDirPointerKey = "gitdir"
 )
 
 // ---- Effort --------------------------------------------------------------------------------
