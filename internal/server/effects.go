@@ -58,7 +58,9 @@ func effectID(task, key string) string {
 //  6. rate limits (429 rate-limited);
 //  7. API ops: Conn.Apply as the task's identity (a retryable provider error is 429 with
 //     Retry-After); git-side ops are only recorded;
-//  8. the Effect is stored and appended to the run's progress (which the SSE stream sends).
+//  8. the object a creating op made (creatingOps) is linked to the task's work item, on a
+//     provider replay too;
+//  9. the Effect is stored and appended to the run's progress (which the SSE stream sends).
 func (s *Server) CreateEffect(ctx context.Context, req gen.CreateEffectRequestObject) (gen.CreateEffectResponseObject, error) {
 	t, err := s.leasedTask(ctx, req.Id)
 	if err != nil {
@@ -114,6 +116,11 @@ func (s *Server) CreateEffect(ctx context.Context, req gen.CreateEffectRequestOb
 		if err != nil {
 			return nil, applyError(err)
 		}
+		// Before the record: a failed link fails the request, and the agent's retry with
+		// the same key replays the Apply and links again (a recorded key returns above).
+		if err := s.linkCreated(ctx, t, b.Op, target, res); err != nil {
+			return nil, err
+		}
 	}
 
 	now := s.clk.Now()
@@ -151,6 +158,36 @@ func (s *Server) CreateEffect(ctx context.Context, req gen.CreateEffectRequestOb
 	}
 	s.log.InfoContext(ctx, "effect recorded", "task", t.Metadata.ID, "op", b.Op, "effect", id, "side", side)
 	return effectResponse(rec), nil
+}
+
+// creatingOps create the object their result names (provider.EffectResult.Object). For the
+// other ops it is the object acted on, which the effect doesn't make part of the work item.
+var creatingOps = []v1alpha1.EffectOp{v1alpha1.OpCreateIssue, v1alpha1.OpPROpen}
+
+// linkCreated links the object a creating op made to the task's work item, as a non-primary
+// link (controllers.AddLink's rules; 04-flows.md: a PR the factory opens is linked to the same
+// work item automatically), so the provider's events about it (pr.opened by the factory) find
+// that work item. The object's provider defaults to the target's, the conn that applied it. A
+// provider replay (Replayed: pr.open finds the PR already open for the head) is linked as
+// well, since a redispatched task's first apply may be one. Linking an object already linked
+// writes nothing, and a work item that's gone is skipped.
+func (s *Server) linkCreated(ctx context.Context, t *v1alpha1.Task, op v1alpha1.EffectOp, target v1alpha1.ObjectRef, res provider.EffectResult) error {
+	if !slices.Contains(creatingOps, op) || res.Object == nil || res.Object.Ref == "" || t.Metadata.WorkItem == "" {
+		return nil
+	}
+	ref := *res.Object
+	if ref.Provider == "" {
+		ref.Provider = target.Provider
+	}
+	added, err := controllers.LinkObject(ctx, s.d.Store, t.Metadata.WorkItem, ref, target.Provider)
+	if err != nil {
+		return fmt.Errorf("effect %s on %s: %w", op, target.Ref, err)
+	}
+	if added {
+		s.log.InfoContext(ctx, "effect object linked", "task", t.Metadata.ID, "workItem", t.Metadata.WorkItem,
+			"op", op, "provider", ref.Provider, "ref", ref.Ref, "replayed", res.Replayed)
+	}
+	return nil
 }
 
 func effectResponse(e *v1alpha1.Effect) gen.CreateEffect200JSONResponse {

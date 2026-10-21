@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -15,19 +16,22 @@ func TestRestartRebuildsFromProjections(t *testing.T) {
 	e := newEnv(t)
 	wi, plan := e.startPlan()
 	e.completePlan(plan.Metadata.ID)
-	// The implement task opened a PR the factory linked (as the Effector will): link it.
-	before := e.getWorkItem(wi.Metadata.Name)
+	// The implement task opened a PR through the Effector, which links it with LinkObject; the
+	// projection then reaches the new link and lists it, so the link survives the restart.
 	e.seed(provider.KindPR, docsRepo+"#57", nil)
-	before.Spec.Links = append(before.Spec.Links, v1alpha1.Link{Provider: ghProvider, Ref: docsRepo + "#57", Kind: provider.KindPR})
-	if err := e.st.Update(e.ctx, before); err != nil {
-		t.Fatal(err)
+	prRef := v1alpha1.ObjectRef{Provider: ghProvider, Kind: provider.KindPR, Ref: docsRepo + "#57"}
+	if added, err := LinkObject(e.ctx, e.st, wi.Metadata.Name, prRef, ghProvider); err != nil || !added {
+		t.Fatalf("LinkObject = %v, %v", added, err)
 	}
+	before := e.getWorkItem(wi.Metadata.Name)
 	if _, err := e.wic.Reconcile(e.ctx, wi.Metadata.Name); err != nil {
 		t.Fatal(err)
 	}
+	prLink := v1alpha1.Link{Provider: ghProvider, Ref: prRef.Ref, Kind: provider.KindPR}
 	for _, ref := range []string{docsRepo + "#42", docsRepo + "#57"} {
-		if o, _ := e.gh.Object(ref); len(o.Projections) != 1 {
-			t.Fatalf("%s projections = %+v", ref, o.Projections)
+		o, _ := e.gh.Object(ref)
+		if len(o.Projections) != 1 || !slices.Contains(o.Projections[0].Links, prLink) {
+			t.Fatalf("%s projections = %+v, want one listing %+v", ref, o.Projections, prLink)
 		}
 	}
 	// The issue closes once the PR exists; the marker on it still lists the item.
