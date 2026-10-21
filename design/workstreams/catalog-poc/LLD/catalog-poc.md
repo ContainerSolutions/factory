@@ -46,7 +46,7 @@ TaskSpec YAML is as in [10 §TaskSpecs](../../../10-poc.md#taskspecs). Prompts a
 |---|---|
 | `release-docs` | read the train via context; per repo apply `depthPolicy`; follow `STYLE.md` and `instances.yaml`; one version per minor line; GIFs only from the local stack; one branch `factory/release-docs/<train-month>`; open **one** PR; never edit other instances' released versions except the minor line being patched |
 | `plan-epic` | 3–8 sub-issues, each independently reviewable and mergeable in order; each with acceptance criteria; create them with `factory issue create` + `factory issue sub-add`; comment the plan |
-| `implement` | `mode: new` → implement the sub-issue on a branch based on `inputs.base` (`factory/stack/<wi>/<n>`), open PR with base `inputs.base`; `mode: address-review` → address every unresolved thread (`resolve` skill), push, reply/resolve threads; `target: stack` → use `lisa` stack mode one-shot |
+| `implement` | `mode: new` → implement the sub-issue on a branch based on `inputs.base` (`factory/stack/<wi>/<n>`), open PR with base `inputs.base`; `mode: address-review` → address every unresolved thread (`resolve` skill), push, reply/resolve threads; `target: stack` → use `lisa` stack mode one-shot; all modes: run the repo's checks only when their toolchain and dependencies are already there (never install), a check that can't run is `not-run` in `data.checks` and the summary and is left to the PR's CI, a check that runs and fails is fixed or ends `blocked` |
 | `docs-review` | use `ccf-review:review` with the `docs-site` pack; with `verifyAgainst` use `docs-verify` against the running versions; one review per PR (stack: per PR, plus a summary comment on the top PR); approve only when no must-fix findings remain; Questions → outcome `needs-human` |
 | `merge` | re-verify gates (approval by reviewer at head, `requiredCheck` green, no unresolved threads, no hold label: `do-not-merge`, `factory:hold` or `factory:stop`, no human `CHANGES_REQUESTED` review newer than the approval); stack, one pass: merge what's ready bottom-up, retarget the next PR, rebase, push; next PR not ready yet (check pending, approval at an old head) → outcome `pending` with `waitingOn`, never poll; review-required block → add merge label (Q5). Outcomes: `merged`, `labelled-for-merge`, `rebased-with-conflicts`, `pending` (non-escalating), `blocked`, `needs-human` |
 
@@ -56,7 +56,7 @@ Result schemas extend the base Result (`status`, `outcome`, `summary`) with `dat
 |---|---|
 | `release-docs` | `train`, `branch`, `pr`, `repos[]{repo, from, to, bump, depth, sections[], versionCut, gifs[]}` |
 | `plan-epic` | `plan[]{issue, title, dependsOn[]}` (also mirrored at top-level `plan` for rules: `run.result.plan`) |
-| `implement` | `branch`, `pr`, `threadsResolved`, `stack[]{pr, branch}` |
+| `implement` | `branch`, `pr`, `threadsResolved`, `checks{<name>: pass\|fail\|not-run}`, `stack[]{pr, branch}` |
 | `review` | `findings{mustFix, shouldFix, question}`, `prs[]{pr, event}` |
 | `merge` | `merged[]{pr, sha}`, `blockedBy{pr, reason}` (required on `blocked`, `rebased-with-conflicts`), `waitingOn{pr, reason}` (required on `pending`) |
 
