@@ -23,7 +23,8 @@ const (
 )
 
 // session is what Repair needs from the Run: the thread to resume and the settings to run it
-// with. It lives in the scratch CODEX_HOME, so the Adapter holds no per-run state.
+// with, the sandbox and working directory included, so a repair resumes where the run ran.
+// It lives in the scratch CODEX_HOME, so the Adapter holds no per-run state.
 type session struct {
 	ThreadID string `json:"threadId,omitempty"`
 	Model    string `json:"model,omitempty"`
@@ -32,28 +33,39 @@ type session struct {
 	WorkDir  string `json:"workDir"`
 }
 
-// sandboxFor is the sandbox the checkout allows: workspace-write when the harness may write
-// the primary checkout, else read-only (the Result then comes back as the final message, the
-// sandbox refusing writes to $FACTORY_RESULT).
-func sandboxFor(ws harness.Workspace) string {
+// workDirFor is where codex runs, its cwd and so one of workspace-write's writable roots: the
+// primary checkout when the harness may write it (the pipeline's WorkDir), else out/
+// ($FACTORY_OUT, a writable root anyway). So a read-only checkout, or the workspace root of a
+// task without one, is never a writable root: workspace-write reads the whole disk but writes
+// only its writable roots, so the checkout stays read-only while $FACTORY_OUT,
+// $FACTORY_RESULT, the scratch TMPDIR and the networked `factory` CLI work. "" when the
+// workspace has neither.
+//
+// A read-only checkout used to run in codex's read-only sandbox, which denies every write and
+// the network: a live plan-epic run (2026-10-21, a `mode: ro` repo) ended failed, unable to
+// write a temporary file or $FACTORY_RESULT or to reach the dispatcher.
+func workDirFor(ws harness.Workspace) string {
 	if ws.Repo != "" && ws.RepoWritable {
-		return sandboxWorkspaceWrite
+		if ws.WorkDir != "" {
+			return ws.WorkDir
+		}
+		return ws.Repo
 	}
-	return sandboxReadOnly
+	return ws.Out
 }
 
 // Run implements harness.Adapter: `codex exec --json` on the prompt (stdin) with the task's
-// resolved model and effort, in the workspace's working directory.
+// resolved model and effort, in the workspace-write sandbox from workDirFor's directory.
 func (a *Adapter) Run(ctx context.Context, ws harness.Workspace, t v1alpha1.Task, prompt string, sink harness.EventSink) (harness.Raw, error) {
-	s := session{Sandbox: sandboxFor(ws), WorkDir: ws.WorkDir, Model: a.o.Config.Default}
+	s := session{Sandbox: sandboxWorkspaceWrite, WorkDir: workDirFor(ws), Model: a.o.Config.Default}
+	if s.WorkDir == "" {
+		return harness.Raw{}, errors.New("codex: the workspace has neither a writable checkout nor out/ to run in")
+	}
 	if h := t.Spec.Harness; h != nil && h.Resolved != nil {
 		if h.Resolved.Model != "" {
 			s.Model = h.Resolved.Model
 		}
 		s.Effort = h.Resolved.ReasoningEffort
-	}
-	if s.WorkDir == "" {
-		s.WorkDir = ws.Root
 	}
 	home := codexHome(ws)
 	if err := os.WriteFile(filepath.Join(home, promptFile), []byte(prompt), 0o600); err != nil {

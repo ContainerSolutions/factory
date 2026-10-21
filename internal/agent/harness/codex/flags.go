@@ -79,11 +79,11 @@ const (
 	// flagConfig overrides one config key: -c key=<TOML value>.
 	// UNVERIFIED (owner to verify with make smoke-codex)
 	flagConfig = "-c"
-	// flagSandbox is read-only or workspace-write (the LLD notes 2026 renames towards a
-	// permission profile).
+	// flagSandbox is the sandbox mode, always workspace-write (see workDirFor; the LLD notes
+	// 2026 renames towards a permission profile).
 	// UNVERIFIED (owner to verify with make smoke-codex)
 	flagSandbox = "--sandbox"
-	// flagCd is the directory codex works in.
+	// flagCd is the directory codex works in: the writable checkout, else out/ (workDirFor).
 	// UNVERIFIED (owner to verify with make smoke-codex)
 	flagCd = "--cd"
 	// flagOutputSchema is the JSON Schema the final message must match. OpenAI's strict
@@ -94,8 +94,8 @@ const (
 	// flagLastMessage writes the final message to a file.
 	// UNVERIFIED (owner to verify with make smoke-codex)
 	flagLastMessage = "--output-last-message"
-	// flagSkipGitRepoCheck lets exec run outside a git checkout (a task with no repo works
-	// in the workspace root).
+	// flagSkipGitRepoCheck lets exec run outside a git checkout (in out/ when the checkout is
+	// read-only or there is none).
 	// UNVERIFIED (owner to verify with make smoke-codex)
 	flagSkipGitRepoCheck = "--skip-git-repo-check"
 	// promptStdin reads the prompt from stdin.
@@ -114,12 +114,11 @@ const (
 // passes the workspace's schema again.
 const useOutputSchema = false
 
-// Sandbox modes.
+// sandboxWorkspaceWrite is the sandbox every run gets. codex's read-only mode isn't used: it
+// denies the agent every write ($FACTORY_OUT, $FACTORY_RESULT, TMPDIR) and the network (the
+// `factory` CLI), so a read-only checkout runs workspace-write from out/ instead (workDirFor).
 // UNVERIFIED (owner to verify with make smoke-codex)
-const (
-	sandboxReadOnly       = "read-only"
-	sandboxWorkspaceWrite = "workspace-write"
-)
+const sandboxWorkspaceWrite = "workspace-write"
 
 // Config keys set with -c. The LLD's `--ask-for-approval never` is a top-level codex flag
 // that exec doesn't take as far as known, so the approval policy goes through -c.
@@ -149,12 +148,37 @@ const (
 	tableShellEnv     = "shell_environment_policy"
 	keyInherit        = "inherit"
 	keyIgnoreExcludes = "ignore_default_excludes"
-	// tableMCPServers.<name>: command, args, and env_vars, the names of the variables passed
-	// through from codex's environment (values never written to disk).
+	// tableMCPServers.<name>: command, args, env_vars, the names of the variables passed
+	// through from codex's environment (values never written to disk), and
+	// default_tools_approval_mode (keyMCPToolsApproval).
 	tableMCPServers = "mcp_servers"
 	keyMCPCommand   = "command"
 	keyMCPArgs      = "args"
 	keyMCPEnvVars   = "env_vars"
+	// keyMCPToolsApproval = "approve" runs the factory server's tools without asking. With
+	// approval_policy never, codex otherwise denies them in a workspace-write sandbox: a live
+	// plan-epic run (2026-10-21) reported "the MCP result tool required unavailable
+	// approval". From codex's source (openai/codex at d138398, 2026-10-21; the same in
+	// rust-v0.163.0), not a run:
+	//   - codex-rs/core/src/mcp_tool_call.rs: the mode is the server's tool_approval_mode;
+	//     maybe_request_mcp_tool_approval skips approval when
+	//     mcp_permission_prompt_is_auto_approved or !requires_mcp_tool_approval_for_mode;
+	//     else request_mcp_tool_user_approval denies the call under approval_policy never
+	//     ("MCP tool call requires approval, but approval policy is never");
+	//   - codex-rs/codex-mcp/src/mcp/mod.rs: mcp_permission_prompt_is_auto_approved is true
+	//     for mode approve, else under never only with full disk write access (not
+	//     workspace-write);
+	//   - requires_mcp_tool_approval_for_mode: the default mode, auto, asks unless the tool's
+	//     annotations say readOnlyHint (or destructiveHint and openWorldHint both false);
+	//     approve never asks;
+	//   - codex-rs/config/src/mcp_types.rs: AppToolApproval (auto, prompt, writes, approve,
+	//     snake_case) and McpServerConfig.default_tools_approval_mode, overridden per tool by
+	//     tools.<name>.approval_mode; codex-rs/codex-mcp/src/server.rs:
+	//     McpServerMetadata::tool_approval_mode resolves them.
+	// Only the factory server gets it: the Effector checks every op against the task's
+	// allowed effects itself.
+	keyMCPToolsApproval = "default_tools_approval_mode"
+	mcpToolsApprove     = "approve"
 )
 
 // gitDirName and gitDirPointerKey are git's names for a checkout's git dir: .git, a directory

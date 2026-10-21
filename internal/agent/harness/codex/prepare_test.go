@@ -148,8 +148,8 @@ func TestPrepareLayout(t *testing.T) {
 		t.Errorf("lisa-review is %q", b)
 	}
 	agents, _ := os.ReadFile(filepath.Join(home, "AGENTS.md"))
-	if !strings.Contains(string(agents), ws.Preamble) {
-		t.Errorf("AGENTS.md lacks the preamble:\n%s", agents)
+	if !strings.Contains(string(agents), ws.Preamble) || strings.Contains(string(agents), "FACTORY_OUT") {
+		t.Errorf("AGENTS.md isn't the preamble alone:\n%s", agents)
 	}
 	cfg, _ := os.ReadFile(filepath.Join(home, "config.toml"))
 	for _, want := range []string{
@@ -157,7 +157,8 @@ func TestPrepareLayout(t *testing.T) {
 		"[sandbox_workspace_write]\nnetwork_access = true\nwritable_roots = [\"" + ws.Out + "\", \"" + ws.Tmp + "\", \"" + filepath.Join(ws.Home, ".cache") + "\"]",
 		"[shell_environment_policy]\ninherit = \"all\"\nignore_default_excludes = true",
 		"[mcp_servers.factory]\ncommand = \"" + filepath.Join(ws.Bin, "factory") + "\"\nargs = [\"mcp\"]\n" +
-			`env_vars = ["FACTORY_API", "FACTORY_RESULT", "FACTORY_TOKEN", "GH_TOKEN", "HOME", "PATH", "TMPDIR"]`,
+			`env_vars = ["FACTORY_API", "FACTORY_RESULT", "FACTORY_TOKEN", "GH_TOKEN", "HOME", "PATH", "TMPDIR"]` + "\n" +
+			`default_tools_approval_mode = "approve"` + "\n",
 	} {
 		if !strings.Contains(string(cfg), want) {
 			t.Errorf("config.toml lacks %q:\n%s", want, cfg)
@@ -174,6 +175,39 @@ func TestPrepareLayout(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(owner, "auth.json")); err != nil {
 		t.Errorf("the owner's login is gone with the workspace: %v", err)
+	}
+}
+
+// TestPrepareReadOnly: a read-only checkout gets the same config.toml (out/ is already a
+// writable root, the checkout's .git isn't) and an AGENTS.md saying codex starts in out/ and
+// where the read-only checkout is.
+func TestPrepareReadOnly(t *testing.T) {
+	owner := ownerHome(t)
+	rw, ro := workspace(t, true), workspace(t, false)
+	for _, ws := range []harness.Workspace{rw, ro} {
+		if err := os.MkdirAll(filepath.Join(ws.Repo, ".git"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := New(Options{Config: config.Harness{Home: owner}}).Prepare(context.Background(), ws, task("", "")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(ws harness.Workspace, name string) string {
+		b, err := os.ReadFile(filepath.Join(ws.Home, ".codex", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.ReplaceAll(string(b), ws.Root, "<root>")
+	}
+	rwCfg, roCfg := read(rw, "config.toml"), read(ro, "config.toml")
+	if want := strings.Replace(rwCfg, `, "<root>/repo/.git"]`, "]", 1); roCfg != want || rwCfg == want {
+		t.Errorf("read-only config.toml:\n%s\nwant the read-write one without the checkout's .git:\n%s", roCfg, rwCfg)
+	}
+	agents := read(ro, "AGENTS.md")
+	for _, w := range []string{ro.Preamble, "You start in `$FACTORY_OUT` (<root>/out)", "relative to the workspace, <root>.", "<root>/repo and it is read-only"} {
+		if !strings.Contains(agents, w) {
+			t.Errorf("AGENTS.md lacks %q:\n%s", w, agents)
+		}
 	}
 }
 

@@ -7,7 +7,8 @@
 // never read here), a generated config.toml (approval policy, sandbox tuning, the Effector's
 // MCP server), AGENTS.md with the headless preamble, and the task's skills flattened from the
 // pipeline's plugin layout. Run starts `codex exec --json` with the resolved model and
-// effort and the sandbox the checkout allows, streams its JSONL into the EventSink, stops on
+// effort in the workspace-write sandbox, from the checkout when it is writable and from out/
+// when it isn't, streams its JSONL into the EventSink, stops on
 // a rate or plan limit, and kills the whole process group when its context ends. Repair
 // resumes the same session with the validation problems.
 //
