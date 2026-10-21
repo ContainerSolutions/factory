@@ -22,6 +22,17 @@
     },
     {
       "ruleSet": "poc-release-docs",
+      "rule": "record-release-docs-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
       "rule": "record-release-docs-repos",
       "priority": 100,
       "result": "not-matched",

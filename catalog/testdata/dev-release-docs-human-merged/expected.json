@@ -1,0 +1,43 @@
+{
+  "event": "gh-140/0",
+  "workItem": "wi-mock-train",
+  "matches": [
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "record-release-docs-merged",
+      "result": "matched",
+      "inputs": [
+        "event",
+        "item",
+        "params"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "record-release-docs-merged",
+      "action": {
+        "set": {
+          "key": "release",
+          "value": "merged"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "event",
+        "item",
+        "params"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "manifest": "repos.mock.yaml",
+    "release": "merged",
+    "review": "approved",
+    "train": "compliance-framework/workflows#124"
+  }
+}

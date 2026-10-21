@@ -22,6 +22,17 @@
     },
     {
       "ruleSet": "dev-release-docs",
+      "rule": "record-release-docs-outcome",
+      "priority": 100,
+      "result": "matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
       "rule": "record-release-docs-repos",
       "priority": 100,
       "result": "matched",
@@ -41,6 +52,14 @@
         "params",
         "run"
       ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "record-release-docs-outcome",
+      "priority": 100,
+      "result": "duplicate",
+      "firedVia": "dev-release-docs",
+      "inputs": []
     },
     {
       "ruleSet": "poc-release-docs",
@@ -156,6 +175,25 @@
   "decisions": [
     {
       "ruleSet": "dev-release-docs",
+      "rule": "record-release-docs-outcome",
+      "action": {
+        "set": {
+          "key": "release",
+          "value": "pr-opened"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
       "rule": "record-release-docs-repos",
       "action": {
         "set": {
@@ -191,7 +229,7 @@
   ],
   "stateAfter": {
     "manifest": "repos.mock.yaml",
-    "release": "drafting",
+    "release": "pr-opened",
     "repos": [
       {
         "action": "cut",

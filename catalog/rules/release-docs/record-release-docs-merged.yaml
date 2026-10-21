@@ -1,0 +1,14 @@
+# The docs PR merged by anyone, a maintainer by hand included: the release is done (merged, the
+# web board's Done lane). merge-release-docs is excluded from the RuleSets until everything else
+# is trusted (Q10), so no merge run, and so no announce-release-docs, follows a human merge;
+# this rule records it without announcing. After a factory merge, announce-release-docs sets
+# published, which this rule doesn't overwrite whichever comes first. The work item finds the
+# docs PR through the link the Effector added when release-docs opened it.
+kind: Rule
+metadata: { name: record-release-docs-merged, labels: { pack: release-docs } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [pr.merged]
+  params: { docsRepo: compliance-framework/docs }          # the dev RuleSet's defaults set mock-docs
+  where: "has(item.state.release) && event.repo == params.docsRepo && item.state.release != 'published'"
+  actions: [{ set: { release: merged } }]

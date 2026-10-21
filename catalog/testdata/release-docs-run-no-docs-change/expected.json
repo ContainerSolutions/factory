@@ -1,0 +1,156 @@
+{
+  "event": "factory-run-release-docs-2",
+  "workItem": "wi-train-quiet",
+  "matches": [
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "record-release-docs-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "record-release-docs-repos",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "record-release-review-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "record-release-docs-outcome",
+      "priority": 100,
+      "result": "matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "record-release-docs-repos",
+      "priority": 100,
+      "result": "matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "record-release-review-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "announce-release-docs",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "escalate-needs-human",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "announce-release-docs",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "escalate-needs-human",
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "run"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "record-release-docs-outcome",
+      "action": {
+        "set": {
+          "key": "release",
+          "value": "no-docs-change"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "record-release-docs-repos",
+      "action": {
+        "set": {
+          "key": "repos",
+          "value": []
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "manifest": "repos.yaml",
+    "release": "no-docs-change",
+    "repos": [],
+    "train": "compliance-framework/workflows#125"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "event": "gh-143/0",
+  "workItem": "wi-train",
+  "matches": [
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "record-release-docs-merged",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "item",
+        "params"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "record-release-docs-merged",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "item",
+        "params"
+      ]
+    }
+  ],
+  "decisions": [],
+  "stateAfter": {
+    "manifest": "repos.yaml",
+    "release": "pr-opened",
+    "review": "approved",
+    "train": "compliance-framework/workflows#123"
+  }
+}

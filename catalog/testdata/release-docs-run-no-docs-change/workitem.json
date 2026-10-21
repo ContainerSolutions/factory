@@ -1,0 +1,16 @@
+{
+  "id": "wi-train-quiet",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/workflows#125",
+      "kind": "issue",
+      "primary": true
+    }
+  ],
+  "state": {
+    "release": "drafting",
+    "train": "compliance-framework/workflows#125",
+    "manifest": "repos.yaml"
+  }
+}

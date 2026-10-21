@@ -1,0 +1,24 @@
+{
+  "event": "gh-142/0",
+  "workItem": "wi-train",
+  "matches": [
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "record-release-docs-merged",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "item",
+        "params"
+      ]
+    }
+  ],
+  "decisions": [],
+  "stateAfter": {
+    "manifest": "repos.yaml",
+    "merge": "merged",
+    "release": "published",
+    "review": "approved",
+    "train": "compliance-framework/workflows#123"
+  }
+}
