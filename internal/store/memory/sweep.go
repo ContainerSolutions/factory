@@ -29,7 +29,10 @@ func (s *Store) Sweep(ctx context.Context) (store.SweepResult, error) {
 			s.mu.Unlock()
 			return res, store.Errorf("sweep", store.Key{}, err, "")
 		}
-		s.deleteLocked(rec)
+		if err := s.deleteLocked("sweep", rec); err != nil {
+			s.mu.Unlock()
+			return res, err
+		}
 		res.Objects[rec.key.Kind]++
 	}
 	s.mu.Unlock()

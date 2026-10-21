@@ -1,7 +1,8 @@
 // Package memory is the in-memory store.Store: one map per kind behind a single RWMutex (PoC
 // scale: thousands of objects), JSON deep copies on the way in and out, field indexes, watch
 // fan-out with bounded buffers and a replay history, leased locks, retention and the
-// transcript blobs.
+// transcript blobs. A commit hook (WithCommitHook) sees every write before it is applied,
+// which is how store/filestore makes it durable.
 package memory
 
 import (
@@ -38,6 +39,7 @@ type Store struct {
 	opts store.Options
 	clk  clock.Clock
 	log  *slog.Logger
+	hook CommitHook // nil: no hook (see WithCommitHook)
 
 	mu       sync.RWMutex
 	rv       uint64
@@ -64,9 +66,9 @@ var (
 )
 
 // New returns an empty store.
-func New(opts store.Options) *Store {
+func New(opts store.Options, options ...Option) *Store {
 	opts = opts.WithDefaults()
-	return &Store{
+	s := &Store{
 		opts:     opts,
 		clk:      opts.Clock,
 		log:      opts.Logger,
@@ -78,6 +80,10 @@ func New(opts store.Options) *Store {
 		lockWake: make(chan struct{}),
 		blobs:    map[string]*blob{},
 	}
+	for _, o := range options {
+		o(s)
+	}
+	return s
 }
 
 // Get implements store.Store.
@@ -218,8 +224,14 @@ func (s *Store) Create(ctx context.Context, obj store.Object) error {
 		return store.Errorf("create", k, store.ErrAlreadyExists, "")
 	}
 	now := s.clk.Now()
+	oldRV, oldCreated := store.ResourceVersion(obj), store.CreatedAt(obj)
 	rec, err := s.newRecord("create", k, obj, s.rv+1, now, now)
 	if err != nil {
+		return err
+	}
+	if err := s.commit("create", Change{Op: OpCreate, Key: k, Version: rec.rv, At: now, Data: rec.data}); err != nil {
+		store.SetResourceVersion(obj, oldRV)
+		store.SetCreatedAt(obj, oldCreated)
 		return err
 	}
 	s.rv++
@@ -251,8 +263,14 @@ func (s *Store) Update(ctx context.Context, obj store.Object) error {
 			return store.Errorf("update", k, store.ErrConflict, "resourceVersion %q, stored %q", got, want)
 		}
 	}
+	oldRV, oldCreated := store.ResourceVersion(obj), store.CreatedAt(obj)
 	rec, err := s.newRecord("update", k, obj, s.rv+1, old.created, s.clk.Now())
 	if err != nil {
+		return err
+	}
+	if err := s.commit("update", Change{Op: OpUpdate, Key: k, Version: rec.rv, At: rec.updated, Data: rec.data}); err != nil {
+		store.SetResourceVersion(obj, oldRV)
+		store.SetCreatedAt(obj, oldCreated)
 		return err
 	}
 	s.rv++
@@ -276,13 +294,15 @@ func (s *Store) Delete(ctx context.Context, k store.Key) error {
 	if rec == nil {
 		return store.Errorf("delete", k, store.ErrNotFound, "")
 	}
-	s.deleteLocked(rec)
-	return nil
+	return s.deleteLocked("delete", rec)
 }
 
-// deleteLocked removes rec, tells the watchers and drops a Run's transcript. The caller holds
-// s.mu.
-func (s *Store) deleteLocked(rec *record) {
+// deleteLocked removes rec, tells the watchers and drops a Run's transcript, once the hook
+// accepted the change. The caller holds s.mu.
+func (s *Store) deleteLocked(op string, rec *record) error {
+	if err := s.commit(op, Change{Op: OpDelete, Key: rec.key, Version: s.rv + 1, At: s.clk.Now()}); err != nil {
+		return err
+	}
 	s.rv++
 	s.unindex(rec)
 	delete(s.objects[rec.key.Kind], rec.key.Name)
@@ -290,6 +310,7 @@ func (s *Store) deleteLocked(rec *record) {
 	if rec.key.Kind == runKind {
 		s.deleteTranscript(rec.key.Name)
 	}
+	return nil
 }
 
 // newRecord encodes obj as version rv. It sets rv and created on obj (restoring them if

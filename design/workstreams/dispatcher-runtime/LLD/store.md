@@ -1,6 +1,6 @@
 # LLD — Resource store (RT)
 
-> Workstream: [RT](../../definitions.md#rt-dispatcher-runtime) · Task: RT-S1-T01 · Package: `internal/store` (+ `store/memory`, `store/storetest`)
+> Workstream: [RT](../../definitions.md#rt-dispatcher-runtime) · Task: RT-S1-T01 · Package: `internal/store` (+ `store/memory`, `store/filestore`, `store/storetest`)
 
 ## Interface
 
@@ -64,9 +64,41 @@ A sweeper goroutine (every 10 min) deletes:
 
 Transcripts are stored as compressed blobs in a separate `map[runID][]byte`, capped at 20 MB each and 2 GB total (oldest evicted first, logged).
 
+## File store
+
+`store/filestore` is the single-node durable store (design: proposal P2, "The dispatcher keeps its state in a file"). It wraps `store/memory`, which stays the engine: CAS, indexes, watches, locks and retention all come from it, so the file store passes `storetest` unmodified. `filestore.Open(dir, opts, ...Option)` returns a `*Store` (`Store`, `Sweeper`, `TranscriptStore`, plus `Close`).
+
+```
+<dir>/                        0700, owned by the dispatcher's user
+  snapshot.json               {"format":1,"storeVersion":"N","objects":[{kind,name,v,created,at,obj}…]}
+  journal.jsonl               {"v","at","op","kind","name","obj"?} per change above the snapshot
+  transcripts/<run>.jsonl.gz  one file per run (a run name that isn't a safe file name: ~<base64url>.jsonl.gz)
+  LOCK                        exclusive flock while open
+```
+
+- **Write path:** memory's commit hook (`memory.WithCommitHook`) is called under its write lock once a write is checked and encoded, before it is applied. The file store appends the journal line there and fsyncs it; only then does memory apply the change and tell watchers. A failed append or fsync fails the call and memory is left untouched (nothing to roll back, no watch event to retract), so memory never holds a change the journal doesn't. A failed write is rolled back by truncating the journal to the last good line; a failed fsync (or a rollback that fails) stops all writes (`ErrJournal`) until the store is reopened, since the page cache can't be trusted after it. One fsync per write; group commit would replace the fsync in `append`, not built.
+- **Kinds:** loading needs each kind's Go type. The v1alpha1 runtime kinds are built in; internal kinds are registered with `filestore.WithKind(kind, proto)`. A write of an unregistered kind is `ErrInvalid`, so nothing reaches the disk that can't be loaded back.
+- **Locks** are not journaled (advisory, lease-based; a restart frees them). **Watches** after a reopen start at the restored version: the history isn't persisted, so an older `SinceVersion` is `ErrWatchExpired`, as when the ring is trimmed.
+- **Compaction:** when a write takes the journal past 64 MB or 50 000 lines (`WithCompaction`), on that writer's goroutine (writers that find one running don't wait), and on `Close`. The snapshot is memory at version V (`memory.Snapshot`, one read lock); writes go on meanwhile. Steps: write `snapshot.json.tmp` and fsync; rename over `snapshot.json` and fsync the dir; under the journal lock, write the lines above V to `journal.jsonl.tmp`, fsync, rename over the journal, fsync the dir. A crash after any step leaves the old snapshot and the full journal, or the new snapshot and a journal whose lines at or below V are skipped. A failed compaction is logged and retried after more lines; the write that triggered it has succeeded.
+- **Load:** remove leftover tmp files; read the snapshot (an unknown `format` fails Open saying to move the dir aside); replay the journal lines above its version, each exactly one above the last (a gap is corruption); restore memory (`memory.Restore`) and the version counter. A torn last line (no trailing newline, or not a valid line) is dropped with a warning and the journal truncated to the last good line; any other bad line fails Open with `ErrCorrupt` and its line number. Creation times of kinds without metadata (Event) come from the line that created the object.
+- **Modes:** dir 0700, files 0600, owned by this user. Open refuses (`ErrInsecure`, naming the `chmod`) a dir or file group or others can access, or a symlink. A second Open of a dir that is open fails with `ErrLocked`.
+- **Transcripts** are files with the memory store's caps (20 MB each, 2 GB total, oldest evicted first). Each is written to a tmp file, fsync'd and renamed; its mtime is its creation time on the store's clock, so retention and eviction order survive a restart. Deleted with their Run (from the commit hook) and swept by age.
+
+**What never reaches the disk.** The stored kinds carry no credential, and two tests keep it so: one fails when a kind reaches the disk without an audit line (in `fixtures_test.go`), one scans every byte of the snapshot and journal of the conformance run and of a fixture with a real-shaped object of every kind (strings, and base64 `[]byte` fields decoded) for `ghs_`, `gho_`, `ghp_`, `github_pat_`, `sk-ant-`, `-----BEGIN` and `x-access-token:`. The audit:
+
+| Kind | Why it holds no secret |
+|---|---|
+| Event, WorkItem, Run, Effect, BudgetCounter, Approval, KillSwitch, EventStatus, Debounce | provider refs, rule state, results and counters; no credentials |
+| Task | `spec.credentials` describes the git token to mint; tokens are minted per lease and never stored; `llm` is always `agent-local` |
+| Agent, AgentToken | the agent token is stored as a `sha256:` hash only |
+| Lease | the lease and usage; git credentials never stored, only their expiry |
+| Session | named by the hash of the session id; holds the login, no GitHub token |
+| Delivery | the raw webhook minus `Authorization`, `Cookie`, `Proxy-Authorization`; untrusted, not secret; body and headers dropped once handled |
+| TaskPrompt | the rendered prompt: catalog templates and untrusted provider text |
+
 ## Postgres later
 
-`store/storetest` holds a **conformance suite** (`func Run(t *testing.T, newStore func(store.Options) storetest.Subject)`) covering CAS conflicts, watch ordering, resync, selectors, locks and retention. A future Postgres store must pass the same suite.
+`store/storetest` holds a **conformance suite** (`func Run(t *testing.T, newStore func(store.Options) storetest.Subject)`) covering CAS conflicts, watch ordering, resync, selectors, locks and retention. A future Postgres store must pass the same suite. Until then the file store (§File store) is the single-node durable store; Postgres stays the multi-node path.
 
 ## Tests
 
@@ -85,3 +117,12 @@ Transcripts are stored as compressed blobs in a separate `map[runID][]byte`, cap
 - **Retention specifics:** Event by the store's creation time; Task by its last write in a terminal phase (`Succeeded/Failed/Cancelled`; there is no terminal timestamp); `BudgetCounter` swept at 90 days with Runs, Events and Effects; Agent, Approval and the internal kinds kept; a Run's transcript is deleted with the Run (and transcripts also age out on their own). WorkItems are never swept by the store: the work-item controller owns their retention (it knows whether links are open).
 - **`--retention`** is wired by `factory serve` into `store.Options.Retention`; the store only takes the option.
 - **Clock:** the store takes an `internal/clock.Clock` (`Real`, `Fake`). `rules.Clock` has the same shape and should converge on it.
+
+## Decisions taken in the file store (P2 PR 1)
+
+- **Journal before apply, under memory's write lock** (the commit hook), not apply-then-roll-back: a rollback can't retract a watch event already sent, and readers would see a change that may vanish. The cost is that reads wait for a write's fsync; group commit is the seam if that matters.
+- **The hook is the only change to memory:** `WithCommitHook`, `Snapshot` and `Restore`. Without a hook memory behaves as before (`New` takes the options variadically).
+- **Snapshot objects carry `v`, `created` and `at` beside `obj`**, as journal lines carry `v` and `at`: Event has no metadata, and SinceUpdated retention needs the last-write time.
+- **Kinds are registered** (`WithKind`) rather than learned at write time, and an unregistered kind can't be written: a kind that could be stored but not loaded would fail the next start.
+- **A failed fsync stops writes until reopen** (`ErrJournal`); a failed write that was rolled back doesn't.
+- **Transcript names:** safe run names are the file name; others are `~` + base64url, so no run name can escape `transcripts/`.
