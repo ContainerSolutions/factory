@@ -217,9 +217,11 @@ func mountDirs(ws harness.Workspace) []string {
 	return out
 }
 
-// compactSchema is the Result schema file converted to draft-07 (toDraft7) as one line of
-// JSON ("" when there is none). claude's --json-schema validator knows draft-07 only: it
-// refuses a document whose $schema is draft 2020-12.
+// compactSchema is the Result schema file converted to draft-07 (toDraft7) with a plain
+// object root (objectRoot), as one line of JSON ("" when there is none). claude's
+// --json-schema validator knows draft-07 only: it refuses a document whose $schema is draft
+// 2020-12. And claude sends the schema to the Messages API as its StructuredOutput tool's
+// input_schema, which must be "type": "object" with no top-level allOf/anyOf/oneOf.
 func compactSchema(p string) (string, error) {
 	b, err := clirun.ReadLimited(p, maxSchema+1)
 	if os.IsNotExist(err) || (err == nil && len(bytes.TrimSpace(b)) == 0) {
@@ -240,10 +242,15 @@ func compactSchema(p string) (string, error) {
 	if dec.More() {
 		return "", errors.New("claude-code: the Result schema has more than one JSON value")
 	}
-	if m, ok := doc.(map[string]any); ok {
-		if err := toDraft7(m); err != nil {
-			return "", fmt.Errorf("claude-code: %w", err)
-		}
+	m, ok := doc.(map[string]any)
+	if !ok {
+		return "", errors.New("claude-code: the Result schema is not a JSON object: a structured output needs an object schema")
+	}
+	if err := toDraft7(m); err != nil {
+		return "", fmt.Errorf("claude-code: %w", err)
+	}
+	if err := objectRoot(m); err != nil {
+		return "", fmt.Errorf("claude-code: %w", err)
 	}
 	var out bytes.Buffer
 	enc := json.NewEncoder(&out)
