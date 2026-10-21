@@ -215,3 +215,91 @@ func TestPrepareRefusals(t *testing.T) {
 		t.Error("clashing skill folders: Prepare succeeded")
 	}
 }
+
+// TestConfigGitDirs: config.toml's writable_roots list the git dir of every writable
+// checkout (codex keeps .git read-only otherwise), and never a read-only checkout's.
+func TestConfigGitDirs(t *testing.T) {
+	mkdir := func(t *testing.T, dirs ...string) {
+		t.Helper()
+		for _, d := range dirs {
+			if err := os.MkdirAll(d, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	write := func(t *testing.T, p, body string) {
+		t.Helper()
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, tc := range map[string]struct {
+		// setup turns the workspace into the case and returns the git dirs config.toml lists.
+		setup func(t *testing.T, ws *harness.Workspace) []string
+	}{
+		"rw checkout": {func(t *testing.T, ws *harness.Workspace) []string {
+			mkdir(t, filepath.Join(ws.Repo, ".git"))
+			ws.Mounts = []harness.Mount{{Repo: "o/r", Dir: ws.Repo, Writable: true}}
+			return []string{filepath.Join(ws.Repo, ".git")}
+		}},
+		"ro checkout": {func(t *testing.T, ws *harness.Workspace) []string {
+			mkdir(t, filepath.Join(ws.Repo, ".git"))
+			ws.RepoWritable = false
+			ws.Mounts = []harness.Mount{{Repo: "o/r", Dir: ws.Repo}}
+			return nil
+		}},
+		"rw, ro and rw mounts": {func(t *testing.T, ws *harness.Workspace) []string {
+			ro, rw := filepath.Join(ws.Root, "repos", "ro"), filepath.Join(ws.Root, "repos", "rw")
+			mkdir(t, filepath.Join(ws.Repo, ".git"), filepath.Join(ro, ".git"), filepath.Join(rw, ".git"))
+			ws.Mounts = []harness.Mount{{Repo: "o/r", Dir: ws.Repo, Writable: true}, {Repo: "o/ro", Dir: ro}, {Repo: "o/rw", Dir: rw, Writable: true}}
+			return []string{filepath.Join(ws.Repo, ".git"), filepath.Join(rw, ".git")}
+		}},
+		"relative gitdir pointer": {func(t *testing.T, ws *harness.Workspace) []string {
+			gd := filepath.Join(ws.Root, "gitdirs", "repo")
+			mkdir(t, gd)
+			write(t, filepath.Join(ws.Repo, ".git"), "gitdir: ../gitdirs/repo\n")
+			return []string{gd}
+		}},
+		"absolute gitdir pointer": {func(t *testing.T, ws *harness.Workspace) []string {
+			gd := filepath.Join(ws.Root, "gitdirs", "repo")
+			mkdir(t, gd)
+			write(t, filepath.Join(ws.Repo, ".git"), "gitdir: "+gd+"\n")
+			return []string{gd}
+		}},
+		"pointer to a missing gitdir": {func(t *testing.T, ws *harness.Workspace) []string {
+			write(t, filepath.Join(ws.Repo, ".git"), "gitdir: ../gone\n")
+			return nil
+		}},
+		"not a pointer": {func(t *testing.T, ws *harness.Workspace) []string {
+			mkdir(t, filepath.Join(ws.Root, "gitdirs"))
+			write(t, filepath.Join(ws.Repo, ".git"), "worktree: ../gitdirs\n")
+			return nil
+		}},
+		"symlinked .git": {func(t *testing.T, ws *harness.Workspace) []string {
+			target := filepath.Join(ws.Root, "real.git")
+			mkdir(t, target)
+			if err := os.Symlink(target, filepath.Join(ws.Repo, ".git")); err != nil {
+				t.Fatal(err)
+			}
+			return nil
+		}},
+		"rw checkout without .git": {func(t *testing.T, ws *harness.Workspace) []string {
+			return nil
+		}},
+		"no checkout": {func(t *testing.T, ws *harness.Workspace) []string {
+			ws.Repo, ws.RepoWritable, ws.WorkDir = "", false, ws.Root
+			return nil
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ws := workspace(t, true)
+			cache := filepath.Join(ws.Home, ".cache")
+			want := append([]string{ws.Out, ws.Tmp, cache}, tc.setup(t, &ws)...)
+			cfg := renderConfig(ws, cache)
+			line := "writable_roots = " + tomlList(want) + "\n"
+			if !strings.Contains(cfg, line) {
+				t.Errorf("config.toml lacks %q:\n%s", line, cfg)
+			}
+		})
+	}
+}

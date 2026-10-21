@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/compliance-framework/factory/internal/agent/harness"
@@ -73,10 +74,10 @@ func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, _ v1alpha1.Ta
 }
 
 // renderConfig is the scratch config.toml: no update check, the workspace-write sandbox with
-// the network and the run's out/ and caches writable, commands given the whole run
-// environment, and the Effector's MCP server with the run's variables passed through by name
-// (their values, tokens among them, never reach the file). The model, effort, sandbox mode
-// and approval policy are on the command line.
+// the network and the run's out/, caches and writable checkouts' git dirs writable, commands
+// given the whole run environment, and the Effector's MCP server with the run's variables
+// passed through by name (their values, tokens among them, never reach the file). The model,
+// effort, sandbox mode and approval policy are on the command line.
 func renderConfig(ws harness.Workspace, cache string) string {
 	var b strings.Builder
 	line := func(k, v string) { b.WriteString(k + " = " + v + "\n") }
@@ -85,8 +86,8 @@ func renderConfig(ws harness.Workspace, cache string) string {
 	b.WriteString("\n[" + tableSandboxWrite + "]\n")
 	line(keyNetworkAccess, "true")
 	roots := []string{}
-	for _, d := range []string{ws.Out, ws.Tmp, cache} {
-		if d != "" {
+	for _, d := range append([]string{ws.Out, ws.Tmp, cache}, gitDirs(ws)...) {
+		if d != "" && !slices.Contains(roots, d) {
 			roots = append(roots, d)
 		}
 	}
@@ -99,6 +100,68 @@ func renderConfig(ws harness.Workspace, cache string) string {
 	line(keyMCPArgs, tomlList(clirun.EffectorArgs()))
 	line(keyMCPEnvVars, tomlList(clirun.EnvNames(ws.Env)))
 	return b.String()
+}
+
+// gitDirs is the git directory of every checkout the harness may write: the primary checkout
+// when RepoWritable, and every Writable mount.
+//
+// codex's workspace-write sandbox keeps <writable root>/.git, and the gitdir a .git pointer
+// file names, read-only even under the cwd (gitDirName in flags.go). A live release-docs
+// run ended blocked on it (2026-10-21): "the sandbox denies writes to repo/.git/FETCH_HEAD
+// and repo/.git/index.lock", so no commit, fetch or `factory push` worked. Listing the git
+// dir as a writable root of its own lifts that protection for it alone. Read-only checkouts
+// keep it. A hook planted in a writable .git doesn't run outside the sandbox because
+// worker-side git ignores the checkout's hooks (fx/git-ignore-repo-hooks).
+func gitDirs(ws harness.Workspace) []string {
+	var dirs []string
+	add := func(checkout string, writable bool) {
+		if !writable || checkout == "" {
+			return
+		}
+		if d := gitDir(checkout); d != "" && !slices.Contains(dirs, d) {
+			dirs = append(dirs, d)
+		}
+	}
+	add(ws.Repo, ws.RepoWritable)
+	for _, m := range ws.Mounts {
+		add(m.Dir, m.Writable)
+	}
+	return dirs
+}
+
+// gitDir is checkout's git directory as codex names it: <checkout>/.git when that is a
+// directory; when .git is a pointer file ("gitdir: <path>", as in a worktree or submodule),
+// the directory it names, relative to the checkout when relative. "" when there is none, or
+// when .git is a symlink: codex's seatbelt refuses a writable root with a symlink in it, which
+// would stop the whole run.
+func gitDir(checkout string) string {
+	dot := filepath.Join(checkout, gitDirName)
+	fi, err := os.Lstat(dot)
+	switch {
+	case err != nil:
+		return ""
+	case fi.IsDir():
+		return dot
+	case !fi.Mode().IsRegular():
+		return ""
+	}
+	b, err := os.ReadFile(dot)
+	if err != nil {
+		return ""
+	}
+	key, raw, ok := strings.Cut(strings.TrimSpace(string(b)), ":")
+	raw = strings.TrimSpace(raw)
+	if !ok || strings.TrimSpace(key) != gitDirPointerKey || raw == "" {
+		return ""
+	}
+	if !filepath.IsAbs(raw) {
+		raw = filepath.Join(checkout, raw)
+	}
+	raw = filepath.Clean(raw)
+	if fi, err := os.Lstat(raw); err != nil || !fi.IsDir() {
+		return ""
+	}
+	return raw
 }
 
 // flattenSkills copies each skill folder to dst/<name>/ (codex's layout). Two plugins'
