@@ -428,6 +428,9 @@ func checkWorkspace(t *testing.T, f *fixture, ws harness.Workspace, prompt strin
 	if !strings.HasPrefix(prompt, pipeline.Preamble(taskID, "release-docs")) || !strings.Contains(prompt, promptBody) {
 		t.Errorf("prompt:\n%s", prompt)
 	}
+	if !strings.Contains(prompt, "environment stops you") || !strings.Contains(prompt, "write `status: failed`") {
+		t.Errorf("the preamble doesn't say environment failures end the run failed:\n%s", prompt)
+	}
 	if !strings.Contains(prompt, `<untrusted source="github-public:acme/docs#12" kind="issue" trust="untrusted">`) {
 		t.Errorf("the issue isn't fenced:\n%s", prompt)
 	}
