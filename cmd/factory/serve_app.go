@@ -27,7 +27,6 @@ import (
 	"github.com/compliance-framework/factory/internal/scheduler"
 	"github.com/compliance-framework/factory/internal/server"
 	"github.com/compliance-framework/factory/internal/store"
-	"github.com/compliance-framework/factory/internal/store/memory"
 	"github.com/compliance-framework/factory/internal/webui"
 )
 
@@ -203,7 +202,29 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	log.Info("factory serve starting",
 		"addr", cfg.Addr, "opsAddr", cfg.OpsAddr, "publicURL", cfg.PublicURL,
 		"catalog", catalogSource(cfg).String(), "retention", cfg.Retention.String(),
-		"devFakeProviders", cfg.DevFakeProviders)
+		"stateDir", cfg.StateDir, "devFakeProviders", cfg.DevFakeProviders)
+
+	// The store, first: it is closed last, once everything that writes to it has stopped
+	// (shutdown closes it within the shutdown timeout; this covers a failed start).
+	st, err := openStore(cfg, store.Options{Clock: clk, Retention: cfg.Retention, Logger: log}, log)
+	if err != nil {
+		return err
+	}
+	storeClosed := false
+	closeOnce := func(ctx context.Context) error {
+		if storeClosed {
+			return nil
+		}
+		storeClosed = true
+		return closeStore(ctx, st)
+	}
+	defer func() {
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.ShutdownTimeout)
+		defer cancel()
+		if err := closeOnce(cctx); err != nil {
+			log.Warn("store not closed cleanly", "err", err)
+		}
+	}()
 
 	// Components run under runCtx, which is cancelled only once the listeners have drained,
 	// so in-flight completes still reach the run controller.
@@ -213,8 +234,7 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	defer group.wg.Wait()
 	defer cancelRun()
 
-	// Store and retention.
-	st := memory.New(store.Options{Clock: clk, Retention: cfg.Retention, Logger: log})
+	// Retention.
 	group.Go(runCtx, "sweeper", func(ctx context.Context) error {
 		store.RunSweeper(ctx, st, 0, log.With("component", "sweeper"))
 		return nil
@@ -408,6 +428,10 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		serving.Wait()
 		cancelRun()
 		group.wg.Wait()
+		// Nothing writes to the store any more: close it (the file store's final compaction).
+		if err := closeOnce(sctx); err != nil {
+			errs = append(errs, err)
+		}
 		if err := errors.Join(errs...); err != nil {
 			log.Warn("shutdown incomplete", "err", err)
 			return err

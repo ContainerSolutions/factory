@@ -463,7 +463,7 @@ func TestParseServeConfig(t *testing.T) {
 		{name: "defaults", env: testEnv(), check: func(t *testing.T, c serveConfig, w []string) {
 			if c.Addr != ":8800" || c.OpsAddr != "127.0.0.1:9090" || c.Retention != 2160*time.Hour || c.LogFormat != "json" ||
 				c.CatalogRepo != "https://github.com/compliance-framework/factory" || c.CatalogRef != "main" || c.CatalogPath != "catalog" ||
-				c.DevFakeProviders || c.PublicURL != "http://localhost:8800" || c.DeployEnvironment != "github-pages" {
+				c.DevFakeProviders || c.PublicURL != "http://localhost:8800" || c.DeployEnvironment != "github-pages" || c.StateDir != "" {
 				t.Errorf("defaults %+v", c)
 			}
 			if len(w) != 1 || !strings.Contains(w[0], "no --public-url") {
@@ -520,6 +520,12 @@ func TestParseServeConfig(t *testing.T) {
 				t.Errorf("deploy environment %q", c.DeployEnvironment)
 			}
 		}},
+		{name: "state dir", args: []string{"--state-dir", filepath.Join(dir, "state")}, env: testEnv(), check: func(t *testing.T, c serveConfig, _ []string) {
+			if c.StateDir != filepath.Join(dir, "state") {
+				t.Errorf("state dir %q", c.StateDir)
+			}
+		}},
+		{name: "state dir is a file", args: []string{"--state-dir", file}, env: testEnv(), wantErr: []string{"--state-dir", "is not a directory"}},
 		{name: "empty deploy environment", args: []string{"--deploy-environment", " "}, env: testEnv(), wantErr: []string{"--deploy-environment must not be empty"}},
 	}
 	for _, tt := range tests {

@@ -222,6 +222,16 @@ func TestRestart(t *testing.T) {
 			s2 := mustOpen(t, dir, opts)
 			defer s2.Close()
 			sameDump(t, "after reopen", takeDump(t, s2), before)
+			li := s2.Loaded()
+			n := 0
+			for _, c := range li.Objects {
+				n += c
+			}
+			closed := tc.name == "Close"
+			if li.Version != before.Version || n != len(before.Records) || li.Snapshot != closed || (li.JournalLines == 0) == !closed ||
+				li.TornLine || li.Transcripts != len(before.Transcripts) {
+				t.Fatalf("Loaded() = %+v; want version %d, %d objects, %d transcripts, snapshot %v", li, before.Version, n, len(before.Transcripts), closed)
+			}
 
 			// Watches start from the restored version; older ones have expired.
 			ctx := t.Context()

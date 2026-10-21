@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Starts the PoC dispatcher (deploy/poc/README.md): loads deploy/poc/.env, checks it, builds
 # bin/factory with the real UI (make build-release) unless SKIP_BUILD=1, then execs
-# factory serve with its JSON log appended to deploy/poc/logs/ and copied to the terminal.
+# factory serve with its JSON log appended to deploy/poc/logs/ and copied to the terminal, and
+# its state kept in FACTORY_STATE_DIR (default ~/.factory/state) across restarts.
 # Run it from anywhere (make poc-up runs it from the repo root); extra arguments go to
 # factory serve (e.g. --log-level debug). It never prints a value from .env.
 set -euo pipefail
@@ -74,6 +75,12 @@ mkdir -p "$log_dir"
 log="$log_dir/factory-serve-$(date -u +%Y%m%dT%H%M%SZ).log"
 echo "run.sh: logging to $log" >&2
 
+# The dispatcher's state (README §State): tasks, runs, transcripts and the rest survive a
+# restart. Created 0700 (the umask) if missing; factory serve refuses a dir others can read.
+state_dir="${FACTORY_STATE_DIR:-$HOME/.factory/state}"
+mkdir -p "$state_dir"
+echo "run.sh: state in $state_dir" >&2
+
 # tee ignores Ctrl-C and SIGTERM, so it keeps copying factory serve's shutdown logs and exits
 # once serve closes its output.
 exec > >(
@@ -86,5 +93,6 @@ exec bin/factory serve \
 	--public-url "$FACTORY_PUBLIC_URL" \
 	"${catalog[@]}" \
 	--retention 2160h \
+	--state-dir "$state_dir" \
 	--log-format json \
 	"$@"
