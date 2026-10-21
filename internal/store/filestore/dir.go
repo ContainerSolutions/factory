@@ -24,7 +24,11 @@ func checkTree(dir string) error {
 			return fmt.Errorf("filestore: read %s: %w", d, err)
 		}
 		for _, e := range entries {
-			if err := checkPrivate(filepath.Join(d, e.Name())); err != nil {
+			err := checkPrivate(filepath.Join(d, e.Name()))
+			if errors.Is(err, os.ErrNotExist) {
+				continue // gone since the listing: a tmp file renamed by the store writing (Read)
+			}
+			if err != nil {
 				return err
 			}
 		}

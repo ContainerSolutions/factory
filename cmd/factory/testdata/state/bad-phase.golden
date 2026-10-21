@@ -1,0 +1,2 @@
+--- stderr
+factory state tasks: --phase "Done": want one of Pending, Leased, Running, Succeeded, Failed, Cancelling, Cancelled

@@ -126,7 +126,20 @@ The JSON log goes to the terminal and to `deploy/poc/logs/factory-serve-<UTC tim
 
 The dispatcher keeps its store in `FACTORY_STATE_DIR` (default `~/.factory/state`, created 0700): `snapshot.json`, `journal.jsonl` (every change since the snapshot, fsync'd), `transcripts/` and a `LOCK`. Tasks, runs, transcripts, events, decisions, budgets, agent registrations and leases survive a restart, and an agent that keeps heartbeating across one finishes its run. The start-up log line `store: loaded the state dir` says what was loaded. The work-item rebuild from the GitHub markers still runs, and adds only the work items the state doesn't hold.
 
-`factory serve` refuses to start when the dir or a file in it can be read by others (it names the `chmod`), when another dispatcher has it open, or when it can't load it (an unknown format, or a corrupt journal line, with its number). To start clean, stop the dispatcher (§11) and move the dir aside, keeping it as evidence: `mv ~/.factory/state ~/.factory/state.$(date -u +%Y%m%dT%H%M%SZ)`. The next start creates an empty one, and work items come back from the markers.
+`factory serve` refuses to start when the dir or a file in it can be read by others (it names the `chmod`), when another dispatcher has it open, or when it can't load it (an unknown format, or a corrupt journal line, with its number). To start clean, stop the dispatcher (§11) and move the dir aside, keeping it as evidence: `bin/factory state reset --yes` (it refuses while a dispatcher has the dir open, and prints where it moved it: `<dir>.<UTC time>`). The next start creates an empty one, and work items come back from the markers.
+
+`factory state` answers "why did this run fail?" from the state dir, with no server, API or token: it reads the files read-only and takes no lock, so it works while the dispatcher runs, and on a copy of the dir. `--state-dir` defaults to `$FACTORY_STATE_DIR`, else `~/.factory/state`, as for `run.sh` (it doesn't read `.env`: if `.env` sets `FACTORY_STATE_DIR`, pass that dir with `--state-dir`). Tables by default; `--json` prints the stored objects.
+
+```bash
+bin/factory state tasks [--phase Failed] [--spec implement] [--workitem W] [--since 24h]  # id, spec, phase, reason, work item, created, last run
+bin/factory state task tsk_…                 # spec, inputs, harness, status, runs with their Result, and the decision that dispatched it
+bin/factory state run run_… [--transcript]   # the Result in full, usage, progress; --transcript prints the transcript (JSON Lines)
+bin/factory state workitem wi_…              # links, state, counters, decisions (rule, verdict, actions) and tasks
+bin/factory state events [--since 1h] [--type pr.opened] [--workitem W]   # with whether the rule controller processed each
+bin/factory state log [--since 10m]          # the journal (changes since the last snapshot) as a timeline, with task phase changes and run ends
+```
+
+An unknown id prints the ids nearest to it by prefix. Nothing it prints is secret (the store holds no credential, and transcripts are redacted by the agent), so its output can be pasted into an issue. `jq` on `snapshot.json` (one object per line) and `journal.jsonl` works too.
 
 ## 7. Check it
 

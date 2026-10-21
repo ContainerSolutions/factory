@@ -1,0 +1,26 @@
+Run run_01JB7R
+  task        tsk_01JB7Q (attempt 1)
+  agent       agt_laptop (owner gusfcarvalho)
+  started     2026-10-21T09:00:56Z
+  ended       2026-10-21T09:10:17Z (completed: failed)
+  transcript  151 bytes gzip'd: factory state run run_01JB7R --transcript
+
+Result
+  status      failed
+  outcome     checks-failed
+  summary     Pushed the branch, but `make test` fails:
+              [31mTestRestart[0m expects the stack to be down first.
+  artifacts   branch fx/mock-docs-4-restart
+  suggest     implement: retry once the test is fixed
+  harness     codex 0.50.0 (subscription), model gpt-5.5, effort high
+  data        checks = {"build":"ok","test":"failed"}
+
+Usage
+  tokens      182000 in, 9100 out
+  turns       23
+  wall clock  9m14s
+  cost        none (a subscription run)
+
+Progress (2)
+  2026-10-21T09:01:10Z  phase  cloning compliance-framework/mock-docs  -
+  2026-10-21T09:04:10Z  check  make test                               {"exit":2}

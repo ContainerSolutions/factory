@@ -1,0 +1,3 @@
+ID          SPEC          PHASE      REASON                                  WORK ITEM  CREATED               LAST RUN
+tsk_01JB7Q  implement     Failed     run run_01JB7R: failed (checks-failed)  wi_docs4   2026-10-21T09:00:35Z  run_01JB7R completed: failed
+tsk_01JA00  release-docs  Succeeded  -                                       wi_docs1   2026-10-21T09:00:42Z  -

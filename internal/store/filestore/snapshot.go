@@ -44,6 +44,12 @@ func (s *Store) readSnapshot(state map[store.Key]*entry) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("filestore: read snapshot: %w", err)
 	}
+	return s.parseSnapshot(data, state)
+}
+
+// parseSnapshot loads the snapshot's bytes into state and returns its version.
+func (s *Store) parseSnapshot(data []byte, state map[store.Key]*entry) (uint64, error) {
+	path := filepath.Join(s.dir, snapshotFile)
 	s.haveSnapshot = true
 	var hdr struct {
 		Format int `json:"format"`

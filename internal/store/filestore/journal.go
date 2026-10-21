@@ -169,6 +169,12 @@ func (s *Store) replay(state map[store.Key]*entry, snapV uint64) (version uint64
 	if err != nil {
 		return 0, 0, fmt.Errorf("filestore: read journal: %w", err)
 	}
+	return s.replayData(state, snapV, data, nil)
+}
+
+// replayData is replay on the journal's bytes. visit, when not nil, is called with each line
+// it applies (those above snapV), in order.
+func (s *Store) replayData(state map[store.Key]*entry, snapV uint64, data []byte, visit func(journalLine, uint64)) (version uint64, good int64, err error) {
 	version = snapV
 	off := 0
 	for n := 1; off < len(data); n++ {
@@ -203,6 +209,9 @@ func (s *Store) replay(state map[store.Key]*entry, snapV uint64) (version uint64
 		}
 		version = v
 		s.loaded.JournalLines++
+		if visit != nil {
+			visit(jl, v)
+		}
 	}
 	return version, int64(off), nil
 }
