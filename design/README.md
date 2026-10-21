@@ -35,6 +35,7 @@ flowchart LR
 | [10 — Proof of concept](10-poc.md) | PoC: **two use cases** (release → docs → review → merge; i18n epic → PR stack → PT-BR live), the **PoC catalog** for both, tooling fit, Kubernetes or not, registered agents |
 | [Workstreams](workstreams/definitions.md) | PoC workstreams (FND, CORE, RT, GH, AGT, WEB, CAT, SKL, DOC, DWF, RUN) as lisa-runnable tasks, each with a Low Level Design under `workstreams/<name>/LLD/` |
 | [adr/](adr/) | Proposed architecture decisions (0001–0008) |
+| [proposals/](proposals/) | Post-PoC redesigns from the live runs: [P1](proposals/P1-agent-workspaces.md) agents run each task in a Kata microVM workspace, with a credential gateway; [P2](proposals/P2-dispatcher-state-file.md) the dispatcher keeps its state in a file |
 
 ## Headline proposals
 
