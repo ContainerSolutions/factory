@@ -1,0 +1,51 @@
+{
+  "id": "wi-train",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/workflows#123",
+      "kind": "issue",
+      "primary": true
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#90",
+      "kind": "pr"
+    }
+  ],
+  "state": {
+    "release": "published",
+    "train": "compliance-framework/workflows#123",
+    "manifest": "repos.yaml",
+    "review": "approved",
+    "merge": "merged"
+  },
+  "pr": {
+    "provider": "github-public",
+    "ref": "compliance-framework/docs#90",
+    "author": {
+      "isFactory": true
+    },
+    "draft": false,
+    "head": "f00d",
+    "labels": [],
+    "checks": {
+      "state": "success"
+    }
+  },
+  "prs": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#90",
+      "author": {
+        "isFactory": true
+      },
+      "draft": false,
+      "head": "f00d",
+      "labels": [],
+      "checks": {
+        "state": "success"
+      }
+    }
+  ]
+}

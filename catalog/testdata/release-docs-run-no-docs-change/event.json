@@ -1,0 +1,27 @@
+{
+  "kind": "Event",
+  "id": "factory-run-release-docs-2",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-21T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-release-docs-2",
+        "spec": "release-docs",
+        "outcome": "no-docs-change",
+        "status": "done",
+        "inputs": {
+          "train": "compliance-framework/workflows#125"
+        },
+        "result": {
+          "train": "compliance-framework/workflows#125",
+          "branch": "factory/release-docs/train-2026-12",
+          "repos": []
+        }
+      }
+    }
+  },
+  "workItem": "wi-train-quiet"
+}

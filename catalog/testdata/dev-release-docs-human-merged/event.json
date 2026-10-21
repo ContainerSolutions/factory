@@ -1,0 +1,26 @@
+{
+  "kind": "Event",
+  "id": "gh-140/0",
+  "source": "github-public",
+  "type": "pr.merged",
+  "time": "2026-10-21T11:00:00Z",
+  "data": {
+    "provider": "github-public",
+    "actor": {
+      "id": "github-public:admin",
+      "tier": "maintainer"
+    },
+    "object": {
+      "provider": "github-public",
+      "kind": "pr",
+      "ref": "compliance-framework/mock-docs#12"
+    },
+    "facts": {
+      "pr": {
+        "draft": false,
+        "head": "f00d",
+        "base": "main"
+      }
+    }
+  }
+}

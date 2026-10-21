@@ -4,6 +4,17 @@
   "matches": [
     {
       "ruleSet": "dev-release-docs",
+      "rule": "record-release-docs-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
       "rule": "record-release-docs-repos",
       "priority": 100,
       "result": "not-matched",
@@ -39,6 +50,17 @@
       "priority": 100,
       "result": "not-matched",
       "inputs": [
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "record-release-docs-outcome",
+      "priority": 100,
+      "result": "not-matched",
+      "inputs": [
+        "item",
+        "params",
         "run"
       ]
     },

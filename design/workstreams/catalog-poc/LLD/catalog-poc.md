@@ -90,7 +90,7 @@ where: >
    (params.allowDryRun && 'train:dry-run' in event.issue.labels))
 ```
 
-Both RuleSets scope `workflows`, so `factory.*` events on a train item would reach both. `docs-on-release-train` therefore sets `manifest: "=event.train.manifest"` (a state key of both RuleSets), and `announce-release-docs`, the pack's `factory.*` rule, declares the same `trainManifest` param and requires `item.state.manifest == params.trainManifest`.
+Both RuleSets scope `workflows`, so `factory.*` events on a train item would reach both. `docs-on-release-train` therefore sets `manifest: "=event.train.manifest"` (a state key of both RuleSets), and every `factory.*` rule of the pack (`announce-release-docs` and the `record-release-*` rules on `factory.run.completed`) declares the same `trainManifest` param and requires `item.state.manifest == params.trainManifest`. The pack's provider-event rules need no such guard: they require `event.repo == params.docsRepo`, and each RuleSet scopes only its own docs repo.
 
 Every RuleSet selects its own pack **plus the `shared` pack**, so `escalate-needs-human` applies everywhere:
 
@@ -101,6 +101,31 @@ rules:
 ```
 
 All `merge-*` rules are in every RuleSet's `rules.exclude` until RUN-S4-T01.
+
+## The release-docs pack
+
+| Rule | On | Does |
+|---|---|---|
+| `docs-on-release-train` | `issue.closed` (a finished train in `workflows`) | dispatch `release-docs` to `docsRepo`; set `release: drafting`, `train`, `manifest` |
+| `record-release-docs-repos` | `factory.run.completed` (`release-docs`, priority 100) | set `repos` from the run's `data.repos`, for the announcement's per-repo table |
+| `record-release-docs-outcome` | `factory.run.completed` (`release-docs` ending `pr-opened` or `no-docs-change`, priority 100) | set `release` to the outcome |
+| `review-release-docs` | `pr.opened`, `pr.updated` (the factory's docs PR) | dispatch `docs-review` on the PR; set `review: running` |
+| `record-release-review-outcome` | `factory.run.completed` (`docs-review`, priority 100) | set `review` to the outcome |
+| `fix-release-docs-review` | `pr.review.submitted` (changes requested by the reviewer identity or a maintainer) | dispatch `implement address-review` on the PR (at most 3) |
+| `merge-release-docs` | `pr.review.submitted`, `pr.checks.completed` | dispatch `merge` on the PR. Excluded from every RuleSet (Q10) |
+| `record-release-docs-merged` | `pr.merged` on `docsRepo` (by anyone, a maintainer's manual merge included) | set `release: merged`, unless it's already `published` |
+| `announce-release-docs` | `factory.run.completed` (`merge` ending `merged`) | notify `release-docs-published`; set `release: published` |
+
+The `release` state key, which places the work item in the web board's lanes (`web/src/components/workitem/board.ts`):
+
+```text
+drafting ──release-docs run──▶ pr-opened ──docs PR merged (anyone)──▶ merged
+   │                              │
+   │                              └──factory merge run──▶ published   (announce-release-docs; merged → published too)
+   └──release-docs run──▶ no-docs-change
+```
+
+`drafting` is a Running value, `pr-opened` an open one (the review's state decides between Running and Waiting), and `merged`, `published` and `no-docs-change` are Done. A `blocked` or `needs-human` release-docs run leaves `release: drafting`; the shared `escalate-needs-human` rule handles it. While `merge-release-docs` is excluded, a release ends `merged` when a maintainer merges the docs PR, with no announcement; once it's included, `announce-release-docs` sets `published`, and `record-release-docs-merged` never overwrites it, whichever of the two events comes first.
 
 ## Fixtures (CAT-S1-T04)
 
@@ -120,6 +145,11 @@ All `merge-*` rules are in every RuleSet's `rules.exclude` until RUN-S4-T01.
 | `human-pr-opened` / `human-pr-draft` / `bot-pr` | review / nothing / nothing |
 | `factory-stop-label` | everything suppressed by rails |
 | `merge-pending-no-escalation` | `record-merge-outcome` sets `merge: pending`; `escalate-needs-human` doesn't fire |
+| `release-docs-run-pr-opened` / `dev-release-docs-run-pr-opened` | `repos` recorded; `release: pr-opened` |
+| `release-docs-run-no-docs-change` | `release: no-docs-change` |
+| `dev-release-docs-human-merged` / `-drafting` (a maintainer merges the mock-docs PR; `release: pr-opened` / `drafting`) | `release: merged`; no merge run (`merge-release-docs` excluded), no announcement |
+| `release-docs-merged-after-published` | nothing: `published` stays |
+| `release-docs-merged-other-repo` (a PR merged in `workflows`) | nothing |
 | `hostile-verdict` (future triage pack) | — (not in PoC) |
 
 CI: `make catalog` (validate + rules test + `--coverage`, failing on uncovered PoC rules).

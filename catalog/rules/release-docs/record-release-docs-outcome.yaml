@@ -1,0 +1,16 @@
+# Moves the release past drafting once the release-docs run has a result: docs-on-release-train
+# sets release: drafting, and the web board shows drafting as the Running lane, so without this
+# the work item stays Running until a merge run's announce sets published (and forever when the
+# merge rules are excluded). pr-opened is an open value (Waiting once the review is done);
+# no-docs-change is terminal (Done). blocked is the shared escalate-needs-human rule's. A pack
+# factory.* rule, so it requires this RuleSet's train manifest.
+kind: Rule
+metadata: { name: record-release-docs-outcome, labels: { pack: release-docs } }
+spec:
+  on: [factory.run.completed]
+  priority: 100                                            # before the other rules of the event
+  params: { trainManifest: repos.yaml }
+  where: >
+    run.spec == 'release-docs' && run.outcome in ['pr-opened', 'no-docs-change'] &&
+    has(item.state.release) && has(item.state.manifest) && item.state.manifest == params.trainManifest
+  actions: [{ set: { release: "=run.outcome" } }]
