@@ -1,0 +1,26 @@
+Task tsk_01JB7Q
+  spec        implement (sha256:9c1e)
+  work item   wi_docs4
+  queue       docs (pool default)
+  target      github-public compliance-framework/mock-docs
+  harness     codex, model gpt-5.5, effort high → codex 0.50.0 gpt-5.5 high (subscription)
+  inputs      issue = "compliance-framework/mock-docs#4"
+              spec = "docs/restart.md"
+  created     2026-10-21T09:00:35Z
+  phase       Failed (attempts 1)
+  reason      run run_01JB7R: failed (checks-failed)
+  agent       agt_laptop
+  lease until 2026-10-21T09:10:49Z
+  provenance  event gh-7f3a/0, rule docs/implement-on-label, catalog 4615c40
+
+Dispatched by
+  2026-10-21T09:00:00Z  docs/implement-on-label on gh-7f3a/0: fired
+    actions  dispatch implement → docs; set phase
+    rails    killswitch allowed
+             budget allowed
+
+Runs (1)
+  run_01JB7R  attempt 1  agt_laptop  2026-10-21T09:00:56Z → 2026-10-21T09:10:17Z  completed: failed
+    result   failed: checks-failed
+    summary  Pushed the branch, but `make test` fails:
+             [31mTestRestart[0m expects the stack to be down first.

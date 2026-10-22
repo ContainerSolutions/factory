@@ -166,6 +166,9 @@ func TestJournalCorruption(t *testing.T) {
 			}
 			defer s.crash()
 			sameDump(t, "after dropping the torn line", takeDump(t, s), states[tc.state])
+			if li := s.Loaded(); !li.TornLine || li.JournalLines != tc.state {
+				t.Errorf("Loaded() = %+v, want a torn line and %d lines replayed", li, tc.state)
+			}
 		})
 	}
 }

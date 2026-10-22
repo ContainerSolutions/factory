@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -74,6 +75,9 @@ type config struct {
 	kinds        map[string]store.Object
 	compactBytes int64
 	compactLines int
+	// afterSnapshot, when not nil, is called by Read between reading the snapshot and the
+	// journal (tests race a compaction there).
+	afterSnapshot func()
 }
 
 // WithKind registers the Go type of kind, a stored kind outside v1alpha1 (the internal Lease,
@@ -105,14 +109,15 @@ var builtinKinds = []string{
 
 // Store is the file-backed store. Use Open, and Close when done.
 type Store struct {
-	dir   string
-	opts  store.Options
-	clk   clock.Clock
-	log   *slog.Logger
-	cfg   config
-	types map[string]reflect.Type
-	mem   *memory.Store
-	lock  *os.File
+	dir    string
+	opts   store.Options
+	clk    clock.Clock
+	log    *slog.Logger
+	cfg    config
+	types  map[string]reflect.Type
+	mem    *memory.Store
+	lock   *os.File
+	loaded LoadInfo // set by Open, read-only after
 
 	// jmu guards the journal. Lock order: memory's write lock (the commit hook runs under
 	// it), then jmu, then tmu.
@@ -136,6 +141,29 @@ type Store struct {
 
 	fmu    sync.Mutex
 	faults faults
+}
+
+// LoadInfo is what Open loaded from the state dir, for the caller's start-up log.
+type LoadInfo struct {
+	// Version is the store version restored (0 for a new dir).
+	Version uint64
+	// Objects counts the objects loaded, by kind.
+	Objects map[string]int
+	// Snapshot is whether there was a snapshot; JournalLines counts the journal lines
+	// replayed above it.
+	Snapshot     bool
+	JournalLines int
+	// TornLine is whether a torn last journal line (a crash mid-append) was dropped.
+	TornLine bool
+	// Transcripts counts the transcript files found.
+	Transcripts int
+}
+
+// Loaded returns what Open loaded.
+func (s *Store) Loaded() LoadInfo {
+	li := s.loaded
+	li.Objects = maps.Clone(li.Objects)
+	return li
 }
 
 // mark is a journal line's version and the offset just past it.

@@ -1,0 +1,7 @@
+--- stderr
+factory state workitem: want 1 argument(s), got []
+usage: factory state workitem WORKITEM [--state-dir DIR] [--json]
+  -json
+    	print the objects as JSON instead of tables
+  -state-dir string
+    	the dispatcher's state dir (default $FACTORY_STATE_DIR, else ~/.factory/state)

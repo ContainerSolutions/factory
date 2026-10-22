@@ -1,0 +1,2 @@
+--- stderr
+factory state run: Run nope not found in <tmp>/state (no Run id shares a prefix with it; it holds 1)

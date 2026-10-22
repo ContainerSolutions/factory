@@ -87,6 +87,8 @@ start store → catalog-sync (wait first good catalog) → provider (connect) �
 
 Webhooks received during rebuild are accepted and stored as Events; the rule controller processes them after rebuild.
 
+With `factory serve --state-dir` ([store.md §Serving](store.md#serving-factory-serve---state-dir)) the store starts with everything the last run left, and the same order applies: the rebuild leaves the work items the file holds alone (the file is authoritative for them; markers only bring back the items it lacks), the informers list and watch from the restored version, and the rule controller skips the Events it processed (`EventStatus` is stored), so nothing is dispatched twice.
+
 ## Tests
 
 - In-process cascade with `provider/fake`: `issue.opened` → triage Task → fake agent completes → `factory.run.completed` → follow-up decision.
@@ -169,4 +171,4 @@ Webhooks received during rebuild are accepted and stored as Events; the rule con
   - Projection: written when its digest changed (state, counters, links; no labels, since none are defined yet).
   - Resync: when due (the shortest Provider `resync.every`, default 10 m). The first observation after start is a baseline and emits nothing, because the rebuild already read that state. A changed observation (ignoring `updatedAt` and projections) emits `factory.workitem.resynced` with key `resync/<wi>/<digest>` and facts `resync.changed[]`.
   - Retention, in the same pass: an item whose links are all closed, merged or gone, with no active task and whose last activity (creation, decisions, tasks, run ends) is older than the retention, is deleted under its lock after a re-check.
-- **Rebuild.** `Rebuild(ctx)` (bounded at 5 m) lists each RuleSet's scope on each bound provider, observes each object, and merges the projections per work item id: links are united (plus the object itself), counters take the maximum, and state comes from the most recently updated object. Items already in the store are left alone.
+- **Rebuild.** `Rebuild(ctx)` (bounded at 5 m) lists each RuleSet's scope on each bound provider, observes each object, and merges the projections per work item id: links are united (plus the object itself), counters take the maximum, and state comes from the most recently updated object. Items already in the store are left alone: with a state dir the stored item wins over its markers (store.md §Serving; a deviation from P2's "markers win for projected keys").
