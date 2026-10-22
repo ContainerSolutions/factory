@@ -152,7 +152,7 @@ func TestRunTokenRefused(t *testing.T) {
 	e.task("tsk_a", nil)
 	run := *e.lease(agent, tok).Lease.Run
 	gz := gzipped(t, "{}")
-	effect := []byte(`{"op":"comment","idempotencyKey":"k","body":"hi"}`)
+	effect := []byte(`{"op":"comment","idempotencyKey":"k","args":{"body":"hi"}}`)
 	routes := []struct {
 		id, method, path string
 		body             []byte
