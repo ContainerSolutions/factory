@@ -1,0 +1,9 @@
+{
+  "last_refresh": "2026-10-19T12:00:00Z",
+  "tokens": {
+    "access_token": "factory-placeholder-not-a-credential",
+    "account_id": "acct_0123456789abcdef",
+    "id_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF8wMTIzNDU2Nzg5YWJjZGVmIiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJwcm8iLCJjaGF0Z3B0X3VzZXJfaWQiOiJ1c2VyLUFiQ2RFZjAxMjM0NTY3ODkifX0.unsigned",
+    "refresh_token": "factory-placeholder-not-a-credential"
+  }
+}

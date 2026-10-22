@@ -81,6 +81,9 @@ type fakeCall struct {
 	// Config is CODEX_HOME/config.toml; Agents CODEX_HOME/AGENTS.md.
 	Config string `json:"config"`
 	Agents string `json:"agents"`
+	// Auth is CODEX_HOME/auth.json when it is a regular file (the VM's placeholder login;
+	// the owner's login on the host is a symlink and isn't read).
+	Auth string `json:"auth,omitempty"`
 }
 
 // fakeCodex is a fake codex in a temp dir: Binary is its wrapper script.
@@ -217,6 +220,10 @@ func fakeExec(dir string, plan fakePlan, args []string) int {
 		c, _ := os.ReadFile(filepath.Join(home, "config.toml"))
 		a, _ := os.ReadFile(filepath.Join(home, "AGENTS.md"))
 		call.Config, call.Agents = string(c), string(a)
+		if fi, err := os.Lstat(filepath.Join(home, "auth.json")); err == nil && fi.Mode().IsRegular() {
+			b, _ := os.ReadFile(filepath.Join(home, "auth.json"))
+			call.Auth = string(b)
+		}
 	}
 	callsPath := filepath.Join(dir, "calls.jsonl")
 	prev, _ := os.ReadFile(callsPath)

@@ -12,6 +12,15 @@
 // a rate or plan limit, and kills the whole process group when its context ends. Repair
 // resumes the same session with the validation problems.
 //
+// Under harness.IsolationVM (`factory-agent run` in a VM workspace, workspace-run.md
+// §Harnesses under IsolationVM) the VM is the boundary: there is no Probe and no OS sandbox
+// (`--sandbox danger-full-access`, no [sandbox_workspace_write]), codex runs from the
+// pipeline's WorkDir, and the scratch CODEX_HOME holds a placeholder auth.json
+// (placeholderAuth): the account's identifiers in an unsigned id_token, harness.Placeholder
+// as the tokens, and a fresh last_refresh, so codex never refreshes. The gateway outside the
+// VM replaces the bearer and the account header with the owner's, and refreshes the real
+// token itself.
+//
 // Every codex flag, config key and event name the adapter relies on is in flags.go, each
 // marked UNVERIFIED until `make smoke-codex` runs on a maintainer machine.
 package codex
@@ -31,6 +40,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/harness/clirun"
+	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 	"github.com/compliance-framework/factory/internal/clock"
 )
@@ -70,6 +80,17 @@ type Options struct {
 	KillGrace time.Duration
 	// Throttle is the wait on a rate limit without a reset. Default: DefaultThrottle.
 	Throttle time.Duration
+	// Isolation is what bounds the run's commands. IsolationSandbox (the zero value) is the
+	// owner's host: codex's workspace-write sandbox and the owner's login, as above.
+	// IsolationVM is a VM workspace (workspace-run.md §Harnesses under IsolationVM): no
+	// Probe, no OS sandbox, and a placeholder auth.json built from Account; Config's Home and
+	// Environ aren't used.
+	Isolation harness.Isolation
+	// Account is the ChatGPT account codex runs as under IsolationVM: the run bundle's
+	// codex/account.json, identifiers only (P1 §5). Its id_token claims pick codex's
+	// workspace, which fails without the real ones (Phase 0, Q5). Required under
+	// IsolationVM; unused on the host.
+	Account *runbundle.CodexAccount
 }
 
 // Adapter is the codex harness adapter. It keeps no per-run state in memory (the session to
@@ -121,6 +142,12 @@ func (a *Adapter) Capabilities() v1alpha1.AdapterCapabilities {
 // presence (os.Stat); neither the file nor the command's output is logged or kept. Models,
 // default and efforts are the owner's config (codex doesn't list what a plan allows).
 func (a *Adapter) Probe(ctx context.Context, cfg config.Harness) (v1alpha1.HarnessOffer, error) {
+	if vm, err := a.vm(); err != nil || vm {
+		if err == nil {
+			err = errors.New("codex: Probe doesn't run in a VM workspace")
+		}
+		return v1alpha1.HarnessOffer{}, err
+	}
 	if cfg.Home == "" || !filepath.IsAbs(cfg.Home) {
 		return v1alpha1.HarnessOffer{}, fmt.Errorf("codex: home %q must be an absolute directory", cfg.Home)
 	}
@@ -149,6 +176,18 @@ func (a *Adapter) Probe(ctx context.Context, cfg config.Harness) (v1alpha1.Harne
 		Name: Name, Version: version, Auth: auth,
 		Models: slices.Clone(cfg.Models), DefaultModel: cfg.Default, ReasoningEffort: efforts,
 	}, nil
+}
+
+// vm reports whether the adapter runs under IsolationVM; an unknown Isolation is an error,
+// never a run without its sandbox.
+func (a *Adapter) vm() (bool, error) {
+	switch a.o.Isolation {
+	case harness.IsolationSandbox:
+		return false, nil
+	case harness.IsolationVM:
+		return true, nil
+	}
+	return false, fmt.Errorf("codex: unknown isolation %s", a.o.Isolation)
 }
 
 // loginMode is subscription or apiKey. The dedicated home must hold the auth file (it is
