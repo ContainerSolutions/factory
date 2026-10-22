@@ -1,0 +1,2 @@
+lisa-addressed:
+Pass 1: all four self-review findings fixed (GET/HEAD /graphql refused in any spelling; valueTok "0"; policy package doc; r.TransferEncoding = nil).
