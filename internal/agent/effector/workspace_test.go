@@ -283,3 +283,58 @@ func TestWorkspaceRuntime(t *testing.T) {
 		})
 	}
 }
+
+// TestFromEnvRuntime: FromEnv fails closed on the runtime. FACTORY_RUNTIME is unset (the host)
+// or "workspace"; anything else is a usage error naming the variable and the accepted values.
+// The workspace runtime holds no credential, so a FACTORY_TOKEN there is a usage error naming
+// the variable, never its value.
+func TestFromEnvRuntime(t *testing.T) {
+	t.Parallel()
+	const token = "fct_agentTokenThatMustNotLeak0123456789"
+	tests := []struct {
+		name    string
+		env     map[string]string
+		wantErr []string // substrings of the usage error; nil means FromEnv succeeds
+		leak    string   // a value the error must not contain
+	}{
+		{name: "the host", env: map[string]string{}},
+		{name: "the host with a token", env: map[string]string{pipeline.EnvToken: token}},
+		{name: "the workspace", env: map[string]string{pipeline.EnvRuntime: pipeline.RuntimeWorkspace}},
+		{name: "unknown runtime", env: map[string]string{pipeline.EnvRuntime: "worksapce"},
+			wantErr: []string{"$FACTORY_RUNTIME", "unset (the host)", `"workspace"`}, leak: "worksapce"},
+		{name: "explicit host", env: map[string]string{pipeline.EnvRuntime: "host"},
+			wantErr: []string{"$FACTORY_RUNTIME", `"workspace"`}},
+		{name: "wrong case", env: map[string]string{pipeline.EnvRuntime: "Workspace"},
+			wantErr: []string{"$FACTORY_RUNTIME", `"workspace"`}, leak: "Workspace"},
+		{name: "the workspace with a token", env: map[string]string{pipeline.EnvRuntime: pipeline.RuntimeWorkspace, pipeline.EnvToken: token},
+			wantErr: []string{"$FACTORY_TOKEN", "workspace runtime"}, leak: token},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			env := map[string]string{pipeline.EnvAPI: "http://127.0.0.1:1", pipeline.EnvTaskID: taskID}
+			for k, v := range tt.env {
+				env[k] = v
+			}
+			_, err := effector.FromEnv(func(k string) string { return env[k] }, nil)
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Fatalf("FromEnv: %v", err)
+				}
+				return
+			}
+			var e *effector.Error
+			if !errors.As(err, &e) || e.Exit != effector.ExitUsage {
+				t.Fatalf("FromEnv = %v, want a usage error", err)
+			}
+			for _, s := range tt.wantErr {
+				if !strings.Contains(e.Msg, s) {
+					t.Errorf("error %q doesn't contain %q", e.Msg, s)
+				}
+			}
+			if tt.leak != "" && strings.Contains(e.Msg, tt.leak) {
+				t.Errorf("error %q contains the value %q", e.Msg, tt.leak)
+			}
+		})
+	}
+}

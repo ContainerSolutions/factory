@@ -194,8 +194,22 @@ func sleep(ctx context.Context, d time.Duration) error {
 // FACTORY_TASK_ID, FACTORY_OUT, FACTORY_RESULT, FACTORY_EFFECTOR and FACTORY_RUNTIME. Without
 // FACTORY_TOKEN (a VM workspace) requests carry no Authorization. A nil client uses a default
 // one, which honours HTTP_PROXY (the workspace's gateway).
+//
+// It fails closed on the runtime: FACTORY_RUNTIME must be unset (the host) or
+// pipeline.RuntimeWorkspace, and the workspace runtime refuses a FACTORY_TOKEN, since it holds
+// no credential. Both are usage errors that name the variable, never its value.
 func FromEnv(getenv func(string) string, client *http.Client) (*Effector, error) {
 	o := Options{TaskID: getenv(pipeline.EnvTaskID), Result: getenv(pipeline.EnvResult), Runtime: getenv(pipeline.EnvRuntime)}
+	switch o.Runtime {
+	case "":
+	case pipeline.RuntimeWorkspace:
+		if getenv(pipeline.EnvToken) != "" {
+			return nil, usagef("$%s is set in the workspace runtime ($%s=%s), which holds no credential: the gateway adds the run token",
+				pipeline.EnvToken, pipeline.EnvRuntime, pipeline.RuntimeWorkspace)
+		}
+	default:
+		return nil, usagef("$%s is not a known runtime: it must be unset (the host) or %q", pipeline.EnvRuntime, pipeline.RuntimeWorkspace)
+	}
 	if out := getenv(pipeline.EnvOut); out != "" {
 		o.State = filepath.Join(out, StateFile)
 	}
