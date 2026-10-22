@@ -1,0 +1,13 @@
+lisa-addressed:
+pass 2: fixed both. vmrun_test.go uses errors.Is(err, io.EOF) (make lint: 0 issues); events_test.go covers an unwritable stdout and an over-cap event: logged, dropped, the next event still sent.
+
+lisa-selfreview:
+pass 3 (strict): approve, no findings. Re-read vmrun.go, job.go, events.go, adapters.go, the harnesstest and pipeline additions and every test against the ccf-review rules (core, go, repo/factory); build, vet, make lint and the race tests pass.
+
+lisa-design:
+PR 12 departures (lead's reordering: envrun, PR 7, comes after this PR):
+- No Environment: vmrun passes none to the pipeline. Seams marked "Seam (P1 phase 3, PR 7)" in vmrun.go: Options.Environment and downGuard; --down-timeout is parsed and validated (the supervisor's command line is the LLD's contract) but bounds nothing yet; a second SIGTERM is only logged.
+- A failed system setup ends failed{harness-error} (setupFailReason): runner.ReasonEnvironmentError is PR 7's; the constant becomes it there.
+- --system-setup defaults to off and documents on/off: #114's review removes auto (the supervisor passes on).
+- FileTranscript (the LLD's pipeline source) lands here: no earlier PR of the stack added it.
+- The step list still names buildEnv "environment" (PR 7 renames it env), so the events golden has it.
