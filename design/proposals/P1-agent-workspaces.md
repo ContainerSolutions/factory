@@ -338,7 +338,10 @@ Every credential is added by the workspace's gateway, so none enters a VM. Where
     and `PUT` its own transcript;
   - **it expires with the lease.**
 
-  It replaces `FACTORY_TOKEN` = agent token (a new `runToken` security scheme in the API).
+  - **its format:** `run_` followed by 43 base64url characters (32 random bytes).
+
+  It replaces `FACTORY_TOKEN` = agent token: the lease's `runToken`, for the API's
+  [`runToken` security scheme](../../api/openapi.yaml) (`components.securitySchemes.runToken`).
 - **Accepted risk:** the agent host holds the subscription tokens (0600 files, and in memory
   while a lease runs). A Claude OAuth token is long-lived (1 year), so a compromised agent host
   leaks it. Rotate it with `claude setup-token` and `factory-agent login claude`. The gateway

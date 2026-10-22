@@ -18,6 +18,7 @@
 | Caller | Mechanism | Checks |
 |---|---|---|
 | Agent | `Authorization: Bearer <agentToken>` | token hash lookup → Agent; lease/task routes require the lease to belong to the agent |
+| Run (issued from P1 phase 6) | `Authorization: Bearer <runToken>` ([P1 §5](../../../proposals/P1-agent-workspaces.md#5-credentials-injected-by-the-gateway-never-in-the-workspace)) | hash lookup → its lease, which must be live; only the five run routes (`getTaskPrompt`, `getTaskOutputSchema`, `getTaskContext`, `createEffect`, `uploadTranscript`), for that lease's task or run. Until then the server refuses a `run_` bearer on them (`401 unauthenticated`) |
 | UI | GitHub OAuth web flow → server-side session cookie (`HttpOnly`, `Secure`, `SameSite=Lax`, 12 h) | `GET /user`; **commands** require membership of the catalog Group `maintainers` (resolved via `Conn.ResolveGroup`, cached 10 min — the CCF org admins in the PoC); any org member may read |
 | CLI | `Authorization: Bearer <cliToken>` (static token from env, PoC) | full admin; for `factory dispatch` |
 | Webhooks | provider HMAC (in `Conn.Handler()`) | — |

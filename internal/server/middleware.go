@@ -36,7 +36,15 @@ const (
 	admin
 	// sessionOnly: a UI session (getMe).
 	sessionOnly
+	// agentOrRun: an agent token, or a run token (runToken scheme, P1 §5) for its own task or
+	// run. Run tokens aren't issued yet (P1 phase 6), so one is refused as unknown.
+	agentOrRun
+	// readerAgentOrRun: readerOrAgent, or a run token for its own task (getTaskOutputSchema).
+	readerAgentOrRun
 )
+
+// runTokenPrefix starts every run token (the runToken scheme's format).
+const runTokenPrefix = "run_"
 
 // operations is the access of every generated operation, by operationId. A test checks it
 // covers exactly the spec's operations.
@@ -51,12 +59,12 @@ var operations = map[string]access{
 	"abandonLease":        agentOnly,
 	"listTasks":           reader,
 	"getTask":             readerOrAgent,
-	"getTaskPrompt":       agentOnly,
-	"getTaskContext":      agentOnly,
-	"getTaskOutputSchema": readerOrAgent,
+	"getTaskPrompt":       agentOrRun,
+	"getTaskContext":      agentOrRun,
+	"getTaskOutputSchema": readerAgentOrRun,
 	"getTranscript":       readerOrAgent,
-	"uploadTranscript":    agentOnly,
-	"createEffect":        agentOnly,
+	"uploadTranscript":    agentOrRun,
+	"createEffect":        agentOrRun,
 	"listWorkItems":       reader,
 	"getWorkItem":         reader,
 	"getRun":              reader,
@@ -136,6 +144,16 @@ func (s *Server) authenticate(ctx context.Context, r *http.Request, acc access) 
 		return auth.Principal{}, nil
 	case agentOnly:
 		return a.Agent(ctx, r)
+	case agentOrRun:
+		if err := refuseRunToken(r); err != nil {
+			return auth.Principal{}, err
+		}
+		return a.Agent(ctx, r)
+	case readerAgentOrRun:
+		if err := refuseRunToken(r); err != nil {
+			return auth.Principal{}, err
+		}
+		return s.authenticate(ctx, r, readerOrAgent)
 	case readerOrAgent:
 		if strings.HasPrefix(auth.BearerToken(r), "agt_") {
 			return a.Agent(ctx, r)
@@ -153,6 +171,15 @@ func (s *Server) authenticate(ctx context.Context, r *http.Request, acc access) 
 		return auth.Principal{Kind: auth.KindUser, User: u}, nil
 	}
 	return auth.Principal{}, fmt.Errorf("unknown access %d", acc)
+}
+
+// refuseRunToken refuses a run token: the routes that will take one (agentOrRun,
+// readerAgentOrRun) can't check it until the dispatcher issues them (P1 phase 6).
+func refuseRunToken(r *http.Request) error {
+	if strings.HasPrefix(auth.BearerToken(r), runTokenPrefix) {
+		return problemf(http.StatusUnauthorized, CodeUnauthenticated, "run tokens are not issued yet")
+	}
+	return nil
 }
 
 // user authenticates the CLI token or a UI session; the session's user must be a reader (or,

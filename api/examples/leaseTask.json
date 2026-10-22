@@ -141,5 +141,6 @@
       "contents": "read",
       "issues": "write"
     }
-  }
+  },
+  "runToken": "run_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 }

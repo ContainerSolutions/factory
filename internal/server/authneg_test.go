@@ -104,6 +104,10 @@ func TestAuthRequired(t *testing.T) {
 			switch acc {
 			case agentOnly:
 				wrong = []func(*http.Request){withBearer("agt_nobody-x.wrong"), withBearer(cliToken), withSession("forged.cookie")}
+			case agentOrRun:
+				wrong = []func(*http.Request){withBearer("agt_nobody-x.wrong"), withBearer(fakeRunToken), withBearer(cliToken), withSession("forged.cookie")}
+			case readerAgentOrRun:
+				wrong = []func(*http.Request){withSession("forged.cookie"), withBearer("agt_nobody-x.wrong"), withBearer(fakeRunToken)}
 			case reader, admin, sessionOnly:
 				wrong = []func(*http.Request){withSession("forged.cookie"), withBearer("not-the-cli-token"), withBearer("agt_nobody-x.wrong")}
 			case readerOrAgent:
@@ -135,6 +139,53 @@ func TestAuthRequired(t *testing.T) {
 		r.Header.Set(HeaderOwnerToken, "tok-rita")
 	})
 	wantProblemReply(t, "register as a non-owner", res, b, http.StatusForbidden, CodeForbidden)
+}
+
+// fakeRunToken has the runToken scheme's format (`run_` + 43 base64url characters).
+var fakeRunToken = "run_" + strings.Repeat("x", 43)
+
+// TestRunTokenRefused: the five run routes take the runToken scheme, but no run token is
+// issued yet (P1 phase 6), so one is a 401 problem; the agent token still works on them.
+func TestRunTokenRefused(t *testing.T) {
+	e := newEnv(t)
+	agent, tok := e.register("gus", "mac1")
+	e.task("tsk_a", nil)
+	run := *e.lease(agent, tok).Lease.Run
+	gz := gzipped(t, "{}")
+	effect := []byte(`{"op":"comment","idempotencyKey":"k","body":"hi"}`)
+	routes := []struct {
+		id, method, path string
+		body             []byte
+		ctype            string
+		ok               int
+	}{
+		{"getTaskPrompt", http.MethodGet, BasePath + "/tasks/tsk_a/prompt", nil, "", http.StatusOK},
+		{"getTaskOutputSchema", http.MethodGet, BasePath + "/tasks/tsk_a/output-schema", nil, "", http.StatusOK},
+		{"getTaskContext", http.MethodGet, BasePath + "/tasks/tsk_a/context/0", nil, "", http.StatusOK},
+		{"createEffect", http.MethodPost, BasePath + "/tasks/tsk_a/effects", effect, "application/json", http.StatusOK},
+		{"uploadTranscript", http.MethodPut, BasePath + "/runs/" + run + "/transcript", gz, "application/gzip", http.StatusOK},
+	}
+	for _, rt := range routes {
+		t.Run(rt.id, func(t *testing.T) {
+			if acc := operations[rt.id]; acc != agentOrRun && acc != readerAgentOrRun {
+				t.Fatalf("%s's access is %d, not a run-token one", rt.id, acc)
+			}
+			ctype := func(r *http.Request) {
+				if rt.ctype != "" {
+					r.Header.Set("Content-Type", rt.ctype)
+				}
+			}
+			res, b := e.do(rt.method, rt.path, rt.body, withBearer(fakeRunToken), ctype)
+			wantProblemReply(t, rt.id+" with a run token", res, b, http.StatusUnauthorized, CodeUnauthenticated)
+			if !strings.Contains(string(b), "run tokens are not issued yet") {
+				t.Errorf("%s with a run token: %s", rt.id, b)
+			}
+			res, b = e.do(rt.method, rt.path, rt.body, withBearer(tok), ctype)
+			if res.StatusCode != rt.ok {
+				t.Errorf("%s with the agent token: %d %s, want %d", rt.id, res.StatusCode, b, rt.ok)
+			}
+		})
+	}
 }
 
 // TestAgentIsolation: agent A can't act on agent B, its lease, its task or its run.

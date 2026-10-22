@@ -23,6 +23,7 @@ const (
 	CliTokenScopes   cliTokenContextKey   = "cliToken.Scopes"
 	JoinTokenScopes  joinTokenContextKey  = "joinToken.Scopes"
 	OwnerTokenScopes ownerTokenContextKey = "ownerToken.Scopes"
+	RunTokenScopes   runTokenContextKey   = "runToken.Scopes"
 	UiSessionScopes  uiSessionContextKey  = "uiSession.Scopes"
 )
 
@@ -699,7 +700,8 @@ type LabelSelector = v1alpha1.LabelSelector
 // LabelSelectorRequirement LabelSelectorRequirement is one matchExpressions entry.
 type LabelSelectorRequirement = v1alpha1.LabelSelectorRequirement
 
-// Lease A leased task, its lease and its scoped git credentials.
+// Lease A leased task, its lease and its credential bundle for the agent's gateway: the scoped
+// git credential, the read credentials and the run token.
 type Lease struct {
 	// GitCredential A scoped installation token for one repo: the task's repo with the TaskSpec permissions,
 	// or a private read repo with `contents: read`. Never stored by the dispatcher.
@@ -713,6 +715,11 @@ type Lease struct {
 	// Absent when the task has no read repos or they are public (`publicReads`): those are
 	// cloned anonymously.
 	ReadCredentials []GitCredential `json:"readCredentials,omitempty"`
+
+	// RunToken The run-scoped token for this lease (the `runToken` scheme). Appears only in this
+	// response; the dispatcher keeps only its hash. Not refreshed by heartbeats: it lives
+	// exactly as long as the lease.
+	RunToken *string `json:"runToken,omitempty"`
 
 	// Task Task is one instantiation of a TaskSpec for a work item.
 	Task Task `json:"task"`
@@ -1194,6 +1201,9 @@ type ownerTokenContextKey string
 
 // providerSignatureContextKey is the context key for providerSignature security scheme
 type providerSignatureContextKey string
+
+// runTokenContextKey is the context key for runToken security scheme
+type runTokenContextKey string
 
 // uiSessionContextKey is the context key for uiSession security scheme
 type uiSessionContextKey string
@@ -2232,6 +2242,8 @@ func (w *ServerInterfaceWrapper) UploadTranscript(ctx echo.Context) error {
 
 	ctx.Set(string(AgentTokenScopes), []string{})
 
+	ctx.Set(string(RunTokenScopes), []string{})
+
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.UploadTranscript(ctx, id)
 	return err
@@ -2355,6 +2367,8 @@ func (w *ServerInterfaceWrapper) GetTaskContext(ctx echo.Context) error {
 
 	ctx.Set(string(AgentTokenScopes), []string{})
 
+	ctx.Set(string(RunTokenScopes), []string{})
+
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.GetTaskContext(ctx, id, n)
 	return err
@@ -2373,6 +2387,8 @@ func (w *ServerInterfaceWrapper) CreateEffect(ctx echo.Context) error {
 
 	ctx.Set(string(AgentTokenScopes), []string{})
 
+	ctx.Set(string(RunTokenScopes), []string{})
+
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.CreateEffect(ctx, id)
 	return err
@@ -2390,6 +2406,8 @@ func (w *ServerInterfaceWrapper) GetTaskOutputSchema(ctx echo.Context) error {
 	}
 
 	ctx.Set(string(AgentTokenScopes), []string{})
+
+	ctx.Set(string(RunTokenScopes), []string{})
 
 	ctx.Set(string(UiSessionScopes), []string{})
 
@@ -2412,6 +2430,8 @@ func (w *ServerInterfaceWrapper) GetTaskPrompt(ctx echo.Context) error {
 	}
 
 	ctx.Set(string(AgentTokenScopes), []string{})
+
+	ctx.Set(string(RunTokenScopes), []string{})
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.GetTaskPrompt(ctx, id)
