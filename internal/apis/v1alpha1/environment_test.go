@@ -34,7 +34,7 @@ spec:
       egress: { mode: default }
 `
 
-func many(n int, format string) []string {
+func numbered(n int, format string) []string {
 	out := make([]string, n)
 	for i := range out {
 		out[i] = fmt.Sprintf(format, i)
@@ -42,7 +42,7 @@ func many(n int, format string) []string {
 	return out
 }
 
-func manyMap(n int, key, value string) map[string]any {
+func numberedMap(n int, key, value string) map[string]any {
 	out := make(map[string]any, n)
 	for i := range n {
 		out[fmt.Sprintf(key, i)] = value
@@ -79,9 +79,9 @@ var envCases = []struct {
 	{"exposes without up", map[string]any{"exposes": map[string]any{"FACTORY_STACK_URL": "http://localhost:8000"}}, "exposes", ErrEnvNoUp},
 
 	{"ready https and timeout", map[string]any{"up": "u", "ready": map[string]any{"http": []string{"https://localhost:8443/x?y=1"}, "timeout": "60m"}}, "", nil},
-	{"ready at the limit", map[string]any{"up": "u", "ready": map[string]any{"http": many(MaxEnvReadyURLs, "http://localhost:%d/")}}, "", nil},
+	{"ready at the limit", map[string]any{"up": "u", "ready": map[string]any{"http": numbered(MaxEnvReadyURLs, "http://localhost:%d/")}}, "", nil},
 	{"ready no URLs", map[string]any{"up": "u", "ready": map[string]any{"timeout": "5m"}}, "ready.http", ErrEnvReadyURL},
-	{"ready too many URLs", map[string]any{"up": "u", "ready": map[string]any{"http": many(MaxEnvReadyURLs+1, "http://localhost:%d/")}}, "ready.http", ErrEnvReadyURL},
+	{"ready too many URLs", map[string]any{"up": "u", "ready": map[string]any{"http": numbered(MaxEnvReadyURLs+1, "http://localhost:%d/")}}, "ready.http", ErrEnvReadyURL},
 	{"ready URL scheme", map[string]any{"up": "u", "ready": map[string]any{"http": []string{"http://localhost/", "ftp://localhost/"}}}, "ready.http[1]", ErrEnvReadyURL},
 	{"ready URL relative", map[string]any{"up": "u", "ready": map[string]any{"http": []string{"/api/health"}}}, "ready.http[0]", ErrEnvReadyURL},
 	{"ready URL no host", map[string]any{"up": "u", "ready": map[string]any{"http": []string{"http:///health"}}}, "ready.http[0]", ErrEnvReadyURL},
@@ -91,8 +91,8 @@ var envCases = []struct {
 	{"ready timeout over the limit", map[string]any{"up": "u", "ready": map[string]any{"http": []string{"http://localhost/"}, "timeout": "61m"}}, "ready.timeout", ErrEnvReadyTimeout},
 	{"ready timeout invalid", map[string]any{"up": "u", "ready": map[string]any{"http": []string{"http://localhost/"}, "timeout": "soon"}}, "ready.timeout", ErrEnvReadyTimeout},
 
-	{"exposes at the limit", map[string]any{"up": "u", "exposes": manyMap(MaxEnvExposes, "FACTORY_X%d", "v")}, "", nil},
-	{"exposes too many", map[string]any{"up": "u", "exposes": manyMap(MaxEnvExposes+1, "FACTORY_X%d", "v")}, "exposes", ErrEnvExposeName},
+	{"exposes at the limit", map[string]any{"up": "u", "exposes": numberedMap(MaxEnvExposes, "FACTORY_X%d", "v")}, "", nil},
+	{"exposes too many", map[string]any{"up": "u", "exposes": numberedMap(MaxEnvExposes+1, "FACTORY_X%d", "v")}, "exposes", ErrEnvExposeName},
 	{"exposes no prefix", map[string]any{"up": "u", "exposes": map[string]any{"STACK_URL": "v"}}, "exposes.STACK_URL", ErrEnvExposeName},
 	{"exposes lowercase", map[string]any{"up": "u", "exposes": map[string]any{"FACTORY_stack": "v"}}, "exposes.FACTORY_stack", ErrEnvExposeName},
 	{"exposes prefix only", map[string]any{"up": "u", "exposes": map[string]any{"FACTORY_": "v"}}, "exposes.FACTORY_", ErrEnvExposeName},
@@ -108,7 +108,7 @@ var envCases = []struct {
 	{"egress allow with default", map[string]any{"egress": map[string]any{"mode": "default", "allow": []string{"registry.npmjs.org"}}}, "egress.allow", ErrEnvEgressAllow},
 	{"egress allow without mode", map[string]any{"egress": map[string]any{"allow": []string{"registry.npmjs.org"}}}, "egress.allow", ErrEnvEgressAllow},
 	{"egress allow localhost", map[string]any{"egress": map[string]any{"mode": "deny-by-default", "allow": []string{"localhost:8080"}}}, "egress.allow[0]", ErrHostLocalhost},
-	{"egress allow too many", map[string]any{"egress": map[string]any{"mode": "deny-by-default", "allow": many(MaxWorkspaceHosts+1, "h%d.example.com")}}, "egress.allow", ErrTooManyHosts},
+	{"egress allow too many", map[string]any{"egress": map[string]any{"mode": "deny-by-default", "allow": numbered(MaxWorkspaceHosts+1, "h%d.example.com")}}, "egress.allow", ErrTooManyHosts},
 }
 
 func taskSpecWithEnv(t *testing.T, env map[string]any) []byte {
@@ -225,8 +225,8 @@ var versionsCases = []struct {
 	want     error
 }{
 	{"valid", map[string]any{"api": "v0.12.0", "ui": "v0.9.1", "plugin-local-ssh": "sha-1a2b3c"}, "", nil},
-	{"at the limit", manyMap(MaxVersions, "c%d", "v1"), "", nil},
-	{"too many", manyMap(MaxVersions+1, "c%d", "v1"), "spec.versions", ErrEnvVersions},
+	{"at the limit", numberedMap(MaxVersions, "c%d", "v1"), "", nil},
+	{"too many", numberedMap(MaxVersions+1, "c%d", "v1"), "spec.versions", ErrEnvVersions},
 	{"uppercase component", map[string]any{"API": "v1"}, "spec.versions.API", ErrEnvVersions},
 	{"leading dash", map[string]any{"-api": "v1"}, "spec.versions.-api", ErrEnvVersions},
 	{"underscore", map[string]any{"local_ssh": "v1"}, "spec.versions.local_ssh", ErrEnvVersions},
