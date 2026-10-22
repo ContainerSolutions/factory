@@ -260,6 +260,7 @@ func TestWorkspace(t *testing.T) {
 		{"port", "{gatewayPort: 80}", "darwin", Workspace{}, []string{"workspace.gatewayPort: 80"}},
 		{"images", "{warm: {images: ['', 'a b', " + long + "], kindImages: " + many + "}}", "darwin", Workspace{},
 			[]string{"workspace.warm.images[0]", "workspace.warm.images[1]", "workspace.warm.images[2]", "workspace.warm.kindImages: 101 images"}},
+		{"image flag", "{warm: {kindImages: ['--help']}}", "darwin", Workspace{}, []string{`workspace.warm.kindImages[0]: "--help"`}},
 		{"unknown key", "{size: {gpus: 1}}", "darwin", Workspace{}, []string{`unknown field "gpus"`}},
 	}
 	for _, tt := range tests {

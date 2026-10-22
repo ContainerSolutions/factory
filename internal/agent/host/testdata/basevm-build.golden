@@ -1,0 +1,15 @@
+tart list --format json
+tart delete factory-agent-base-0.1.0.building
+tart clone ghcr.io/cirruslabs/ubuntu@sha256:51b493a05e4bc6f21c5c5052cffc1b26b5cea1d76847f5db10b97da90c16e58c factory-agent-base-0.1.0.building
+tart set factory-agent-base-0.1.0.building --cpu 6 --memory 8192 --disk-size 60
+tart run factory-agent-base-0.1.0.building --no-graphics &
+tart exec factory-agent-base-0.1.0.building true
+tart exec factory-agent-base-0.1.0.building true
+tart exec -i factory-agent-base-0.1.0.building bash -s <stdin
+tart exec -i factory-agent-base-0.1.0.building sudo tar -xf - -C /usr/local/bin <stdin
+tart exec factory-agent-base-0.1.0.building sha256sum /usr/local/bin/factory-agent
+tart exec factory-agent-base-0.1.0.building sudo shutdown -h now
+tart list --format json
+tart list --format json
+tart delete factory-agent-base-0.1.0
+tart rename factory-agent-base-0.1.0.building factory-agent-base-0.1.0

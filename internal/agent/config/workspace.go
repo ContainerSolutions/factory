@@ -63,6 +63,9 @@ func (w Workspace) WithDefaults(goos string) Workspace {
 // MemoryGiB is size.memory in GiB; 0 when it isn't valid.
 func (s WorkspaceSize) MemoryGiB() int { return gib(s.Memory) }
 
+// DiskGiB is size.disk in GiB; 0 when it isn't valid.
+func (s WorkspaceSize) DiskGiB() int { return gib(s.Disk) }
+
 var gibRE = regexp.MustCompile(`^[1-9][0-9]{0,5}Gi$`)
 
 func gib(v string) int {
@@ -108,8 +111,9 @@ func (w Workspace) validate() []string {
 			add("warm.%s: %d images, at most %d", l.key, len(l.images), maxImages)
 		}
 		for i, im := range l.images {
-			if im == "" || len(im) > maxImageLen || strings.ContainsFunc(im, unicode.IsSpace) {
-				add("warm.%s[%d]: %q must be non-empty, at most %d bytes, without whitespace", l.key, i, im, maxImageLen)
+			// host init passes each to docker pull as an argument: a leading - would be a flag.
+			if im == "" || len(im) > maxImageLen || strings.ContainsFunc(im, unicode.IsSpace) || strings.HasPrefix(im, "-") {
+				add("warm.%s[%d]: %q must be non-empty, at most %d bytes, without whitespace or a leading -", l.key, i, im, maxImageLen)
 			}
 		}
 	}

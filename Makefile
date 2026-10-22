@@ -21,6 +21,15 @@ help: ## Show targets
 build: ## Build bin/factory, bin/factory-agent and bin/factory-mock with the placeholder UI (no Node needed)
 	go build -ldflags "$(LDFLAGS)" -o bin/ ./cmd/...
 
+# HOST_INIT_FLAGS are extra flags for tart-up's host init, e.g. --dry-run or --only basevm,warmbase.
+HOST_INIT_FLAGS ?=
+
+.PHONY: tart-up
+tart-up: ## Set up this Mac as a tart agent host: build bin/factory-agent (darwin/arm64) and bin/factory-agent-linux-arm64, then run host init --driver tart (HOST_INIT_FLAGS=--dry-run to only print the plan)
+	GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/factory-agent ./cmd/factory-agent
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/factory-agent-linux-arm64 ./cmd/factory-agent
+	bin/factory-agent host init --driver tart --agent-linux bin/factory-agent-linux-arm64 $(HOST_INIT_FLAGS)
+
 .PHONY: test
 test: ## Run Go tests with the race detector
 	go test -race -count=1 ./...

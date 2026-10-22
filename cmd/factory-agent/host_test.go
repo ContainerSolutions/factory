@@ -27,6 +27,10 @@ type macRunner struct {
 
 func (r *macRunner) Run(_ context.Context, out io.Writer, name string, args ...string) error {
 	r.calls = append(r.calls, name)
+	if name == "/t/tart" && len(args) > 0 && args[0] == "list" {
+		_, _ = io.WriteString(out, `[{"Name":"factory-agent-base-dev","State":"stopped","Source":"local"},{"Name":"factory-agent-warm","State":"stopped","Source":"local"}]`)
+		return nil
+	}
 	answers := map[string]string{
 		"sw_vers": "26.6.2", "sysctl": "25769803776", "launchctl": "",
 		"df":      "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk3s5 1 1 98351052 79% /",
@@ -71,6 +75,10 @@ func TestHostUsage(t *testing.T) {
 		{[]string{"help"}, 0, "usage: factory-agent host"},
 		{[]string{"fix"}, 2, `unknown op "fix"`},
 		{[]string{"check", "--dry-run"}, 2, "unexpected arguments or flags"},
+		{[]string{"check", "--only", "basevm"}, 2, "unexpected arguments or flags"},
+		{[]string{"check", "--keep-failed"}, 2, "unexpected arguments or flags"},
+		{[]string{"init", "--remove-pf", "--only", "pf"}, 2, "unexpected arguments or flags"},
+		{[]string{"init", "--dry-run", "--only", "basevm,nope"}, 1, `--only: no step "nope"`},
 		{[]string{"init", "--json"}, 2, "unexpected arguments or flags"},
 		{[]string{"init", "--remove-pf", "--yes"}, 2, "unexpected arguments or flags"},
 		{[]string{"check", "extra"}, 2, "unexpected arguments or flags"},
@@ -96,7 +104,8 @@ func TestHostCheckAndDryRun(t *testing.T) {
 		t.Fatalf("check: code %d, %s", code, errOut.String())
 	}
 	var sts []host.Status
-	if err := json.Unmarshal(out.Bytes(), &sts); err != nil || len(sts) != 5 || sts[2].State != host.StateOK || sts[3].State != host.StateMissing {
+	if err := json.Unmarshal(out.Bytes(), &sts); err != nil || len(sts) != 7 || sts[2].State != host.StateOK || sts[3].State != host.StateMissing ||
+		sts[5].State != host.StateWrong || !strings.Contains(sts[5].Detail, "build it with make tart-up") {
 		t.Fatalf("check --json: %v %s", err, out.String())
 	}
 
@@ -116,6 +125,21 @@ func TestHostCheckAndDryRun(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(d.Env.Home, "Library")); err == nil {
 		t.Error("--dry-run made the state dir")
+	}
+
+	// --only basevm,warmbase with --agent-linux: only their plan, no sudo script.
+	agent := filepath.Join(t.TempDir(), "agent-linux")
+	if err := os.WriteFile(agent, []byte("linux"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if code := runHost(context.Background(), []string{"init", "--dry-run", "--only", "basevm, warmbase", "--agent-linux", agent}, &out, &errOut, d); code != 0 {
+		t.Fatalf("init --dry-run --only: code %d, %s", code, errOut.String())
+	}
+	for w, want := range map[string]bool{"basevm    tart clone ghcr.io/cirruslabs/ubuntu@sha256:": true, "copy " + agent: true, "warmbase  tart clone factory-agent-base-dev": true, "statedir  create": false, "sudo script": false} {
+		if strings.Contains(out.String(), w) != want {
+			t.Errorf("--only dry run: %q in the output is %v, want %v:\n%s", w, !want, want, out.String())
+		}
 	}
 
 	out.Reset()
@@ -155,6 +179,20 @@ func TestHostCheckOK(t *testing.T) {
 	write(filepath.Join(e.Root, host.PFAnchorPath), []byte(host.PFRules(4000)), 0o644)
 	write(filepath.Join(e.Root, host.PFConfPath), []byte(`anchor "`+host.PFAnchorName+`"`+"\n"), 0o644)
 	write(filepath.Join(e.Root, host.PFPlistPath), []byte(host.PFPlist(filepath.Join(e.Root, host.PFAnchorPath), filepath.Join(e.Root, host.PFConfPath))), 0o644)
+	// the base and warm VMs: the linux binary, the records, and tart list (macRunner).
+	hex256 := func(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
+	e.AgentLinux = filepath.Join(e.Home, host.AgentLinuxName)
+	write(e.AgentLinux, []byte("linux"), 0o755)
+	state := filepath.Join(e.Home, "Library", "Application Support", "factory-agent")
+	base := host.BaseVMRecord{Name: "factory-agent-base-dev", Source: host.BaseImage, ScriptSHA256: hex256(host.ProvisionScript), AgentSHA256: hex256([]byte("linux")), AgentVersion: "dev", BuiltAt: "2026-10-22T12:00:00Z"}
+	warm := host.WarmBaseRecord{Base: base.Name, BaseBuiltAt: base.BuiltAt, ImagesSHA256: hex256(nil), BuiltAt: base.BuiltAt}
+	for name, v := range map[string]any{"basevm.json": base, "warmbase.json": warm} {
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(filepath.Join(state, name), b, 0o600)
+	}
 
 	var out, errOut bytes.Buffer
 	if code := runHost(context.Background(), []string{"check", "--config", cfg}, &out, &errOut, d); code != 0 {
