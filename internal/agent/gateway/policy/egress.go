@@ -201,8 +201,8 @@ var (
 // class that denies it. hostPrefixes are the agent host's own addresses and on-link prefixes,
 // which the caller reads (class agent-host).
 //
-// In order: an invalid address is unspecified; an IPv4-mapped address is unmapped; an address
-// with a zone is always denied (its table class, else link-local); an exact OpenAddrs match is
+// In order: an invalid address is unspecified; an address with a zone is always denied (its
+// table class, else link-local); an IPv4-mapped address is unmapped; an exact OpenAddrs match is
 // allowed; then the default table's most specific range, a NAT64 (64:ff9b::/96) or 6to4
 // (2002::/16) address whose embedded IPv4 address is denied (that address's class),
 // hostPrefixes (agent-host) and Egress.Deny (extra).
@@ -211,13 +211,13 @@ func (e Egress) CheckAddr(ap netip.AddrPort, hostPrefixes []netip.Prefix) DenyCl
 	if !a.IsValid() {
 		return DenyUnspecified
 	}
-	a = a.Unmap()
-	if a.Zone() != "" {
-		if c := tableClass(a.WithZone("")); c != "" {
+	if a.Zone() != "" { // before Unmap, which drops the zone
+		if c := tableClass(a.WithZone("").Unmap()); c != "" {
 			return c
 		}
 		return DenyLinkLocal
 	}
+	a = a.Unmap()
 	for _, open := range e.OpenAddrs {
 		if open.Addr().Zone() == "" && open.Addr().Unmap() == a && open.Port() == ap.Port() {
 			return ""

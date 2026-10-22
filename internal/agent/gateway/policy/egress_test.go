@@ -195,6 +195,8 @@ func TestCheckAddrEmbeddingAndZones(t *testing.T) {
 		{"zone link-local, even when open", netip.AddrPortFrom(netip.MustParseAddr("fe80::1%en0"), 443), DenyLinkLocal},
 		{"zone loopback", netip.AddrPortFrom(netip.MustParseAddr("::1%lo0"), 443), DenyLoopback},
 		{"zone on a public address", netip.AddrPortFrom(netip.MustParseAddr("2606:4700::1%en0"), 443), DenyLinkLocal},
+		{"zone on a mapped public address", netip.AddrPortFrom(netip.MustParseAddr("::ffff:8.8.8.8%en0"), 443), DenyLinkLocal},
+		{"zone on a mapped private address", netip.AddrPortFrom(netip.MustParseAddr("::ffff:10.0.0.1%en0"), 443), DenyPrivate},
 		{"open link-local without a zone", ap("fe80::1", 443), ""},
 		{"invalid address", netip.AddrPort{}, DenyUnspecified},
 	}

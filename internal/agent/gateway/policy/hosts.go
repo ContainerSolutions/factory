@@ -192,7 +192,7 @@ func ParseHostPort(s string, defaultPort uint16) (Target, bool) {
 
 // parseHostPort accepts a host name (ASCII letters, digits, '-' and '_', in non-empty labels of
 // at most 63 bytes, at most 253 bytes in all after its trailing dot), an IPv4 literal, or an
-// IPv6 literal in brackets (a zone allowed: the egress check denies it). The port is decimal,
+// IPv6 literal in brackets (a zone of interface-name bytes allowed: the egress check denies it). The port is decimal,
 // 1-65535, without a sign or a leading zero. defaultPort 0 makes the port required.
 func parseHostPort(s string, defaultPort uint16) (Target, bool) {
 	host, port := s, ""
@@ -211,7 +211,7 @@ func parseHostPort(s string, defaultPort uint16) (Target, bool) {
 			return Target{}, false
 		}
 		a, err := netip.ParseAddr(host)
-		if err != nil || !a.Is6() {
+		if err != nil || !a.Is6() || !validZone(a.Zone()) {
 			return Target{}, false
 		}
 		p, ok := targetPort(port, hasPort, defaultPort)
@@ -274,6 +274,17 @@ func validName(h string) bool {
 			if !nameByte(label[i]) {
 				return false
 			}
+		}
+	}
+	return true
+}
+
+// validZone reports whether an IPv6 zone is empty or shaped like an interface name (ASCII
+// letters, digits, '.', '-', '_' and '%', as in %25en0), so Target.Host holds no other text.
+func validZone(z string) bool {
+	for i := 0; i < len(z); i++ {
+		if c := z[i]; !nameByte(c) && !('A' <= c && c <= 'Z') && c != '.' && c != '%' {
+			return false
 		}
 	}
 	return true
