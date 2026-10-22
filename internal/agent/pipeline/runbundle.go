@@ -1,15 +1,18 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/compliance-framework/factory/internal/agent/harness"
@@ -34,8 +37,9 @@ type BundleExtras struct {
 // schema (a 404 is no schema) through the pipeline's sources, with the bounds and refusals of
 // the prompt and schema steps; materialises the skills with the pipeline's git and skills
 // cache into a scratch directory under WorkRoot, which is always removed; keeps the job's git
-// credentials without their tokens (runbundle.GitAccess); and calls runbundle.Write, which
-// refuses an existing dir. No token reaches the bundle. Its errors name the step that failed;
+// credentials without their tokens (runbundle.GitAccess); refuses a bundle any of whose bytes
+// hold one of the job's real secrets (checkSecrets); and calls runbundle.Write, which refuses
+// an existing dir. No token reaches the bundle. Its errors name the step that failed;
 // a caller fails the run with harness-error, as the matching host step would.
 func (p *Pipeline) PrepareBundle(ctx context.Context, job *runner.Job, dir string, x BundleExtras) error {
 	task := job.Lease.Task
@@ -117,11 +121,69 @@ func (p *Pipeline) PrepareBundle(ctx context.Context, job *runner.Job, dir strin
 	if len(skills) > 0 {
 		f.SkillsDir = r.ws.Skills
 	}
+	if err := r.checkSecrets(m, f); err != nil {
+		return fmt.Errorf("bundle: %w", err)
+	}
 	if err := runbundle.Write(dir, m, f); err != nil {
 		return err
 	}
 	r.log.Debug("run bundle written", "dir", dir, "skills", len(skills))
 	return nil
+}
+
+// checkSecrets refuses a bundle that would hold one of the job's real secrets (its git token,
+// its read tokens and its agent token: the redactor's): every byte the bundle will have (the
+// manifest, task.json, the prompt, the context items, the schema, the CA, the codex account
+// and each skill file) is searched for an exact match. The error names the file, never the
+// secret. runbundle's shape scan covers the manifest and task.json only; context content is
+// untrusted provider text, where only the run's own tokens matter.
+func (r *run) checkSecrets(m runbundle.Manifest, f runbundle.Files) error {
+	secrets := r.red.secrets()
+	if len(secrets) == 0 {
+		return nil
+	}
+	files := map[string][]byte{runbundle.PromptFile: f.Prompt, runbundle.SchemaFile: f.OutputSchema, runbundle.CAFile: f.CA}
+	for name, v := range map[string]any{runbundle.ManifestFile: m, runbundle.TaskFile: f.Task, runbundle.CodexFile: f.Codex} {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		files[name] = b
+	}
+	for i, b := range f.Context {
+		files[path.Join(runbundle.ContextDir, strconv.Itoa(i)+".json")] = b
+	}
+	holds := func(b []byte) bool {
+		for _, s := range secrets {
+			if bytes.Contains(b, []byte(s)) {
+				return true
+			}
+		}
+		return false
+	}
+	names := slices.Sorted(maps.Keys(files))
+	for _, name := range names {
+		if holds(files[name]) {
+			return fmt.Errorf("%s holds one of the job's credentials", name)
+		}
+	}
+	if f.SkillsDir == "" {
+		return nil
+	}
+	return filepath.WalkDir(f.SkillsDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		if holds(b) {
+			rel, _ := filepath.Rel(f.SkillsDir, p)
+			return fmt.Errorf("%s holds one of the job's credentials", path.Join(runbundle.SkillsDir, filepath.ToSlash(rel)))
+		}
+		return nil
+	})
 }
 
 // bundleContext fetches each non-repo context item through the PromptSource, as the prompt

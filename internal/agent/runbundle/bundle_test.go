@@ -261,9 +261,6 @@ func TestWriteRefuses(t *testing.T) {
 		{"an item the task hasn't", func(_ *Manifest, f *Files) { f.Context[7] = contextJSON(t, 7, "x") }, "context"},
 		{"a token in the git access", func(m *Manifest, _ *Files) { m.Git.Permissions["contents"] = ghsToken }, "git.permissions"},
 		{"a token in task.json", func(_ *Manifest, f *Files) { f.Task.Spec.Inputs = map[string]any{"x": []any{"a", ghsToken}} }, TaskFile + ".spec.inputs"},
-		{"a token in a context item", func(_ *Manifest, f *Files) {
-			f.Context[0] = contextJSON(t, 0, "curl -H 'Authorization: Bearer "+jwt+"'")
-		}, "context/0.json.content"},
 		{"codex for claude", func(_ *Manifest, f *Files) { f.Task = testTask("claude-code") }, "codex"},
 		{"no codex account for codex", func(_ *Manifest, f *Files) { f.Codex = nil }, "codex"},
 		{"skills without a dir", func(_ *Manifest, f *Files) { f.SkillsDir = "" }, "skills"},
@@ -305,6 +302,25 @@ func TestWriteRefuses(t *testing.T) {
 			t.Errorf("the temp dir is left: %v", err)
 		}
 	})
+}
+
+// A context item's content is untrusted provider text: a token-shaped example in an issue
+// body is kept, not refused (workspace-run.md §Rules), on Write and on Read.
+func TestContextContentNotShapeScanned(t *testing.T) {
+	content := "curl -H 'Authorization: Bearer " + jwt + "' # and " + ghsToken
+	m, f := testManifest(), testFiles(t)
+	f.Context[0] = contextJSON(t, 0, content)
+	dir := filepath.Join(t.TempDir(), "bundle")
+	if err := Write(dir, m, f); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	b, err := Read(dir)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if tc, gone, err := b.ContextItem(0); err != nil || gone || tc.Content != content {
+		t.Errorf("context item 0: %+v gone=%v %v", tc, gone, err)
+	}
 }
 
 func TestValidate(t *testing.T) {
@@ -435,9 +451,6 @@ func TestReadRefuses(t *testing.T) {
 			}
 			rewrite(TaskFile, raw)(t, dir)
 		}, TaskFile + ".spec.inputs"},
-		{"a token in a context item", func(t *testing.T, dir string) {
-			rewrite("context/0.json", contextJSON(t, 0, "token: "+ghsToken))(t, dir)
-		}, "context/0.json.content"},
 		{"an oversize prompt", rewrite(PromptFile, big(MaxPromptBytes+1)), PromptFile},
 		{"an oversize schema", rewrite(SchemaFile, big(MaxSchemaBytes+1)), SchemaFile},
 		{"an oversize CA", rewrite(CAFile, big(MaxCABytes+1)), CAFile},
@@ -497,8 +510,10 @@ var secretName = regexp.MustCompile(`(?i)token|secret|key|password|credential`)
 // TestNoSecretFields walks every exported struct type of the package and fails on a field
 // (or a JSON name) named like a credential (workspace-run.md §Rules). It stops at the
 // package's boundary: the external types the bundle serialises (task.json's v1alpha1.Task and
-// a context file's apiclient.TaskContext) are covered at run time instead, by the token scan
-// Write and Read run over every string in them (TestWriteRefuses, TestReadRefuses).
+// a context file's apiclient.TaskContext) are covered at run time instead: Write and Read
+// shape-scan every string of task.json (TestWriteRefuses, TestReadRefuses), and a context
+// file's content is untrusted provider text, which PrepareBundle checks for the job's real
+// tokens (TestContextContentNotShapeScanned).
 func TestNoSecretFields(t *testing.T) {
 	roots := []reflect.Type{
 		reflect.TypeFor[Manifest](), reflect.TypeFor[Files](), reflect.TypeFor[Bundle](),

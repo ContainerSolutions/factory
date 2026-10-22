@@ -24,6 +24,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apiclient"
+	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
 var update = flag.Bool("update", false, "rewrite the goldens under testdata/")
@@ -173,6 +174,28 @@ func TestPrepareBundleRefusals(t *testing.T) {
 		{"a codex account for another harness", func(_ *testing.T, _ *fixture, _ *runner.Job, x *pipeline.BundleExtras, _ string) {
 			x.Codex = &runbundle.CodexAccount{AccountID: "a", UserID: "u", PlanType: "pro"}
 		}, "codex"},
+		{"the job's token in a context item", func(_ *testing.T, f *fixture, _ *runner.Job, _ *pipeline.BundleExtras, _ string) {
+			f.disp.items[0] = apiclient.TaskContext{Index: 0, Kind: "issue", Content: "my token is " + gitSecret}
+		}, "bundle: context/0.json holds one of the job's credentials"},
+		{"a read token in the prompt", func(_ *testing.T, f *fixture, job *runner.Job, _ *pipeline.BundleExtras, _ string) {
+			f.disp.prompt = "Use " + readSecret + "\n"
+			job.Lease.Task.Spec.Prompt.Digest = ""
+		}, "bundle: prompt.md holds one of the job's credentials"},
+		{"the agent token in the schema", func(_ *testing.T, f *fixture, _ *runner.Job, _ *pipeline.BundleExtras, _ string) {
+			f.disp.schema = `{"description": "` + agentSecret + `"}`
+		}, "bundle: output-schema.json holds one of the job's credentials"},
+		{"the job's token in task.json", func(_ *testing.T, _ *fixture, job *runner.Job, _ *pipeline.BundleExtras, _ string) {
+			job.Lease.Task.Spec.Inputs = map[string]any{"note": "x" + gitSecret[4:]}
+			job.Git.Set(apiclient.GitCredential{Provider: "github-public", Host: "github.com", Token: "x" + gitSecret[4:], Repo: "acme/docs"})
+		}, "bundle: task.json holds one of the job's credentials"},
+		{"a token in a skill file", func(_ *testing.T, f *fixture, job *runner.Job, _ *pipeline.BundleExtras, _ string) {
+			commit := f.git.addRepo("acme/leaky-skills", "", map[string]string{
+				"leaky/.claude-plugin/plugin.json": `{"name": "leaky"}`,
+				"leaky/skills/leak/SKILL.md":       "---\nname: leak\n---\ntoken " + readSecret + "\n",
+			}, nil)
+			job.Lease.Task.Spec.Skills = []v1alpha1.SkillRef{{Source: f.git.ts.URL + "/acme/leaky-skills", Commit: commit, Use: []string{"leak"}}}
+			f.opts.SkillsCache = "" // the source repo holds the token; without a cache it is fetched into the scratch dir
+		}, "bundle: skills/leaky/skills/leak/SKILL.md holds one of the job's credentials"},
 		{"an existing bundle", func(t *testing.T, _ *fixture, _ *runner.Job, _ *pipeline.BundleExtras, dir string) {
 			if err := os.Mkdir(dir, 0o700); err != nil {
 				t.Fatal(err)
@@ -189,6 +212,11 @@ func TestPrepareBundleRefusals(t *testing.T) {
 			err := f.pipeline().PrepareBundle(context.Background(), job, dir, x)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("PrepareBundle: %v, want %q", err, tt.want)
+			}
+			for _, sec := range append(secrets, "x"+gitSecret[4:]) {
+				if strings.Contains(err.Error(), sec) {
+					t.Errorf("the error prints a secret: %v", err)
+				}
 			}
 			if tt.name != "an existing bundle" {
 				if _, err := os.Lstat(dir); err == nil {
