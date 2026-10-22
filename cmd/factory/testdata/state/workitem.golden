@@ -1,0 +1,23 @@
+WorkItem wi_docs4
+  created     2026-10-21T09:00:28Z
+  labels      queue=docs
+  reporter    github-public:gusfcarvalho
+
+Links (1)
+  github-public  compliance-framework/mock-docs#4  issue  primary
+
+State
+  phase = "implementing"
+  spec = {"approved":true,"path":"docs/restart.md"}
+
+Counters
+  implement = 1
+
+Decisions (2, oldest first)
+  TIME                  RULESET  RULE                EVENT      VERDICT                                                   ACTIONS
+  2026-10-21T09:00:00Z  docs     triage-new-issues   gh-7f3a/0  not fired: where: item.issue.labels lacks factory:triage  -
+  2026-10-21T09:00:00Z  docs     implement-on-label  gh-7f3a/0  fired                                                     dispatch implement → docs; set phase
+
+Tasks (1)
+  ID          SPEC       PHASE   REASON                                  CREATED               LAST RUN
+  tsk_01JB7Q  implement  Failed  run run_01JB7R: failed (checks-failed)  2026-10-21T09:00:35Z  run_01JB7R completed: failed

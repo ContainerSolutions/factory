@@ -1,0 +1,9 @@
+7 changes since the snapshot (versions 8 to 14); older ones are folded into the snapshot
+VERSION  TIME                  OP      KIND   NAME                NOTE
+8        2026-10-21T09:00:49Z  update  Task   tsk_01JB7Q          phase Leased
+9        2026-10-21T09:00:56Z  create  Run    run_01JB7R          attempt 1 of tsk_01JB7Q on agt_laptop
+10       2026-10-21T09:01:03Z  update  Task   tsk_01JB7Q          phase Leased → Running
+11       2026-10-21T09:01:10Z  update  Run    run_01JB7R          -
+12       2026-10-21T09:10:17Z  update  Run    run_01JB7R          ended completed: failed (checks-failed)
+13       2026-10-21T09:10:24Z  update  Task   tsk_01JB7Q          phase Running → Failed: run run_01JB7R: failed (checks-fail…
+14       2026-10-21T09:10:31Z  create  Event  factory/run_01JB7R  -

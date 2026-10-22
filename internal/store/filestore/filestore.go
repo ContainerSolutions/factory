@@ -75,6 +75,9 @@ type config struct {
 	kinds        map[string]store.Object
 	compactBytes int64
 	compactLines int
+	// afterSnapshot, when not nil, is called by Read between reading the snapshot and the
+	// journal (tests race a compaction there).
+	afterSnapshot func()
 }
 
 // WithKind registers the Go type of kind, a stored kind outside v1alpha1 (the internal Lease,

@@ -1,0 +1,16 @@
+--- stderr
+factory state: unknown command "jobs"
+usage: factory state [--state-dir DIR] [--json] <command> [flags] [id]
+
+Reads the dispatcher's state dir directly: no server, no API, no token. Read-only, it
+works while factory serve runs and on a copy of the dir.
+--state-dir defaults to $FACTORY_STATE_DIR, else ~/.factory/state (deploy/poc/run.sh: ${FACTORY_STATE_DIR:-$HOME/.factory/state}).
+
+commands:
+  tasks     the tasks: id, spec, phase, reason, work item, created, last run
+  task      a task: its spec, status, runs with their results, and the decision that dispatched it
+  run       a run: its Result, progress and usage; --transcript prints the transcript (gunzipped)
+  workitem  a work item: links, state, counters, decisions and tasks
+  events    the events: time, type, source, object, work item, processed
+  log       the journal (the changes since the snapshot) as a timeline
+  reset     move the state dir aside to <dir>.<UTC time>, for a clean start (not while a dispatcher has it open)

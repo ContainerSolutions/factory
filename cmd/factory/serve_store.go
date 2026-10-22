@@ -39,6 +39,17 @@ func internalKinds() map[string]store.Object {
 	}
 }
 
+// fileStoreKinds registers internalKinds with the file store (Open, and Read for factory
+// state).
+func fileStoreKinds() []filestore.Option {
+	kinds := internalKinds()
+	options := make([]filestore.Option, 0, len(kinds))
+	for kind, proto := range kinds {
+		options = append(options, filestore.WithKind(kind, proto))
+	}
+	return options
+}
+
 // memoryStore is the in-memory store, with a Close that does nothing.
 type memoryStore struct{ *memory.Store }
 
@@ -52,12 +63,7 @@ func openStore(cfg serveConfig, opts store.Options, log *slog.Logger) (serveStor
 		log.Info("store: in memory; state is lost on restart (--state-dir keeps it)")
 		return memoryStore{memory.New(opts)}, nil
 	}
-	kinds := internalKinds()
-	options := make([]filestore.Option, 0, len(kinds))
-	for kind, proto := range kinds {
-		options = append(options, filestore.WithKind(kind, proto))
-	}
-	st, err := filestore.Open(cfg.StateDir, opts, options...)
+	st, err := filestore.Open(cfg.StateDir, opts, fileStoreKinds()...)
 	if err != nil {
 		return nil, fmt.Errorf("open --state-dir %s: %w", cfg.StateDir, err)
 	}

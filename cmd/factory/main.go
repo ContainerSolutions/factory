@@ -21,6 +21,7 @@ var commands = []command{
 	rulesCommand(),
 	serveCommand(),
 	dispatchCommand(),
+	stateCommand(),
 }
 
 // command is one subcommand. run gets the arguments after the subcommand's name and returns
