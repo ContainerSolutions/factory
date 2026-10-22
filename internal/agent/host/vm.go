@@ -77,10 +77,14 @@ func (e *Env) BaseVMName() string {
 	return BaseVMPrefix + nameUnsafeRE.ReplaceAllString(strings.TrimPrefix(e.AgentVersion, "v"), "_")
 }
 
-// tart is the tart to run: the state dir's, when the tart step installed it, else PATH's.
-func (e *Env) tart() string {
-	if p := (tartStep{e}).bin(); fileExists(p) {
-		return p
+// tartBin is the tart the VM steps run, chosen as the tart step's check chooses: the state
+// dir's when it is the pin, else PATH's.
+func (e *Env) tartBin(ctx context.Context) string {
+	s := tartStep{e}
+	if fileExists(s.bin()) {
+		if v, err := s.version(ctx, s.bin()); err == nil && v == e.Pins.TartVersion {
+			return s.bin()
+		}
 	}
 	if p, err := e.LookPath("tart"); err == nil {
 		return p
@@ -98,8 +102,8 @@ type tartVM struct {
 }
 
 // vms is tart list's local VMs by name.
-func (e *Env) vms(ctx context.Context) (map[string]tartVM, error) {
-	out, err := e.output(ctx, e.tart(), "list", "--format", "json")
+func (e *Env) vms(ctx context.Context, tart string) (map[string]tartVM, error) {
+	out, err := e.output(ctx, tart, "list", "--format", "json")
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +122,7 @@ func (e *Env) vms(ctx context.Context) (map[string]tartVM, error) {
 
 // vmStatus is the state of a built VM: ok when it exists and is stopped.
 func (e *Env) vmStatus(ctx context.Context, name, okDetail string) (Status, error) {
-	vms, err := e.vms(ctx)
+	vms, err := e.vms(ctx, e.tartBin(ctx))
 	if err != nil {
 		return Status{}, err
 	}
@@ -245,7 +249,7 @@ func (s baseVMStep) Apply(ctx context.Context) error {
 		pctx, cancel := context.WithTimeout(ctx, s.e.VM.Provision)
 		defer cancel()
 		fmt.Fprintf(b.out, "running the provisioning script in %s\n", b.vm)
-		if err := b.e.Spawner.RunInput(pctx, bytes.NewReader(ProvisionScript), b.out, b.e.tart(), "exec", "-i", b.vm, "bash", "-s"); err != nil {
+		if err := b.e.Spawner.RunInput(pctx, bytes.NewReader(ProvisionScript), b.out, b.bin, "exec", "-i", b.vm, "bash", "-s"); err != nil {
 			return fmt.Errorf("the provisioning script: %w", err)
 		}
 		return b.copyAgent(ctx, rec.AgentSHA256)
@@ -353,9 +357,17 @@ func (s warmBaseStep) Plan(context.Context) (Plan, error) {
 }
 
 func (s warmBaseStep) Apply(ctx context.Context) error {
+	// init applies basevm first; with --only warmbase a stale base is refused, not cloned.
+	st, err := s.e.baseVM().Check(ctx)
+	if err != nil {
+		return err
+	}
+	if st.State != StateOK {
+		return fmt.Errorf("the base VM is %s (%s): build it first (--only basevm,warmbase)", st.State, st.Detail)
+	}
 	var base BaseVMRecord
-	if ok, err := readRecord(s.e.baseVM().record(), &base); err != nil || !ok {
-		return errors.Join(errors.New("no base VM record: build the base first (--only basevm)"), err)
+	if _, err := readRecord(s.e.baseVM().record(), &base); err != nil {
+		return err
 	}
 	archives, err := s.archives()
 	if err != nil {
@@ -397,12 +409,12 @@ func (s warmBaseStep) Apply(ctx context.Context) error {
 	})
 }
 
-// vmBuild is a VM being built: vm is its .building name.
+// vmBuild is a VM being built: vm is its .building name, bin the tart that builds it.
 type vmBuild struct {
-	e    *Env
-	vm   string
-	out  io.Writer
-	proc Process
+	e       *Env
+	vm, bin string
+	out     io.Writer
+	proc    Process
 }
 
 // lockedWriter serialises writes: tart run's output arrives from another goroutine.
@@ -422,14 +434,20 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 // Then it renames final.building to final, replacing an older final. Any failure deletes
 // final.building, unless KeepFailed.
 func (e *Env) buildVM(ctx context.Context, src, final string, set []string, provision func(context.Context, *vmBuild) error) (err error) {
-	b := &vmBuild{e: e, vm: final + buildingSuffix, out: &lockedWriter{w: e.Out}}
-	vms, err := e.vms(ctx)
+	b := &vmBuild{e: e, vm: final + buildingSuffix, bin: e.tartBin(ctx), out: &lockedWriter{w: e.Out}}
+	vms, err := e.vms(ctx, b.bin)
 	if err != nil {
 		return err
 	}
-	if _, ok := vms[b.vm]; ok {
-		// an earlier build's leftover (it failed with --keep-failed, or was killed).
+	if v, ok := vms[b.vm]; ok {
+		// an earlier build's leftover: it failed with --keep-failed, or factory-agent was
+		// killed, and then its tart run (in its own process group) may still run it.
 		fmt.Fprintf(b.out, "deleting the leftover %s\n", b.vm)
+		if v.State != "stopped" {
+			if err := b.tart(ctx, "stop", b.vm); err != nil {
+				return err
+			}
+		}
 		if err := b.tart(ctx, "delete", b.vm); err != nil {
 			return err
 		}
@@ -473,7 +491,7 @@ func (e *Env) buildVM(ctx context.Context, src, final string, set []string, prov
 			return err
 		}
 	}
-	if vms, err = e.vms(ctx); err != nil {
+	if vms, err = e.vms(ctx, b.bin); err != nil {
 		return err
 	}
 	if _, ok := vms[final]; ok {
@@ -487,7 +505,7 @@ func (e *Env) buildVM(ctx context.Context, src, final string, set []string, prov
 
 // tart runs tart with args, its output to the build's.
 func (b *vmBuild) tart(ctx context.Context, args ...string) error {
-	return b.e.Runner.Run(ctx, b.out, b.e.tart(), args...)
+	return b.e.Runner.Run(ctx, b.out, b.bin, args...)
 }
 
 // exec runs a command in the VM.
@@ -498,73 +516,65 @@ func (b *vmBuild) exec(ctx context.Context, args ...string) error {
 	return nil
 }
 
-// boot starts tart run in the background and waits until tart exec works.
+// boot starts tart run in the background and waits until tart exec works; tart run exiting
+// first fails it.
 func (b *vmBuild) boot(ctx context.Context) error {
 	fmt.Fprintf(b.out, "booting %s\n", b.vm)
-	p, err := b.e.Spawner.Start(ctx, b.out, b.e.tart(), "run", b.vm, "--no-graphics")
+	p, err := b.e.Spawner.Start(ctx, b.out, b.bin, "run", b.vm, "--no-graphics")
 	if err != nil {
 		return err
 	}
 	b.proc = p
-	return b.wait(ctx, b.e.VM.Boot, "its guest agent to answer", func(ctx context.Context) (bool, error) {
-		return b.e.Runner.Run(ctx, io.Discard, b.e.tart(), "exec", b.vm, "true") == nil, nil
+	ok, exited, err := b.poll(ctx, b.e.VM.Boot, func(ctx context.Context) bool {
+		return b.e.Runner.Run(ctx, io.Discard, b.bin, "exec", b.vm, "true") == nil
 	})
+	switch {
+	case err != nil:
+		return err
+	case exited:
+		return fmt.Errorf("%s: tart run exited before its guest agent answered", b.vm)
+	case !ok:
+		return fmt.Errorf("%s: timed out after %s waiting for its guest agent", b.vm, b.e.VM.Boot)
+	}
+	return nil
 }
 
-// wait polls cond every VM.Poll until it's true, the timeout passes, or tart run exits.
-func (b *vmBuild) wait(ctx context.Context, timeout time.Duration, what string, cond func(context.Context) (bool, error)) error {
+// poll checks cond every VM.Poll until it's true, timeout passes (ok false) or tart run
+// exits (exited). err is set only when ctx is done.
+func (b *vmBuild) poll(ctx context.Context, timeout time.Duration, cond func(context.Context) bool) (ok, exited bool, err error) {
 	wctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	for {
-		ok, err := cond(wctx)
-		if err != nil || ok {
-			return err
+		if cond(wctx) {
+			return true, false, nil
 		}
 		select {
 		case <-wctx.Done():
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			return fmt.Errorf("%s: timed out after %s waiting for %s", b.vm, timeout, what)
+			return false, false, ctx.Err()
 		case <-b.proc.Exited():
-			return fmt.Errorf("%s: tart run exited while waiting for %s", b.vm, what)
+			return false, true, nil
 		case <-time.After(b.e.VM.Poll):
 		}
 	}
 }
 
-// shutdown shuts the VM down and waits until tart list shows it stopped; after VM.Shutdown it
-// runs tart stop.
+// shutdown shuts the VM down and waits until tart list shows it stopped (tart run exiting
+// means it has); after VM.Shutdown it runs tart stop. tart run is stopped in any case.
 func (b *vmBuild) shutdown(ctx context.Context) error {
 	fmt.Fprintf(b.out, "shutting %s down\n", b.vm)
 	// the VM goes away under the command, so its error says nothing.
 	_ = b.tart(ctx, "exec", b.vm, "sudo", "shutdown", "-h", "now")
-	stopped := func(ctx context.Context) (bool, error) {
-		vms, err := b.e.vms(ctx)
-		if err != nil {
-			return false, err
-		}
-		return vms[b.vm].State == "stopped", nil
+	ok, _, err := b.poll(ctx, b.e.VM.Shutdown, func(ctx context.Context) bool {
+		vms, err := b.e.vms(ctx, b.bin)
+		return err == nil && vms[b.vm].State == "stopped"
+	})
+	if err != nil {
+		return err
 	}
-	wctx, cancel := context.WithTimeout(ctx, b.e.VM.Shutdown)
-	defer cancel()
-	for {
-		ok, err := stopped(wctx)
-		if err == nil && ok {
-			break
-		}
-		select {
-		case <-wctx.Done():
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			fmt.Fprintf(b.out, "%s didn't stop within %s: tart stop\n", b.vm, b.e.VM.Shutdown)
-			if err := b.tart(ctx, "stop", b.vm); err != nil {
-				return err
-			}
-			b.proc.Stop()
-			return nil
-		case <-time.After(b.e.VM.Poll):
+	if !ok {
+		fmt.Fprintf(b.out, "%s didn't stop within %s: tart stop\n", b.vm, b.e.VM.Shutdown)
+		if err := b.tart(ctx, "stop", b.vm); err != nil {
+			return err
 		}
 	}
 	b.proc.Stop()
@@ -596,12 +606,12 @@ func (b *vmBuild) copyAgent(ctx context.Context, want string) error {
 		pw.CloseWithError(err)
 	}()
 	fmt.Fprintf(b.out, "copying %s into %s\n", b.e.AgentLinux, b.vm)
-	err = b.e.Spawner.RunInput(ctx, pr, b.out, b.e.tart(), "exec", "-i", b.vm, "sudo", "tar", "-xf", "-", "-C", filepath.Dir(agentInVM))
+	err = b.e.Spawner.RunInput(ctx, pr, b.out, b.bin, "exec", "-i", b.vm, "sudo", "tar", "-xf", "-", "-C", filepath.Dir(agentInVM))
 	_ = pr.CloseWithError(errors.New("tar exited"))
 	if err != nil {
 		return fmt.Errorf("copying factory-agent: %w", err)
 	}
-	out, err := b.e.output(ctx, b.e.tart(), "exec", b.vm, "sha256sum", agentInVM)
+	out, err := b.e.output(ctx, b.bin, "exec", b.vm, "sha256sum", agentInVM)
 	if err != nil {
 		return fmt.Errorf("in %s: sha256sum: %w", b.vm, err)
 	}

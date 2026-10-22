@@ -123,9 +123,12 @@ section_gh() {
 		sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
 	apt_get update
 	apt_get install gh
-	local ext
+	local ext have
+	# the list goes into a variable: piped into grep -q under pipefail, gh could die of SIGPIPE
+	# and an installed extension would look missing.
+	have="$(sudo -u "$WS_USER" -H env GH_PROMPT_DISABLED=1 gh extension list)"
 	for ext in "${GH_EXTENSIONS[@]}"; do
-		if ! sudo -u "$WS_USER" -H env GH_PROMPT_DISABLED=1 gh extension list | grep -q "$ext"; then
+		if ! grep -qF "$ext" <<<"$have"; then
 			sudo -u "$WS_USER" -H env GH_PROMPT_DISABLED=1 gh extension install "$ext"
 		fi
 	done

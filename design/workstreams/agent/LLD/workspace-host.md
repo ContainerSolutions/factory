@@ -92,9 +92,9 @@ Softnet's `--net-softnet-allow=@host` lets a VM reach every port on the Mac's br
 - `basevm.json`: `{name, source, scriptSHA256, agentSHA256, agentVersion, builtAt}`. `source` is the image with its digest, `scriptSHA256` the embedded script's sha256, `agentSHA256` the linux binary's.
 - `warmbase.json`: `{base, baseBuiltAt, imagesSHA256, builtAt}`. `imagesSHA256` is the sha256 of the lines `image <ref>` (each of `warm.images`) and `kind <ref>` (each of `warm.kindImages`), sorted and newline-joined, so moving an image between the lists rebuilds it too. `baseBuiltAt` rebuilds it when the base is rebuilt under the same name (a script change).
 
-**A build** (`buildVM`), with every tart command on `PATH`'s tart or the state dir's:
+**A build** (`buildVM`) runs the tart the `tart` step accepts: the state dir's when it is the pin, else `PATH`'s.
 
-1. delete a leftover `<name>.building` (an earlier `--keep-failed` or a kill), then `tart clone <source> <name>.building`;
+1. delete a leftover `<name>.building` (an earlier `--keep-failed`, or a killed `factory-agent` whose `tart run` may still run it: `tart stop` first), then `tart clone <source> <name>.building`;
 2. (base) `tart set <name>.building --cpu <size.cpus> --memory <MiB> --disk-size <GiB>`;
 3. `tart run <name>.building --no-graphics` as a child in its own process group (default NAT networking: no Softnet), stopped with SIGTERM, then SIGKILL after 30 s, on every exit path;
 4. poll `tart exec <name>.building true` until it succeeds (3 minutes); tart run exiting fails the wait;
@@ -103,7 +103,7 @@ Softnet's `--net-softnet-allow=@host` lets a VM reach every port on the Mac's br
 6. `tart exec <name>.building sudo shutdown -h now`, then poll `tart list` until it's stopped (2 minutes; then `tart stop`);
 7. delete an older `<name>`, `tart rename <name>.building <name>`, write the record.
 
-Any failure, an interrupt included (cleanup gets its own context), stops the VM and deletes `<name>.building`, unless `--keep-failed`. With no warm images the warm base is a plain clone of the base: steps 1 and 7 only. The base step makes the state dir first if it's missing, so `--only basevm,warmbase` works on its own. The exact sequences are the goldens `testdata/basevm-build.golden` and `testdata/warmbase-build.golden`.
+Any failure, an interrupt included (cleanup gets its own context), stops the VM and deletes `<name>.building`, unless `--keep-failed`. With no warm images the warm base is a plain clone of the base: steps 1 and 7 only. The base step makes the state dir first if it's missing, so `--only basevm,warmbase` works on its own; the warm step refuses to start unless the base's check is ok (`--only warmbase` on a stale base). The exact sequences are the goldens `testdata/basevm-build.golden` and `testdata/warmbase-build.golden`.
 
 **The provisioning script** (`internal/agent/host/provision/base.sh`, `//go:embed`) runs as `admin` (passwordless sudo) in the cirruslabs Ubuntu 24.04 VM, under `set -euo pipefail`, idempotent, with `== <section>` lines. Its body is one `main` called on the last line with stdin from `/dev/null`, so bash has read all of it before anything runs and no command eats the rest of the script from stdin. It waits for cloud-init, then installs:
 

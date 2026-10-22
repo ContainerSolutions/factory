@@ -388,6 +388,56 @@ func TestBaseVMApplyFails(t *testing.T) {
 	}
 }
 
+// TestBaseVMLeftoverRunning: a .building VM left running by a killed factory-agent is stopped
+// before it is deleted.
+func TestBaseVMLeftoverRunning(t *testing.T) {
+	e, r := testEnv(t)
+	mkStateDir(t, e)
+	r.tart.vms["factory-agent-base-0.1.0.building"] = "running"
+	if err := (baseVMStep{e}).Apply(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	calls := r.tartCalls()
+	stop, del := strings.Index(calls, "tart stop factory-agent-base-0.1.0.building\n"), strings.Index(calls, "tart delete factory-agent-base-0.1.0.building\n")
+	if stop < 0 || del < stop {
+		t.Errorf("want tart stop then tart delete of the leftover:\n%s", calls)
+	}
+}
+
+// TestTartBin: the VM steps run the tart the tart step accepts.
+func TestTartBin(t *testing.T) {
+	tests := []struct {
+		name, state, onPath, want string
+	}{
+		{"the state dir's at the pin", TartVersion, "2.42.0", "STATE"},
+		{"the state dir's outdated, PATH's newer", "2.30.0", "2.42.0", "/opt/homebrew/bin/tart"},
+		{"only PATH's", "", "2.42.0", "/opt/homebrew/bin/tart"},
+		{"none", "", "", "tart"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, r := testEnv(t)
+			s := tartStep{e}
+			if tt.state != "" {
+				if err := os.MkdirAll(filepath.Dir(s.bin()), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(s.bin(), nil, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				r.versions[s.bin()] = tt.state
+			}
+			if tt.onPath != "" {
+				e.LookPath = func(string) (string, error) { return "/opt/homebrew/bin/tart", nil }
+			}
+			want := strings.ReplaceAll(tt.want, "STATE", s.bin())
+			if got := e.tartBin(context.Background()); got != want {
+				t.Errorf("tartBin = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 // TestBaseVMShutdownTimeout: a VM that doesn't stop after shutdown gets tart stop.
 func TestBaseVMShutdownTimeout(t *testing.T) {
 	e, r := testEnv(t)
@@ -460,7 +510,7 @@ func TestWarmBasePlainClone(t *testing.T) {
 	if err := (warmBaseStep{e}).Apply(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	want := "tart list --format json\ntart clone factory-agent-base-0.1.0 factory-agent-warm.building\ntart list --format json\ntart rename factory-agent-warm.building factory-agent-warm\n"
+	want := "tart list --format json\ntart list --format json\ntart clone factory-agent-base-0.1.0 factory-agent-warm.building\ntart list --format json\ntart rename factory-agent-warm.building factory-agent-warm\n"
 	if got := r.tartCalls(); got != want {
 		t.Errorf("calls:\n%s\nwant:\n%s", got, want)
 	}
@@ -530,10 +580,23 @@ func TestWarmBaseApplyFails(t *testing.T) {
 		}
 	})
 	t.Run("no base", func(t *testing.T) {
-		e, _ := testEnv(t)
+		e, r := testEnv(t)
 		mkStateDir(t, e)
-		if err := (warmBaseStep{e}).Apply(context.Background()); err == nil || !strings.Contains(err.Error(), "build the base first") {
+		if err := (warmBaseStep{e}).Apply(context.Background()); err == nil || !strings.Contains(err.Error(), "the base VM is missing") || !strings.Contains(err.Error(), "build it first") {
 			t.Fatalf("err = %v", err)
+		}
+		if r.ran("tart clone") != 0 {
+			t.Errorf("calls %v", r.calls)
+		}
+	})
+	t.Run("stale base", func(t *testing.T) {
+		e, r := warmEnv(t)
+		e.AgentVersion = "v0.2.0" // the base is factory-agent-base-0.1.0: outdated
+		if err := (warmBaseStep{e}).Apply(context.Background()); err == nil || !strings.Contains(err.Error(), "the base VM is outdated") {
+			t.Fatalf("err = %v", err)
+		}
+		if r.ran("tart clone") != 0 {
+			t.Errorf("a stale base was cloned: %v", r.calls)
 		}
 	})
 	t.Run("archive collision", func(t *testing.T) {

@@ -1,4 +1,5 @@
 tart list --format json
+tart list --format json
 tart clone factory-agent-base-0.1.0 factory-agent-warm.building
 tart run factory-agent-warm.building --no-graphics &
 tart exec factory-agent-warm.building true
