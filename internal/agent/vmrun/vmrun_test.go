@@ -217,7 +217,19 @@ func (r *vmRig) workIt(ctx context.Context, ws harness.Workspace, _ string) erro
 // events decodes stdout.
 func (r *vmRig) events() []runbundle.Event {
 	r.t.Helper()
-	d := runbundle.NewDecoder(strings.NewReader(r.stdout.String()))
+	return decodeEvents(r.t, r.stdout.String())
+}
+
+// outcome is outcome.json as the VM wrote it (unclamped).
+func (r *vmRig) outcome() runbundle.Outcome {
+	r.t.Helper()
+	return readOutcome(r.t, r.work)
+}
+
+// decodeEvents decodes an event stream.
+func decodeEvents(t *testing.T, s string) []runbundle.Event {
+	t.Helper()
+	d := runbundle.NewDecoder(strings.NewReader(s))
 	var out []runbundle.Event
 	for {
 		e, err := d.Next()
@@ -225,22 +237,22 @@ func (r *vmRig) events() []runbundle.Event {
 			return out
 		}
 		if err != nil {
-			r.t.Fatalf("the event stream: %v", err)
+			t.Fatalf("the event stream: %v", err)
 		}
 		out = append(out, e)
 	}
 }
 
-// outcome is outcome.json as the VM wrote it (unclamped).
-func (r *vmRig) outcome() runbundle.Outcome {
-	r.t.Helper()
-	b, err := os.ReadFile(filepath.Join(r.work, runbundle.OutDir, runbundle.OutcomeFile))
+// readOutcome is work's out/outcome.json as the VM wrote it (unclamped).
+func readOutcome(t *testing.T, work string) runbundle.Outcome {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(work, runbundle.OutDir, runbundle.OutcomeFile))
 	if err != nil {
-		r.t.Fatalf("outcome.json: %v", err)
+		t.Fatalf("outcome.json: %v", err)
 	}
 	var o runbundle.Outcome
 	if err := json.Unmarshal(b, &o); err != nil {
-		r.t.Fatal(err)
+		t.Fatal(err)
 	}
 	return o
 }

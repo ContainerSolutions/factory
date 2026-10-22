@@ -13,6 +13,7 @@ make openapi-lint               # vacuum on api/openapi.yaml (ruleset api/vacuum
 go test ./internal/webui -run TestHandler   # one test
 go run ./cmd/factory rules test --catalog catalog [--update | --base-catalog <dir>] [--coverage]   # replay catalog/testdata against the rules
 make build-release              # web/ build + go build -tags webui
+make e2e-run-container          # opt-in, needs docker: factory-agent run (linux) in a plain container as root, fake harnesses, no network
 cd web && npm ci && npm run gen:api   # after changing api/openapi.yaml or api/examples: regenerates web's committed client (CI's web job checks it)
 bin/factory serve --dev-fake-providers --catalog-dir internal/catalog/testdata/poc   # local dispatcher, fake GitHub (needs FACTORY_OAUTH_CLIENT_ID/_SECRET, FACTORY_SESSION_KEY, FACTORY_CLI_TOKEN in env)
 bin/factory dispatch --event event.json --server http://127.0.0.1:8800             # inject an event (FACTORY_CLI_TOKEN in env)

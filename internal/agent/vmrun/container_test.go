@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -40,9 +39,6 @@ const (
 
 // fakeHarnessArg makes the test binary a fake harness: `<test> fake-harness <dir> <name> args…`.
 const fakeHarnessArg = "fake-harness"
-
-// systemRootsFile is where the base image keeps its CA roots (system.go's systemRoots).
-const systemRootsFile = "/etc/ssl/certs/ca-certificates.crt"
 
 // harnessCall is what the fake harness saw and did, recorded in its dir.
 type harnessCall struct {
@@ -126,7 +122,7 @@ func runInContainer(t *testing.T, agent, name string) {
 	work, state := filepath.Join(base, "work"), filepath.Join(base, "state")
 	fakeDir, bin := fakeHarness(t, name), guardBin(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, agent, "run", "--proxy", gw.URL(), "--bundle", bundle, "--work", work, "--state-dir", state,
@@ -144,16 +140,9 @@ func runInContainer(t *testing.T, agent, name string) {
 		t.Fatalf("factory-agent run: %v", err)
 	}
 
-	b, err := os.ReadFile(filepath.Join(work, runbundle.OutDir, runbundle.OutcomeFile))
-	if err != nil {
-		t.Fatalf("outcome.json: %v", err)
-	}
-	var o runbundle.Outcome
-	if err := json.Unmarshal(b, &o); err != nil {
-		t.Fatal(err)
-	}
+	o := readOutcome(t, work)
 	if o.Status != runner.StatusDone || o.Result == nil || o.Result.Outcome != "pr-opened" || o.Transcript != runbundle.TranscriptFile {
-		t.Fatalf("outcome %s", b)
+		t.Fatalf("outcome %+v %+v", o, o.Result)
 	}
 	if _, err := runbundle.ReadOutcome(filepath.Join(work, runbundle.OutDir), time.Now()); err != nil {
 		t.Errorf("the host's ReadOutcome: %v", err)
@@ -212,7 +201,7 @@ func runInContainer(t *testing.T, agent, name string) {
 	}
 
 	// The CA bundle is the image's roots followed by the gateway CA.
-	roots, err := os.ReadFile(systemRootsFile)
+	roots, err := os.ReadFile(systemRoots)
 	if err != nil {
 		t.Fatalf("the image's CA roots: %v", err)
 	}
@@ -266,22 +255,6 @@ func readCall(t *testing.T, dir string) harnessCall {
 		t.Fatal(err)
 	}
 	return c
-}
-
-func decodeEvents(t *testing.T, s string) []runbundle.Event {
-	t.Helper()
-	d := runbundle.NewDecoder(strings.NewReader(s))
-	var out []runbundle.Event
-	for {
-		e, err := d.Next()
-		if errors.Is(err, io.EOF) {
-			return out
-		}
-		if err != nil {
-			t.Fatalf("the event stream: %v", err)
-		}
-		out = append(out, e)
-	}
 }
 
 // fakeHarnessMain is the fake harness: a run (anything but --version) records its call,
