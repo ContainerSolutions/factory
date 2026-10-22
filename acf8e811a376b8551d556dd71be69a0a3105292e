@@ -1,2 +1,5 @@
 lisa-addressed:
 Self-review pass 2 fix: Gateway.serve lower-cases Record.Host for plain HTTP too (the plain-HTTP github.com case now sends GitHub.com).
+
+lisa-selfreview:
+Pass 3: approve, no findings. Re-read gateway.go, ca.go and gateway_test.go in full: Close ordering (outer server, inner server, listener, tunnels under the closed flag, wg), lock scope on records/tunnels, statusWriter Unwrap for ReverseProxy flushing, no credential value reachable from Record or AssertNoClientCredential's message.
