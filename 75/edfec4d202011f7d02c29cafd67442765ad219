@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 2 fixes: absolute-form non-http requests are 400 not-proxy (no https fetch outside a tunnel); Current returns the cached token with its error, no token at all is 503 no-login; policy.Egress struct in the API block; a risk on clients' support for a name-constrained root (checks in PR 3/7/phase 8, fallback = drop constraints and rotate); a 401 body over 64 KiB is passed through, not retried.
