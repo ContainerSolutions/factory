@@ -34,6 +34,7 @@ const (
 // skillsURL is a skills source as a URL: sources that aren't URLs are under SkillsBase.
 func (r *run) skillsURL(source string) string { return r.p.skillsURL(source) }
 
+// skillsURL is the pipeline's: the run's and PrepareBundle's.
 func (p *Pipeline) skillsURL(source string) string {
 	if strings.Contains(source, "://") {
 		return source
@@ -89,7 +90,8 @@ func (s PrebuiltSkills) Skills(context.Context, *runner.Job, string) (string, []
 // into skills/, as plugin directories (run-pipeline.md §Steps 5); any other source gives the
 // directory and the list itself.
 func (r *run) materialiseSkills(ctx context.Context) error {
-	if _, ok := r.p.o.Skills.(FetchSkills); ok {
+	switch r.p.o.Skills.(type) {
+	case FetchSkills, *FetchSkills:
 		list, err := r.p.skillFetcher(r.git, r.ws.Root, r.ws.Tmp).fetch(ctx, r.task.Spec.Skills, r.ws.Skills)
 		r.ws.SkillList = append(r.ws.SkillList, list...)
 		return err

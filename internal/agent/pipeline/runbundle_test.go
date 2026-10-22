@@ -376,3 +376,24 @@ func TestBundleSourcesRefusals(t *testing.T) {
 		}
 	}
 }
+
+// FetchSkills, as a value (the default) or a pointer, is the pipeline's own fetch.
+func TestRunFetchSkillsOption(t *testing.T) {
+	t.Parallel()
+	for name, src := range map[string]pipeline.SkillSource{"zero": nil, "value": pipeline.FetchSkills{}, "pointer": &pipeline.FetchSkills{}} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			f.opts.Skills = src
+			f.adapter.Script = fake.Script{Turn: fake.Turn{Result: []byte(validResult)}}
+			out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+			if err != nil || out.Status != runner.StatusDone {
+				t.Fatalf("%+v %v", out, err)
+			}
+			ws := f.adapter.Prepared()
+			if len(ws) != 1 || len(ws[0].SkillList) != 2 || ws[0].Skills != filepath.Join(f.workRoot, taskID, "skills") {
+				t.Errorf("workspaces %+v", ws)
+			}
+		})
+	}
+}
