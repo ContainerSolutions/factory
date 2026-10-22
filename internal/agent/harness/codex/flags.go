@@ -59,13 +59,15 @@ const authFile = "auth.json"
 //     one (from a reading of codex-rs/login, not a run) and ignores what it holds.
 //   - tokenAccess and tokenRefresh are harness.Placeholder: the gateway replaces the bearer
 //     (and the chatgpt-account-id codex sends from tokenAccountID) on the way to chatgpt.com.
-//   - authKeyLastRefresh is the run's start, so codex, which refreshes a login days old,
+//   - authKeyLastRefresh is the run's start, so codex, which refreshes a login days old
+//     (from a reading of codex-rs/login; Phase 0's run saw no call to auth.openai.com),
 //     never refreshes in a run. The gateway refreshes the owner's real token itself (P1 §3).
 //     Were codex to try anyway (a 401 after the gateway's token expired), it would post the
 //     placeholder refresh token to auth.openai.com, which refuses it: the run fails on auth,
 //     and nothing it holds is a credential.
 //
-// Phase 0's shape (owner to re-check with make smoke-codex)
+// Phase 0's shape (owner to re-check on the first VM workspace run: make smoke-codex runs
+// the host path only)
 const (
 	authKeyTokens      = "tokens"
 	authKeyLastRefresh = "last_refresh"
