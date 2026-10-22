@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -179,7 +180,7 @@ func (r *vmRig) events() []runbundle.Event {
 	var out []runbundle.Event
 	for {
 		e, err := d.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return out
 		}
 		if err != nil {
