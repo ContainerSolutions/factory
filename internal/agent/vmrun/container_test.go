@@ -152,7 +152,10 @@ func runInContainer(t *testing.T, agent, name string) {
 		t.Errorf("event types %v", got)
 	}
 
-	// The fake ran once, as root, with the VM's environment and no credential.
+	// The fake ran once (no repair), as root, with the VM's environment and no credential.
+	if steps := stepNames(evs); slices.ContainsFunc(steps, func(s string) bool { return strings.HasPrefix(s, "repair:") }) {
+		t.Errorf("steps %v: the harness was repaired", steps)
+	}
 	c := readCall(t, fakeDir)
 	if got := e.RemoteHead("acme/docs", vmBranch); got == "" || got != c.Pushed {
 		t.Errorf("remote %s = %q, want %q", vmBranch, got, c.Pushed)
