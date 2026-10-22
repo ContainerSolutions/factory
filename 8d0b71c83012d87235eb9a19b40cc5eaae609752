@@ -1,2 +1,8 @@
 lisa-addressed:
 Pass 2 fixed: Write caps bundle.json at MaxManifestBytes; tests for the manifest and task caps.
+
+lisa-selfreview:
+Pass 3 (strict, independent reviewer read):
+- must-fix: an outcome with a Result over 64 KiB couldn't be sent as an event (MaxEventBytes) though WriteOutcome accepts 2 MiB -> fix: the outcome event carries no Result (OutcomeEvent; validate refuses one), outcome.json has it
+- blocker FACTORY-CRED-001-adjacent: errors on the host-read paths quoted VM values (status, reason, transcript, step.state, json/time parse errors that repeat the input) -> fix: no values, jsonError
+- must-fix: ReadOutcome Lstat-then-Open race / symlinks -> fix: os.Root on outDir, Lstat then f.Stat + SameFile
