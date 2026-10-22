@@ -1,0 +1,12 @@
+lisa-addressed:
+ccf-review on #107 (all accepted), fixed in this commit:
+- a7faa0beb444 (blocker): ReadOutcome(outDir, now) + Outcome.ClampThrottle(now): >now+6h (MaxThrottle) -> now+6h; zero or <=now -> now+1m (MinThrottle); nil stays nil (worker's DefaultThrottle). Validate refuses throttledUntil unless status throttled. LLD trust model notes the 6h clamp (codex weekly cap re-throttles each window). TestThrottleClamped.
+- e328d21608c1 (blocker): ReadOutcome Lstats outDir (must be a real dir), then compares root.Stat(".") with it; openRegular refuses Nlink > 1. Tests: symlinked out dir, file for out dir, second link.
+- a6efb70a13c1 (must-fix): token shapes tightened and bounded by [^A-Za-z0-9_-]; gh*_ 36+, github_pat_ 82+, sk-ant-/sk-proj- 80+, legacy sk- 48, rtk_/enr_/arf_ exactly 43, agt_<id>.<43>. Negative lookalikes in TestLooksLikeToken and TestValidate.
+- 3d44ef3bdc94 (must-fix): jsonError keeps only the kind of UnmarshalTypeError.Value. TestDecoder 200-digit ms.
+- 7ea989008a9e (must-fix): validateUsage refuses negative tokens and negative/non-finite cost.
+- 02b19e478421: JWT pattern and Bearer/Basic (needs a letter and a digit, so prose passes); comment says what it covers vs the redactor.
+- bc069a89ecdb: scanTokens over task.json (v1alpha1.Task) in Write/Read and every context file (parseContext). TestNoSecretFields doc updated.
+- 9af0809777d8: StepOf truncates Error to MaxStepError (8 KiB) on a rune boundary + "…(truncated)".
+- b0e53060d94c: runner.Statuses()/Reasons(); runbundle uses them; TestOutcomeReasons.
+- Open Q2: openRegular opens O_NONBLOCK (open_unix.go) and fstats; TestOutcomeFIFO (unix) proves it with Mkfifo.
