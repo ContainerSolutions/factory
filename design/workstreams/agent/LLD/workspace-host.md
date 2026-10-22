@@ -135,5 +135,5 @@ Each pin is a variable at the top of the script with its source in a comment. **
 
 ## Later phases
 
-- **Phase 3:** the in-VM runtime loads `/var/lib/factory/kind-images/*.tar` with `kind load image-archive`.
+- **Phase 3:** the in-VM runtime exports `/var/lib/factory/kind-images` as `FACTORY_KIND_IMAGES`, and the TaskSpec environment's `up` loads the archives with `kind load image-archive` once its cluster exists ([workspace-run.md](workspace-run.md#internalagentenvrun)).
 - **Phase 5:** `factory-agent supervise` runs `host check` at start. For a step that isn't ok it runs `init`'s steps itself, and stops only for one that needs a person (the sudo prompt, a platform failure), saying which. It takes the same `<statedir>/host.lock` while it does. Its release ships `factory-agent-linux-arm64` next to the darwin `factory-agent`, since `host check`'s `basevm` reads it.
