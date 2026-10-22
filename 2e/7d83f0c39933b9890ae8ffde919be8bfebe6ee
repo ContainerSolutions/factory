@@ -1,2 +1,5 @@
 lisa-addressed:
 Pass 2 fix: runInContainer fails when the events hold a repair step (the fake ran once).
+
+lisa-selfreview:
+Pass 3: approve, no findings (re-read the full diff: Makefile target, TestMain hook, shared readers, container body). The image-digest Question stays open in the PR body.
