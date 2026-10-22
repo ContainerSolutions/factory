@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 1: fixed all four. vmrun_test.go: an invalid-maxWallClock case (vmrun reports failed{harness-error} itself, no step ran); the SIGTERM cases assert the log of each signal, the twice case waits for the second to be handled; the event list's length is guarded. watchSignals returns on a closed channel. Adapters/AdapterOptions unexported (taskAdapters/adapterOptions).
