@@ -1,2 +1,7 @@
 lisa-addressed:
 Pass 1: all four self-review findings fixed (GET/HEAD /graphql refused in any spelling; valueTok "0"; policy package doc; r.TransferEncoding = nil).
+
+lisa-design:
+- Owner (2026-10-22): POST /graphql on api.github.com passes when every operation is a query; GitHub writes stay on the factory CLI. The check fails closed: application/json only, 1 MiB, one JSON object with only query/variables/operationName (no duplicate keys under any case), the document lexed and every top-level definition starting with {, query or fragment, no top-level name mutation/subscription in any case.
+- Owner (2026-10-22, PoC): the dispatcher route uses today's agent token; Config.DispatcherToken is a func read per request so it carries the agent token now (re-registration applies at once) and the run token (#101) later. Record injected class "dispatcher-token" (the LLD said run-token).
+- The git Basic user is x-access-token, per the LLD, not the credential's Username.
