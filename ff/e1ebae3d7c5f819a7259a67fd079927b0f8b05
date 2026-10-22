@@ -1,0 +1,9 @@
+lisa-selfreview:
+pass 1 (strict):
+- [must-fix] bundle-unreadable-by-run-user: Bundle lands root-owned with host modes 0600/0700, but the run is admin
+- [must-fix] start-event-before-bundle: start event carries runId/taskId but is sent before the bundle is read
+- [must-fix] outcome-without-pipeline: Setup failure and Run errors produce no Finished call: who writes outcome.json?
+- [should-fix] setup-off-dirs: With --system-setup off, how --work and --state-dir get created is unsaid
+- [should-fix] cancelled-run-transcript: The transcript file isn't written on a cancelled run (finish skips it), but the text implies it always is
+- [should-fix] kind-images-in-warm-base: kind archives are the warm base's, not the base's
+- [nit] wrong-cross-reference: 'P1 risk 4' and 'the plan's fallback' reference a document not in the repo

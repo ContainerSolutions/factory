@@ -1,0 +1,10 @@
+lisa-design:
+- Compile is a method on *Env (limits and cache are per-Env, not global); cache keyed by (kind, source), RWMutex, no eviction (catalog-bounded).
+- Whole-number float64/json.Number activation values are read as CEL ints (lazily, no tree copy), so state arithmetic like stackNext + 1 works on JSON-decoded numbers.
+- Limits: cel.CostLimit plus a context timeout per evaluation; exceeding either is cel.limit (ErrCostLimit/ErrTimeout); a recover at the eval boundary turns panics into cel.eval errors.
+- A literal string starting with = is written \=; a whole-string {{ params.x }} keeps the param's type (how dispatch.harness becomes an object); embedded placeholders accept scalars only; unknown params are ParamErrors.
+- event.raw is not exposed to CEL (the contract keeps provider payloads away from rules); item.runs (from WorkItemView.RunsBySpec) backs item.lastRun.
+- cel-go v0.31.0: v0.32 renamed the module to cel.dev/cel-go, which isn't the allow-listed path.
+
+lisa-selfreview:
+Pass 1: no findings (eval boundary: timeout, cost limit, recover, typed errors). Open question for reviewers: params precedence (03 vs catalog LLD).

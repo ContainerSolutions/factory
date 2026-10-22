@@ -1,0 +1,3 @@
+lisa-design:
+Lead/reviewer decision (2026-10-22): runbundle no longer shape-scans context file content (untrusted provider text; a token-shaped example in an issue must not fail a run); it keeps the shape scan of the manifest and task.json. PrepareBundle's checkSecrets instead refuses an exact match of the job's real secrets (git token, read tokens, agent token: the redactor's list) anywhere in the bytes it writes, naming the file, never the token. The lease carries no run token in this stack (#101 isn't below it): when it does, add it to redactor.secrets and checkSecrets covers it.
+Lead's answer to the open question: keep the gitcred helper for the skills fetch (ccf-skills may be private; host git fetches only ccf-skills into the cache, never an agent checkout).

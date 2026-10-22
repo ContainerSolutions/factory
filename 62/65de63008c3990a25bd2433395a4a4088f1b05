@@ -1,0 +1,11 @@
+lisa-design:
+- One GraphQL query per object (hand-written, no githubv4), follow-up pages for comments/threads; partial data with errors fails the observation.
+- approvedBy keeps each reviewer's latest decisive review; reviewer App → reviewer, author App → author, others → login.
+- Projections only from author-App markers (forgeries ignored; duplicates → oldest wins); marker v1 adds link kind/primary and labels= (the labels this item owns), percent-encoded, b64 JSON for non-strings, >60KB drops state.
+- Label ownership = listed in this item's previous marker; removed only if no other item's marker owns it; case-insensitive.
+- All calls use the author identity with read scopes; Project writes with issues:write or pull_requests:write on that repo only.
+- List via search per repo (90 days, like retention); globs expand against the App's installation repos using an internal metadata:read token (second internal-only unscoped exception after OrgToken).
+- Gap left for RT: item.deploy is per PR; stacks need containsMerge across all merged PRs (controller change).
+
+lisa-selfreview:
+Pass 1: no blocking findings; flagged the metadata:read installation-repos token and the RT deploy gap.

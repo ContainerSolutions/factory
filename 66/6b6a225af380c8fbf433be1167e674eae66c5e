@@ -1,0 +1,21 @@
+lisa-design:
+- Contract-first PR (P1 phase 1.3): the server stubs (createEnrollment, listEnrollments, deleteEnrollment answering 501 not-implemented; an admin's deregisterAgent answering 501) are forced by the spec and intended, not a FACTORY-CONTRACT-001 violation. Minting, storing and checking enrollment/refresh tokens and `factory agent enroll` are P1 phase 6.
+- registerAgent keeps the `registration` access; the middleware refuses a request carrying X-Factory-Enrollment-Token or X-Factory-Agent-Refresh-Token with 401 "enrollment is not available yet" before the join/owner check, even when the join and owner tokens are also present: an unverifiable credential must not be silently ignored.
+- deregisterAgent gets a new `agentOrAdmin` access: an `agt_` bearer goes to a.Agent (unchanged self path, 403 not-your-agent for another agent); anything else goes through the admin check (UI maintainers or CLI token). The handler answers any admin (KindUser or KindCLI) with 501 until phase 6, since an admin delete must also revoke the refresh token, which doesn't exist yet.
+- Prefixes: enr_ (enrollment token), arf_ (refresh token), enl_ (Enrollment id), checked free with `git grep` (no hit; existing: agt_, tsk_, run_, wi_, lse_, ses_, eff_, and rtk_ from #101).
+- Enrollment.id pattern is the spec's `^enl_[a-z0-9]{26}$` (a lowercase ULID). Code ids today are hex hashes; the examples' uppercase ULIDs are illustrative only. Kept as specified.
+- Enrollment.usedAt and .agent are required + nullable (always present, null while unused), like Agent.status.throttledUntil.
+- EnrollmentRequest.ttl is an inline string with x-go-type v1alpha1.Duration and `default: 7d` (a $ref to Duration can't carry a default in OpenAPI 3.0). The 30d cap is documented; the server enforces it in phase 6.
+- 501 problems keep the existing errorHandler rule (5xx detail not returned, logged at error): clients key on code `not-implemented`. Not changed in a contract PR.
+- No 501 response is declared in the spec: it's temporary and the `default` problem response covers it; each description says "until P1 phase 6 ... 501".
+- TestContract marks the three enrollment ops as covered by checking the 501 problem (sh.check with 501), so the coverage check still holds for every spec operation.
+- The registerAgent example stays the join/owner flow (no refreshToken): it's what the server returns today.
+- The admin 403 message "commands need the maintainers Group" is left as is: web mocks mirror the text and web/ can't change in a Go PR.
+
+lisa-selfreview:
+Self-review pass 1 (strict, ccf-review packs core,go,vue-app,repo/factory): verdict approve, no blocking findings.
+- FACTORY-CONTRACT-001: server changes (access table, 401 refusal of the new headers, three 501 stubs, admin deregister 501) are the minimum the spec forces; recorded as a design note, not a violation.
+- FACTORY-GEN-001 / FACTORY-SPLIT-001: make generate and npm run gen:api leave a clean tree; web/ changes are only schema.d.ts and operations.gen.ts.
+- CORE-TEST-001: covered by TestEnrollmentNotAvailable (both headers alone and with join+owner -> 401; join+owner still registers; admin session and CLI deregister -> 501; reader -> 403 not-admin; agent self -> 204), TestContract (the three stubs -> 501 not-implemented to an admin), TestAuthRequired (new ops and agentOrAdmin refuse missing/wrong credentials) and TestOperationsCovered (access <-> spec security).
+- Considered, not raised: the "agt_" literal now appears in two authenticate cases (pre-existing pattern); the admin 403 detail still says "commands need the maintainers Group" (web mocks mirror it; out of scope for a Go PR); 501 details are not returned to clients and log at error (existing errorHandler rule for 5xx).
+- Verification: make reviewable fails only on the known flake internal/agent/harness/claudecode TestRunFailures under -race (passes on re-run alone); make check-generated lint catalog openapi-lint pass (vacuum 100/100); web vitest 446/446.

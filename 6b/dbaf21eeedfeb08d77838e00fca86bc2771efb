@@ -1,0 +1,7 @@
+lisa-addressed:
+pass 2:
+- a0ef9dddc575 fixed: Process.Err exposes tart run's exit; boot's "tart run exited" error wraps it; test "tart run exits".
+- f0a55bce1cda fixed: the embedded script is unexported (provisionScript); ProvisionScriptSHA256() is the exported value basevm.json records.
+
+lisa-selfreview:
+pass 3 (strict): approve, no findings (re-read vm.go, proc.go, host.go, cmd/factory-agent/host.go, base.sh and the docs; make lint and the host/config/cmd race tests pass).

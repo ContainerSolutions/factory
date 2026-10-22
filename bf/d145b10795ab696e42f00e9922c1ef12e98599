@@ -1,0 +1,5 @@
+lisa-design:
+Gustavo, 2026-10-22: nothing Tart-related is published or built in CI. factory-agent host init (and supervise via host check) installs Tart and Softnet, adds the pf anchor and builds the base VM locally from an embedded provisioning script, so any Mac user can set up the same way. The only manual steps: one sudo prompt, the logins, the enrollment token.
+
+lisa-addressed:
+linux/arm64 factory-agent build for the base VM made explicit.
