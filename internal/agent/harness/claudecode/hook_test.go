@@ -12,7 +12,9 @@ import (
 func TestHookMain(t *testing.T) {
 	root := t.TempDir()
 	out, repo, ro := filepath.Join(root, "out"), filepath.Join(root, "repo"), filepath.Join(root, "ro")
-	for _, d := range []string{out, repo, ro} {
+	// outside shares out's name as a prefix: --write out doesn't let a write into it.
+	outside := filepath.Join(root, "outside")
+	for _, d := range []string{out, repo, ro, outside, filepath.Join(out, "outside")} {
 		if err := os.Mkdir(d, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -35,6 +37,8 @@ func TestHookMain(t *testing.T) {
 		deny  string // "" allows
 	}{
 		{"write the result", readOnly, call("Write", map[string]any{"file_path": filepath.Join(out, "result.json"), "content": "{}"}, ro), ""},
+		{"write a sibling that shares the root's prefix", readOnly, call("Write", map[string]any{"file_path": filepath.Join(outside, "x")}, ro), "may write only under"},
+		{"write under the root, in a directory named like the sibling", readOnly, call("Write", map[string]any{"file_path": filepath.Join(out, "outside", "x")}, ro), ""},
 		{"write a read-only checkout", readOnly, call("Write", map[string]any{"file_path": filepath.Join(ro, "README.md")}, ro), "may write only under"},
 		{"edit the writable checkout", readWrite, call("Edit", map[string]any{"file_path": "docs/a.md"}, repo), ""},
 		{"edit a checkout that is read-only here", readOnly, call("Edit", map[string]any{"file_path": "docs/a.md"}, repo), "is outside"},

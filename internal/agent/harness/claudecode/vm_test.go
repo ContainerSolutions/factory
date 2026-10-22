@@ -32,14 +32,34 @@ func vmWorkspace(t *testing.T, writable bool) harness.Workspace {
 	return ws
 }
 
-// vmAdapter is the adapter under IsolationVM with uid as the run's user. Anything it must not
-// use in the VM (the owner's environment, the OS sandbox's tools) fails the test.
+// refuseCommands is a Commands that fails the test: no Probe command may run.
+type refuseCommands struct{ t *testing.T }
+
+func (c refuseCommands) Output(_ context.Context, _ []string, name string, args ...string) ([]byte, error) {
+	c.t.Errorf("ran %s %q", name, args)
+	return nil, errors.New("no commands in this test")
+}
+
+// noBinary is a claude path that doesn't exist: an adapter that must not run claude gets it
+// (rather than "claude" on PATH, the real one), so a regression fails the run fast.
+func noBinary(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), "no-claude")
+}
+
+// vmAdapter is the adapter under IsolationVM with uid as the run's user, running binary
+// (noBinary when it is ""). Anything it must not use in the VM (Probe's commands, the
+// owner's environment, the OS sandbox's tools) fails the test.
 func vmAdapter(t *testing.T, uid int, binary string) *Adapter {
 	t.Helper()
+	if binary == "" {
+		binary = noBinary(t)
+	}
 	return New(Options{
 		Isolation: harness.IsolationVM, Binary: binary, GOOS: "linux", Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond,
-		Config: config.Harness{Default: "claude-sonnet-5-5"},
-		Getuid: func() int { return uid },
+		Config:   config.Harness{Default: "claude-sonnet-5-5"},
+		Commands: refuseCommands{t},
+		Getuid:   func() int { return uid },
 		Environ: func() []string {
 			t.Error("the VM adapter read the worker's environment")
 			return []string{"USER=owner", "ANTHROPIC_API_KEY=sk-ant-api03-worker-key"}
@@ -226,13 +246,26 @@ func TestVMRun(t *testing.T) {
 }
 
 // TestVMRefusals: Probe doesn't run in the VM, and an unknown Isolation is refused rather than
-// run without a sandbox.
+// run without a sandbox. The unknown one's adapter has no claude, no commands, no
+// environment and no OS sandbox to fall back on, so a regressed guard fails the test fast.
 func TestVMRefusals(t *testing.T) {
 	t.Parallel()
 	if _, err := vmAdapter(t, 1000, "").Probe(context.Background(), config.Harness{}); err == nil || !strings.Contains(err.Error(), "doesn't run in a VM workspace") {
 		t.Errorf("Probe = %v", err)
 	}
-	a := New(Options{Isolation: 7, LookPath: sandboxed, Config: config.Harness{ConfigDir: ownerConfigDir(t)}})
+	a := New(Options{
+		Isolation: 7, Binary: noBinary(t), GOOS: "linux", Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond,
+		Config:   config.Harness{ConfigDir: ownerConfigDir(t)},
+		Commands: refuseCommands{t},
+		Environ: func() []string {
+			t.Error("an unknown isolation read the worker's environment")
+			return nil
+		},
+		LookPath: func(n string) (string, error) {
+			t.Errorf("an unknown isolation looked for the OS sandbox's %s", n)
+			return "", errors.New("no sandbox for an unknown isolation")
+		},
+	})
 	ws := vmWorkspace(t, true)
 	for name, err := range map[string]error{
 		"Probe": func() error {

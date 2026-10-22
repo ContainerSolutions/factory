@@ -91,8 +91,8 @@ type Options struct {
 	// Isolation is what bounds the run's commands. IsolationSandbox (the zero value) is the
 	// owner's host: claude's OS sandbox and the owner's login, as above. IsolationVM is a VM
 	// workspace (workspace-run.md §Harnesses under IsolationVM): no Probe, no OS sandbox, a
-	// scratch CLAUDE_CONFIG_DIR, and a placeholder credential the gateway replaces; Config's
-	// ConfigDir, GOOS, LookPath and Environ aren't used.
+	// scratch CLAUDE_CONFIG_DIR, and a placeholder credential the gateway replaces;
+	// Config.ConfigDir and the GOOS, LookPath and Environ options aren't used.
 	Isolation harness.Isolation
 	// Getuid is the run's user id: under IsolationVM, a root run sets IS_SANDBOX. Default:
 	// os.Getuid.
