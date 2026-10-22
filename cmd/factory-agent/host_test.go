@@ -164,6 +164,19 @@ func TestHostCheckOK(t *testing.T) {
 	if code := runHost(context.Background(), []string{"init", "--config", cfg}, &out, &errOut, d); code != 0 || !strings.Contains(out.String(), "nothing to do") {
 		t.Fatalf("init: code %d\n%s%s", code, out.String(), errOut.String())
 	}
+
+	// pf opted out instead of installed: check still exits 0, with a warning.
+	if err := os.Remove(filepath.Join(e.Root, host.PFAnchorPath)); err != nil {
+		t.Fatal(err)
+	}
+	write(filepath.Join(e.Home, "Library", "Application Support", "factory-agent", "pf.optout"), []byte("date=2026-10-22T09:30:00Z\nreason=--no-pf\n"), 0o600)
+	out.Reset()
+	errOut.Reset()
+	if code := runHost(context.Background(), []string{"check", "--config", cfg}, &out, &errOut, d); code != 0 ||
+		!strings.Contains(out.String(), "pf        skipped  opted out on 2026-10-22T09:30:00Z (--no-pf, ") ||
+		!strings.Contains(errOut.String(), "warning: pf skipped: opted out") {
+		t.Fatalf("check with the pf opt-out: code %d\n%s%s", code, out.String(), errOut.String())
+	}
 }
 
 type errReader struct{}

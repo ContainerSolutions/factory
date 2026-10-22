@@ -6,5 +6,6 @@ set -eu
 /bin/rm -f $ROOT/Library/LaunchDaemons/com.compliance-framework.factory.pf.plist $ROOT/etc/pf.anchors/com.compliance-framework.factory
 /sbin/pfctl -a com.compliance-framework.factory -F all 2>/dev/null || true
 /usr/bin/sed -i '' '/^anchor "com\.compliance-framework\.factory"$/d' $ROOT/etc/pf.conf
+if [ -e $ROOT/etc/pf.conf.factory-backup ] && [ -n "$(/usr/bin/tail -c 1 $ROOT/etc/pf.conf.factory-backup)" ] && { /bin/cat $ROOT/etc/pf.conf.factory-backup; echo; } | /usr/bin/cmp -s - $ROOT/etc/pf.conf; then /bin/cp -p $ROOT/etc/pf.conf.factory-backup $ROOT/etc/pf.conf; fi
 if [ -e $ROOT/etc/pf.conf.factory-backup ] && /usr/bin/cmp -s $ROOT/etc/pf.conf $ROOT/etc/pf.conf.factory-backup; then /bin/rm -f $ROOT/etc/pf.conf.factory-backup; fi
 /sbin/pfctl -f $ROOT/etc/pf.conf

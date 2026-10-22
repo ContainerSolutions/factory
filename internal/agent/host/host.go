@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
+	"github.com/compliance-framework/factory/internal/clock"
 )
 
 // State is a step's state.
@@ -33,6 +34,9 @@ const (
 	StateMissing  State = "missing"
 	StateOutdated State = "outdated"
 	StateWrong    State = "wrong"
+	// StateSkipped is a step the owner opted out of (host init --no-pf): AllOK counts it as
+	// ok, and host check prints a warning.
+	StateSkipped State = "skipped"
 )
 
 // Status is one step's state, with what was found.
@@ -102,6 +106,8 @@ type Env struct {
 	LookPath func(string) (string, error)
 	// Prompt asks a y/N question; Init asks it before the pf step unless --yes.
 	Prompt func(question string) (bool, error)
+	// Clock dates the pf opt-out.
+	Clock clock.Clock
 	// Out gets the plan and the progress.
 	Out io.Writer
 	Log *slog.Logger
@@ -139,6 +145,9 @@ func (e *Env) Defaults() error {
 	}
 	if e.Prompt == nil {
 		e.Prompt = func(string) (bool, error) { return false, errors.New("no terminal to ask: pass --yes or --no-pf") }
+	}
+	if e.Clock == nil {
+		e.Clock = clock.Real{}
 	}
 	if e.Out == nil {
 		e.Out = io.Discard
@@ -193,10 +202,10 @@ func Check(ctx context.Context, steps []Step) []Status {
 	return out
 }
 
-// AllOK reports whether every status is ok.
+// AllOK reports whether every status is ok (or skipped by the owner).
 func AllOK(sts []Status) bool {
 	for _, s := range sts {
-		if s.State != StateOK {
+		if s.State != StateOK && s.State != StateSkipped {
 			return false
 		}
 	}
@@ -208,20 +217,25 @@ type InitOptions struct {
 	DryRun bool
 	// Yes installs the pf step without asking.
 	Yes bool
-	// NoPF skips the pf step.
+	// NoPF skips the pf step and records the opt-out in the state dir.
 	NoPF bool
 }
 
-const pfNotice = `The pf step lets VMs on Softnet bridges reach only the gateway port on this Mac.
-pf's "bridge" group is every bridgeN interface, so the rule also applies to other VMs' shared
-networking (plain Tart NAT, UTM, Docker Desktop on vmnet): they can no longer reach this Mac's
-other listening services. ` + "`factory-agent host init --remove-pf`" + ` undoes it.
-`
+// pfNotice is what Init says before asking about the pf step.
+func pfNotice() string {
+	return fmt.Sprintf(`The pf step lets VMs on %[1]s reach only the gateway port on this Mac.
+Softnet and vmnet number their bridges from bridge%[2]d up, one per running VM, so the rules
+apply to every VM on %[1]s, not only factory workspaces: VMs on other shared
+networking (plain Tart NAT, UTM, Docker Desktop on vmnet) can no longer reach this Mac's
+other listening services. `+"`factory-agent host init --remove-pf`"+` undoes it.
+`, pfBridgeRange(), pfFirstBridge)
+}
 
 // Init applies the steps that aren't ok, in order, then runs the root lines in one sudo
 // script and checks again. It returns the final check (the first one with DryRun, which
 // changes nothing), also when an Apply or the sudo script fails. A failed platform check
-// stops it before anything changes.
+// stops it before anything changes. A pf step skipped (--no-pf, or the prompt declined) is
+// recorded as an opt-out in the state dir; one that's installed removes it.
 func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	if e.StageDir == "" {
 		dir, err := os.MkdirTemp("", "factory-agent-host-")
@@ -237,6 +251,8 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	}
 	sts := Check(ctx, steps)
 	var todo []Step
+	var optOut string // the pf opt-out's reason, when the step is skipped
+	pfTodo := false
 	for i, s := range steps {
 		switch {
 		case sts[i].State == StateOK:
@@ -245,18 +261,21 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 			return sts, fmt.Errorf("platform: %s", sts[i].Detail)
 		case s.Name() == pfName && o.NoPF:
 			fmt.Fprintln(e.Out, "warning: --no-pf: workspaces can reach every listening service on this Mac's bridge address")
+			optOut = "--no-pf"
 			continue
 		case s.Name() == pfName && !o.Yes && !o.DryRun:
-			fmt.Fprint(e.Out, pfNotice)
+			fmt.Fprint(e.Out, pfNotice())
 			yes, err := e.Prompt("Install the pf anchor? [y/N] ")
 			if err != nil {
 				return sts, err
 			}
 			if !yes {
 				fmt.Fprintln(e.Out, "warning: pf skipped: workspaces can reach every listening service on this Mac's bridge address")
+				optOut = "declined at host init's prompt"
 				continue
 			}
 		}
+		pfTodo = pfTodo || s.Name() == pfName
 		todo = append(todo, s)
 	}
 	var root []string
@@ -271,7 +290,10 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 		}
 		root = append(root, p.Root...)
 	}
-	if len(todo) == 0 {
+	if optOut != "" {
+		fmt.Fprintf(e.Out, "  %-9s record the opt-out (%s) in %s\n", pfName, optOut, pfOptOutPath(e))
+	}
+	if len(todo) == 0 && optOut == "" {
 		fmt.Fprintln(e.Out, "  nothing to do")
 	}
 	script := Script(root)
@@ -288,9 +310,20 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 			return Check(ctx, steps), fmt.Errorf("%s: %w", s.Name(), err)
 		}
 	}
+	// the statedir step, applied above, made the dir the opt-out goes in.
+	if optOut != "" {
+		if err := writePFOptOut(e, optOut); err != nil {
+			return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
+		}
+	}
 	if len(root) > 0 {
 		if err := runRoot(ctx, e, script); err != nil {
 			return Check(ctx, steps), err
+		}
+	}
+	if pfTodo {
+		if err := removePFOptOut(e); err != nil {
+			return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
 		}
 	}
 	return Check(ctx, steps), nil

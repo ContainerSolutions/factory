@@ -15,13 +15,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
+	"github.com/compliance-framework/factory/internal/clock"
 )
 
 var update = flag.Bool("update", false, "rewrite the goldens under testdata/")
@@ -32,6 +36,7 @@ type fakeRunner struct {
 	calls    []string
 	versions map[string]string // tart binary -> its --version
 	team     string            // codesign -dv's TeamIdentifier
+	verify   error             // codesign --verify's error (a bad signature)
 	loaded   bool              // launchctl print succeeds
 	launchd  string            // launchctl print's output
 	macOS    string
@@ -59,7 +64,8 @@ func (r *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...
 		_, _ = io.WriteString(out, v+"\n")
 	case name == "codesign" && args[0] == "-dv":
 		_, _ = fmt.Fprintf(out, "Executable=%s\nTeamIdentifier=%s\n", args[1], r.team)
-	case name == "codesign":
+	case name == "codesign" && args[0] == "--verify":
+		return r.verify
 	case name == "launchctl" && !r.loaded:
 		return errors.New("exit status 113")
 	case name == "launchctl":
@@ -115,6 +121,7 @@ type entry struct {
 	name, body, link string
 	typ              byte
 	size             int64 // header size when body is short (oversize tests)
+	mode             int64 // header mode; 0 is 0o755
 }
 
 func tgz(t *testing.T, entries ...entry) []byte {
@@ -124,6 +131,9 @@ func tgz(t *testing.T, entries ...entry) []byte {
 	tw := tar.NewWriter(zw)
 	for _, e := range entries {
 		h := &tar.Header{Name: e.name, Mode: 0o755, Typeflag: e.typ, Linkname: e.link, Size: int64(len(e.body))}
+		if e.mode != 0 {
+			h.Mode = e.mode
+		}
 		if e.typ == 0 {
 			h.Typeflag = tar.TypeReg
 		}
@@ -164,6 +174,7 @@ func testEnv(t *testing.T) (*Env, *fakeRunner) {
 		Owner:    func(fs.FileInfo) (int, int, bool) { return 501, 20, true },
 		LookPath: func(string) (string, error) { return "", errors.New("not found") },
 		Out:      io.Discard,
+		Clock:    clock.NewFake(time.Date(2026, 10, 22, 9, 30, 0, 0, time.UTC)),
 	}
 	if err := e.Defaults(); err != nil {
 		t.Fatal(err)
@@ -291,17 +302,19 @@ func TestTartApply(t *testing.T) {
 		archive []byte
 		sha     string
 		team    string
+		verify  error
 		wantErr string
 	}{
-		{"installs", good, sum(good), TartTeamID, ""},
-		{"sha256 mismatch", good, strings.Repeat("0", 64), TartTeamID, "sha256 of tart.tar.gz is"},
-		{"wrong team", good, sum(good), "ABCDE12345", "isn't signed by team " + TartTeamID + ": TeamIdentifier=ABCDE12345"},
-		{"no tart.app", tgz(t, entry{name: "other", body: "x"}), "", TartTeamID, "has no tart.app"},
+		{"installs", good, sum(good), TartTeamID, nil, ""},
+		{"sha256 mismatch", good, strings.Repeat("0", 64), TartTeamID, nil, "sha256 of tart.tar.gz is"},
+		{"wrong team", good, sum(good), "ABCDE12345", nil, "isn't signed by team " + TartTeamID + ": TeamIdentifier=ABCDE12345"},
+		{"bad signature", good, sum(good), TartTeamID, errors.New("exit status 3"), "tart.app's signature: exit status 3"},
+		{"no tart.app", tgz(t, entry{name: "other", body: "x"}), "", TartTeamID, nil, "has no tart.app"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e, r := testEnv(t)
-			r.team = tt.team
+			r.team, r.verify = tt.team, tt.verify
 			if tt.sha == "" {
 				tt.sha = sum(tt.archive)
 			}
@@ -328,7 +341,10 @@ func TestTartApply(t *testing.T) {
 			if b, err := os.ReadFile(s.bin()); err != nil || string(b) != "tart binary" {
 				t.Fatalf("installed tart: %q %v", b, err)
 			}
-			if len(left) != 1 || r.ran("codesign --verify --deep --strict") != 1 {
+			// the signature must chain to Apple, with the team's leaf (not only codesign -dv's
+			// TeamIdentifier, which a self-made certificate can carry).
+			req := `codesign --verify --deep --strict -R =anchor apple generic and certificate leaf[subject.OU] = "` + TartTeamID + `" `
+			if len(left) != 1 || r.ran(req) != 1 {
 				t.Errorf("state dir %v, calls %v", left, r.calls)
 			}
 		})
@@ -451,6 +467,15 @@ func TestPFCheck(t *testing.T) {
 			installPF(t, e)
 			r.loaded, r.launchd = true, "\truns = 1\n\tlast exit code = 1\n"
 		}, StateWrong, "last exited with 1: pfctl didn't load the anchor"},
+		{"opted out", func(t *testing.T, e *Env, _ *fakeRunner) { optOut(t, e, "date=2026-10-01T08:00:00Z\nreason=--no-pf\n") },
+			StateSkipped, "opted out on 2026-10-01T08:00:00Z (--no-pf, "},
+		{"opted out, file without fields", func(t *testing.T, e *Env, _ *fakeRunner) { optOut(t, e, "") },
+			StateSkipped, "opted out on an unknown date (no reason recorded, "},
+		{"opted out, installed since", func(t *testing.T, e *Env, r *fakeRunner) {
+			optOut(t, e, "reason=--no-pf\n")
+			installPF(t, e)
+			r.loaded = true
+		}, StateOK, "bridge100 to bridge163 reach only port 3128"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -458,6 +483,17 @@ func TestPFCheck(t *testing.T) {
 			tt.set(t, e, r)
 			wantState(t, check(t, pfStep{e}), tt.want, tt.detail)
 		})
+	}
+}
+
+// optOut writes the pf opt-out file.
+func optOut(t *testing.T, e *Env, body string) {
+	t.Helper()
+	if err := os.MkdirAll(e.StateDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pfOptOutPath(e), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -489,6 +525,11 @@ func TestInitDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	golden(t, "init-dry-run.golden", e, out.String())
+	// the script, heredocs and all, parses.
+	_, script, _ := strings.Cut(out.String(), "sudo script (one sudo prompt):\n")
+	if b, err := exec.Command("/bin/sh", "-n", "-c", script).CombinedOutput(); err != nil {
+		t.Errorf("sh -n: %v\n%s", err, b)
+	}
 	if r.ran("sudo") != 0 || len(sts) != 5 || AllOK(sts) {
 		t.Errorf("sudo calls %d, statuses %+v", r.ran("sudo"), sts)
 	}
@@ -633,6 +674,197 @@ func TestExtract(t *testing.T) {
 			}
 			if _, err := os.Stat(filepath.Join(tmp, "evil")); err == nil {
 				t.Error("an entry landed outside the dir")
+			}
+		})
+	}
+}
+
+// TestExtractModes: modes keep only the 0755 bits, so an archive can't make a file setuid,
+// setgid or group/other-writable; dirs get the owner's rwx too.
+func TestExtractModes(t *testing.T) {
+	tmp := t.TempDir()
+	src := filepath.Join(tmp, "a.tar.gz")
+	archive := tgz(t,
+		entry{name: "suid", body: "x", mode: 0o4755},
+		entry{name: "sgid", body: "x", mode: 0o2777},
+		entry{name: "open/", typ: tar.TypeDir, mode: 0o777},
+		entry{name: "shut/", typ: tar.TypeDir, mode: 0o055},
+	)
+	if err := os.WriteFile(src, archive, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(tmp, "x")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := Extract(src, dir); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]fs.FileMode{"suid": 0o755, "sgid": 0o755, "open": fs.ModeDir | 0o755, "shut": fs.ModeDir | 0o755} {
+		fi, err := os.Lstat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fi.Mode() & (fs.ModeType | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky | fs.ModePerm); got != want {
+			t.Errorf("%s: mode %v, want %v", name, got, want)
+		}
+	}
+}
+
+// TestPFRules: the rules name each bridge (macOS pf has no interface groups) and parse with
+// pfctl -n where it exists (macOS; no root needed).
+func TestPFRules(t *testing.T) {
+	rules := PFRules(3128)
+	for _, w := range []string{" bridge100 ", " bridge163 }", "pass in quick on $bridges proto tcp from any to (self) port 3128\n"} {
+		if !strings.Contains(rules, w) {
+			t.Errorf("rules lack %q:\n%s", w, rules)
+		}
+	}
+	if strings.Contains(rules, "bridge164") || strings.Contains(rules, "on bridge ") {
+		t.Errorf("rules:\n%s", rules)
+	}
+	if _, err := os.Stat("/sbin/pfctl"); err != nil {
+		t.Skip("no /sbin/pfctl")
+	}
+	p := filepath.Join(t.TempDir(), "anchor")
+	if err := os.WriteFile(p, []byte(rules), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("/sbin/pfctl", "-n", "-v", "-a", PFAnchorName, "-f", p).CombinedOutput()
+	if err != nil {
+		t.Fatalf("pfctl -n: %v\n%s", err, out)
+	}
+	// 64 bridges, and 1 + 2 + 2 rules each once pfctl expands the port and proto lists.
+	if n := strings.Count(string(out), "quick on bridge1"); n != 64*5 {
+		t.Errorf("pfctl expanded %d rules, want %d:\n%s", n, 64*5, out)
+	}
+}
+
+// TestPFConfRoundTrip runs pfConfAppend's and pfConfRestore's lines with sh on a scratch
+// pf.conf: the restore gives back the original byte for byte, newline or not, and removes
+// the backup; a later edit stays, and so does the backup.
+func TestPFConfRoundTrip(t *testing.T) {
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("no /bin/sh")
+	}
+	tests := []struct {
+		name, conf, edit string
+		keepBackup       bool
+	}{
+		{"ends with a newline", "anchor \"com.apple/*\"\nload anchor \"com.apple\" from \"/etc/pf.anchors/com.apple\"\n", "", false},
+		{"no final newline", "anchor \"com.apple/*\"\nload anchor \"com.apple\" from \"/etc/pf.anchors/com.apple\"", "", false},
+		{"empty", "", "", false},
+		{"edited after init", "anchor \"com.apple/*\"", "pass quick on lo0 all\n", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, _ := testEnv(t)
+			conf, backup := e.sys(PFConfPath), e.sys(PFConfBackup)
+			if err := os.WriteFile(conf, []byte(tt.conf), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			run := func(lines []string) {
+				t.Helper()
+				script := Script(lines)
+				if runtime.GOOS != "darwin" { // GNU sed: -i takes no separate suffix argument
+					script = strings.ReplaceAll(script, "/usr/bin/sed -i ''", "/usr/bin/sed -i")
+				}
+				if out, err := exec.Command("/bin/sh", "-c", script).CombinedOutput(); err != nil {
+					t.Fatalf("%v\n%s\n%s", err, out, script)
+				}
+			}
+			run(pfConfAppend(e))
+			run(pfConfAppend(e)) // a second init changes nothing
+			nl := "\n"
+			if tt.conf == "" || strings.HasSuffix(tt.conf, "\n") {
+				nl = ""
+			}
+			if b, _ := os.ReadFile(conf); string(b) != tt.conf+nl+pfConfLine+"\n" {
+				t.Fatalf("after init pf.conf is %q", b)
+			}
+			if b, err := os.ReadFile(backup); err != nil || string(b) != tt.conf {
+				t.Fatalf("backup %q %v", b, err)
+			}
+			if tt.edit != "" {
+				f, err := os.OpenFile(conf, os.O_APPEND|os.O_WRONLY, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, _ = f.WriteString(tt.edit)
+				_ = f.Close()
+			}
+			run(pfConfRestore(e))
+			want := tt.conf
+			if tt.edit != "" {
+				want += nl + tt.edit
+			}
+			if b, _ := os.ReadFile(conf); string(b) != want {
+				t.Errorf("after --remove-pf pf.conf is %q, want %q", b, want)
+			}
+			if _, err := os.Stat(backup); (err == nil) != tt.keepBackup {
+				t.Errorf("backup left: %v, want %v", err == nil, tt.keepBackup)
+			}
+		})
+	}
+}
+
+// TestPFOptOut: --no-pf or a declined prompt records the opt-out, which check reports as
+// skipped (AllOK counts it); a later init without --no-pf asks again and, once pf is
+// installed, removes it.
+func TestPFOptOut(t *testing.T) {
+	tests := []struct {
+		name   string
+		o      InitOptions
+		reason string
+	}{
+		{"no pf", InitOptions{NoPF: true}, "--no-pf"},
+		{"prompt declined", InitOptions{}, "declined at host init's prompt"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, r := testEnv(t)
+			soft := tgz(t, entry{name: "softnet", body: "softnet binary"})
+			e.Pins.SoftnetSHA256, e.Pins.SoftnetBinarySHA256 = sum(soft), sum([]byte("softnet binary"))
+			e.LookPath = func(string) (string, error) { return "/opt/homebrew/bin/tart", nil }
+			r.versions["/opt/homebrew/bin/tart"] = TartVersion
+			e.Fetcher = newReleases(t, map[string][]byte{"softnet.tar.gz": soft})
+			asked := 0
+			e.Prompt = func(string) (bool, error) { asked++; return false, nil }
+
+			// a dry run records nothing.
+			if _, err := Init(context.Background(), e, InitOptions{DryRun: true, NoPF: tt.o.NoPF}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(pfOptOutPath(e)); err == nil {
+				t.Fatal("--dry-run recorded the opt-out")
+			}
+
+			sts, err := Init(context.Background(), e, tt.o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := os.ReadFile(pfOptOutPath(e))
+			if err != nil || !strings.Contains(string(b), "date=2026-10-22T09:30:00Z\nreason="+tt.reason+"\n") {
+				t.Fatalf("opt-out %q %v", b, err)
+			}
+			wantState(t, sts[4], StateSkipped, "opted out on 2026-10-22T09:30:00Z ("+tt.reason+", ")
+			// the fake sudo installed no softnet: only the pf step is ok-ish.
+			if !AllOK([]Status{sts[4]}) || AllOK(sts) {
+				t.Errorf("AllOK: %+v", sts)
+			}
+
+			// init without --no-pf asks again; accepted, pf is installed and the opt-out goes.
+			asked = 0
+			e.Prompt = func(string) (bool, error) { asked++; return true, nil }
+			r.script = ""
+			if _, err := Init(context.Background(), e, InitOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			if asked != 1 || !strings.Contains(r.script, PFAnchorPath) {
+				t.Errorf("asked %d times; script:\n%s", asked, r.script)
+			}
+			if _, err := os.Stat(pfOptOutPath(e)); err == nil {
+				t.Error("the opt-out is still there after pf was installed")
 			}
 		})
 	}

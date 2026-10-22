@@ -42,11 +42,13 @@ func hostUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: factory-agent host <op> [flags]   (workspace-host.md)
 
   check [--driver tart] [--json]
-        one line per step (ok, missing, outdated, wrong); exit 0 when every step is ok, else 1
+        one line per step (ok, missing, outdated, wrong, skipped); exit 0 when every step is
+        ok or skipped, else 1. skipped is a pf step the owner opted out of (a warning)
   init  [--driver tart] [--dry-run] [--yes] [--no-pf] [--remove-pf]
         applies the steps that aren't ok (one sudo prompt for Softnet and pf), then checks
         again: its exit code is that check's. --dry-run prints the plan and the sudo script
-        and changes nothing. --yes installs pf without asking; --no-pf skips it.
+        and changes nothing. --yes installs pf without asking; --no-pf skips it and records
+        the opt-out in the state dir (a later init without --no-pf asks again).
         --remove-pf removes the pf anchor, its LaunchDaemon and its pf.conf line.
 
 common flags: --config <agent.yaml> (only its workspace block is read; without the file, the
@@ -79,7 +81,7 @@ func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hos
 	removePF := fs.Bool("remove-pf", false, "init: remove the pf anchor instead")
 	fs.BoolVar(&o.DryRun, "dry-run", false, "init: print the plan and the sudo script; change nothing")
 	fs.BoolVar(&o.Yes, "yes", false, "init: install the pf anchor without asking")
-	fs.BoolVar(&o.NoPF, "no-pf", false, "init: skip the pf anchor")
+	fs.BoolVar(&o.NoPF, "no-pf", false, "init: skip the pf anchor and record the opt-out")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -136,6 +138,7 @@ func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hos
 		sts, err = host.Init(ctx, &e, o)
 		if err != nil || o.DryRun {
 			_ = printStatuses(stdout, sts, false)
+			warnSkipped(stderr, sts)
 			if err != nil {
 				return fail(err)
 			}
@@ -151,6 +154,7 @@ func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hos
 	if err := printStatuses(stdout, sts, *asJSON); err != nil {
 		return fail(err)
 	}
+	warnSkipped(stderr, sts)
 	if !host.AllOK(sts) {
 		return 1
 	}
@@ -167,6 +171,15 @@ func printStatuses(w io.Writer, sts []host.Status, asJSON bool) error {
 		}
 	}
 	return nil
+}
+
+// warnSkipped warns about the steps the owner opted out of.
+func warnSkipped(w io.Writer, sts []host.Status) {
+	for _, s := range sts {
+		if s.State == host.StateSkipped {
+			fmt.Fprintf(w, "warning: %s skipped: %s\n", s.Step, s.Detail)
+		}
+	}
 }
 
 // linePrompt asks on out and reads one line from in: y or yes is a yes.

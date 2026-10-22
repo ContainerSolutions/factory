@@ -198,7 +198,7 @@ func (s tartStep) Plan(context.Context) (Plan, error) {
 	return Plan{Do: []string{
 		"download " + s.e.Pins.TartURL + " and check its sha256",
 		"extract tart.app into " + filepath.Join(s.e.StateDir(), "tart"),
-		"verify its signature with codesign (team " + s.e.Pins.TartTeamID + ")",
+		"verify its signature with codesign: an Apple-issued certificate for team " + s.e.Pins.TartTeamID,
 	}}, nil
 }
 
@@ -219,7 +219,7 @@ func (s tartStep) Apply(ctx context.Context) error {
 	if fi, err := os.Lstat(app); err != nil || !fi.IsDir() {
 		return fmt.Errorf("%s has no tart.app", s.e.Pins.TartURL)
 	}
-	if _, err := s.e.output(ctx, "codesign", "--verify", "--deep", "--strict", app); err != nil {
+	if _, err := s.e.output(ctx, "codesign", "--verify", "--deep", "--strict", "-R", tartRequirement(s.e.Pins.TartTeamID), app); err != nil {
 		return fmt.Errorf("tart.app's signature: %w", err)
 	}
 	info, err := s.e.output(ctx, "codesign", "-dv", app)
@@ -237,6 +237,14 @@ func (s tartStep) Apply(ctx context.Context) error {
 		return err
 	}
 	return os.Rename(app, filepath.Join(dst, "tart.app"))
+}
+
+// tartRequirement is the code requirement tart.app must satisfy (codesign -R; a leading "="
+// makes it requirement text, see csreq(1)): a certificate chain anchored at Apple, whose leaf
+// is the team's. codesign -dv's TeamIdentifier alone comes from whatever certificate the
+// bundle carries, so a self-made one with that OU would pass.
+func tartRequirement(team string) string {
+	return `=anchor apple generic and certificate leaf[subject.OU] = "` + team + `"`
 }
 
 func hasLine(s, line string) bool {
