@@ -292,8 +292,9 @@ func (r *setup) resolve(ctx context.Context, mode SystemSetup) (SystemSetup, err
 
 // dirs makes the state dir and the work dir when they're absent, with their missing parents:
 // 0700, by the run's user when it can, else, with SetupOn, by sudo -n install -d owned by the
-// run's user (the default state dir's /var/lib/factory-agent isn't in the base). An existing directory is left as it is (the pipeline checks that the work dir is
-// empty); a symlink or a file is refused.
+// run's user (the default state dir's /var/lib/factory-agent isn't in the base). An existing
+// directory is left as it is (the pipeline checks that the work dir is empty); a symlink or a
+// file is refused.
 func (r *setup) dirs(ctx context.Context, mode SystemSetup) error {
 	if err := r.ensureDir(ctx, r.StateDir, mode); err != nil {
 		return fmt.Errorf("system setup: the state dir: %w", err)
@@ -504,13 +505,21 @@ func (t *tail) String() string { return string(t.b) }
 func checkCertificates(b []byte) error {
 	n := 0
 	for rest := b; ; {
-		var blk *pem.Block
-		blk, rest = pem.Decode(rest)
-		if blk == nil {
-			if n > 0 && len(bytes.TrimSpace(rest)) > 0 {
-				return errors.New("trailing data after its PEM blocks")
-			}
+		// pem.Decode skips any text before a block: refuse it, as after the last one.
+		next := bytes.TrimLeft(rest, " \t\r\n")
+		if n > 0 && len(next) == 0 {
 			break
+		}
+		if !bytes.HasPrefix(next, []byte("-----BEGIN ")) {
+			if n == 0 {
+				return errors.New("no PEM CERTIFICATE block at its start")
+			}
+			return errors.New("data between or after its PEM blocks")
+		}
+		var blk *pem.Block
+		blk, rest = pem.Decode(next)
+		if blk == nil {
+			return errors.New("a PEM block that doesn't decode")
 		}
 		if blk.Type != "CERTIFICATE" {
 			return fmt.Errorf("a PEM %q block: want only CERTIFICATE blocks", blk.Type)

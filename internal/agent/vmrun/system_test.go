@@ -364,13 +364,13 @@ func TestSetupErrors(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
 		name  string
-		proxy string
+		proxy string // "": proxyURL; "-": none
 		mode  SystemSetup
 		prep  func(t *testing.T, w *world)
 		want  string
 		calls int // the commands run before the failure; -1: don't check
 	}{
-		{name: "no proxy", mode: SetupOff, want: "--proxy is required"},
+		{name: "no proxy", proxy: "-", mode: SetupOff, want: "--proxy is required"},
 		{name: "an https proxy", proxy: "https://gw:3128", mode: SetupOff, want: "the scheme must be http"},
 		{name: "a proxy with a path", proxy: "http://gw:3128/x", mode: SetupOff, want: "only a host and a port"},
 		{name: "a proxy without a port", proxy: "http://gw", mode: SetupOff, want: "want http://<host>:<port>"},
@@ -380,8 +380,13 @@ func TestSetupErrors(t *testing.T) {
 		{name: "a key in the CA", mode: SetupOff, prep: func(t *testing.T, w *world) {
 			mustWrite(t, w.bundle.CAFile, testCA+"-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n", 0o600)
 		}, want: `a PEM "PRIVATE KEY" block`},
-		{name: "a CA that isn't PEM", mode: SetupOff, prep: func(t *testing.T, w *world) { mustWrite(t, w.bundle.CAFile, "not a cert", 0o600) }, want: "no PEM CERTIFICATE block"},
-		{name: "trailing data after the CA", mode: SetupOff, prep: func(t *testing.T, w *world) { mustWrite(t, w.bundle.CAFile, testCA+"junk", 0o600) }, want: "trailing data"},
+		{name: "a CA that isn't PEM", mode: SetupOff, prep: func(t *testing.T, w *world) { mustWrite(t, w.bundle.CAFile, "not a cert", 0o600) }, want: "no PEM CERTIFICATE block at its start"},
+		{name: "trailing data after the CA", mode: SetupOff, prep: func(t *testing.T, w *world) { mustWrite(t, w.bundle.CAFile, testCA+"junk", 0o600) }, want: "data between or after its PEM blocks"},
+		{name: "data before the CA", mode: SetupOff, prep: func(t *testing.T, w *world) { mustWrite(t, w.bundle.CAFile, "junk\n"+testCA, 0o600) }, want: "no PEM CERTIFICATE block at its start"},
+		{name: "data between two CAs", mode: SetupOff, prep: func(t *testing.T, w *world) { mustWrite(t, w.bundle.CAFile, testCA+"junk\n"+testCA, 0o600) }, want: "data between or after"},
+		{name: "a CA block that doesn't decode", mode: SetupOff, prep: func(t *testing.T, w *world) {
+			mustWrite(t, w.bundle.CAFile, "-----BEGIN CERTIFICATE-----\nAAAA\n", 0o600)
+		}, want: "a PEM block that doesn't decode"},
 		{name: "an oversize CA", mode: SetupOff, prep: func(t *testing.T, w *world) {
 			mustWrite(t, w.bundle.CAFile, strings.Repeat("a", runbundle.MaxCABytes+1), 0o600)
 		}, want: fmt.Sprintf("ca.pem is over %d bytes", runbundle.MaxCABytes)},
@@ -430,8 +435,11 @@ func TestSetupErrors(t *testing.T) {
 				tt.prep(t, w)
 			}
 			proxy := tt.proxy
-			if proxy == "" && tt.name != "no proxy" {
+			switch proxy {
+			case "":
 				proxy = proxyURL
+			case "-":
+				proxy = ""
 			}
 			env, err := w.setup(t, proxy, tt.mode)
 			if err == nil {
