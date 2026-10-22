@@ -1,0 +1,5 @@
+lisa-addressed:
+CORE-ERR-001 (280694a5b17a) ca.Generate key-only leftover: fixed, the key is removed when ca.pem can't be written (TestGenerateFiles).
+
+lisa-design:
+PR A (lean plan): the ca package and interception in one PR. No gatewayca step, no rotation, no name-constraint drift check on Load (deferred). Generate/Load/LoadOrGenerate take a context (AGENTS.md: I/O takes a context), a departure from the LLD's ca.Load(dir). No credential injection here: intercepted requests are forwarded with every carrier stripped and the class's cookie rule; PRs B and C set the credential in forwardIntercepted's Rewrite after stripCarriers. Tests reach their TLS upstream through Gateway.upstreamPort (443 by default), since a test can't bind 443.
