@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 1: renamed finish's stored to storeErr; APISchemas returns errNoClient; PromptSource and TranscriptStore document that their errors are returned as they are and must name their operation.
