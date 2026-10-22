@@ -3,3 +3,6 @@ Q7 wording: the 4.9 GiB RSS is both VMs together.
 
 lisa-selfreview:
 pass 2: approve, no findings.
+
+lisa-selfreview:
+P1 revision, pass 1: phase 2 said CI builds the OCI form, which phase 9 publishes (fixed). Pre-existing table bug: the unescaped | in `factory-agent stack env|wait` split the cell (fixed). Links, anchors and table column counts checked in both files; combined PR about 790 changed lines.
