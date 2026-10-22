@@ -3,3 +3,6 @@ P1 revision (Gustavo, 2026-10-22): the workspace base image is agent-host config
 
 lisa-addressed:
 Phase 2 vs 9 OCI image publishing made consistent; table pipe escaped.
+
+lisa-selfreview:
+Local-build revision, pass 1: the base VM needs a linux/arm64 factory-agent, not the darwin build that runs host init (fixed: make tart-up cross-builds it). No GHCR or tart push references remain; links, anchors and tables checked; PR about 800 changed lines.
