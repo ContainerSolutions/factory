@@ -5,3 +5,7 @@ Self-review pass 1 fixes:
 - FACTORY-LOG-001: the servers' ErrorLog is slog.NewLogLogger(slog.DiscardHandler).
 - CORE-TEST-001: tests for AllowTunnel plain-HTTP forwarding, a failed tunnel dial (502) and an encoded-slash path (400).
 - CORE-SIZE-001: handled at PR creation with the size-exception label.
+
+lisa-selfreview:
+Pass 2 (strict), 1 finding:
+- CORE-STYLE-001 [nit] Gateway.serve records the plain-HTTP host as sent while CONNECT and intercepted records lower-case it; Record.Host should be lower-cased everywhere.
