@@ -1,0 +1,8 @@
+lisa-design:
+- Step.Apply takes no RootDone: Apply does only the unprivileged part (download, verify, stage into Env.StageDir); Init then runs every step's Plan.Root lines in one sudo script after all Applies, so the password is typed once and the root lines can install staged files.
+- Root re-verifies Softnet: install to softnet.new (root, 0700), shasum -c the copy, then chmod 4755 and mv. A file swapped in the user-writable stage dir is never made SUID.
+- Pins are consts in pins.go plus a Pins struct on Env (DefaultPins) so tests can use fake tarballs; production always uses DefaultPins.
+- --remove-pf deletes only our anchor line from pf.conf (sed), not restore the backup, so later edits survive; the backup is removed only when pf.conf equals it again. The append path adds a newline first when pf.conf lacks a trailing one, so the delete restores it byte for byte.
+- init --dry-run exits 0 (1 only when the plan can't be made, e.g. platform failure); a real init exits with the final check's code.
+- Free disk comes from `df -Pk` through the Runner (no syscall.Statfs, whose fields differ per OS), on the state dir's nearest existing parent.
+- config.LoadWorkspace decodes the whole file strictly but validates only workspace; a missing file gives defaults only when --config wasn't given. Parse (worker) validates workspace when present.
