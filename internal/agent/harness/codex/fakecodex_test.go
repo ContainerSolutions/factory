@@ -46,6 +46,36 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// noCodex is New with every default that could reach a real codex replaced: Binary a path
+// that doesn't exist, Probe's commands failing the test (refuseCommands), and Probe's
+// environment failing the test. Every test whose adapter isn't meant to exec codex builds it
+// with this, so a regression that would exec (a broken isolation guard, a check that stops
+// failing first) fails the test instead of running the codex on PATH.
+func noCodex(t *testing.T, o Options) *Adapter {
+	t.Helper()
+	if o.Binary == "" {
+		o.Binary = filepath.Join(t.TempDir(), "no-codex")
+	}
+	if o.Commands == nil {
+		o.Commands = refuseCommands{t}
+	}
+	if o.Environ == nil {
+		o.Environ = func() []string {
+			t.Error("the adapter read the worker's environment")
+			return nil
+		}
+	}
+	return New(o)
+}
+
+// refuseCommands fails the test on any of Probe's commands.
+type refuseCommands struct{ t *testing.T }
+
+func (r refuseCommands) Output(_ context.Context, _ []string, name string, args ...string) ([]byte, error) {
+	r.t.Errorf("the adapter ran %s %q", name, args)
+	return nil, os.ErrPermission
+}
+
 // fakePlan scripts the fake codex: what --version and login status print, and one fakeRun
 // per exec, in order (the last one repeats).
 type fakePlan struct {

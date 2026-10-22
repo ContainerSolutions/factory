@@ -139,9 +139,10 @@ func writeNew(p string, b []byte) error {
 	return f.Close()
 }
 
-// placeholderAuth is auth.json under IsolationVM, in the shape Phase 0's run used (Q5; the
-// keys are in flags.go): tokens.id_token an unsigned JWT whose auth claim carries the
-// account's identifiers, which codex picks its workspace from (it doesn't verify the
+// placeholderAuth is auth.json under IsolationVM, in exactly the shape Phase 0's run used
+// (Q5; the keys and fixed values are in flags.go): OPENAI_API_KEY null; tokens.id_token an
+// unsigned JWT whose claims are Phase 0's email and far-future exp and the auth claim with
+// the account's identifiers, which codex picks its workspace from (it doesn't verify the
 // signature); tokens.access_token and tokens.refresh_token harness.Placeholder, which the
 // gateway replaces on the way to chatgpt.com; tokens.account_id the account (codex sends it
 // as chatgpt-account-id, which the gateway replaces too); and last_refresh now, so codex
@@ -158,13 +159,18 @@ func placeholderAuth(acct runbundle.CodexAccount, now time.Time) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	claims, err := seg(map[string]any{claimAuth: map[string]string{
-		claimAccountID: acct.AccountID, claimUserID: acct.UserID, claimPlanType: acct.PlanType,
-	}})
+	claims, err := seg(map[string]any{
+		claimEmail:  idTokenEmail,
+		claimExpiry: idTokenExpiry,
+		claimAuth: map[string]string{
+			claimAccountID: acct.AccountID, claimUserID: acct.UserID, claimPlanType: acct.PlanType,
+		},
+	})
 	if err != nil {
 		return nil, err
 	}
 	doc := map[string]any{
+		authKeyAPIKey: nil,
 		authKeyTokens: map[string]string{
 			tokenID:        header + "." + claims + "." + idTokenSignature,
 			tokenAccess:    harness.Placeholder,

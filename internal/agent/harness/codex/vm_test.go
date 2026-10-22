@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -35,27 +36,24 @@ func vmWorkspace(t *testing.T, writable bool) harness.Workspace {
 }
 
 // vmAdapter is the adapter under IsolationVM with vmAccount. Anything it must not use in the
-// VM (the owner's environment, Probe's commands) fails the test.
+// VM (the owner's environment, Probe's commands) fails the test. Config.Home is a signed-in
+// owner's CODEX_HOME, which the VM must never read: the token scans find its tokens if it
+// does. An empty binary is one that doesn't exist (noCodex), never the codex on PATH.
 func vmAdapter(t *testing.T, binary string) *Adapter {
 	t.Helper()
+	if binary == "" {
+		binary = filepath.Join(t.TempDir(), "no-codex")
+	}
 	acct := vmAccount
 	return New(Options{
 		Isolation: harness.IsolationVM, Account: &acct, Binary: binary, Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond,
-		Config:   config.Harness{Default: "gpt-5-codex"},
+		Config:   config.Harness{Home: ownerHome(t), Default: "gpt-5-codex"},
 		Commands: refuseCommands{t},
 		Environ: func() []string {
 			t.Error("the VM adapter read the worker's environment")
 			return []string{"OPENAI_API_KEY=sk-should-not-pass"}
 		},
 	})
-}
-
-// refuseCommands fails the test on any of Probe's commands.
-type refuseCommands struct{ t *testing.T }
-
-func (r refuseCommands) Output(_ context.Context, _ []string, name string, args ...string) ([]byte, error) {
-	r.t.Errorf("the VM adapter ran %s %q", name, args)
-	return nil, os.ErrPermission
 }
 
 func vmTask(model, effort, auth string) v1alpha1.Task {
@@ -91,14 +89,32 @@ func golden(t *testing.T, ws harness.Workspace, name string, got []byte) {
 // TestVMPrepare pins the scratch CODEX_HOME under IsolationVM: the placeholder auth.json is a
 // 0600 file of its own (no link to a login), config.toml has no [sandbox_workspace_write]
 // and keeps the MCP server, AGENTS.md is the preamble (plus, for a read-only checkout, that
-// it may not be changed), and the skills are flattened as on the host.
+// it may not be changed), and the skills are flattened as on the host. No token reaches a
+// file: not the owner's login (in the adapter's Config.Home, which the VM never reads), nor
+// a token in the run's environment (the "env tokens" case; the env's names are in
+// config.toml, never its values).
 func TestVMPrepare(t *testing.T) {
 	t.Parallel()
-	for _, writable := range []bool{true, false} {
-		name := map[bool]string{true: "read-write", false: "read-only"}[writable]
+	for _, tt := range []struct {
+		name      string
+		writable  bool
+		envTokens bool
+	}{
+		{"read-write", true, false},
+		{"read-only", false, false},
+		{"env tokens", true, true},
+	} {
+		name, writable := tt.name, tt.writable
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			ws := vmWorkspace(t, writable)
+			if tt.envTokens {
+				// The host's tokens, as if the pipeline had handed them over: GH_TOKEN the
+				// task's real token rather than the placeholder, and the agent token.
+				i := slices.Index(ws.Env, "GH_TOKEN="+harness.Placeholder)
+				ws.Env[i] = "GH_TOKEN=ghs_taskTokenNeverOnDisk0123456789"
+				ws.Env = append(ws.Env, "FACTORY_TOKEN=agent-token-never-on-disk")
+			}
 			if err := os.MkdirAll(filepath.Join(ws.Repo, ".git"), 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -133,12 +149,23 @@ func TestVMPrepare(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(ws.Home, ".cache")); err == nil {
 				t.Error("the VM made the sandbox's writable cache dir")
 			}
-			golden(t, ws, "agents-"+name+".golden.md", read("AGENTS.md"))
 			// auth.json and config.toml don't depend on the checkout: one golden each, which
-			// the read-write case writes on -update.
-			if writable || !*update {
+			// the read-write case writes on -update. The env tokens case's config.toml
+			// names two more variables, and it writes no golden.
+			switch {
+			case tt.envTokens:
+				if !*update {
+					golden(t, ws, "auth.golden.json", read("auth.json"))
+				}
+				if !strings.Contains(string(cfg), `"FACTORY_TOKEN"`) {
+					t.Errorf("config.toml doesn't pass FACTORY_TOKEN through by name:\n%s", cfg)
+				}
+			case writable || !*update:
+				golden(t, ws, "agents-"+name+".golden.md", read("AGENTS.md"))
 				golden(t, ws, "auth.golden.json", read("auth.json"))
 				golden(t, ws, "config.golden.toml", cfg)
+			default:
+				golden(t, ws, "agents-"+name+".golden.md", read("AGENTS.md"))
 			}
 			checkPlaceholderAuth(t, read("auth.json"), vmAccount, t0)
 			scanFiles(t, ws.Root)
@@ -147,30 +174,43 @@ func TestVMPrepare(t *testing.T) {
 }
 
 // checkPlaceholderAuth decodes auth.json the way codex reads it and checks its meaning, so
-// -update can't bless a regression in the golden: an unsigned id_token carrying exactly the
-// account's identifiers, the placeholder as both tokens, the account id, and last_refresh
-// the injected now.
+// -update can't bless a regression in the golden: Phase 0's shape (P1-phase0-report.md, Q5)
+// and nothing else at either level, OPENAI_API_KEY null, an unsigned id_token carrying
+// Phase 0's email and exp and exactly the account's identifiers, the placeholder as both
+// tokens, the account id, and last_refresh the injected now. The values are written out here
+// rather than taken from flags.go, so a changed constant fails too.
 func checkPlaceholderAuth(t *testing.T, b []byte, acct runbundle.CodexAccount, now time.Time) {
 	t.Helper()
-	var doc struct {
-		Tokens      map[string]string `json:"tokens"`
-		LastRefresh time.Time         `json:"last_refresh"`
-	}
-	if err := json.Unmarshal(b, &doc); err != nil {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(b, &top); err != nil {
 		t.Fatal(err)
+	}
+	if got, want := slices.Sorted(maps.Keys(top)), []string{"OPENAI_API_KEY", "last_refresh", "tokens"}; !slices.Equal(got, want) {
+		t.Errorf("auth.json has the keys %q, want %q:\n%s", got, want, b)
+	}
+	if v := string(top["OPENAI_API_KEY"]); v != "null" {
+		t.Errorf("auth.json: OPENAI_API_KEY = %s, want null", v)
+	}
+	var lastRefresh time.Time
+	if err := json.Unmarshal(top["last_refresh"], &lastRefresh); err != nil || !lastRefresh.Equal(now) {
+		t.Errorf("auth.json: last_refresh = %s (%v), want %s", top["last_refresh"], err, now.UTC().Format(time.RFC3339Nano))
+	}
+	var tokens map[string]string
+	if err := json.Unmarshal(top["tokens"], &tokens); err != nil {
+		t.Fatalf("auth.json: tokens: %v", err)
 	}
 	want := map[string]string{"access_token": harness.Placeholder, "refresh_token": harness.Placeholder, "account_id": acct.AccountID}
 	for k, v := range want {
-		if doc.Tokens[k] != v {
-			t.Errorf("tokens.%s = %q, want %q", k, doc.Tokens[k], v)
+		if tokens[k] != v {
+			t.Errorf("tokens.%s = %q, want %q", k, tokens[k], v)
 		}
 	}
-	if len(doc.Tokens) != 4 || !doc.LastRefresh.Equal(now) {
-		t.Errorf("auth.json:\n%s", b)
+	if got := slices.Sorted(maps.Keys(tokens)); !slices.Equal(got, []string{"access_token", "account_id", "id_token", "refresh_token"}) {
+		t.Errorf("auth.json: tokens has the keys %q:\n%s", got, b)
 	}
-	parts := strings.Split(doc.Tokens["id_token"], ".")
+	parts := strings.Split(tokens["id_token"], ".")
 	if len(parts) != 3 || parts[2] == "" {
-		t.Fatalf("id_token %q isn't a three-segment JWT", doc.Tokens["id_token"])
+		t.Fatalf("id_token %q isn't a three-segment JWT", tokens["id_token"])
 	}
 	decode := func(seg string, v any) {
 		raw, err := base64.RawURLEncoding.DecodeString(seg)
@@ -186,13 +226,17 @@ func checkPlaceholderAuth(t *testing.T, b []byte, acct runbundle.CodexAccount, n
 	if header["alg"] != "none" || header["typ"] != "JWT" || len(header) != 2 {
 		t.Errorf("id_token header %v", header)
 	}
-	var claims map[string]map[string]string
+	var claims any
 	decode(parts[1], &claims)
-	wantClaims := map[string]map[string]string{"https://api.openai.com/auth": {
-		"chatgpt_account_id": acct.AccountID, "chatgpt_user_id": acct.UserID, "chatgpt_plan_type": acct.PlanType,
-	}}
-	if got, _ := json.Marshal(claims); !bytes.Equal(got, mustJSON(t, wantClaims)) {
-		t.Errorf("id_token claims %s", got)
+	wantClaims := map[string]any{
+		"email": "placeholder@example.invalid",
+		"exp":   4102444800,
+		"https://api.openai.com/auth": map[string]string{
+			"chatgpt_account_id": acct.AccountID, "chatgpt_user_id": acct.UserID, "chatgpt_plan_type": acct.PlanType,
+		},
+	}
+	if got := mustJSON(t, claims); !bytes.Equal(got, mustJSON(t, wantClaims)) {
+		t.Errorf("id_token claims %s, want %s", got, mustJSON(t, wantClaims))
 	}
 }
 
@@ -299,7 +343,9 @@ func TestVMRefusals(t *testing.T) {
 		t.Errorf("Probe = %v", err)
 	}
 
-	unknown := New(Options{Isolation: 7, Config: config.Harness{Home: ownerHome(t)}})
+	// Built with noCodex: were vm() to stop refusing the value, no method could reach the
+	// codex on PATH or the worker's environment.
+	unknown := noCodex(t, Options{Isolation: 7, Config: config.Harness{Home: ownerHome(t)}})
 	ws := vmWorkspace(t, true)
 	for name, err := range map[string]error{
 		"Probe": func() error {

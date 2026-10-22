@@ -48,15 +48,20 @@ const loginCommand = "codex login --device-auth"
 const authFile = "auth.json"
 
 // auth.json under IsolationVM (placeholderAuth): the keys codex reads its ChatGPT login from,
-// in the shape Phase 0's run used (P1-phase0-report.md, Q5: codex rust-v0.163.0 answered
-// behind the gateway with it).
+// in exactly the shape of the auth.json Phase 0's run used (P1-phase0-report.md, Q5: codex
+// rust-v0.163.0 answered behind the gateway with it): authKeyAPIKey, authKeyLastRefresh and
+// authKeyTokens at the top level, and tokenID, tokenAccess, tokenRefresh and tokenAccountID
+// in tokens, nothing added or left out.
 //
+//   - authKeyAPIKey is null: the run has no API key (an API-key run is refused in the VM).
 //   - authKeyTokens.tokenID is the id_token, a JWT codex decodes without verifying it. Its
 //     claimAuth claim's claimAccountID, claimUserID and claimPlanType pick codex's
 //     workspace: with placeholders codex fails "selected workspace missing from routing
-//     discovery" before it sends the prompt. The token is unsigned (jwtAlgNone);
-//     idTokenSignature fills its third segment, because codex's decoder may refuse an empty
-//     one (from a reading of codex-rs/login, not a run) and ignores what it holds.
+//     discovery" before it sends the prompt. Its claimEmail is idTokenEmail and its
+//     claimExpiry idTokenExpiry (2100-01-01), Phase 0's values: were codex to check the
+//     id_token's expiry, it would never find it stale. The token is unsigned (jwtAlgNone); idTokenSignature, Phase 0's dummy,
+//     fills its third segment, because codex's decoder may refuse an empty one (from a
+//     reading of codex-rs/login, not a run) and ignores what it holds.
 //   - tokenAccess and tokenRefresh are harness.Placeholder: the gateway replaces the bearer
 //     (and the chatgpt-account-id codex sends from tokenAccountID) on the way to chatgpt.com.
 //   - authKeyLastRefresh is the run's start, so codex, which refreshes a login days old
@@ -69,12 +74,15 @@ const authFile = "auth.json"
 // Phase 0's shape (owner to re-check on the first VM workspace run: make smoke-codex runs
 // the host path only)
 const (
+	authKeyAPIKey      = "OPENAI_API_KEY"
 	authKeyTokens      = "tokens"
 	authKeyLastRefresh = "last_refresh"
 	tokenID            = "id_token"
 	tokenAccess        = "access_token"
 	tokenRefresh       = "refresh_token"
 	tokenAccountID     = "account_id"
+	claimEmail         = "email"
+	claimExpiry        = "exp"
 	claimAuth          = "https://api.openai.com/auth"
 	claimAccountID     = "chatgpt_account_id"
 	claimUserID        = "chatgpt_user_id"
@@ -83,7 +91,11 @@ const (
 	jwtAlgNone         = "none"
 	jwtTyp             = "typ"
 	jwtTypJWT          = "JWT"
-	idTokenSignature   = "unsigned"
+	// idTokenEmail and idTokenExpiry are Phase 0's email and exp claims: a placeholder
+	// address (.invalid is reserved, RFC 2606) and 2100-01-01T00:00:00Z in Unix seconds.
+	idTokenEmail           = "placeholder@example.invalid"
+	idTokenExpiry    int64 = 4102444800
+	idTokenSignature       = "x"
 )
 
 // configFile is codex's config in CODEX_HOME.
