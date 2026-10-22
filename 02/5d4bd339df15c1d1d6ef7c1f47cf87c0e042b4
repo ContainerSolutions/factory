@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 2: fixed both. vmrun_test.go uses errors.Is(err, io.EOF) (make lint: 0 issues); events_test.go covers an unwritable stdout and an over-cap event: logged, dropped, the next event still sent.
