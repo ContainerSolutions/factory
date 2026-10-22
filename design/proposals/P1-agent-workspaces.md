@@ -242,8 +242,9 @@ memory. Per host:
   installs a pf anchor that allows only the gateway port from Softnet bridges (§7).
 - **Every request is logged** (time, method, host, path, status, which credential was injected;
   no bodies or values) into the run's transcript as `factory.egress` lines.
-- **The CA is per agent host for the PoC, per task later:** it intercepts only the credentialed
-  hosts above. Its public half is in the bundle, and the key stays in the supervisor's state dir.
+- **One CA per agent host** (Decision 9): it intercepts only the credentialed hosts above. Its
+  public half goes in every bundle, and its key stays 0600 in the supervisor's state dir.
+  Rotating it means `host init --rotate-ca`, which the next workspaces pick up.
 
 ### 4. The environment is declared in the TaskSpec
 
@@ -549,3 +550,5 @@ From 2026-10-21, revised 2026-10-22 after Phase 0.
    is published. TaskSpecs declare only commands
    (`workspace.environment`), which always run inside a workspace on a registered agent; the
    dispatcher never runs them.
+9. **One gateway CA per agent host** (new). A per-task CA buys little, since each VM trusts only
+   its own host's CA, and the key never leaves the supervisor's state dir.
