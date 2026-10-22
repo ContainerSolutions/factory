@@ -90,6 +90,12 @@ type Options struct {
 	// Schemas gives spec-specific output schemas. Default: APISchemas, the dispatcher's
 	// getTaskOutputSchema through the job's client.
 	Schemas SchemaSource
+	// Prompts gives the rendered prompt template and the context items. Default:
+	// APIPrompts, the dispatcher's getTaskPrompt and getTaskContext through the job's client.
+	Prompts PromptSource
+	// Transcripts keeps the redacted, gzipped transcript. Default: APITranscripts, the
+	// dispatcher's uploadTranscript through the job's client.
+	Transcripts TranscriptStore
 	// Stack brings the local stack up; nil: tasks that need one fail with stack-error.
 	Stack Stack
 	// Environ is the owner's environment, reduced to the allow-list for the harness.
@@ -109,6 +115,15 @@ type Options struct {
 	DefaultWallClock time.Duration
 	// BotName and BotEmail are the commit author set in the writable checkout.
 	BotName, BotEmail string
+	// OnStep, when set, is called after each step that ran with its name, its duration and
+	// its error (nil on success): workspace, credentials, clone, stack, skills, schema,
+	// prompt, environment, prepare, harness, repair (only after an invalid Result) and
+	// finish (its error is the transcript's). The error is not redacted.
+	OnStep func(name string, d time.Duration, err error)
+	// Finished, when set, is called once with the run's Outcome at the end of finish, after
+	// the transcript is stored and before cleanup (the stack's Down, the credential socket,
+	// the workspace's removal). It isn't called when Run returns an error.
+	Finished func(runner.Outcome)
 }
 
 // Pipeline runs leased tasks. It is safe for concurrent use: each run has its own
@@ -153,6 +168,12 @@ func New(o Options) (*Pipeline, error) {
 	}
 	if o.Schemas == nil {
 		o.Schemas = APISchemas{}
+	}
+	if o.Prompts == nil {
+		o.Prompts = APIPrompts{}
+	}
+	if o.Transcripts == nil {
+		o.Transcripts = APITranscripts{}
 	}
 	if o.Environ == nil {
 		o.Environ = os.Environ
@@ -293,15 +314,28 @@ func (r *run) execute(ctx context.Context) stepResult {
 		{"environment", runner.ReasonHarnessError, r.buildEnv},
 	}
 	for _, s := range steps {
-		if err := s.fn(ctx); err != nil {
+		t0 := r.p.clk.Now()
+		err := s.fn(ctx)
+		r.stepDone(s.name, t0, err)
+		if err != nil {
 			return failed(s.reason, fmt.Errorf("%s: %w", s.name, err))
 		}
 		r.log.Debug("pipeline step done", "step", s.name)
 	}
-	if err := ad.Prepare(ctx, r.ws, r.task); err != nil {
+	t0 := r.p.clk.Now()
+	err := ad.Prepare(ctx, r.ws, r.task)
+	r.stepDone("prepare", t0, err)
+	if err != nil {
 		return failed(runner.ReasonHarnessError, fmt.Errorf("prepare %s: %w", ad.Name(), err))
 	}
 	return r.runHarness(ctx)
+}
+
+// stepDone reports a step that started at t0 to Options.OnStep.
+func (r *run) stepDone(name string, t0 time.Time, err error) {
+	if f := r.p.o.OnStep; f != nil {
+		f(name, r.p.clk.Now().Sub(t0), err)
+	}
 }
 
 // runHarness runs the harness, validates the Result and, once, repairs it.
@@ -309,32 +343,42 @@ func (r *run) runHarness(ctx context.Context) stepResult {
 	r.harnessed = true
 	r.mon.countTurns(true)
 	r.log.Info("harness starting", "harness", r.adapter.Name())
+	t0 := r.p.clk.Now()
 	raw, err := r.adapter.Run(ctx, r.ws, r.task, r.prompt, r.mon)
 	r.parts = append(r.parts, raw.Transcript)
 	r.mon.countTurns(false)
 	if res, stop := r.harnessEnded(ctx, err); stop {
+		r.stepDone("harness", t0, res.err)
 		return res
 	}
 	res, problems := r.checkResult(raw)
+	r.stepDone("harness", t0, nil)
 	if len(problems) == 0 {
 		r.result = res
 		return stepResult{status: string(res.Status)}
 	}
 	r.log.Info("the result is invalid: one repair turn", "problems", len(problems))
 	r.parts = append(r.parts, factoryLine("repair", map[string]any{"problems": problems}))
+	t0 = r.p.clk.Now()
 	if err := os.Remove(r.ws.Result); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return failed(runner.ReasonHarnessError, fmt.Errorf("remove the invalid result: %w", err))
+		s := failed(runner.ReasonHarnessError, fmt.Errorf("remove the invalid result: %w", err))
+		r.stepDone("repair", t0, s.err)
+		return s
 	}
 	raw, err = r.adapter.Repair(ctx, r.ws, problems, r.mon)
 	r.parts = append(r.parts, raw.Transcript)
 	if res, stop := r.harnessEnded(ctx, err); stop {
+		r.stepDone("repair", t0, res.err)
 		return res
 	}
 	res, problems = r.checkResult(raw)
 	if len(problems) > 0 {
 		r.parts = append(r.parts, factoryLine("invalid-result", map[string]any{"problems": problems}))
-		return failed(runner.ReasonInvalidResult, fmt.Errorf("still invalid after the repair turn: %s", strings.Join(problems, "; ")))
+		s := failed(runner.ReasonInvalidResult, fmt.Errorf("still invalid after the repair turn: %s", strings.Join(problems, "; ")))
+		r.stepDone("repair", t0, s.err)
+		return s
 	}
+	r.stepDone("repair", t0, nil)
 	r.result = res
 	return stepResult{status: string(res.Status)}
 }
@@ -367,9 +411,11 @@ func stepFromCause(cause error) stepResult {
 	return failed(runner.ReasonCancelled, cause)
 }
 
-// finish turns the last step into the Outcome, uploading the transcript when the harness
-// ran. parent is the worker's context.
+// finish turns the last step into the Outcome, storing the transcript when the harness ran,
+// and hands it to Options.Finished. parent is the worker's context.
 func (r *run) finish(parent context.Context, s stepResult) runner.Outcome {
+	t0 := r.p.clk.Now()
+	var stored error
 	// A step that failed because a limit or a rate limit cancelled it (the clone was
 	// cancelled by the wall-clock timer) ended for that reason.
 	if cause := r.mon.stopped(); cause != nil && s.status == runner.StatusFailed &&
@@ -409,13 +455,18 @@ func (r *run) finish(parent context.Context, s stepResult) runner.Outcome {
 	}
 	if r.harnessed && parent.Err() == nil {
 		uctx, cancel := context.WithTimeout(context.WithoutCancel(parent), cleanupTimeout)
-		ref, err := r.uploadTranscript(uctx)
+		ref, err := r.storeTranscript(uctx)
 		cancel()
 		if err != nil {
+			stored = err
 			r.log.Warn("transcript not uploaded", "err", r.red.String(err.Error()))
 		} else {
 			out.TranscriptRef = ref
 		}
+	}
+	r.stepDone("finish", t0, stored)
+	if f := r.p.o.Finished; f != nil {
+		f(out)
 	}
 	return out
 }

@@ -933,6 +933,105 @@ func TestRunWithStack(t *testing.T) {
 	f.checkClean("")
 }
 
+// orderStack is a Stack that records its calls in a shared log.
+type orderStack struct{ record func(string) }
+
+func (s orderStack) Up(context.Context, harness.Workspace, v1alpha1.Task) (map[string]string, error) {
+	s.record("up")
+	return nil, nil
+}
+
+func (s orderStack) Down(context.Context) error {
+	s.record("down")
+	return nil
+}
+
+// TestRunHooks: OnStep sees every step that ran, in order, with the failing step's error;
+// Finished gets the Outcome Run returns, after finish and before cleanup brings the stack
+// down and removes the workspace.
+func TestRunHooks(t *testing.T) {
+	t.Parallel()
+	steps := func(names ...string) []string {
+		out := []string{}
+		for _, n := range names {
+			out = append(out, "step "+n)
+			if n == "clone" {
+				out = append(out, "up") // the stack step's Up, before it's reported
+			}
+		}
+		return append(out, "finished", "down")
+	}
+	tests := []struct {
+		name    string
+		mutate  func(*v1alpha1.Task)
+		script  fake.Script
+		want    []string
+		errStep string
+	}{
+		{
+			name: "repair",
+			script: fake.Script{
+				Turn:    fake.Turn{Result: []byte(invalidResult)},
+				Repairs: []fake.Turn{{Result: []byte(validResult)}},
+			},
+			want: steps("workspace", "credentials", "clone", "stack", "skills", "schema", "prompt", "environment", "prepare", "harness", "repair", "finish"),
+		},
+		{
+			name:    "the prompt fails",
+			mutate:  func(t *v1alpha1.Task) { t.Spec.Prompt.Digest = "sha256:00" },
+			want:    steps("workspace", "credentials", "clone", "stack", "skills", "schema", "prompt", "finish"),
+			errStep: "prompt",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			var mu sync.Mutex
+			var events []string
+			record := func(e string) { mu.Lock(); events = append(events, e); mu.Unlock() }
+			f.opts.Stack = orderStack{record: record}
+			f.opts.OnStep = func(name string, d time.Duration, err error) {
+				if (err != nil) != (name == tt.errStep) || d < 0 {
+					t.Errorf("step %s: %s, err %v", name, d, err)
+				}
+				record("step " + name)
+			}
+			var finished *runner.Outcome
+			f.opts.Finished = func(out runner.Outcome) {
+				if _, err := os.Stat(filepath.Join(f.workRoot, taskID)); err != nil {
+					t.Errorf("the workspace is gone before Finished: %v", err)
+				}
+				if finished != nil {
+					t.Error("Finished called twice")
+				}
+				finished = &out
+				record("finished")
+			}
+			f.adapter.Script = tt.script
+			task := f.task()
+			task.Spec.Requires = &v1alpha1.Requires{Labels: []string{"has-local-stack"}}
+			task.Spec.Inputs = map[string]any{"train": "acme/workflows#1"}
+			if tt.mutate != nil {
+				tt.mutate(&task)
+			}
+			out, err := f.pipeline().Run(context.Background(), f.job(task, time.Now()), &sink{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if finished == nil || !reflect.DeepEqual(*finished, out) {
+				t.Errorf("Finished got %+v, Run returned %+v", finished, out)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if !slices.Equal(events, tt.want) {
+				t.Errorf("events\n%q\nwant\n%q", events, tt.want)
+			}
+			f.checkClean("")
+		})
+	}
+}
+
 func TestRunRefusals(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
