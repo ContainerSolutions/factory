@@ -36,14 +36,9 @@ const (
 // scratch is the run's scratch directory.
 func scratch(ws harness.Workspace) string { return filepath.Join(ws.Home, scratchDir) }
 
-// configDir is the run's CLAUDE_CONFIG_DIR: the owner's dedicated one on the host, the
-// scratch one under IsolationVM.
-func (a *Adapter) configDir(ws harness.Workspace, vm bool) string {
-	if vm {
-		return filepath.Join(ws.Home, vmConfigDir)
-	}
-	return a.o.Config.ConfigDir
-}
+// vmConfigPath is the run's CLAUDE_CONFIG_DIR under IsolationVM (on the host it is the
+// owner's dedicated Config.ConfigDir).
+func vmConfigPath(ws harness.Workspace) string { return filepath.Join(ws.Home, vmConfigDir) }
 
 // readOnly reports whether the run may not write its primary checkout (there is none, or it
 // is read-only): it then runs without the write tools.
@@ -89,7 +84,7 @@ func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, t v1alpha1.Ta
 		return fmt.Errorf("claude-code: %w", err)
 	}
 	if vm {
-		if err := os.MkdirAll(a.configDir(ws, vm), 0o700); err != nil {
+		if err := os.MkdirAll(vmConfigPath(ws), 0o700); err != nil {
 			return fmt.Errorf("claude-code: %w", err)
 		}
 	}

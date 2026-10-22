@@ -220,7 +220,7 @@ func (a *Adapter) runEnv(ws harness.Workspace, s session) ([]string, error) {
 // worker's environment, and USER isn't set: there is no Keychain to look up. A root run gets
 // envIsSandbox, which claude wants before it bypasses permissions as root.
 func (a *Adapter) vmRunEnv(ws harness.Workspace, s session) ([]string, error) {
-	env := clirun.WithEnv(ws.Env, envConfigDir, a.configDir(ws, true))
+	env := clirun.WithEnv(ws.Env, envConfigDir, vmConfigPath(ws))
 	for _, kv := range runEnv {
 		env = clirun.WithEnv(env, kv[0], kv[1])
 	}

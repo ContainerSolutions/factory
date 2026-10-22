@@ -159,7 +159,7 @@ func (a *Adapter) Capabilities() v1alpha1.AdapterCapabilities {
 func (a *Adapter) Probe(ctx context.Context, cfg config.Harness) (v1alpha1.HarnessOffer, error) {
 	if vm, err := a.vm(); err != nil || vm {
 		if err == nil {
-			err = errors.New("claude-code: Probe doesn't run in a VM workspace: the supervisor probes on the agent host")
+			err = errors.New("claude-code: Probe doesn't run in a VM workspace")
 		}
 		return v1alpha1.HarnessOffer{}, err
 	}
