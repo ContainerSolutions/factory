@@ -1,2 +1,7 @@
 lisa-addressed:
 pass 1: fixed all four. vmrun_test.go: an invalid-maxWallClock case (vmrun reports failed{harness-error} itself, no step ran); the SIGTERM cases assert the log of each signal, the twice case waits for the second to be handled; the event list's length is guarded. watchSignals returns on a closed channel. Adapters/AdapterOptions unexported (taskAdapters/adapterOptions).
+
+lisa-selfreview:
+pass 2 (strict): request_changes
+- [blocker] CORE-VERIFY-001 vmrun_test.go vmRig.events: make lint fails (errorlint: err == io.EOF). Fix: errors.Is.
+- [must-fix] CORE-TEST-001 events.go events.send: an event that can't be written is logged and dropped; no test. Fix: a test with a failing writer and an oversize event.
