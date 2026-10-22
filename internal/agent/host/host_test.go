@@ -1,0 +1,602 @@
+package host
+
+import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"io/fs"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/compliance-framework/factory/internal/agent/config"
+)
+
+var update = flag.Bool("update", false, "rewrite the goldens under testdata/")
+
+// fakeRunner answers the commands the steps run; sudo and any other command are recorded.
+type fakeRunner struct {
+	mu       sync.Mutex
+	calls    []string
+	versions map[string]string // tart binary -> its --version
+	team     string            // codesign -dv's TeamIdentifier
+	loaded   bool              // launchctl print succeeds
+	macOS    string
+	memory   string
+	freeKB   string
+	script   string // the sudo script's content when sudo ran
+}
+
+func (r *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, strings.Join(append([]string{name}, args...), " "))
+	switch {
+	case name == "sw_vers":
+		_, _ = io.WriteString(out, r.macOS+"\n")
+	case name == "sysctl":
+		_, _ = io.WriteString(out, r.memory+"\n")
+	case name == "df":
+		_, _ = fmt.Fprintf(out, "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk3s5 482797652 1 %s 79%% /\n", r.freeKB)
+	case len(args) == 1 && args[0] == "--version":
+		v, ok := r.versions[name]
+		if !ok {
+			return errors.New("exec format error")
+		}
+		_, _ = io.WriteString(out, v+"\n")
+	case name == "codesign" && args[0] == "-dv":
+		_, _ = fmt.Fprintf(out, "Executable=%s\nTeamIdentifier=%s\n", args[1], r.team)
+	case name == "codesign":
+	case name == "launchctl" && !r.loaded:
+		return errors.New("exit status 113")
+	case name == "launchctl":
+	case name == "sudo":
+		b, err := os.ReadFile(args[1])
+		r.script = string(b)
+		return err
+	default:
+		return fmt.Errorf("unexpected command %s", name)
+	}
+	return nil
+}
+
+func (r *fakeRunner) ran(prefix string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, c := range r.calls {
+		if strings.HasPrefix(c, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+// fakeReleases serves tarballs by base name over httptest; Fetch rewrites the pinned URLs to it.
+type fakeReleases struct {
+	srv     *httptest.Server
+	fetched []string
+}
+
+func newReleases(t *testing.T, files map[string][]byte) *fakeReleases {
+	f := &fakeReleases{}
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, ok := files[path.Base(r.URL.Path)]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(b)
+	}))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func (f *fakeReleases) Fetch(ctx context.Context, url, dst string) error {
+	f.fetched = append(f.fetched, url)
+	return HTTPFetcher{Client: f.srv.Client()}.Fetch(ctx, f.srv.URL+"/"+path.Base(url), dst)
+}
+
+type entry struct {
+	name, body, link string
+	typ              byte
+	size             int64 // header size when body is short (oversize tests)
+}
+
+func tgz(t *testing.T, entries ...entry) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(zw)
+	for _, e := range entries {
+		h := &tar.Header{Name: e.name, Mode: 0o755, Typeflag: e.typ, Linkname: e.link, Size: int64(len(e.body))}
+		if e.typ == 0 {
+			h.Typeflag = tar.TypeReg
+		}
+		if e.size > 0 {
+			h.Size = e.size
+		}
+		if err := tw.WriteHeader(h); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(tw, e.body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = tw.Flush() // fails for an oversize entry: its header is enough
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func sum(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
+
+// testEnv is a Mac that has nothing installed: system paths under a temp Root.
+func testEnv(t *testing.T) (*Env, *fakeRunner) {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "etc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, PFConfPath), []byte("anchor \"com.apple/*\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := &fakeRunner{versions: map[string]string{}, team: TartTeamID, macOS: "26.6.2", memory: "25769803776", freeKB: "98351052"}
+	e := &Env{
+		Workspace: config.Workspace{}.WithDefaults("darwin"),
+		Runner:    r, Root: root, Home: t.TempDir(), StageDir: t.TempDir(), GOOS: "darwin", GOARCH: "arm64",
+		UID:      func() int { return 501 },
+		Owner:    func(fs.FileInfo) (int, int, bool) { return 501, 20, true },
+		LookPath: func(string) (string, error) { return "", errors.New("not found") },
+		Out:      io.Discard,
+	}
+	if err := e.Defaults(); err != nil {
+		t.Fatal(err)
+	}
+	e.Fetcher = failFetcher{t}
+	return e, r
+}
+
+type failFetcher struct{ t *testing.T }
+
+func (f failFetcher) Fetch(context.Context, string, string) error {
+	f.t.Error("unexpected download")
+	return errors.New("no network in tests")
+}
+
+func check(t *testing.T, s Step) Status {
+	t.Helper()
+	st, err := s.Check(context.Background())
+	if err != nil {
+		t.Fatalf("%s.Check: %v", s.Name(), err)
+	}
+	return st
+}
+
+func wantState(t *testing.T, st Status, state State, detail string) {
+	t.Helper()
+	if st.State != state || !strings.Contains(st.Detail, detail) {
+		t.Errorf("status %+v, want %s with %q", st, state, detail)
+	}
+}
+
+func TestPlatform(t *testing.T) {
+	tests := []struct {
+		name   string
+		set    func(*Env, *fakeRunner)
+		state  State
+		detail string
+	}{
+		{"ok", func(*Env, *fakeRunner) {}, StateOK, "macOS 26.6.2, 24 GiB memory, 93 GiB free"},
+		{"linux", func(e *Env, _ *fakeRunner) { e.GOOS, e.GOARCH = "linux", "amd64" }, StateWrong, "needs darwin/arm64, this is linux/amd64"},
+		{"intel", func(e *Env, _ *fakeRunner) { e.GOARCH = "amd64" }, StateWrong, "needs darwin/arm64"},
+		{"old macOS", func(_ *Env, r *fakeRunner) { r.macOS = "15.4" }, StateWrong, "macOS 15.4: Softnet needs 26.0"},
+		{"memory", func(e *Env, _ *fakeRunner) { e.Workspace.Size.Memory = "24Gi" }, StateWrong, "24 GiB memory: a 24Gi workspace needs 28 GiB"},
+		{"disk", func(_ *Env, r *fakeRunner) { r.freeKB = "1048576" }, StateWrong, "1 GiB free on the state dir's volume, want 80"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, r := testEnv(t)
+			tt.set(e, r)
+			wantState(t, check(t, platformStep{e}), tt.state, tt.detail)
+		})
+	}
+}
+
+func TestStateDir(t *testing.T) {
+	e, _ := testEnv(t)
+	s := stateDirStep{e}
+	wantState(t, check(t, s), StateMissing, e.StateDir())
+	if err := s.Apply(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	wantState(t, check(t, s), StateOK, e.StateDir())
+	if err := os.Chmod(e.StateDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wantState(t, check(t, s), StateWrong, "mode 0755, want 0700")
+	if err := s.Apply(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	wantState(t, check(t, s), StateOK, "")
+	e.Owner = func(fs.FileInfo) (int, int, bool) { return 0, 0, true }
+	wantState(t, check(t, s), StateWrong, "owned by uid 0")
+	if err := s.Apply(context.Background()); err == nil || !strings.Contains(err.Error(), "fix it by hand") {
+		t.Fatalf("Apply on a dir owned by root: %v", err)
+	}
+}
+
+func tartApp(team string) []entry {
+	return []entry{{name: "tart.app/Contents/MacOS/tart", body: "tart binary"}, {name: "tart.app/Contents/Info.plist", body: team}}
+}
+
+func TestTartCheck(t *testing.T) {
+	tests := []struct {
+		name          string
+		state, onPath string // versions; "" = not installed
+		want          State
+		detail        string
+	}{
+		{"missing", "", "", StateMissing, "no tart"},
+		{"pinned in the state dir", TartVersion, "", StateOK, "tart " + TartVersion + " ("},
+		{"old in the state dir", "2.30.0", "", StateOutdated, "is 2.30.0, want " + TartVersion},
+		{"newer on PATH", "", "2.42.0", StateOK, "tart 2.42.0 on PATH (/opt/homebrew/bin/tart)"},
+		{"old on PATH", "", "2.40.0", StateOutdated, `"2.40.0", want ` + TartVersion + " or newer"},
+		{"old in the state dir, newer on PATH", "2.30.0", "2.41.1", StateOK, "on PATH"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, r := testEnv(t)
+			s := tartStep{e}
+			if tt.state != "" {
+				if err := os.MkdirAll(filepath.Dir(s.bin()), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(s.bin(), nil, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				r.versions[s.bin()] = tt.state
+			}
+			if tt.onPath != "" {
+				e.LookPath = func(string) (string, error) { return "/opt/homebrew/bin/tart", nil }
+				r.versions["/opt/homebrew/bin/tart"] = tt.onPath
+			}
+			wantState(t, check(t, s), tt.want, tt.detail)
+		})
+	}
+}
+
+func TestTartApply(t *testing.T) {
+	good := tgz(t, tartApp("ok")...)
+	tests := []struct {
+		name    string
+		archive []byte
+		sha     string
+		team    string
+		wantErr string
+	}{
+		{"installs", good, sum(good), TartTeamID, ""},
+		{"sha256 mismatch", good, strings.Repeat("0", 64), TartTeamID, "sha256 of tart.tar.gz is"},
+		{"wrong team", good, sum(good), "ABCDE12345", "isn't signed by team " + TartTeamID + ": TeamIdentifier=ABCDE12345"},
+		{"no tart.app", tgz(t, entry{name: "other", body: "x"}), "", TartTeamID, "has no tart.app"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, r := testEnv(t)
+			r.team = tt.team
+			if tt.sha == "" {
+				tt.sha = sum(tt.archive)
+			}
+			e.Pins.TartSHA256 = tt.sha
+			e.Fetcher = newReleases(t, map[string][]byte{"tart.tar.gz": tt.archive})
+			if err := (stateDirStep{e}).Apply(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			s := tartStep{e}
+			err := s.Apply(context.Background())
+			left, _ := os.ReadDir(e.StateDir())
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want %q", err, tt.wantErr)
+				}
+				if len(left) != 0 {
+					t.Errorf("a failed Apply left %v in the state dir", left)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if b, err := os.ReadFile(s.bin()); err != nil || string(b) != "tart binary" {
+				t.Fatalf("installed tart: %q %v", b, err)
+			}
+			if len(left) != 1 || r.ran("codesign --verify --deep --strict") != 1 {
+				t.Errorf("state dir %v, calls %v", left, r.calls)
+			}
+		})
+	}
+}
+
+func TestSoftnetCheck(t *testing.T) {
+	bin := []byte("softnet binary")
+	tests := []struct {
+		name     string
+		mode     fs.FileMode
+		uid, gid int
+		body     []byte
+		want     State
+		detail   string
+	}{
+		{"missing", 0, 0, 0, nil, StateMissing, SoftnetPath},
+		{"ok", fs.ModeSetuid | 0o755, 0, 0, bin, StateOK, "softnet " + SoftnetVersion + ", SUID root"},
+		{"not SUID", 0o755, 0, 0, bin, StateWrong, "want SUID 4755"},
+		{"not root", fs.ModeSetuid | 0o755, 501, 20, bin, StateWrong, "owned by 501:20, want root:wheel"},
+		{"other binary", fs.ModeSetuid | 0o755, 0, 0, []byte("0.23"), StateOutdated, "isn't the pinned " + SoftnetVersion},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, _ := testEnv(t)
+			e.Pins.SoftnetBinarySHA256 = sum(bin)
+			e.Owner = func(fs.FileInfo) (int, int, bool) { return tt.uid, tt.gid, true }
+			if tt.body != nil {
+				p := e.sys(SoftnetPath)
+				if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(p, tt.body, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(p, tt.mode); err != nil {
+					t.Fatal(err)
+				}
+			}
+			wantState(t, check(t, softnetStep{e}), tt.want, tt.detail)
+		})
+	}
+}
+
+func TestSoftnetApply(t *testing.T) {
+	good := tgz(t, entry{name: "softnet", body: "softnet binary"})
+	tests := []struct {
+		name, tarSHA, binSHA, wantErr string
+	}{
+		{"stages the binary", sum(good), sum([]byte("softnet binary")), ""},
+		{"tarball sha256 mismatch", strings.Repeat("1", 64), sum([]byte("softnet binary")), "sha256 of softnet.tar.gz is"},
+		{"binary sha256 mismatch", sum(good), strings.Repeat("2", 64), "sha256 of softnet is"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, _ := testEnv(t)
+			e.Pins.SoftnetSHA256, e.Pins.SoftnetBinarySHA256 = tt.tarSHA, tt.binSHA
+			e.Fetcher = newReleases(t, map[string][]byte{"softnet.tar.gz": good})
+			s := softnetStep{e}
+			err := s.Apply(context.Background())
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want %q", err, tt.wantErr)
+				}
+				if _, err := os.Stat(s.staged()); err == nil {
+					t.Error("a failed Apply staged the binary")
+				}
+				return
+			}
+			if b, err := os.ReadFile(s.staged()); err != nil || string(b) != "softnet binary" {
+				t.Fatalf("staged %q %v", b, err)
+			}
+		})
+	}
+}
+
+// installPF writes what the pf step's root lines would.
+func installPF(t *testing.T, e *Env) {
+	t.Helper()
+	anchor, plist := pfStep{e}.files()
+	for p, b := range map[string]string{PFAnchorPath: anchor, PFPlistPath: plist, PFConfPath: "anchor \"com.apple/*\"\n" + pfConfLine + "\n"} {
+		if err := os.MkdirAll(filepath.Dir(e.sys(p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(e.sys(p), []byte(b), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestPFCheck(t *testing.T) {
+	tests := []struct {
+		name   string
+		set    func(*testing.T, *Env, *fakeRunner)
+		want   State
+		detail string
+	}{
+		{"missing", func(*testing.T, *Env, *fakeRunner) {}, StateMissing, PFAnchorPath},
+		{"ok", func(t *testing.T, e *Env, r *fakeRunner) { installPF(t, e); r.loaded = true }, StateOK, "only port 3128"},
+		{"anchor drifted", func(t *testing.T, e *Env, r *fakeRunner) {
+			installPF(t, e)
+			r.loaded = true
+			e.Workspace.GatewayPort = 8888
+		}, StateWrong, "differs from the rendered rules (gateway port 8888)"},
+		{"no pf.conf line", func(t *testing.T, e *Env, r *fakeRunner) {
+			installPF(t, e)
+			r.loaded = true
+			_ = os.WriteFile(e.sys(PFConfPath), []byte("anchor \"com.apple/*\"\n"), 0o644)
+		}, StateMissing, "has no " + pfConfLine},
+		{"not loaded", func(t *testing.T, e *Env, _ *fakeRunner) { installPF(t, e) }, StateMissing, "isn't loaded"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, r := testEnv(t)
+			tt.set(t, e, r)
+			wantState(t, check(t, pfStep{e}), tt.want, tt.detail)
+		})
+	}
+}
+
+// golden compares got, with the temp dirs replaced, to testdata/<name>.
+func golden(t *testing.T, name string, e *Env, got string) {
+	t.Helper()
+	got = strings.NewReplacer(e.StageDir, "$STAGE", e.Root, "$ROOT", e.Home, "$HOME").Replace(got)
+	p := filepath.Join("testdata", name)
+	if *update {
+		if err := os.WriteFile(p, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != string(want) {
+		t.Errorf("%s differs (go test -update to rewrite):\n%s", p, got)
+	}
+}
+
+func TestInitDryRun(t *testing.T) {
+	e, r := testEnv(t)
+	var out bytes.Buffer
+	e.Out = &out
+	sts, err := Init(context.Background(), e, InitOptions{DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	golden(t, "init-dry-run.golden", e, out.String())
+	if r.ran("sudo") != 0 || len(sts) != 5 || AllOK(sts) {
+		t.Errorf("sudo calls %d, statuses %+v", r.ran("sudo"), sts)
+	}
+	if _, err := os.Stat(e.StateDir()); err == nil {
+		t.Error("--dry-run made the state dir")
+	}
+}
+
+func TestInit(t *testing.T) {
+	soft := tgz(t, entry{name: "softnet", body: "softnet binary"})
+	tests := []struct {
+		name    string
+		o       InitOptions
+		answer  bool
+		wantPF  bool
+		wantOut string
+	}{
+		{"yes", InitOptions{Yes: true}, false, true, ""},
+		{"prompt accepted", InitOptions{}, true, true, "Install the pf anchor? [y/N]"},
+		{"prompt declined", InitOptions{}, false, false, "warning: pf skipped"},
+		{"no pf", InitOptions{NoPF: true}, false, false, "warning: --no-pf"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, r := testEnv(t)
+			var out bytes.Buffer
+			e.Out = &out
+			e.Pins.SoftnetSHA256, e.Pins.SoftnetBinarySHA256 = sum(soft), sum([]byte("softnet binary"))
+			e.LookPath = func(string) (string, error) { return "/opt/homebrew/bin/tart", nil }
+			r.versions["/opt/homebrew/bin/tart"] = TartVersion
+			e.Fetcher = newReleases(t, map[string][]byte{"softnet.tar.gz": soft})
+			e.Prompt = func(q string) (bool, error) { fmt.Fprint(&out, q); return tt.answer, nil }
+			sts, err := Init(context.Background(), e, tt.o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.ran("sudo /bin/sh "+filepath.Join(e.StageDir, "root.sh")) != 1 {
+				t.Fatalf("calls %v, want one sudo", r.calls)
+			}
+			if got := strings.Contains(r.script, PFAnchorPath); got != tt.wantPF || !strings.Contains(r.script, SoftnetPath) {
+				t.Errorf("script has pf %v, want %v:\n%s", got, tt.wantPF, r.script)
+			}
+			if !strings.Contains(out.String(), tt.wantOut) {
+				t.Errorf("output %q, want %q", out.String(), tt.wantOut)
+			}
+			if _, err := os.Stat(filepath.Join(e.StageDir, "root.sh")); err == nil {
+				t.Error("the sudo script was left behind")
+			}
+			// the fake sudo installs nothing: the final check still reports softnet.
+			if sts[1].State != StateOK || sts[3].State != StateMissing {
+				t.Errorf("final check %+v", sts)
+			}
+		})
+	}
+}
+
+func TestInitStops(t *testing.T) {
+	e, r := testEnv(t)
+	r.macOS = "15.4"
+	if _, err := Init(context.Background(), e, InitOptions{Yes: true}); err == nil || !strings.Contains(err.Error(), "platform: macOS 15.4") {
+		t.Fatalf("err = %v", err)
+	}
+	e.Workspace.Driver = config.DriverKata
+	if _, err := Init(context.Background(), e, InitOptions{}); err == nil || !strings.Contains(err.Error(), "P1 phase 9") {
+		t.Fatalf("kata: %v", err)
+	}
+	if _, err := os.Stat(e.StateDir()); err == nil || r.ran("sudo") != 0 {
+		t.Error("a stopped init changed something")
+	}
+}
+
+func TestRemovePF(t *testing.T) {
+	e, r := testEnv(t)
+	var out bytes.Buffer
+	e.Out = &out
+	if err := RemovePF(context.Background(), e, true); err != nil {
+		t.Fatal(err)
+	}
+	golden(t, "remove-pf.golden", e, out.String())
+	if err := RemovePF(context.Background(), e, false); err != nil || r.script != RemovePFScript(e) {
+		t.Fatalf("RemovePF: %v, script %q", err, r.script)
+	}
+}
+
+func TestExtract(t *testing.T) {
+	tests := []struct {
+		name    string
+		entries []entry
+		wantErr string
+	}{
+		{"ok", []entry{{name: "a/", typ: tar.TypeDir}, {name: "a/b", body: "x"}, {name: "a/c", typ: tar.TypeSymlink, link: "b"}, {name: "d", typ: tar.TypeSymlink, link: "a/b"}}, ""},
+		{"dot dot", []entry{{name: "../evil", body: "x"}}, "outside the archive"},
+		{"nested dot dot", []entry{{name: "a/../../evil", body: "x"}}, "outside the archive"},
+		{"absolute", []entry{{name: "/etc/evil", body: "x"}}, "outside the archive"},
+		{"symlink escape", []entry{{name: "a/l", typ: tar.TypeSymlink, link: "../../etc"}}, "points outside"},
+		{"absolute symlink", []entry{{name: "l", typ: tar.TypeSymlink, link: "/etc/passwd"}}, "points outside"},
+		{"write through a symlink", []entry{{name: "l", typ: tar.TypeSymlink, link: "."}, {name: "l/../../evil", body: "x"}}, "outside the archive"},
+		{"hard link", []entry{{name: "a", body: "x"}, {name: "h", typ: tar.TypeLink, link: "a"}}, "unsupported type"},
+		{"oversize", []entry{{name: "big", body: "x", size: MaxArchive + 1}}, "larger than 536870912 bytes"},
+		{"oversize in all", []entry{{name: "a", body: strings.Repeat("x", 1<<20)}, {name: "b", body: "x", size: MaxArchive - 1<<20 + 1}}, "larger than"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			src := filepath.Join(tmp, "a.tar.gz")
+			if err := os.WriteFile(src, tgz(t, tt.entries...), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(tmp, "x")
+			if err := os.Mkdir(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			err := Extract(src, dir)
+			if tt.wantErr == "" {
+				if b, rerr := os.ReadFile(filepath.Join(dir, "d")); err != nil || rerr != nil || string(b) != "x" {
+					t.Fatalf("Extract: %v; d: %q %v", err, b, rerr)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("err = %v, want %q", err, tt.wantErr)
+			}
+			if _, err := os.Stat(filepath.Join(tmp, "evil")); err == nil {
+				t.Error("an entry landed outside the dir")
+			}
+		})
+	}
+}

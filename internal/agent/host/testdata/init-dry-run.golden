@@ -1,0 +1,28 @@
+plan:
+  statedir  create $HOME/Library/Application Support/factory-agent with mode 0700
+  tart      download https://github.com/cirruslabs/tart/releases/download/2.41.1/tart.tar.gz and check its sha256
+  tart      extract tart.app into $HOME/Library/Application Support/factory-agent/tart
+  tart      verify its signature with codesign (team 9M2P8L4D89)
+  softnet   download https://github.com/cirruslabs/softnet/releases/download/0.24.1/softnet.tar.gz, check its sha256 and the binary's
+  softnet   install it SUID root at $ROOT/usr/local/libexec/factory-agent/softnet (sudo)
+  pf        render the anchor (gateway port 3128) and the LaunchDaemon
+  pf        install them, append anchor "com.compliance-framework.factory" to /etc/pf.conf (backup /etc/pf.conf.factory-backup) and load the LaunchDaemon (sudo)
+sudo script (one sudo prompt):
+#!/bin/sh
+# factory-agent host init: the root actions, run once with sudo.
+set -eu
+/usr/bin/install -d -o root -g wheel -m 0755 $ROOT/usr/local/libexec/factory-agent
+/usr/bin/install -o root -g wheel -m 0700 $STAGE/softnet $ROOT/usr/local/libexec/factory-agent/softnet.new
+printf '%s  %s\n' e5e35d61a6dd7e35a3134732e766c897b7cb6f097080ff00e1e75adeab0471c7 $ROOT/usr/local/libexec/factory-agent/softnet.new | /usr/bin/shasum -a 256 -c -
+/bin/chmod 4755 $ROOT/usr/local/libexec/factory-agent/softnet.new
+/bin/mv -f $ROOT/usr/local/libexec/factory-agent/softnet.new $ROOT/usr/local/libexec/factory-agent/softnet
+/sbin/pfctl -n -a com.compliance-framework.factory -f $STAGE/pf.anchor
+/usr/bin/install -o root -g wheel -m 0644 $STAGE/pf.anchor $ROOT/etc/pf.anchors/com.compliance-framework.factory
+/usr/bin/install -o root -g wheel -m 0644 $STAGE/pf.plist $ROOT/Library/LaunchDaemons/com.compliance-framework.factory.pf.plist
+if ! /usr/bin/grep -qxF 'anchor "com.compliance-framework.factory"' $ROOT/etc/pf.conf; then
+  [ -e $ROOT/etc/pf.conf.factory-backup ] || /bin/cp -p $ROOT/etc/pf.conf $ROOT/etc/pf.conf.factory-backup
+  [ -z "$(/usr/bin/tail -c 1 $ROOT/etc/pf.conf)" ] || echo >> $ROOT/etc/pf.conf
+  echo 'anchor "com.compliance-framework.factory"' >> $ROOT/etc/pf.conf
+fi
+/bin/launchctl bootout system/com.compliance-framework.factory.pf 2>/dev/null || true
+/bin/launchctl bootstrap system $ROOT/Library/LaunchDaemons/com.compliance-framework.factory.pf.plist

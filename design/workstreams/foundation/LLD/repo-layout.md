@@ -17,7 +17,7 @@
 factory/
 ├── cmd/
 │   ├── factory/              # dispatcher: serve | validate | rules test | dispatch | version
-│   ├── factory-agent/        # agent: worker | run | probe | fx | mcp | stack | version
+│   ├── factory-agent/        # agent: worker | run | probe | fx | mcp | stack | host | version
 │   └── factory-mock/         # contract mock server (dev only)
 ├── internal/
 │   ├── apis/v1alpha1/        # Go types for every kind (FND)
@@ -33,7 +33,7 @@ factory/
 │   ├── apiserver/gen/        # oapi-codegen server interface (generated, FND)
 │   ├── apiclient/            # oapi-codegen client (generated, FND)
 │   ├── provider/             # Adapter/Conn interfaces + fake (FND); github/ (GH); tokens/ (GH)
-│   ├── agent/                # worker, pipeline, harness/{codex,claudecode,fake}, effector, mcp, stack (AGT)
+│   ├── agent/                # worker, pipeline, harness/{codex,claudecode,fake}, effector, mcp, stack, host (AGT)
 │   └── webui/                # go:embed of the built UI (FND placeholder, WEB build output)
 ├── api/
 │   ├── openapi.yaml          # THE HTTP contract (FND)

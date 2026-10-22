@@ -380,6 +380,8 @@ on macOS 26 can run it.** `make tart-up` in the factory repo builds `factory-age
 `factory-agent supervise` runs the same checks (`host check`) at start: if something is missing
 or out of date, it runs the missing `init` steps itself. It stops only for a step that needs a
 person, and says which.
+The steps, pins, sudo batch and pf rules are in the
+[workspace-host LLD](../workstreams/agent/LLD/workspace-host.md).
 
 | Step | Phase 0 (by hand) | `host init` |
 |---|---|---|

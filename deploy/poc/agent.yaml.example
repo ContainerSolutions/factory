@@ -62,3 +62,10 @@ lending:
   # maxRunsPerDay: 10
   # maxTokensPerDay: 2000000
   # hours: "Mon-Fri 08:00-20:00 Europe/Lisbon"   # [days] HH:MM-HH:MM [zone]; default zone UTC
+
+# The VM workspaces (P1): only `factory-agent host check|init` reads this block today.
+# workspace:
+#   driver: tart                    # tart | kata; default tart on macOS, kata on Linux
+#   size: { cpus: 6, memory: 8Gi, disk: 60Gi }
+#   gatewayPort: 3128               # the only port workspaces reach on the Mac (pf)
+#   warm: { images: [postgres:17.5], kindImages: [] }
