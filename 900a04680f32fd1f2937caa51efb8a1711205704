@@ -1,0 +1,6 @@
+lisa-selfreview:
+Pass 1 (strict), verdict request_changes:
+- must-fix e84acb812bde CORE-INPUT-001 env.go ReservedEnv: FACTORY_STACK_URL/FACTORY_STACK_API in Options.Env are silently replaced by stackEnv; reserve them.
+- must-fix c5b00bcafa18 CORE-TEST-002 gateway_test.go TestRunGatewayMode: the Env check passes for empty values that are absent (NO_PROXY); check presence.
+- must-fix 5172a6a8e501 CORE-TEST-001 workspace.go useRoot: the missing-parent branch is untested.
+- should-fix 608f6264b503 exported-mutable-reserved-list env.go: ReservedEnv/ReservedEnvPrefixes are exported mutable slices; unexport.
