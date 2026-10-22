@@ -1,0 +1,7 @@
+lisa-addressed:
+ccf-review PR #112 (accepted findings), fixed in this commit:
+- 4e07b5a9dc73 (must-fix): auth.json now matches the Phase 0 spike exactly: OPENAI_API_KEY null; id_token claims email=placeholder@example.invalid, exp=4102444800 (flags.go idTokenEmail/idTokenExpiry, Phase 0's); signature "x" (the spike's). Golden regenerated; workspace-run.md and harness-adapters.md list the full keys.
+- 8973aa5ce415 (must-fix): vmAdapter sets Config.Home=ownerHome(t); TestVMPrepare "env tokens" case puts the task GH_TOKEN and FACTORY_TOKEN in the env. Mutations (copy owner's auth into CODEX_HOME; write env values into config.toml) both fail on scanFiles.
+- 571ff135d107 (should-fix): checkPlaceholderAuth requires exactly OPENAI_API_KEY(null), last_refresh, tokens at the top level and the full claim set (values written out in the test, not taken from flags.go). OPENAI_API_KEY "sk-real" with -update fails.
+- ede6bedfe0b9 (should-fix): noCodex(t, Options) helper (nonexistent Binary, refuseCommands, failing Environ) used by TestVMRefusals' unknown adapter and by every host test adapter that must not exec (TestPrepareLayout, read-only config test, TestPrepareRefusals, the workDirFor Run test, TestCapabilities); vmAdapter's empty binary is a nonexistent path. With guard PATH and the fully faked adapter, mutating vm() to accept an unknown isolation fails TestVMRefusals on ENOENT/refuseCommands, no exec.
+Decided by the lead: non-empty signature as the spike's ".x"; no VM smoke-codex mode (phase 8 covers the first VM run); the read-only AGENTS.md line stays.
