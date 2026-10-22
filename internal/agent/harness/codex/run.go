@@ -73,10 +73,13 @@ func (a *Adapter) Run(ctx context.Context, ws harness.Workspace, t v1alpha1.Task
 		return harness.Raw{}, err
 	}
 	s := session{Sandbox: sandboxWorkspaceWrite, WorkDir: workDirFor(ws), Model: a.o.Config.Default}
-	if vm {
+	switch {
+	case vm:
 		s.Sandbox, s.WorkDir = sandboxDangerFullAccess, vmWorkDir(ws)
-	}
-	if s.WorkDir == "" {
+		if s.WorkDir == "" {
+			return harness.Raw{}, errors.New("codex: the workspace has neither a work dir nor a root to run in")
+		}
+	case s.WorkDir == "":
 		return harness.Raw{}, errors.New("codex: the workspace has neither a writable checkout nor out/ to run in")
 	}
 	if h := t.Spec.Harness; h != nil && h.Resolved != nil {

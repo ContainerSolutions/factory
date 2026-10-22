@@ -281,6 +281,11 @@ func TestVMRun(t *testing.T) {
 			if i := slices.Index(calls[1].Args, "resume"); i < 0 || calls[1].Args[i+1] != "0199f2a1-6b1e-7c33-9a51-2f0c4e8d1a01" {
 				t.Errorf("repair args %q", calls[1].Args)
 			}
+			// The whole command lines, the run's and the repair's (one golden, from the
+			// read-write case: the others differ only in --cd).
+			if tt.name == "read-write" {
+				golden(t, ws, "exec-args.golden", []byte(strings.Join(calls[0].Args, "\n")+"\n\n"+strings.Join(calls[1].Args, "\n")+"\n"))
+			}
 		})
 	}
 }
@@ -318,6 +323,11 @@ func TestVMRefusals(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(ws.Home, ".codex")); err == nil {
 		t.Error("an unknown isolation made CODEX_HOME")
 	}
+	noDir := vmWorkspace(t, true)
+	noDir.WorkDir, noDir.Root = "", ""
+	if _, err := vmAdapter(t, "").Run(context.Background(), noDir, vmTask("", "", ""), "p", &harnesstest.Recorder{}); err == nil || !strings.Contains(err.Error(), "neither a work dir nor a root") {
+		t.Errorf("Run without a work dir = %v", err)
+	}
 
 	for _, tt := range []struct {
 		name    string
@@ -347,9 +357,9 @@ func TestVMRefusals(t *testing.T) {
 	}
 
 	// An auth.json already there (a file, or a link to a real login) is never written over.
-	for name, plant := range map[string]func(p string) error{
-		"file":    func(p string) error { return os.WriteFile(p, []byte(ownerLogin), 0o600) },
-		"symlink": func(p string) error { return os.Symlink(filepath.Join(ownerHome(t), "auth.json"), p) },
+	for name, plant := range map[string]func(t *testing.T, p string) error{
+		"file":    func(_ *testing.T, p string) error { return os.WriteFile(p, []byte(ownerLogin), 0o600) },
+		"symlink": func(t *testing.T, p string) error { return os.Symlink(filepath.Join(ownerHome(t), "auth.json"), p) },
 	} {
 		t.Run("existing "+name, func(t *testing.T) {
 			ws := vmWorkspace(t, true)
@@ -357,7 +367,7 @@ func TestVMRefusals(t *testing.T) {
 			if err := os.MkdirAll(home, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			if err := plant(filepath.Join(home, "auth.json")); err != nil {
+			if err := plant(t, filepath.Join(home, "auth.json")); err != nil {
 				t.Fatal(err)
 			}
 			if err := vmAdapter(t, "").Prepare(context.Background(), ws, vmTask("", "", "")); err == nil || !strings.Contains(err.Error(), "the placeholder login") {
