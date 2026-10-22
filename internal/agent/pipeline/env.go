@@ -2,6 +2,8 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -54,11 +56,52 @@ func ownerEnv(environ []string) map[string]string {
 	return out
 }
 
+// ReservedEnv are the variables the pipeline sets itself (commonEnv and buildEnv), which
+// Options.Env may not set; so are the GIT_CONFIG_KEY_<n> and GIT_CONFIG_VALUE_<n> entries
+// (ReservedEnvPrefixes). A collision is New's error, not a silently lost value. GH_TOKEN
+// isn't one: Options.Env may set its placeholder, which a job's real token replaces.
+var ReservedEnv = []string{
+	"HOME", "TMPDIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "PATH",
+	"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT", "GIT_ALLOW_PROTOCOL", "GIT_CONFIG_COUNT",
+	"GCM_INTERACTIVE", gitcred.EnvSocket,
+	EnvHeadless, EnvHarness, EnvTaskID, EnvAPI, EnvToken, EnvOut, EnvResult, EnvEffector,
+}
+
+// ReservedEnvPrefixes are the reserved name prefixes: the helper's process-scoped git config.
+var ReservedEnvPrefixes = []string{"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"}
+
+// checkEnv refuses an Options.Env that sets a reserved variable or has a name that isn't one
+// (empty, or holding "=" or NUL), naming the variable but never its value.
+func checkEnv(env map[string]string) error {
+	for _, k := range slices.Sorted(maps.Keys(env)) {
+		switch {
+		case k == "" || strings.ContainsAny(k, "=\x00"):
+			return fmt.Errorf("%q is not a variable name", k)
+		case slices.Contains(ReservedEnv, k):
+			return fmt.Errorf("%s is set by the pipeline", k)
+		}
+		for _, p := range ReservedEnvPrefixes {
+			if strings.HasPrefix(k, p) {
+				return fmt.Errorf("%s is set by the pipeline", k)
+			}
+		}
+		if strings.ContainsRune(env[k], 0) {
+			return fmt.Errorf("%s: the value holds a NUL byte", k)
+		}
+	}
+	return nil
+}
+
 // commonEnv is what both the pipeline's own git and the harness get: the allow-listed owner
-// variables, the scratch HOME and TMPDIR, and git set up to use only the in-memory
-// credential helper, never prompt, and ignore the system config.
+// variables, then Options.Env, the scratch HOME and TMPDIR, and git set up never to prompt
+// and to ignore the system and the owner's config. With GitAuthHelper git uses only the
+// in-memory credential helper; with GitAuthGateway it has no helper at all (no socket, no
+// helper config) and reaches the git host through Options.Env's proxy.
 func (r *run) commonEnv() map[string]string {
 	env := ownerEnv(r.p.o.Environ())
+	for k, v := range r.p.o.Env {
+		env[k] = v
+	}
 	env["HOME"] = r.ws.Home
 	env["XDG_CONFIG_HOME"] = filepath.Join(r.ws.Home, ".config")
 	env["XDG_CACHE_HOME"] = filepath.Join(r.ws.Home, ".cache")
@@ -68,6 +111,9 @@ func (r *run) commonEnv() map[string]string {
 	env["GIT_TERMINAL_PROMPT"] = "0"
 	env["GCM_INTERACTIVE"] = "never"
 	env["GIT_ALLOW_PROTOCOL"] = r.protocols
+	if r.p.o.GitAuth == GitAuthGateway {
+		return env
+	}
 	if r.creds != nil {
 		env[gitcred.EnvSocket] = r.creds.Path()
 	}
