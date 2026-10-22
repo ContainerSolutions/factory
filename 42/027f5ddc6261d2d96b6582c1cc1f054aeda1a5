@@ -1,0 +1,2 @@
+lisa-addressed:
+ccf-review #9 fixed in 42027f5: CORE-INPUT-001 ExprOr strict expressions (b6e5a1b2ed88); CORE-DOC-001 EffectAction inline op fields (eade83bb01b7); CORE-DOC-001 schemas/ location in 03 + README (71ccef0c4d17).

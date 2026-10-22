@@ -1,0 +1,7 @@
+lisa-design:
+- VersionSource and EgressPolicy are objects ({from, input}, {mode, allow}) as the task spec defines them, not the P1 §4 doc's scalar shorthand (versions: latest, egress: default); the golden example and the P1 test write them in object form.
+- ReservedEnvNames reserves every FACTORY_* name internal/agent sets in a run today (pipeline, gitcred, effector, stack) EXCEPT FACTORY_STACK_URL and FACTORY_STACK_API: P1 §4 moves those two from the stack to the environment's exposes, so reserving them would reject the design's own example. FACTORY_VERSION_* is reserved by prefix.
+- Workspace.Validate validates the environment's own rules; the versions.input-is-a-declared-input check lives in TaskSpec.Validate (the only place with spec.inputs). Task.Validate validates spec.environment with the same Environment.Validate (no inputs check) and spec.versions.
+- validateHosts/extendHostsSchema are generalised to validateHostList/extendHostListSchema(field) so egress.allow reuses the exact hosts rules and schema.
+- The schema mirrors patterns, counts, enums and lengths; the byte limits (it counts characters), cross-field rules (ready/exposes need up, input vs from, allow only with deny-by-default) and the timeout bounds are Validate-only. TestEnvironmentSchemaMatchesGo states which.
+- Map-valued fields (exposes, versions) report the field path as <map>.<key> (exposes.FACTORY_TOKEN, spec.versions.api) and are checked in sorted key order so errors are deterministic.

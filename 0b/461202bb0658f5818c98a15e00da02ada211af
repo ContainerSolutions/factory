@@ -1,0 +1,2 @@
+lisa-addressed:
+- [must-fix] X:correctness/spa-fallback-answers-any-method internal/webui/handler.go (ccf-review fp 37d312c01200): SPA fallback now GET/HEAD only (others 405, Allow: GET, HEAD); /api and /hooks (and below, after path cleaning) return 404, so misrouted API calls and webhook deliveries fail visibly. Tests cover POST/PUT, /hooks typos, dot-segment paths and /apiary.

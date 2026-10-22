@@ -1,0 +1,5 @@
+lisa-selfreview:
+pass 1 (strict): 3 should-fix
+- CORE-NAME-001 pipeline.go finish: `stored` holds the store's error -> storeErr
+- CORE-DUP-001 schema.go: "no dispatcher client" written twice -> APISchemas returns errNoClient
+- CORE-DOC-001 sources.go: PromptSource/TranscriptStore don't say their errors are returned as they are (they must name their operation)

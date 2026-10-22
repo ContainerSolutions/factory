@@ -1,0 +1,10 @@
+lisa-design:
+- Owner login via the dispatcher's device flow (worker.md: no gh login on the worker's OS user), not `gh auth token`.
+- Agent token in memory only: a restart needs a new device login; a 401 re-registers once; a refused registration is fatal. Deregister on exit (shows Offline at once).
+- Heartbeats: first one immediately (task Running), batches ≤200 events, a failed beat keeps its batch, final flush before complete/abandon; 404/409/403 kill the run silently; dispatcher cancel → abandon agent-error.
+- Throttled → abandon throttled{until} + PATCH Throttled{until} (default now+15m); drain: cancel the parked poll, PATCH Draining, finish runs until start+maxWallClock (1h default), second signal aborts.
+- Runner seam (runner.Runner, Job with the lease passed through unchanged, Git credential redacted); worker refuses to start without a run pipeline unless --stub-result.
+- Tests run the real binaries as subprocesses (factory-mock, factory serve --dev-fake-providers) instead of copying serve's wiring.
+
+lisa-selfreview:
+Pass 1: duplication (serve wiring copied into a test) fixed before push by running the real binary.

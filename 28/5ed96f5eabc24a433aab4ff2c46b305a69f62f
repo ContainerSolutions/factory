@@ -1,0 +1,7 @@
+lisa-selfreview:
+Pass 1 (strict), ccf-review classify:
+- blocker FACTORY-CRED-001 92b6e4819315 checkURL echoes a dispatcher URL that may carry user info -> fix
+- must-fix CORE-INPUT-001 722f67ec997d Bundle.CAFile/Skills() relative when Read's dir is -> fix (filepath.Abs)
+- must-fix CORE-TEST-001 0375219e88d7 Write's CA cap untested -> fix
+- must-fix CORE-INPUT-001 750cbee070b2 ReadOutcome follows a symlink/FIFO from the VM -> fix (Lstat, regular only)
+- nit CORE-STYLE-001 87790b6284a5 Write's files map literal keyed on possibly-empty names -> fix

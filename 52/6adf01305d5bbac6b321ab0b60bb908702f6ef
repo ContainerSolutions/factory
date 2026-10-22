@@ -1,0 +1,11 @@
+lisa-addressed:
+pass 1: renamed finish's stored to storeErr; APISchemas returns errNoClient; PromptSource and TranscriptStore document that their errors are returned as they are and must name their operation.
+
+lisa-selfreview:
+pass 2 (strict): approve, no findings. Re-read the full diff: the step-reporting paths (each early return of runHarness reports its step once), finish's Finished call before the deferred cleanup, the defaults in New, and the tests (TestRunHooks asserts the event order up to Down and that the workspace still exists in Finished; the source tests cover gone, caps, digest and error propagation).
+
+lisa-design:
+- The buildEnv step keeps its name `environment` (the LLD renames it `env`): the rename changes the host's error prefix, so it lands with the environment step itself (PR 7), keeping this PR byte-identical on the host.
+- Source errors are returned unwrapped so the API's messages (and so failure summaries) stay byte-identical; a source names its own operation.
+- OnStep's error is the step's raw error (not redacted): its consumer (vmrun's event stream) redacts.
+- With no run id the transcript is now built and then dropped by APITranscripts (it used to be skipped before the build): observable only as CPU, or as a "transcript not uploaded" warning if the build itself failed.
