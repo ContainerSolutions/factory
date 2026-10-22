@@ -3,6 +3,7 @@ package vmrun
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"errors"
 	"flag"
 	"fmt"
@@ -30,8 +31,16 @@ import (
 
 var update = flag.Bool("update", false, "rewrite the goldens under testdata/")
 
-// testCA stands in for the gateway CA's public half.
-const testCA = "-----BEGIN CERTIFICATE-----\nZmFrZS1nYXRld2F5LWNh\n-----END CERTIFICATE-----\n"
+// testCA stands in for the gateway CA's public half: a self-signed P-256 CA certificate whose
+// key was thrown away.
+//
+//go:embed testdata/ca/gateway.pem
+var testCA string
+
+// testLeaf is a self-signed certificate that isn't a CA.
+//
+//go:embed testdata/ca/leaf.pem
+var testLeaf string
 
 // testRoots stands in for the system's CA roots, without a final newline.
 const testRoots = "-----BEGIN CERTIFICATE-----\nc3lzdGVtLXJvb3Q=\n-----END CERTIFICATE-----"
@@ -42,8 +51,8 @@ var (
 )
 
 // fakeRunner answers the commands Setup runs, as a VM would, without running any: sudo -n
-// runs the rest of its line, install is emulated as root would do it, and the others are only
-// recorded. It refuses any path outside the test's directory.
+// runs the rest of its line, install, cat and mv are emulated as root would do them, and the
+// others are only recorded. It refuses any path outside the test's directory.
 type fakeRunner struct {
 	mu    sync.Mutex
 	base  string // the test's directory: calls show it as $T
@@ -52,9 +61,11 @@ type fakeRunner struct {
 	fail  map[string]error // by command name
 	ready int              // docker info answers from this call on (0 and 1: at once)
 	infos int
+	// beforeMV, when set, runs before mv's rename with its source; an error stops the mv.
+	beforeMV func(src string) error
 }
 
-func (f *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...string) error {
+func (f *fakeRunner) Run(_ context.Context, stdout, out io.Writer, name string, args ...string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, strings.ReplaceAll(strings.Join(append([]string{name}, args...), " "), f.base, "$T"))
@@ -84,8 +95,64 @@ func (f *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...
 		return nil
 	case "install":
 		return f.install(args)
+	case "cat":
+		return f.cat(stdout, out, args)
+	case "mv":
+		return f.mv(args)
 	}
 	return fmt.Errorf("unexpected command %s", name)
+}
+
+func (f *fakeRunner) inBase(paths ...string) error {
+	for _, p := range paths {
+		if !strings.HasPrefix(p, f.base+string(filepath.Separator)) {
+			return fmt.Errorf("a path outside the test's directory: %s", p)
+		}
+	}
+	return nil
+}
+
+// cat emulates cat -- file as root: the file's mode doesn't stop it.
+func (f *fakeRunner) cat(stdout, stderr io.Writer, args []string) error {
+	if len(args) != 2 || args[0] != "--" {
+		return fmt.Errorf("cat %v", args)
+	}
+	p := args[1]
+	if err := f.inBase(p); err != nil {
+		return err
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "cat: %s: No such file or directory\n", p)
+		return errors.New("exit status 1")
+	}
+	_ = os.Chmod(p, fi.Mode().Perm()|0o400)
+	defer func() { _ = os.Chmod(p, fi.Mode().Perm()) }()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return err
+	}
+	_, err = stdout.Write(b)
+	return err
+}
+
+// mv emulates mv -f src dst within one directory: a rename.
+func (f *fakeRunner) mv(args []string) error {
+	if len(args) != 3 || args[0] != "-f" {
+		return fmt.Errorf("mv %v", args)
+	}
+	if err := f.inBase(args[1], args[2]); err != nil {
+		return err
+	}
+	if filepath.Dir(args[1]) != filepath.Dir(args[2]) {
+		return fmt.Errorf("mv across directories: %v", args)
+	}
+	if f.beforeMV != nil {
+		if err := f.beforeMV(args[1]); err != nil {
+			return err
+		}
+	}
+	return os.Rename(args[1], args[2])
 }
 
 // install emulates install -d [-o u -g g] -m mode dir and install -m mode src dst as root:
@@ -109,10 +176,8 @@ func (f *fakeRunner) install(args []string) error {
 			rest = append(rest, args[i])
 		}
 	}
-	for _, p := range rest {
-		if !strings.HasPrefix(p, f.base+string(filepath.Separator)) {
-			return fmt.Errorf("install outside the test's directory: %s", p)
-		}
+	if err := f.inBase(rest...); err != nil {
+		return fmt.Errorf("install: %w", err)
 	}
 	if dir && len(rest) == 1 {
 		parent := filepath.Dir(rest[0]) // the nearest existing ancestor: install -d makes the rest
@@ -219,43 +284,32 @@ func mustWrite(t *testing.T, p, content string, mode fs.FileMode) {
 const proxyURL = "http://192.168.64.1:3128"
 
 // TestSetup runs Setup in each mode against a temp root and pins, in a golden per case, the
-// resolved mode, the commands, the environment and every file written.
+// commands, the environment and every file written.
 func TestSetup(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
 		name    string
 		mode    SystemSetup
 		user    *user.User
-		systemd bool
-		sudo    error
 		roots   bool
-		daemon  string // an existing daemon.json
+		daemon  string // an existing daemon.json, 0600
 		ready   int
 		noProxy []string
 	}{
 		{name: "off", mode: SetupOff, user: adminUser, roots: true, noProxy: []string{"internal.example.com", "localhost"}},
 		{name: "on", mode: SetupOn, user: adminUser, roots: true, ready: 3, noProxy: []string{"internal.example.com"},
 			daemon: `{"log-driver": "journald", "proxies": {"http-proxy": "http://old:1"}}`},
-		{name: "on-as-root", mode: SetupOn, user: rootUser},
-		{name: "auto-vm", mode: SetupAuto, user: adminUser, systemd: true, roots: true},
-		{name: "auto-no-systemd", mode: SetupAuto, user: adminUser, roots: true},
-		{name: "auto-no-sudo", mode: SetupAuto, user: adminUser, systemd: true, sudo: errors.New("exit status 1"), roots: true},
-		{name: "auto-root", mode: SetupAuto, user: rootUser, systemd: true, roots: true, daemon: "\n"},
+		{name: "on-as-root", mode: SetupOn, user: rootUser, daemon: "\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			w := newWorld(t, tt.user, tt.noProxy...)
-			w.run.sudo, w.run.ready = tt.sudo, tt.ready
-			if tt.systemd {
-				if err := os.MkdirAll(filepath.Join(w.root, systemdRunDir), 0o755); err != nil {
-					t.Fatal(err)
-				}
-			}
+			w.run.ready = tt.ready
 			if tt.roots {
 				mustWrite(t, filepath.Join(w.root, systemRoots), testRoots, 0o644)
 			}
 			if tt.daemon != "" {
-				mustWrite(t, filepath.Join(w.root, daemonJSON), tt.daemon, 0o644)
+				mustWrite(t, filepath.Join(w.root, daemonJSON), tt.daemon, 0o600)
 			}
 			env, err := w.setup(t, proxyURL, tt.mode)
 			if err != nil {
@@ -385,6 +439,8 @@ func TestSetupErrors(t *testing.T) {
 		{name: "a proxy without a port", proxy: "http://gw", mode: SetupOff, want: "want http://<host>:<port>"},
 		{name: "a proxy with user info", proxy: "http://u:p@gw:3128", mode: SetupOff, want: "user info isn't allowed"},
 		{name: "an unknown mode", mode: "maybe", want: `unknown mode "maybe"`},
+		{name: "the auto mode", mode: "auto", want: `unknown mode "auto"`, calls: 0},
+		{name: "no mode", mode: "", want: `unknown mode ""`},
 		{name: "no gateway CA", mode: SetupOff, prep: func(_ *testing.T, w *world) { w.bundle.CAFile = "" }, want: "the bundle has no gateway CA"},
 		{name: "a key in the CA", mode: SetupOff, prep: func(t *testing.T, w *world) {
 			mustWrite(t, w.bundle.CAFile, testCA+"-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n", 0o600)
@@ -396,6 +452,25 @@ func TestSetupErrors(t *testing.T) {
 		{name: "a CA block that doesn't decode", mode: SetupOff, prep: func(t *testing.T, w *world) {
 			mustWrite(t, w.bundle.CAFile, "-----BEGIN CERTIFICATE-----\nAAAA\n", 0o600)
 		}, want: "a PEM block that doesn't decode"},
+		// pem.Decode skips a malformed block and returns the CERTIFICATE after it.
+		{name: "a key whose type line isn't closed, before the CA", mode: SetupOff, prep: func(t *testing.T, w *world) {
+			mustWrite(t, w.bundle.CAFile, "-----BEGIN PRIVATE KEY\nAAAA\n-----END PRIVATE KEY-----\n"+testCA, 0o600)
+		}, want: "a PEM block that doesn't decode"},
+		{name: "a key whose END line doesn't match, before the CA", mode: SetupOff, prep: func(t *testing.T, w *world) {
+			mustWrite(t, w.bundle.CAFile, "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----\n"+testCA, 0o600)
+		}, want: "a PEM block that doesn't decode"},
+		{name: "text in a BEGIN line, before the CA", mode: SetupOff, prep: func(t *testing.T, w *world) {
+			mustWrite(t, w.bundle.CAFile, "-----BEGIN junk\nsecret=hunter2\n"+testCA, 0o600)
+		}, want: "a PEM block that doesn't decode"},
+		{name: "a CERTIFICATE block that isn't a certificate", mode: SetupOff, prep: func(t *testing.T, w *world) {
+			mustWrite(t, w.bundle.CAFile, "-----BEGIN CERTIFICATE-----\nZmFrZS1nYXRld2F5LWNh\n-----END CERTIFICATE-----\n", 0o600)
+		}, want: "a PEM CERTIFICATE block that isn't a certificate"},
+		{name: "a CERTIFICATE block with headers", mode: SetupOff, prep: func(t *testing.T, w *world) {
+			mustWrite(t, w.bundle.CAFile, strings.Replace(testCA, "-----\n", "-----\nProc-Type: 4,ENCRYPTED\n\n", 1), 0o600)
+		}, want: "a PEM CERTIFICATE block with headers"},
+		{name: "a certificate that isn't a CA", mode: SetupOff, prep: func(t *testing.T, w *world) {
+			mustWrite(t, w.bundle.CAFile, testCA+testLeaf, 0o600)
+		}, want: "a certificate that isn't a CA"},
 		{name: "an oversize CA", mode: SetupOff, prep: func(t *testing.T, w *world) {
 			mustWrite(t, w.bundle.CAFile, strings.Repeat("a", runbundle.MaxCABytes+1), 0o600)
 		}, want: fmt.Sprintf("ca.pem is over %d bytes", runbundle.MaxCABytes)},
@@ -419,21 +494,36 @@ func TestSetupErrors(t *testing.T) {
 		}, want: "the state dir: " + "$T/state exists and is not a directory"},
 		{name: "a daemon.json that's an array", mode: SetupOn, prep: func(t *testing.T, w *world) {
 			mustWrite(t, filepath.Join(w.root, daemonJSON), "[]", 0o644)
-		}, want: "/etc/docker/daemon.json: it isn't a JSON object: json: cannot unmarshal array", calls: 3},
+		}, want: "/etc/docker/daemon.json: it isn't a JSON object: json: cannot unmarshal array", calls: 5},
 		{name: "a daemon.json that isn't JSON", mode: SetupOn, prep: func(t *testing.T, w *world) {
 			mustWrite(t, filepath.Join(w.root, daemonJSON), "{", 0o644)
-		}, want: "it isn't a JSON object: unexpected end of JSON input", calls: 3},
+		}, want: "it isn't a JSON object: unexpected end of JSON input", calls: 5},
 		{name: "a daemon.json that's null", mode: SetupOn, prep: func(t *testing.T, w *world) {
 			mustWrite(t, filepath.Join(w.root, daemonJSON), "null", 0o644)
-		}, want: "it isn't a JSON object: null", calls: 3},
+		}, want: "it isn't a JSON object: null", calls: 5},
+		{name: "a daemon.json that's a directory", mode: SetupOn, prep: func(t *testing.T, w *world) {
+			if err := os.MkdirAll(filepath.Join(w.root, daemonJSON), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "daemon.json is not a regular file", calls: 4},
+		{name: "an oversize daemon.json", mode: SetupOn, prep: func(t *testing.T, w *world) {
+			mustWrite(t, filepath.Join(w.root, daemonJSON), strings.Repeat(" ", maxDaemonJSON+1), 0o600)
+		}, want: fmt.Sprintf("daemon.json is over %d bytes", maxDaemonJSON), calls: 4},
+		{name: "cat of daemon.json fails", mode: SetupOn, prep: func(t *testing.T, w *world) {
+			mustWrite(t, filepath.Join(w.root, daemonJSON), "{}", 0o600)
+			w.run.fail = map[string]error{"cat": errors.New("exit status 1")}
+		}, want: "/etc/docker/daemon.json: sudo -n cat -- $T/root/etc/docker/daemon.json: exit status 1: cat: it broke", calls: 5},
+		{name: "mv of the CA fails", mode: SetupOn, prep: func(_ *testing.T, w *world) {
+			w.run.fail = map[string]error{"mv": errors.New("exit status 1")}
+		}, want: "the gateway CA: sudo -n mv -f $T/root/usr/local/share/ca-certificates/.factory-gateway.crt.factory-tmp $T/root/usr/local/share/ca-certificates/factory-gateway.crt: exit status 1", calls: 3},
 		{name: "sudo refuses", mode: SetupOn, prep: func(_ *testing.T, w *world) { w.run.sudo = errors.New("exit status 1") },
 			want: "the gateway CA: sudo -n install -d -m 0755 $T/root/usr/local/share/ca-certificates: exit status 1: sudo: a password is required", calls: 1},
 		{name: "update-ca-certificates fails", mode: SetupOn, prep: func(_ *testing.T, w *world) {
 			w.run.fail = map[string]error{"update-ca-certificates": errors.New("exit status 2")}
-		}, want: "sudo -n update-ca-certificates: exit status 2: update-ca-certificates: it broke", calls: 3},
+		}, want: "sudo -n update-ca-certificates: exit status 2: update-ca-certificates: it broke", calls: 4},
 		{name: "systemctl fails", mode: SetupOn, prep: func(_ *testing.T, w *world) {
 			w.run.fail = map[string]error{"systemctl": errors.New("exit status 5")}
-		}, want: "sudo -n systemctl restart docker: exit status 5", calls: 6},
+		}, want: "sudo -n systemctl restart docker: exit status 5", calls: 8},
 		{name: "dockerd never answers", mode: SetupOn, prep: func(_ *testing.T, w *world) { w.run.ready = 1 << 30 },
 			want: "dockerd didn't answer within 1m0s: sudo -n docker info: exit status 1: Cannot connect to the Docker daemon", calls: -1},
 	} {
@@ -473,7 +563,14 @@ func TestSetupDockerWaitCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- errOnly(w.sys.Setup(ctx, w.bundle, mustURL(t, proxyURL), SetupOn)) }()
-	w.clk.BlockUntil(1) // the first poll's timer
+	armed := make(chan struct{})
+	go func() { w.clk.BlockUntil(1); close(armed) }() // the first poll's timer
+	select {
+	case <-armed:
+	case err := <-done: // Setup failed before the wait: don't block on a timer that never comes.
+		cancel()
+		t.Fatalf("Setup = %v before waiting for dockerd", err)
+	}
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("Setup = %v, want context.Canceled", err)
@@ -532,11 +629,17 @@ func TestParseSystemSetup(t *testing.T) {
 		in   string
 		want SystemSetup
 		err  bool
-	}{{"auto", SetupAuto, false}, {"on", SetupOn, false}, {"off", SetupOff, false}, {"", "", true}, {"ON", "", true}} {
+	}{{"on", SetupOn, false}, {"off", SetupOff, false}, {"auto", "", true}, {"", "", true}, {"ON", "", true}} {
 		got, err := ParseSystemSetup(tt.in)
 		if got != tt.want || (err != nil) != tt.err {
 			t.Errorf("ParseSystemSetup(%q) = %q, %v", tt.in, got, err)
 		}
+	}
+	if _, err := ParseSystemSetup("auto"); err == nil || !strings.Contains(err.Error(), "there is no automatic mode; pass on in a workspace VM") {
+		t.Errorf("ParseSystemSetup(auto) = %v, want it to say there is no automatic mode", err)
+	}
+	if DefaultSystemSetup != SetupOff {
+		t.Errorf("DefaultSystemSetup = %q, want off", DefaultSystemSetup)
 	}
 }
 
@@ -569,13 +672,20 @@ func TestParseProxy(t *testing.T) {
 func TestExecRunner(t *testing.T) {
 	t.Parallel()
 	var out bytes.Buffer
-	if err := (ExecRunner{}).Run(context.Background(), &out, "/bin/sh", "-c", "echo out; echo err >&2"); err != nil {
+	if err := (ExecRunner{}).Run(context.Background(), &out, &out, "/bin/sh", "-c", "echo out; echo err >&2"); err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != "out\nerr\n" {
 		t.Errorf("output %q", out.String())
 	}
-	err := (ExecRunner{}).Run(context.Background(), io.Discard, "/bin/sh", "-c", "exit 3")
+	var stdout, stderr bytes.Buffer
+	if err := (ExecRunner{}).Run(context.Background(), &stdout, &stderr, "/bin/sh", "-c", "echo out; echo err >&2"); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != "out\n" || stderr.String() != "err\n" {
+		t.Errorf("stdout %q, stderr %q", stdout.String(), stderr.String())
+	}
+	err := (ExecRunner{}).Run(context.Background(), io.Discard, io.Discard, "/bin/sh", "-c", "exit 3")
 	if err == nil || !strings.HasPrefix(err.Error(), "/bin/sh: exit status 3") {
 		t.Errorf("Run = %v, want /bin/sh's exit status", err)
 	}
@@ -589,6 +699,150 @@ func TestTail(t *testing.T) {
 	_, _ = tl.Write([]byte("bc"))
 	if s := tl.String(); len(s) != maxOutputTail || !strings.HasSuffix(s, "abc") {
 		t.Errorf("tail of %d bytes ending %q", len(s), s[len(s)-3:])
+	}
+}
+
+// TestSetupDaemonJSON: in SetupOn, daemon.json is read with sudo -n cat (a root-only file
+// works), an absent one is {} without a command, and the file written keeps the mode of the
+// one it replaces (0644 when there was none).
+func TestSetupDaemonJSON(t *testing.T) {
+	t.Parallel()
+	wantProxies := `"proxies": {
+    "http-proxy": "http://192.168.64.1:3128",`
+	for _, tt := range []struct {
+		name     string
+		existing string // "": none
+		mode     fs.FileMode
+		want     []string // in the file written
+		wantMode fs.FileMode
+	}{
+		{name: "missing", want: []string{"{\n  " + wantProxies}, wantMode: 0o644},
+		{name: "root-only", existing: `{"data-root": "/srv/docker"}`, mode: 0o000, want: []string{`"data-root": "/srv/docker"`, wantProxies}, wantMode: 0o000},
+		{name: "0640", existing: `{"debug": true}`, mode: 0o640, want: []string{`"debug": true`, wantProxies}, wantMode: 0o640},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			w := newWorld(t, adminUser)
+			p := filepath.Join(w.root, daemonJSON)
+			if tt.existing != "" {
+				mustWrite(t, p, tt.existing, 0o600)
+				if err := os.Chmod(p, tt.mode); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := w.setup(t, proxyURL, SetupOn); err != nil {
+				t.Fatalf("Setup: %v", err)
+			}
+			cat := "sudo -n cat -- $T/root/etc/docker/daemon.json"
+			if got := slices.Contains(w.run.calls, cat); got != (tt.existing != "") {
+				t.Errorf("calls %q: %q there is %v, want %v", w.run.calls, cat, got, !got)
+			}
+			fi, err := os.Stat(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fi.Mode().Perm() != tt.wantMode {
+				t.Errorf("daemon.json's mode %04o, want %04o", fi.Mode().Perm(), tt.wantMode)
+			}
+			_ = os.Chmod(p, 0o600)
+			b, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(string(b), want) {
+					t.Errorf("daemon.json\n%s\nwant it to contain %q", b, want)
+				}
+			}
+		})
+	}
+}
+
+// TestSetupInstallIsAtomic: a system file is installed as a temp file beside it, then renamed
+// over it with mv -f, so a failed step leaves the old file whole.
+func TestSetupInstallIsAtomic(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, adminUser)
+	p := filepath.Join(w.root, daemonJSON)
+	const old = `{"debug": true}`
+	mustWrite(t, p, old, 0o600)
+	w.run.fail = map[string]error{"systemctl": errors.New("stop here")}
+	failMV := true
+	w.run.beforeMV = func(src string) error {
+		if strings.HasSuffix(src, "/.daemon.json"+tmpSuffix) && failMV {
+			// the temp file is complete before the rename; daemon.json is still the old one.
+			if b, err := os.ReadFile(p); err != nil || string(b) != old {
+				t.Errorf("daemon.json before the rename: %q, %v", b, err)
+			}
+			if b, err := os.ReadFile(src); err != nil || !strings.Contains(string(b), "proxies") {
+				t.Errorf("the temp file before the rename: %q, %v", b, err)
+			}
+			return errors.New("killed")
+		}
+		return nil
+	}
+	if _, err := w.setup(t, proxyURL, SetupOn); err == nil || !strings.Contains(err.Error(), "daemon.json: killed") {
+		t.Fatalf("Setup = %v, want the mv to fail", err)
+	}
+	if b, err := os.ReadFile(p); err != nil || string(b) != old {
+		t.Errorf("daemon.json after a failed rename: %q, %v, want the old file", b, err)
+	}
+	want := []string{
+		"sudo -n install -d -m 0755 $T/root/etc/docker",
+		"sudo -n install -m 0600 $T/state/system/daemon.json $T/root/etc/docker/.daemon.json" + tmpSuffix,
+		"sudo -n mv -f $T/root/etc/docker/.daemon.json" + tmpSuffix + " $T/root/etc/docker/daemon.json",
+	}
+	if n := len(w.run.calls); n < 3 || !slices.Equal(w.run.calls[n-3:], want) {
+		t.Errorf("calls %q, want them to end with %q", w.run.calls, want)
+	}
+
+	// The same run with the rename let through replaces the file and leaves no temp file.
+	failMV = false
+	w.run.calls = nil
+	if _, err := w.setup(t, proxyURL, SetupOn); err == nil || !strings.Contains(err.Error(), "stop here") {
+		t.Fatalf("Setup = %v, want it to stop at systemctl", err)
+	}
+	if b, err := os.ReadFile(p); err != nil || !strings.Contains(string(b), "proxies") || !strings.Contains(string(b), `"debug": true`) {
+		t.Errorf("daemon.json %q, %v: want the merged file", b, err)
+	}
+	for _, d := range []string{filepath.Dir(p), filepath.Dir(filepath.Join(w.root, caInstall))} {
+		ents, err := os.ReadDir(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range ents {
+			if strings.HasSuffix(e.Name(), tmpSuffix) {
+				t.Errorf("%s left in %s", e.Name(), d)
+			}
+		}
+	}
+}
+
+// TestParseCertificates: what Setup installs is the certificates re-encoded, never the input's
+// bytes (here CRLF line ends and blank lines between the blocks).
+func TestParseCertificates(t *testing.T) {
+	t.Parallel()
+	in := "\r\n" + strings.ReplaceAll(testCA, "\n", "\r\n") + "\n\n" + testCA + "  \n"
+	got, err := parseCertificates([]byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := testCA + testCA; string(got) != want {
+		t.Errorf("parseCertificates = %q, want %q", got, want)
+	}
+}
+
+// TestCapped keeps the first limit bytes, reports more, and never writes short.
+func TestCapped(t *testing.T) {
+	t.Parallel()
+	c := &capped{limit: 4}
+	for _, p := range []string{"ab", "cde", "f"} {
+		if n, err := c.Write([]byte(p)); n != len(p) || err != nil {
+			t.Fatalf("Write(%q) = %d, %v", p, n, err)
+		}
+	}
+	if c.b.String() != "abcd" || !c.over {
+		t.Errorf("capped %q, over %v: want abcd, true", c.b.String(), c.over)
 	}
 }
 

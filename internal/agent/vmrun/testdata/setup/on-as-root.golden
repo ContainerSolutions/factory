@@ -1,9 +1,12 @@
 # calls
 install -d -m 0755 $T/root/usr/local/share/ca-certificates
-install -m 0644 $T/state/system/factory-gateway.crt $T/root/usr/local/share/ca-certificates/factory-gateway.crt
+install -m 0644 $T/state/system/factory-gateway.crt $T/root/usr/local/share/ca-certificates/.factory-gateway.crt.factory-tmp
+mv -f $T/root/usr/local/share/ca-certificates/.factory-gateway.crt.factory-tmp $T/root/usr/local/share/ca-certificates/factory-gateway.crt
 update-ca-certificates
+cat -- $T/root/etc/docker/daemon.json
 install -d -m 0755 $T/root/etc/docker
-install -m 0644 $T/state/system/daemon.json $T/root/etc/docker/daemon.json
+install -m 0600 $T/state/system/daemon.json $T/root/etc/docker/.daemon.json.factory-tmp
+mv -f $T/root/etc/docker/.daemon.json.factory-tmp $T/root/etc/docker/daemon.json
 systemctl restart docker
 docker info
 # env
@@ -23,7 +26,7 @@ http_proxy=http://192.168.64.1:3128
 https_proxy=http://192.168.64.1:3128
 no_proxy=localhost,127.0.0.1,::1,.localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local
 # files
-== root/etc/docker/daemon.json 0644
+== root/etc/docker/daemon.json 0600
 {
   "proxies": {
     "http-proxy": "http://192.168.64.1:3128",
@@ -33,11 +36,25 @@ no_proxy=localhost,127.0.0.1,::1,.localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0
 }
 == root/usr/local/share/ca-certificates/factory-gateway.crt 0644
 -----BEGIN CERTIFICATE-----
-ZmFrZS1nYXRld2F5LWNh
+MIIBdzCCAR2gAwIBAgIBATAKBggqhkjOPQQDAjAiMSAwHgYDVQQDExdmYWN0b3J5
+IHRlc3QgZ2F0ZXdheSBDQTAgFw0yNjAxMDEwMDAwMDBaGA8yMTAwMDEwMTAwMDAw
+MFowIjEgMB4GA1UEAxMXZmFjdG9yeSB0ZXN0IGdhdGV3YXkgQ0EwWTATBgcqhkjO
+PQIBBggqhkjOPQMBBwNCAAQFjX3ZvAx5u+sl5EV8f02S5uzQBcxoaX4YojdH7CUT
+ZXIT0HtOSHMTIzo4Bzg06TNaGnBgE73/GHmN5kULeSg4o0IwQDAOBgNVHQ8BAf8E
+BAMCAQYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU+D0q7vBPAFMBpfMRkxEn
+E3X9IfowCgYIKoZIzj0EAwIDSAAwRQIhALKpsDD5VVHsU26ckqH46/gY/BalnpuP
+woiDYu8naGLxAiBeo3+VEj1A4DEj7Z2t1pMNKzMD/piHfDvgEFjZF923qw==
 -----END CERTIFICATE-----
 == state/ca-bundle.pem 0600
 -----BEGIN CERTIFICATE-----
-ZmFrZS1nYXRld2F5LWNh
+MIIBdzCCAR2gAwIBAgIBATAKBggqhkjOPQQDAjAiMSAwHgYDVQQDExdmYWN0b3J5
+IHRlc3QgZ2F0ZXdheSBDQTAgFw0yNjAxMDEwMDAwMDBaGA8yMTAwMDEwMTAwMDAw
+MFowIjEgMB4GA1UEAxMXZmFjdG9yeSB0ZXN0IGdhdGV3YXkgQ0EwWTATBgcqhkjO
+PQIBBggqhkjOPQMBBwNCAAQFjX3ZvAx5u+sl5EV8f02S5uzQBcxoaX4YojdH7CUT
+ZXIT0HtOSHMTIzo4Bzg06TNaGnBgE73/GHmN5kULeSg4o0IwQDAOBgNVHQ8BAf8E
+BAMCAQYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU+D0q7vBPAFMBpfMRkxEn
+E3X9IfowCgYIKoZIzj0EAwIDSAAwRQIhALKpsDD5VVHsU26ckqH46/gY/BalnpuP
+woiDYu8naGLxAiBeo3+VEj1A4DEj7Z2t1pMNKzMD/piHfDvgEFjZF923qw==
 -----END CERTIFICATE-----
 == state/docker/config.json 0600
 {}

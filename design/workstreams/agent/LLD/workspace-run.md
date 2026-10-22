@@ -81,14 +81,14 @@ func (m Manifest) Validate() error
 
 ```
 factory-agent run --proxy http://<gateway>:<port> [--bundle /run/factory] [--work /work]
-  [--state-dir /var/lib/factory-agent/run] [--remaining 54m10s] [--system-setup auto|on|off]
+  [--state-dir /var/lib/factory-agent/run] [--remaining 54m10s] [--system-setup on|off]
   [--down-timeout 3m] [--log-level info] [--log-format json|text] [--harness-bin codex=/path (hidden)]
 ```
 
 - **`--proxy`** is required: an absolute `http` URL with a host and port and nothing else.
 - **`--work`** is the workspace root (`pipeline.Options.Root`); it must be empty or absent. **`--state-dir`** holds what the runtime writes outside the workspace: the environment's scripts, the docker client config, the combined CA bundle. When either is absent and its parent isn't writable by the run's user, system setup creates it with `sudo -n install -d -o <uid> -g <gid> -m 0700`; with `--system-setup off` the run's user must be able to create it (tests pass temp dirs).
 - **`--remaining`** is how much of the task's wall clock is left, measured by the supervisor (no clock skew between the agent host and the VM). Absent: the whole `limits.maxWallClock`.
-- **`--system-setup`**: `on` runs the privileged part of [system setup](#system-setup-vmrunsystemgo); `off` only builds the environment; `auto` is `on` when `/run/systemd/system` exists and `sudo -n true` succeeds (a VM), else `off` (a plain container, a test).
+- **`--system-setup`**: `on` runs the privileged part of [system setup](#system-setup-vmrunsystemgo); `off`, the default, only builds the environment (a plain container, a test). There is no automatic mode (decided 2026-10-22, PR #114's review): `sudo -n true` also succeeds on a workstation within sudo's timestamp or a CI runner with passwordless sudo, where a guessed `on` would put the gateway's intercepting CA in the system store and restart dockerd. The phase 5 supervisor, which knows it launched a workspace VM, always passes `on`; `--system-setup auto` is a usage error that says so.
 - **`--harness-bin name=path`** (hidden, repeatable) overrides a harness binary; tests use it for the fake harnesses.
 - **stdout is the event stream; stderr is slog** (`--log-format json` by default, since the supervisor captures it).
 
@@ -220,18 +220,24 @@ const ReasonEnvironmentError = "environment-error" // in internal/agent/runner, 
 |---|---|
 | `HTTPS_PROXY`, `HTTP_PROXY`, `https_proxy`, `http_proxy` | `--proxy` (both cases: curl ignores upper-case `HTTP_PROXY`, and some tools read only one case) |
 | `NO_PROXY`, `no_proxy` | `localhost,127.0.0.1,::1,.localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local`, then `m.Gateway.NoProxy` |
-| `SSL_CERT_FILE`, `GIT_SSL_CAINFO`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE` | `<state>/ca-bundle.pem`: the system roots (`/etc/ssl/certs/ca-certificates.crt`) followed by the gateway CA |
+| `SSL_CERT_FILE`, `GIT_SSL_CAINFO`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE` | `<state>/ca-bundle.pem`: the system roots (`/etc/ssl/certs/ca-certificates.crt`) followed by the gateway CA (re-encoded, below) |
 | `NODE_EXTRA_CA_CERTS` | the bundle's `gateway/ca.pem` (Node adds it to its own roots; Phase 0 Q4) |
 | `GH_TOKEN` | `harness.Placeholder`: gh refuses to start without a token, and the gateway replaces it on api.github.com GETs |
 | `FACTORY_RUNTIME` | `workspace` |
 | `DOCKER_CONFIG` | `<state>/docker`, with a `config.json` that has **no** `proxies` key (decided 2026-10-22, risk 13): containers get no proxy variables, so calls between compose services by name stay direct. Containers therefore have no internet egress; image pulls still work through dockerd's own proxy below |
 | `XDG_DATA_HOME` | the run user's own `~/.local/share` (from the passwd entry): the pipeline's scratch `HOME` would hide the gh extensions the base installed for `admin` |
 
-`config.json` and the CA bundle are written before the environment's `setup` runs. With `--system-setup on`, in order and each with `sudo -n`:
+`config.json` and the CA bundle are written before the environment's `setup` runs.
+
+**The gateway CA** (`gateway/ca.pem`, at most `runbundle.MaxCABytes`) must be one or more PEM `CERTIFICATE` blocks with only whitespace around and between them: each block must decode from the start of what's left (`pem.Decode` otherwise skips a malformed block, such as a key whose type or END line is broken, and returns the certificate after it), carry no headers, parse with `x509.ParseCertificate` and be a CA (`BasicConstraintsValid` and `IsCA`). Anything else fails setup. What's written to the CA bundle and the system store is `pem.EncodeToMemory` of the accepted blocks, never the file's bytes.
+
+With `--system-setup on`, in order and each with `sudo -n` (none as root):
 
 1. install the gateway CA as `/usr/local/share/ca-certificates/factory-gateway.crt` and run `update-ca-certificates`, for tools that read only the system store;
-2. write `/etc/docker/daemon.json` with `proxies.{http-proxy, https-proxy, no-proxy}`, merged into the file's other keys when it exists;
+2. read `/etc/docker/daemon.json` with `sudo -n cat` (a root-only file works; an absent one is `{}`, a file that isn't a regular file or is over 1 MiB fails) and write it with `proxies.{http-proxy, https-proxy, no-proxy}`, merged into the file's other keys;
 3. `systemctl restart docker`, then poll `docker info` until it answers (60 s).
+
+Both system files are replaced atomically: `install -m <mode>` to `.<name>.factory-tmp` in the target's directory (the mode of the file it replaces, `0644` when there's none), then `mv -f` over the target, so a run killed midway leaves the old file whole.
 
 `off` does none of these: a plain container has no systemd or dockerd, and tests run unprivileged. Any failure in `on` mode fails the run `environment-error`.
 

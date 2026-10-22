@@ -7,6 +7,7 @@ package vmrun
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -29,26 +30,30 @@ import (
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
-// SystemSetup is --system-setup: whether Setup runs its privileged part.
+// SystemSetup is --system-setup: whether Setup runs its privileged part. There is no
+// automatic mode: the supervisor, which knows it launched a workspace VM, passes SetupOn, and
+// anything else gets the default, SetupOff, so a workstation or a CI runner with cached or
+// passwordless sudo never has its trust store or dockerd changed by a guess.
 type SystemSetup string
 
 const (
-	// SetupAuto is SetupOn in a VM (systemd runs and sudo -n works, or the run is root), else
-	// SetupOff (a plain container, a test).
-	SetupAuto SystemSetup = "auto"
 	// SetupOn installs the gateway CA into the system store and gives dockerd the proxy.
 	SetupOn SystemSetup = "on"
 	// SetupOff only builds the environment and the files under the state dir.
 	SetupOff SystemSetup = "off"
+	// DefaultSystemSetup is --system-setup's default.
+	DefaultSystemSetup = SetupOff
 )
 
-// ParseSystemSetup parses --system-setup.
+// ParseSystemSetup parses --system-setup: on or off.
 func ParseSystemSetup(s string) (SystemSetup, error) {
 	switch m := SystemSetup(s); m {
-	case SetupAuto, SetupOn, SetupOff:
+	case SetupOn, SetupOff:
 		return m, nil
+	case "auto":
+		return "", errors.New(`--system-setup "auto": there is no automatic mode; pass on in a workspace VM (the supervisor does), else off (the default)`)
 	}
-	return "", fmt.Errorf("--system-setup %q: want auto, on or off", s)
+	return "", fmt.Errorf("--system-setup %q: want on or off", s)
 }
 
 // ParseProxy parses --proxy: an absolute http URL with a host and a port and nothing else
@@ -89,11 +94,14 @@ var DefaultNoProxy = []string{
 
 // The system paths Setup reads and writes, under System.Root.
 const (
-	systemRoots   = "/etc/ssl/certs/ca-certificates.crt"
-	caInstall     = "/usr/local/share/ca-certificates/factory-gateway.crt"
-	daemonJSON    = "/etc/docker/daemon.json"
-	systemdRunDir = "/run/systemd/system"
+	systemRoots = "/etc/ssl/certs/ca-certificates.crt"
+	caInstall   = "/usr/local/share/ca-certificates/factory-gateway.crt"
+	daemonJSON  = "/etc/docker/daemon.json"
 )
+
+// tmpSuffix names the temp file beside a system file that SetupOn installs and then renames
+// over it: /etc/docker/.daemon.json.factory-tmp.
+const tmpSuffix = ".factory-tmp"
 
 // The files Setup writes under the state dir.
 const (
@@ -112,18 +120,18 @@ const (
 	maxOutputTail        = 2 << 10 // a failed command's output kept for its error
 )
 
-// Runner runs a command; out gets its stdout and stderr.
+// Runner runs a command, with its stdout and stderr (which may be the same writer).
 type Runner interface {
-	Run(ctx context.Context, out io.Writer, name string, args ...string) error
+	Run(ctx context.Context, stdout, stderr io.Writer, name string, args ...string) error
 }
 
 // ExecRunner runs real programs, found on PATH.
 type ExecRunner struct{}
 
 // Run implements Runner.
-func (ExecRunner) Run(ctx context.Context, out io.Writer, name string, args ...string) error {
+func (ExecRunner) Run(ctx context.Context, stdout, stderr io.Writer, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stdout, cmd.Stderr = out, out
+	cmd.Stdout, cmd.Stderr = stdout, stderr
 	cmd.WaitDelay = 10 * time.Second
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w", name, err)
@@ -140,9 +148,10 @@ type System struct {
 	// WorkDir is the workspace root (--work, pipeline.Options.Root); "" skips it. Setup makes
 	// it when it's absent, with sudo when its parent isn't writable by the run's user.
 	WorkDir string
-	// Root prefixes the system paths (/etc, /usr/local, /run); "" is /.
+	// Root prefixes the system paths (/etc, /usr/local); "" is /.
 	Root string
-	// Runner runs sudo, update-ca-certificates, systemctl and docker; default ExecRunner.
+	// Runner runs sudo, install, cat, mv, update-ca-certificates, systemctl and docker;
+	// default ExecRunner.
 	Runner Runner
 	// Clock times the wait for dockerd; default clock.Real.
 	Clock clock.Clock
@@ -165,9 +174,9 @@ type setup struct {
 
 // Setup prepares the VM for the run (workspace-run.md §System setup) and returns the
 // environment that becomes pipeline.Options.Env and the environment runner's Env. The CA
-// bundle and the docker client config are written in every mode; SetupOn (and SetupAuto in a
-// VM) also installs the gateway CA into the system store, gives dockerd the proxy and restarts
-// it. Every error fails the run environment-error.
+// bundle and the docker client config are written in every mode; SetupOn also installs the
+// gateway CA into the system store, gives dockerd the proxy and restarts it. Every error fails
+// the run environment-error.
 func (s System) Setup(ctx context.Context, b *runbundle.Bundle, proxy *url.URL, mode SystemSetup) (map[string]string, error) {
 	if err := s.defaults(); err != nil {
 		return nil, err
@@ -178,21 +187,22 @@ func (s System) Setup(ctx context.Context, b *runbundle.Bundle, proxy *url.URL, 
 	if b == nil || b.CAFile == "" {
 		return nil, errors.New("system setup: the bundle has no gateway CA")
 	}
-	ca, err := readCapped(b.CAFile, runbundle.MaxCABytes)
+	raw, err := readCapped(b.CAFile, runbundle.MaxCABytes)
 	if err != nil {
 		return nil, fmt.Errorf("system setup: the gateway CA: %w", err)
 	}
-	if err := checkCertificates(ca); err != nil {
+	ca, err := parseCertificates(raw)
+	if err != nil {
 		return nil, fmt.Errorf("system setup: the gateway CA: %w", err)
 	}
 	u, err := s.User()
 	if err != nil {
 		return nil, fmt.Errorf("system setup: the run's user: %w", err)
 	}
-	r := &setup{System: s, root: u.Uid == "0", user: u, proxy: proxy.String(), noPx: noProxy(b.Manifest.Gateway.NoProxy)}
-	if mode, err = r.resolve(ctx, mode); err != nil {
-		return nil, err
+	if mode != SetupOn && mode != SetupOff {
+		return nil, fmt.Errorf("system setup: unknown mode %q", mode)
 	}
+	r := &setup{System: s, root: u.Uid == "0", user: u, proxy: proxy.String(), noPx: noProxy(b.Manifest.Gateway.NoProxy)}
 	r.Logger.Info("system setup", "mode", mode)
 	if err := r.dirs(ctx, mode); err != nil {
 		return nil, err
@@ -266,28 +276,6 @@ func noProxy(extra []string) string {
 		}
 	}
 	return strings.Join(l, ",")
-}
-
-// resolve turns SetupAuto into SetupOn when systemd runs and the run can be root (it is, or
-// sudo -n works), else SetupOff.
-func (r *setup) resolve(ctx context.Context, mode SystemSetup) (SystemSetup, error) {
-	switch mode {
-	case SetupOn, SetupOff:
-		return mode, nil
-	case SetupAuto:
-	default:
-		return "", fmt.Errorf("system setup: unknown mode %q", mode)
-	}
-	if fi, err := os.Stat(r.path(systemdRunDir)); err != nil || !fi.IsDir() {
-		return SetupOff, nil
-	}
-	if !r.root {
-		if err := r.run(ctx, "sudo", "-n", "true"); err != nil {
-			r.Logger.Info("system setup: sudo -n isn't available; the privileged part is off", "err", err)
-			return SetupOff, nil
-		}
-	}
-	return SetupOn, nil
 }
 
 // dirs makes the state dir and the work dir when they're absent, with their missing parents:
@@ -380,7 +368,7 @@ func (r *setup) privileged(ctx context.Context, ca []byte) error {
 	}
 
 	r.Logger.Info("system setup: giving dockerd the proxy")
-	daemon, err := r.daemonConfig()
+	daemon, err := r.daemonConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("system setup: %s: %w", daemonJSON, err)
 	}
@@ -396,24 +384,39 @@ func (r *setup) privileged(ctx context.Context, ca []byte) error {
 	return nil
 }
 
-// install stages content in the state dir and installs it at the system path p (0644, its
-// directory 0755).
+// install stages content in the state dir and puts it at the system path p atomically: it
+// installs it as a temp file in p's directory (its directory made 0755 when absent), with the
+// mode of the file it replaces, else 0644, then renames that over p with mv -f. A run killed
+// midway leaves p as it was, never missing or truncated.
 func (r *setup) install(ctx context.Context, stage, p string, content []byte) error {
+	dst := r.path(p)
+	mode := fs.FileMode(0o644)
+	switch fi, err := os.Stat(dst); {
+	case err == nil:
+		mode = fi.Mode().Perm()
+	case !errors.Is(err, fs.ErrNotExist):
+		return err
+	}
 	src := filepath.Join(stage, filepath.Base(p))
 	if err := os.WriteFile(src, content, 0o600); err != nil {
 		return err
 	}
-	if err := r.priv(ctx, "install", "-d", "-m", "0755", filepath.Dir(r.path(p))); err != nil {
+	if err := r.priv(ctx, "install", "-d", "-m", "0755", filepath.Dir(dst)); err != nil {
 		return err
 	}
-	return r.priv(ctx, "install", "-m", "0644", src, r.path(p))
+	tmp := filepath.Join(filepath.Dir(dst), "."+filepath.Base(dst)+tmpSuffix)
+	if err := r.priv(ctx, "install", "-m", fmt.Sprintf("%04o", mode), src, tmp); err != nil {
+		return err
+	}
+	return r.priv(ctx, "mv", "-f", tmp, dst)
 }
 
 // daemonConfig is daemon.json with its proxies set to the gateway, merged into the file's
-// other keys when it exists (a proxies key there is replaced).
-func (r *setup) daemonConfig() ([]byte, error) {
+// other keys when it exists (a proxies key there is replaced). The file is read with sudo -n
+// cat, as it's written, so a root-only one works; an absent one is {}.
+func (r *setup) daemonConfig(ctx context.Context) ([]byte, error) {
 	cfg := map[string]json.RawMessage{}
-	raw, err := readCapped(r.path(daemonJSON), maxDaemonJSON)
+	raw, err := r.readPriv(ctx, r.path(daemonJSON), maxDaemonJSON)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 	case err != nil:
@@ -464,25 +467,76 @@ func (r *setup) waitDocker(ctx context.Context) error {
 	}
 }
 
-// priv runs a command as root: with sudo -n, or directly when the run is root.
-func (r *setup) priv(ctx context.Context, name string, args ...string) error {
-	if r.root {
-		return r.run(ctx, name, args...)
+// readPriv reads the regular file p, of at most limit bytes, as root (sudo -n cat). A p that
+// the run's user sees is absent is fs.ErrNotExist, without a command: its directory is
+// readable (/etc/docker is 0755) even when the file is root-only.
+func (r *setup) readPriv(ctx context.Context, p string, limit int64) ([]byte, error) {
+	fi, err := os.Stat(p)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, err
+	case err == nil && !fi.Mode().IsRegular():
+		return nil, fmt.Errorf("%s is not a regular file", p)
+	case err == nil && fi.Size() > limit:
+		return nil, fmt.Errorf("%s is over %d bytes", p, limit)
 	}
-	return r.run(ctx, "sudo", append([]string{"-n", name}, args...)...)
+	// err is nil, or a permission error that sudo may not have: cat says.
+	out := &capped{limit: limit}
+	if err := r.privOut(ctx, out, "cat", "--", p); err != nil {
+		return nil, err
+	}
+	if out.over {
+		return nil, fmt.Errorf("%s is over %d bytes", p, limit)
+	}
+	return out.b.Bytes(), nil
 }
 
-// run runs a command; its error carries the last of its output.
-func (r *setup) run(ctx context.Context, name string, args ...string) error {
-	var out tail
-	if err := r.Runner.Run(ctx, &out, name, args...); err != nil {
+// priv runs a command as root: with sudo -n, or directly when the run is root.
+func (r *setup) priv(ctx context.Context, name string, args ...string) error {
+	return r.privOut(ctx, nil, name, args...)
+}
+
+// privOut is priv with the command's stdout to stdout; nil keeps it with stderr for the error.
+func (r *setup) privOut(ctx context.Context, stdout io.Writer, name string, args ...string) error {
+	if r.root {
+		return r.runOut(ctx, stdout, name, args...)
+	}
+	return r.runOut(ctx, stdout, "sudo", append([]string{"-n", name}, args...)...)
+}
+
+// runOut runs a command with its stdout to stdout; nil keeps it with stderr, whose last
+// maxOutputTail bytes the error carries.
+func (r *setup) runOut(ctx context.Context, stdout io.Writer, name string, args ...string) error {
+	var errOut tail
+	if stdout == nil {
+		stdout = &errOut
+	}
+	if err := r.Runner.Run(ctx, stdout, &errOut, name, args...); err != nil {
 		line := strings.Join(append([]string{name}, args...), " ")
-		if t := strings.TrimSpace(out.String()); t != "" {
+		if t := strings.TrimSpace(errOut.String()); t != "" {
 			return fmt.Errorf("%s: %w: %s", line, err, t)
 		}
 		return fmt.Errorf("%s: %w", line, err)
 	}
 	return nil
+}
+
+// capped keeps the first limit bytes written to it, and whether more came.
+type capped struct {
+	b     bytes.Buffer
+	limit int64
+	over  bool
+}
+
+// Write takes all of p (a short write would fail the command), keeping what fits.
+func (c *capped) Write(p []byte) (int, error) {
+	n := len(p)
+	if room := c.limit - int64(c.b.Len()); int64(n) > room {
+		c.over = true
+		p = p[:max(room, 0)]
+	}
+	c.b.Write(p)
+	return n, nil
 }
 
 func (r *setup) path(p string) string { return filepath.Join(r.Root, p) }
@@ -500,37 +554,53 @@ func (t *tail) Write(p []byte) (int, error) {
 
 func (t *tail) String() string { return string(t.b) }
 
-// checkCertificates refuses content that isn't one or more PEM CERTIFICATE blocks: the CA's
-// public half only, never a key.
-func checkCertificates(b []byte) error {
-	n := 0
+// parseCertificates checks that b is one or more PEM CERTIFICATE blocks of CA certificates,
+// with nothing but whitespace around and between them (the CA's public half only, never a
+// key or other text), and returns them re-encoded: what Setup installs is what it parsed,
+// never b's bytes.
+func parseCertificates(b []byte) ([]byte, error) {
+	var out bytes.Buffer
 	for rest := b; ; {
-		// pem.Decode skips any text before a block: refuse it, as after the last one.
 		next := bytes.TrimLeft(rest, " \t\r\n")
-		if n > 0 && len(next) == 0 {
+		if len(next) == 0 {
 			break
 		}
-		if !bytes.HasPrefix(next, []byte("-----BEGIN ")) {
-			if n == 0 {
-				return errors.New("no PEM CERTIFICATE block at its start")
+		if !bytes.HasPrefix(next, []byte(pemBegin)) {
+			if out.Len() == 0 {
+				return nil, errors.New("no PEM CERTIFICATE block at its start")
 			}
-			return errors.New("data between or after its PEM blocks")
+			return nil, errors.New("data between or after its PEM blocks")
 		}
 		var blk *pem.Block
 		blk, rest = pem.Decode(next)
-		if blk == nil {
-			return errors.New("a PEM block that doesn't decode")
+		// pem.Decode skips a block it can't parse (a type line without its closing dashes, an
+		// END line that doesn't match) and returns the next one: the block must be the one at
+		// next's start, so what it consumed holds no other BEGIN line.
+		if blk == nil || bytes.Contains(next[len(pemBegin):len(next)-len(rest)], []byte("\n"+pemBegin)) {
+			return nil, errors.New("a PEM block that doesn't decode")
 		}
 		if blk.Type != "CERTIFICATE" {
-			return fmt.Errorf("a PEM %q block: want only CERTIFICATE blocks", blk.Type)
+			return nil, fmt.Errorf("a PEM %q block: want only CERTIFICATE blocks", blk.Type)
 		}
-		n++
+		if len(blk.Headers) > 0 {
+			return nil, errors.New("a PEM CERTIFICATE block with headers")
+		}
+		cert, err := x509.ParseCertificate(blk.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("a PEM CERTIFICATE block that isn't a certificate: %w", err)
+		}
+		if !cert.BasicConstraintsValid || !cert.IsCA {
+			return nil, errors.New("a certificate that isn't a CA")
+		}
+		out.Write(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: blk.Bytes}))
 	}
-	if n == 0 {
-		return errors.New("no PEM CERTIFICATE block")
+	if out.Len() == 0 {
+		return nil, errors.New("no PEM CERTIFICATE block")
 	}
-	return nil
+	return out.Bytes(), nil
 }
+
+const pemBegin = "-----BEGIN "
 
 // readCapped reads a regular file of at most limit bytes.
 func readCapped(p string, limit int64) ([]byte, error) {
