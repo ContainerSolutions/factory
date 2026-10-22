@@ -6,3 +6,12 @@ lisa-design:
 - init --dry-run exits 0 (1 only when the plan can't be made, e.g. platform failure); a real init exits with the final check's code.
 - Free disk comes from `df -Pk` through the Runner (no syscall.Statfs, whose fields differ per OS), on the state dir's nearest existing parent.
 - config.LoadWorkspace decodes the whole file strictly but validates only workspace; a missing file gives defaults only when --config wasn't given. Parse (worker) validates workspace when present.
+
+lisa-selfreview:
+pass 1/4 (strict), verdict request_changes:
+- [must-fix ed0b2f93783b] X:security/chained-symlink-escape internal/agent/host/fetch.go Extract: a/l -> .. then a/l/m -> .. passes the lexical check; m points outside the dir and Extract returns nil (os.Root blocks writes through it). Fix: refuse entries under an extracted symlink.
+- [must-fix 5ac4334467ce] CORE-TEST-002 host_test.go TestExtract: 'write through a symlink' is refused lexically before any symlink; os.Root guard untested.
+- [must-fix 07582c935d5d] CORE-ERR-001 pf.go RemovePFScript: `pfctl -f pf.conf 2>/dev/null || true` hides a failed reload.
+- [must-fix 9f34ae89c5c4] CORE-TEST-002 host_test.go TestInit: the --yes case's wantOut "" can't fail; nothing checks --yes skips the prompt.
+- [must-fix 9cce6fc22aea] X:correctness/stale-statuses-on-failure host.go Init: a failed Apply/sudo returns the pre-apply statuses, which runHost prints.
+- [question 17f189d16aa5] Q:intent/no-pf-exit-code cmd/factory-agent/host.go runHost: with --no-pf or a declined prompt, init and every later check exit 1 (supervise in phase 5 runs host check). For reviewers; not fixed.
