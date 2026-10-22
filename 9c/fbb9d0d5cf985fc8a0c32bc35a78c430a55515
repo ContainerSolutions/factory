@@ -1,0 +1,3 @@
+lisa-addressed:
+pass 1: CORE-TEST-001 (f7f9c86bd8e4) fixed: maxConns is a Gateway field set from the constant in New; TestConnectionLimit checks the connection over the limit is closed and a closed one frees its slot. start() takes gateway edits before Serve (no race). Also: TestEgressDialer waits for the echo's async accept count; TestTunnelSNI's TLS server logs to io.Discard.
+nit CORE-STYLE-001 (ModeIntercept unused until PR 5) deferred.
