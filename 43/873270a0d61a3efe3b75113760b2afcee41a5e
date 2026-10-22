@@ -1,0 +1,6 @@
+lisa-addressed:
+ccf-review PR #116 (commit 4387327):
+- a9a60eafdf30 (should-fix): make e2e-run-container now fails unless the run exited 0, the log (bin/e2e-container.log) has `--- PASS: TestRunInContainer ` at column 0, and no `--- SKIP`; the exit status is kept (a nonzero status exits with it; a missing status file exits 1) and goes through a file, not pipefail. Makefile and container_test.go comments name each other. Simulated under sh and dash with a fake E2E_CONTAINER_CLI: pass->0, subtest SKIP->1, FAIL->1, real host SKIP->1, real "no tests to run"->1, docker error 125->125, no status->1.
+- 1cd8bb860938 (nit): `--platform linux/$(E2E_GOARCH)` on docker run; dropped the "must match the runtime" caveat.
+- 7ade39380e83 (nit): runInContainer gunzips out/transcript.gz (gunzipLines) and requires "pushed the intro".
+- 08cc3a46b7dd (lead's answer): E2E_CONTAINER_IMAGE = docker.io/library/buildpack-deps:noble-scm@sha256:59d4f4d8581d741bb2c31f4bfd00a557ca94d182d082c81bd56d32afbad8dfc9 (OCI image index, read with a HEAD request on 2026-10-22); refresh command in the Makefile comment. IS_SANDBOX stays UNVERIFIED (LLD risk 2) until the owner's real run.
