@@ -27,7 +27,7 @@ No new dependency: TLS, `httputil.ReverseProxy` (which already passes a `101 Swi
 
 ### Sharing with the fakegateway
 
-**The fake stays independent and imports nothing from `gateway`.** It's the oracle that phase 3's tests (`pipeline`, `effector`, `vmrun`) were written against and reviewed hard; if both used one policy package, a bug there would be a bug in both, and no test would see it. What they share is **data**: PR 7 moves the fake's route table (`TestRoutes`) into `internal/agent/internal/gatewaycases` (test-only), and both packages run every case. A case gives the request, the status, whether an upstream is reached and the credential class it gets. Refusal bodies differ (`fakegateway:` and `factory gateway:`), so the cases compare the refusal *code* (`X-Factory-Gateway-Refusal`). Where the gateway deliberately differs, the case says `gatewayOnly` or `fakeOnly` and why: github.com web paths, ports other than 443, the deny list, the client pin, the canonical-path check only where a path is matched.
+**The fake stays independent and imports nothing from `gateway`.** It's the oracle that phase 3's tests (`pipeline`, `effector`, `vmrun`) were written against and reviewed hard; if both used one policy package, a bug there would be a bug in both, and no test would see it. What they share is **data**: PR 7 moves the fake's route table (`TestRoutes`) into `internal/agent/internal/gatewaycases` (test-only), and both packages run every case. A case gives the request, the status, whether an upstream is reached and the credential class it gets. Refusal bodies differ (`fakegateway:` and `factory gateway:`), so the cases compare the refusal *code*: the `X-Factory-Gateway-Refusal` header, which PR 7 also adds to the fake's refusals (from its own constants). Where the gateway deliberately differs, the case says `gatewayOnly` or `fakeOnly` and why: github.com web paths, ports other than 443, the deny list, the client pin, the canonical-path check only where a path is matched.
 
 ## API
 
@@ -45,7 +45,7 @@ type Config struct {
     ChatGPT       ChatGPTSource    // nil: none. Only for a codex task (*chatgpt.Refresher)
     Egress        policy.Egress    // the task's mode and allow list, extra denied prefixes, exceptions
     Sink          Sink             // the egress log; required
-    Clock         clock.Clock      // records' times, leaf validity
+    Clock         clock.Clock      // records' times and durations (the CA has its own)
     Logger        *slog.Logger
     Resolver      Resolver         // default net.DefaultResolver; tests map names to test servers
     UpstreamRoots *x509.CertPool   // default: the system roots; tests: their httptest CAs
@@ -86,7 +86,7 @@ Host names are compared lower-cased and without a trailing dot, exactly (no suff
 | `auth.openai.com` | none | — | every CONNECT and plain request: 403 `auth-host` |
 | `github.com` | see [github.com](#githubcom) | `Basic x-access-token:<token>` by the repo in the path | receive-pack for a repo that isn't rw, malformed git requests, non-`GET`/`HEAD` web requests |
 | `api.github.com` | `GET`, `HEAD`, any path | `Authorization: Bearer <task token>` (the lease's `gitCredential`); none when it's empty | every other method: 403 `api-write` |
-| `dispatcher.factory.internal` (`runbundle.DefaultDispatcherURL`) | absolute-form `http` only, port 80; see [the dispatcher](#the-dispatcher) | `Authorization: Bearer <RunToken>` | every other route: 403 `dispatcher-route`; CONNECT: 403 `plain-only` |
+| `dispatcher.factory.internal` (`runbundle.DefaultDispatcherURL`) | absolute-form `http` only, on port 80 (another port is `dispatcher-route`); see [the dispatcher](#the-dispatcher) | `Authorization: Bearer <RunToken>` | every other route: 403 `dispatcher-route`; CONNECT: 403 `plain-only` |
 | everything else | CONNECT: a tunnel; absolute-form `http`: forwarded | none; only `Proxy-Authorization` is dropped | the [egress check](#egress) |
 
 **Carriers** are `Authorization`, `Proxy-Authorization`, `X-Api-Key`, `Cookie` and URL user info. On every injected route all of them are stripped before the credential is set, so the VM's placeholder is replaced and never compared (workspace-run.md: "always replace, never match placeholders"). For the audit, each record says what the VM sent (`client`: `none`, `placeholder` when every carrier is `harness.Placeholder` in the forms the fake's `classify` accepts, else `other`). An `other` is logged as a warning, without its value: a credential reached the VM.
