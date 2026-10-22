@@ -1,2 +1,5 @@
 lisa-addressed:
 Pass 3: IS_SANDBOX added to the unverified list in harness-adapters.md; workspace-run.md says a VM run without a resolved auth runs on the subscription.
+
+lisa-selfreview:
+Pass 4 (final, lenient), verdict approve, no findings. Re-read the whole diff: host path unchanged (renderSettings marshals the same map; existing goldens and assertions untouched), VM path matches workspace-run.md §Harnesses under IsolationVM (claude-code), no credential reaches the VM adapter's files, argv or env.
