@@ -133,13 +133,14 @@ func (p *Pipeline) bundleContext(ctx context.Context, job *runner.Job) (map[int]
 			continue
 		}
 		tc, gone, err := p.o.Prompts.Context(ctx, job, i)
-		switch {
-		case err != nil:
+		if err != nil {
 			return nil, err
-		case gone:
+		}
+		if gone {
 			continue
-		case len(tc.Content) > maxContext:
-			return nil, fmt.Errorf("context item %d is over %d bytes", i, maxContext)
+		}
+		if err := checkContext(i, tc); err != nil {
+			return nil, err
 		}
 		tc.Index = i // the item the source answered for
 		b, err := json.Marshal(tc)

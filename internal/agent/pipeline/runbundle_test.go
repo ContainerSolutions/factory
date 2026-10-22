@@ -335,20 +335,44 @@ func TestBundleSourcesRefusals(t *testing.T) {
 	ctx := context.Background()
 	other := &runner.Job{Lease: apiclient.Lease{}}
 	other.Lease.Task.Metadata.ID = "tsk_other"
+	mine := &runner.Job{}
+	mine.Lease.Task.Metadata.ID = taskID
 	b := &runbundle.Bundle{Manifest: runbundle.Manifest{TaskID: taskID}}
-	for name, call := range map[string]func() error{
-		"Prompt":       func() error { _, err := pipeline.BundlePrompts{B: b}.Prompt(ctx, other); return err },
-		"Context":      func() error { _, _, err := pipeline.BundlePrompts{B: b}.Context(ctx, other, 0); return err },
-		"OutputSchema": func() error { _, err := pipeline.BundleSchemas{B: b}.OutputSchema(ctx, other); return err },
-		"no bundle":    func() error { _, err := pipeline.BundlePrompts{}.Prompt(ctx, other); return err },
-		"FetchSkills":  func() error { _, _, err := pipeline.FetchSkills{}.Skills(ctx, other, t.TempDir()); return err },
-		"PrebuiltSkills dir": func() error {
+	for _, tt := range []struct {
+		name, want string
+		call       func() error
+	}{
+		{"Prompt", "the run bundle is task " + taskID + "'s, not tsk_other's", func() error {
+			_, err := pipeline.BundlePrompts{B: b}.Prompt(ctx, other)
+			return err
+		}},
+		{"Context", "the run bundle is task " + taskID + "'s", func() error {
+			_, _, err := pipeline.BundlePrompts{B: b}.Context(ctx, other, 0)
+			return err
+		}},
+		{"OutputSchema", "the run bundle is task " + taskID + "'s", func() error {
+			_, err := pipeline.BundleSchemas{B: b}.OutputSchema(ctx, other)
+			return err
+		}},
+		{"no bundle", "no run bundle", func() error {
+			_, err := pipeline.BundlePrompts{}.Prompt(ctx, other)
+			return err
+		}},
+		{"an item the bundle doesn't list", "context item 0 is not in the bundle", func() error {
+			_, _, err := pipeline.BundlePrompts{B: b}.Context(ctx, mine, 0)
+			return err
+		}},
+		{"FetchSkills alone", "FetchSkills runs only as a pipeline's skills source", func() error {
+			_, _, err := pipeline.FetchSkills{}.Skills(ctx, other, t.TempDir())
+			return err
+		}},
+		{"PrebuiltSkills without a dir", "prebuilt skills without their directory", func() error {
 			_, _, err := pipeline.PrebuiltSkills{List: []harness.Skill{{Name: "a"}}}.Skills(ctx, other, "")
 			return err
-		},
+		}},
 	} {
-		if err := call(); err == nil {
-			t.Errorf("%s: no error", name)
+		if err := tt.call(); err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%s: %v, want %q", tt.name, err, tt.want)
 		}
 	}
 }

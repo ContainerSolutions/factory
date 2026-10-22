@@ -89,8 +89,8 @@ func (r *run) renderPrompt(ctx context.Context) error {
 		case gone:
 			it.gone = true
 		default:
-			if len(tc.Content) > maxContext {
-				return fmt.Errorf("context item %d is over %d bytes", i, maxContext)
+			if err := checkContext(i, tc); err != nil {
+				return err
 			}
 			it.content = tc.Content
 			if tc.Trust != "" {
@@ -116,6 +116,14 @@ func checkPrompt(t v1alpha1.Task, raw []byte) error {
 		if got := "sha256:" + hex.EncodeToString(sum[:]); got != p.Digest {
 			return fmt.Errorf("the prompt's digest is %s, the task says %s", got, p.Digest)
 		}
+	}
+	return nil
+}
+
+// checkContext refuses a context item whose content is over maxContext.
+func checkContext(i int, tc apiclient.TaskContext) error {
+	if len(tc.Content) > maxContext {
+		return fmt.Errorf("context item %d is over %d bytes", i, maxContext)
 	}
 	return nil
 }
