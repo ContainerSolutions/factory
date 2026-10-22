@@ -1,0 +1,4 @@
+lisa-addressed:
+Pass 1 fixes:
+- 43d8aa30a880 CORE-TEST-002: TestBundleSourcesRefusals asserts each refusal's text, and covers an item the bundle doesn't list.
+- CORE-DUP-001: checkContext(i, tc) is the context item's size refusal, shared by renderPrompt and PrepareBundle's bundleContext.
