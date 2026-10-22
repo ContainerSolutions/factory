@@ -1,0 +1,31 @@
+# calls
+# env
+CURL_CA_BUNDLE=$T/state/ca-bundle.pem
+DOCKER_CONFIG=$T/state/docker
+FACTORY_RUNTIME=workspace
+GH_TOKEN=factory-placeholder-not-a-credential
+GIT_SSL_CAINFO=$T/state/ca-bundle.pem
+HTTPS_PROXY=http://192.168.64.1:3128
+HTTP_PROXY=http://192.168.64.1:3128
+NODE_EXTRA_CA_CERTS=$T/bundle/gateway/ca.pem
+NO_PROXY=localhost,127.0.0.1,::1,.localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local
+REQUESTS_CA_BUNDLE=$T/state/ca-bundle.pem
+SSL_CERT_FILE=$T/state/ca-bundle.pem
+XDG_DATA_HOME=/home/admin/.local/share
+http_proxy=http://192.168.64.1:3128
+https_proxy=http://192.168.64.1:3128
+no_proxy=localhost,127.0.0.1,::1,.localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local
+# files
+== root/etc/ssl/certs/ca-certificates.crt 0644
+-----BEGIN CERTIFICATE-----
+c3lzdGVtLXJvb3Q=
+-----END CERTIFICATE-----
+== state/ca-bundle.pem 0600
+-----BEGIN CERTIFICATE-----
+c3lzdGVtLXJvb3Q=
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+ZmFrZS1nYXRld2F5LWNh
+-----END CERTIFICATE-----
+== state/docker/config.json 0600
+{}

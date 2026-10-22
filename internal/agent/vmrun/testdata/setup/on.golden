@@ -1,0 +1,53 @@
+# calls
+sudo -n install -d -m 0755 $T/root/usr/local/share/ca-certificates
+sudo -n install -m 0644 $T/state/system/factory-gateway.crt $T/root/usr/local/share/ca-certificates/factory-gateway.crt
+sudo -n update-ca-certificates
+sudo -n install -d -m 0755 $T/root/etc/docker
+sudo -n install -m 0644 $T/state/system/daemon.json $T/root/etc/docker/daemon.json
+sudo -n systemctl restart docker
+sudo -n docker info
+sudo -n docker info
+sudo -n docker info
+# env
+CURL_CA_BUNDLE=$T/state/ca-bundle.pem
+DOCKER_CONFIG=$T/state/docker
+FACTORY_RUNTIME=workspace
+GH_TOKEN=factory-placeholder-not-a-credential
+GIT_SSL_CAINFO=$T/state/ca-bundle.pem
+HTTPS_PROXY=http://192.168.64.1:3128
+HTTP_PROXY=http://192.168.64.1:3128
+NODE_EXTRA_CA_CERTS=$T/bundle/gateway/ca.pem
+NO_PROXY=localhost,127.0.0.1,::1,.localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local,internal.example.com
+REQUESTS_CA_BUNDLE=$T/state/ca-bundle.pem
+SSL_CERT_FILE=$T/state/ca-bundle.pem
+XDG_DATA_HOME=/home/admin/.local/share
+http_proxy=http://192.168.64.1:3128
+https_proxy=http://192.168.64.1:3128
+no_proxy=localhost,127.0.0.1,::1,.localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local,internal.example.com
+# files
+== root/etc/docker/daemon.json 0644
+{
+  "log-driver": "journald",
+  "proxies": {
+    "http-proxy": "http://192.168.64.1:3128",
+    "https-proxy": "http://192.168.64.1:3128",
+    "no-proxy": "localhost,127.0.0.1,::1,.localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local,internal.example.com"
+  }
+}
+== root/etc/ssl/certs/ca-certificates.crt 0644
+-----BEGIN CERTIFICATE-----
+c3lzdGVtLXJvb3Q=
+-----END CERTIFICATE-----
+== root/usr/local/share/ca-certificates/factory-gateway.crt 0644
+-----BEGIN CERTIFICATE-----
+ZmFrZS1nYXRld2F5LWNh
+-----END CERTIFICATE-----
+== state/ca-bundle.pem 0600
+-----BEGIN CERTIFICATE-----
+c3lzdGVtLXJvb3Q=
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+ZmFrZS1nYXRld2F5LWNh
+-----END CERTIFICATE-----
+== state/docker/config.json 0600
+{}
