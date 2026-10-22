@@ -1,0 +1,9 @@
+lisa-selfreview:
+pass 1 (strict), verdict request_changes, 7 findings:
+- must-fix githost-vs-ca-constraints: Config.GitHost configurable while the CA's name constraints fix github.com.
+- must-fix refusal-bodies-unspecified: refusal codes without exact statuses/bodies/header, no upstream-error answers.
+- must-fix ca-clock-real-vs-fake: leaf validity on an injected fake clock would break real TLS clients in tests.
+- should-fix clients-source-undefined: where Config.Clients comes from per driver; why no proxy auth.
+- should-fix policy-purity-interfaces: pure policy vs net.InterfaceAddrs.
+- should-fix record-mode-refused-ambiguous: mode "refused" mixes where with whether.
+- should-fix refusal-code-client-collides: refusal code "client" vs record field "client".
