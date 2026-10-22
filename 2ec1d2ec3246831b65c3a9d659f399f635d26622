@@ -1,2 +1,6 @@
 lisa-addressed:
 Pass 3 fixed: OutcomeEvent (no Result in the event, validate refuses one); jsonError and no quoted values in Outcome/Event errors; ReadOutcome through os.Root with SameFile.
+
+lisa-selfreview:
+Pass 4 (final, lenient): approve. Re-read the pass-3 changes (jsonError, OutcomeEvent, ReadOutcome via os.Root): no blocker or must-fix left.
+Deferred / noted for reviewers: Manifest.Validate's errors still quote manifest values (host-written, trusted; the token scan runs first); a FIFO swapped in between ReadOutcome's Lstat and Open could still block Open (only if the VM can write the host's copy of out/ while it's read).
