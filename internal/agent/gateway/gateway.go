@@ -1,0 +1,376 @@
+// Package gateway is the workspace gateway (gateway.md): an explicit forward proxy that is the
+// workspace's only TCP route out. It accepts connections only from its VM's exact addresses,
+// tunnels CONNECTs and forwards absolute-form http requests after the egress check, dials every
+// upstream through one egress dialer (resolve once, check every address, dial the literals), and
+// writes one egress record per request. Every decision is the pure policy package's.
+//
+// This is the proxy core (P1 phase 4, PR 3), with the tunnels' ClientHello peek. TLS
+// interception is PR 5's, the GitHub and dispatcher routes PR 7's and the model credentials PR
+// 8's: until then a CONNECT to an intercepted host is refused (upstream) and the dispatcher's
+// route is closed (dispatcher-route), so nothing reaches a credentialed host without its rules.
+package gateway
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/netip"
+	"sync"
+	"time"
+
+	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
+	"github.com/compliance-framework/factory/internal/clock"
+)
+
+// Config configures a Gateway. Later phase 4 PRs add the CA, the git credentials, the run token
+// and the dispatcher, and the model logins (gateway.md, API).
+type Config struct {
+	// TaskID and RunID identify the workspace; both required.
+	TaskID, RunID string
+	// Clients are the VM's exact addresses (IPv4-mapped ones unmapped): any other peer is closed
+	// at accept. Required.
+	Clients []netip.Addr
+	// Egress is the task's mode and allow list, extra denied prefixes and open addresses.
+	Egress policy.Egress
+	// Sink receives the egress log; required.
+	Sink Sink
+	// Clock times the records and the interface cache; default the real clock.
+	Clock clock.Clock
+	// Logger defaults to discarding.
+	Logger *slog.Logger
+	// Resolver resolves the destinations; default net.DefaultResolver.
+	Resolver Resolver
+}
+
+// Sink receives every egress record. It is called synchronously, one call at a time, and never
+// after Close returns; it must not block.
+type Sink interface{ Egress(Record) }
+
+// Resolver resolves a destination's name; net.DefaultResolver is one.
+type Resolver interface {
+	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
+}
+
+// The timeouts and bounds (gateway.md, "Limits and timeouts"). The PoC fixes them; the LLD's
+// Limits knob is deferred.
+const (
+	readHeaderTimeout     = 10 * time.Second
+	maxHeaderBytes        = 64 << 10
+	idleTimeout           = 90 * time.Second
+	maxConns              = 512 // client connections at once; more are closed at accept
+	resolveTimeout        = 5 * time.Second
+	dialTimeout           = 10 * time.Second
+	responseHeaderTimeout = 5 * time.Minute
+	keepAlive             = 30 * time.Second
+)
+
+// ErrConfig is wrapped by every *ConfigError.
+var ErrConfig = errors.New("invalid gateway config")
+
+// ConfigError is a Config field that New or Serve refuses. It never carries the value.
+type ConfigError struct {
+	Field string
+	Err   error // a policy or v1alpha1 sentinel, when there is one
+}
+
+func (e *ConfigError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("gateway: config: %s: %v", e.Field, e.Err)
+	}
+	return "gateway: config: " + e.Field + " is invalid"
+}
+
+// Is matches ErrConfig.
+func (e *ConfigError) Is(target error) bool { return target == ErrConfig }
+
+func (e *ConfigError) Unwrap() error { return e.Err }
+
+// Gateway is one workspace's proxy. New validates it, Serve runs it and Close ends it.
+type Gateway struct {
+	cfg     Config
+	clients map[netip.Addr]bool
+	log     *slog.Logger
+	clk     clock.Clock
+	ifaces  *hostAddrs
+	// peekTimeout bounds a tunnel's ClientHello peek; tests shorten it.
+	peekTimeout time.Duration
+	dialer      *net.Dialer
+	forward     *http.Transport
+	srv         *http.Server
+
+	ctx    context.Context // every request's base; Close cancels it
+	cancel context.CancelFunc
+
+	mu        sync.Mutex
+	closed    bool // no new connection, handler or copy
+	done      bool // Close returned: nothing is recorded
+	serving   bool
+	ln        net.Listener
+	conns     map[*trackedConn]struct{}
+	nclients  int            // tracked client connections
+	wg        sync.WaitGroup // handlers and copy goroutines
+	closeOnce sync.Once
+}
+
+// New validates cfg and builds a gateway; it starts nothing.
+func New(cfg Config) (*Gateway, error) {
+	switch {
+	case cfg.TaskID == "":
+		return nil, &ConfigError{Field: "TaskID"}
+	case cfg.RunID == "":
+		return nil, &ConfigError{Field: "RunID"}
+	case len(cfg.Clients) == 0:
+		return nil, &ConfigError{Field: "Clients"}
+	case cfg.Sink == nil:
+		return nil, &ConfigError{Field: "Sink"}
+	}
+	clients := map[netip.Addr]bool{}
+	for i, a := range cfg.Clients {
+		if !a.IsValid() || a.IsUnspecified() || a.Zone() != "" {
+			return nil, &ConfigError{Field: fmt.Sprintf("Clients[%d]", i)}
+		}
+		clients[a.Unmap()] = true
+	}
+	if err := cfg.Egress.Validate(); err != nil {
+		if ee, ok := errors.AsType[*policy.EgressError](err); ok {
+			return nil, &ConfigError{Field: "Egress." + ee.Field, Err: ee.Err}
+		}
+		return nil, &ConfigError{Field: "Egress"}
+	}
+	if cfg.Clock == nil {
+		cfg.Clock = clock.Real{}
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.New(slog.DiscardHandler)
+	}
+	if cfg.Resolver == nil {
+		cfg.Resolver = net.DefaultResolver
+	}
+	g := &Gateway{
+		cfg: cfg, clients: clients, clk: cfg.Clock,
+		log:   cfg.Logger.With("task", cfg.TaskID, "run", cfg.RunID),
+		conns: map[*trackedConn]struct{}{}, peekTimeout: peekTimeout,
+	}
+	g.ifaces = &hostAddrs{read: net.InterfaceAddrs, clk: cfg.Clock, log: g.log}
+	g.ctx, g.cancel = context.WithCancel(context.Background())
+	g.dialer = &net.Dialer{Timeout: dialTimeout, KeepAlive: keepAlive, Control: g.controlDial}
+	g.forward = &http.Transport{
+		Proxy: nil, DialContext: g.dialEgress, ForceAttemptHTTP2: false, DisableCompression: true,
+		ResponseHeaderTimeout: responseHeaderTimeout, IdleConnTimeout: idleTimeout,
+		MaxIdleConnsPerHost: 16,
+	}
+	g.srv = &http.Server{
+		Handler: http.HandlerFunc(g.handle), ReadHeaderTimeout: readHeaderTimeout,
+		MaxHeaderBytes: maxHeaderBytes, IdleTimeout: idleTimeout,
+		BaseContext: func(net.Listener) context.Context { return g.ctx },
+		ErrorLog:    log.New(discard{}, "", 0),
+	}
+	return g, nil
+}
+
+type discard struct{}
+
+func (discard) Write(b []byte) (int, error) { return len(b), nil }
+
+// Serve accepts the VM's connections on ln until ctx ends or Close is called, and returns nil
+// then; it closes ln. It refuses a Clients address that is one of the agent host's own interface
+// addresses (a *ConfigError), and a second call.
+func (g *Gateway) Serve(ctx context.Context, ln net.Listener) error {
+	own, err := g.ifaces.addrs(true)
+	if err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("gateway: the agent host's addresses: %w", err)
+	}
+	for i, a := range g.cfg.Clients {
+		if own[a.Unmap()] {
+			_ = ln.Close()
+			return &ConfigError{Field: fmt.Sprintf("Clients[%d]", i)}
+		}
+	}
+	g.mu.Lock()
+	switch {
+	case g.closed:
+		g.mu.Unlock()
+		_ = ln.Close()
+		return nil
+	case g.serving:
+		g.mu.Unlock()
+		_ = ln.Close()
+		return errors.New("gateway: Serve called twice")
+	}
+	g.serving = true
+	g.ln = &listener{Listener: ln, g: g}
+	g.mu.Unlock()
+
+	stop := context.AfterFunc(ctx, func() { _ = g.Close() })
+	defer stop()
+	err = g.srv.Serve(g.ln)
+	if g.isClosed() {
+		_ = g.Close() // wait for a Close that ctx started
+		return nil
+	}
+	return fmt.Errorf("gateway: serve: %w", err)
+}
+
+func (g *Gateway) isClosed() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.closed
+}
+
+// Close stops the gateway: it closes the listener and every connection (hijacked ones, tunnels'
+// upstream sides included), cancels the requests in flight, waits for every handler and copy
+// (whose records are written then), and returns nil.
+// Nothing is recorded after it returns. It is idempotent; a concurrent call waits for the first.
+func (g *Gateway) Close() error {
+	g.closeOnce.Do(func() {
+		g.mu.Lock()
+		g.closed = true
+		ln := g.ln
+		conns := make([]*trackedConn, 0, len(g.conns))
+		for c := range g.conns {
+			conns = append(conns, c)
+		}
+		g.mu.Unlock()
+		if ln != nil {
+			_ = ln.Close()
+		}
+		for _, c := range conns {
+			_ = c.Close()
+		}
+		g.cancel()
+		_ = g.srv.Close()
+		g.wg.Wait()
+		g.forward.CloseIdleConnections()
+
+		g.mu.Lock()
+		g.done = true
+		g.mu.Unlock()
+	})
+	return nil
+}
+
+// hold counts a handler or copy goroutine in wg; false once the gateway is closed.
+func (g *Gateway) hold() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closed {
+		return false
+	}
+	g.wg.Add(1)
+	return true
+}
+
+// record sends r to the Sink unless Close has returned. The LLD's 50,000-record cap is
+// deferred (PoC).
+func (g *Gateway) record(r Record) {
+	r.Type = RecordType
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.done {
+		g.cfg.Sink.Egress(r)
+	}
+}
+
+// listener admits only the VM's connections and tracks them.
+type listener struct {
+	net.Listener
+	g *Gateway
+}
+
+func (l *listener) Accept() (net.Conn, error) {
+	for {
+		c, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		if tc := l.g.admit(c); tc != nil {
+			return tc, nil
+		}
+	}
+}
+
+// admit tracks c when it comes from a Clients address, the gateway is open and under maxConns;
+// otherwise it closes c (a peer outside Clients with a record) and returns nil.
+func (g *Gateway) admit(c net.Conn) *trackedConn {
+	start := g.clk.Now()
+	if !g.allowedPeer(c.RemoteAddr()) {
+		_ = c.Close()
+		g.log.Info("gateway: refused a connection", "refusal", policy.CodePeer)
+		g.record(Record{At: start, Mode: ModeAccept, Refusal: policy.CodePeer})
+		return nil
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closed || g.nclients >= maxConns {
+		_ = c.Close()
+		if !g.closed {
+			g.log.Info("gateway: connection limit reached; closed a connection", "limit", maxConns)
+		}
+		return nil
+	}
+	tc := &trackedConn{Conn: c, g: g, client: true}
+	g.conns[tc] = struct{}{}
+	g.nclients++
+	return tc
+}
+
+// allowedPeer reports whether a is exactly one of Clients (an IPv4-mapped address unmapped).
+func (g *Gateway) allowedPeer(a net.Addr) bool {
+	ta, ok := a.(*net.TCPAddr)
+	if !ok {
+		return false
+	}
+	ip, ok := netip.AddrFromSlice(ta.IP)
+	if !ok || ta.Zone != "" {
+		return false
+	}
+	return g.clients[ip.Unmap()]
+}
+
+// track wraps an upstream connection so Close closes it; nil and closed when the gateway is.
+func (g *Gateway) track(c net.Conn) *trackedConn {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closed {
+		_ = c.Close()
+		return nil
+	}
+	tc := &trackedConn{Conn: c, g: g}
+	g.conns[tc] = struct{}{}
+	return tc
+}
+
+// trackedConn is a connection Close closes: every accepted one, from accept until it closes
+// (hijacked or not), and every upstream one.
+type trackedConn struct {
+	net.Conn
+	g      *Gateway
+	client bool
+	once   sync.Once
+}
+
+func (c *trackedConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(func() {
+		c.g.mu.Lock()
+		delete(c.g.conns, c)
+		if c.client {
+			c.g.nclients--
+		}
+		c.g.mu.Unlock()
+	})
+	return err
+}
+
+// CloseWrite half-closes a TCP connection; it does nothing for another kind.
+func (c *trackedConn) CloseWrite() error {
+	if cw, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return nil
+}
