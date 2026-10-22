@@ -1,2 +1,5 @@
 lisa-addressed:
 pass 2: fixed both. vmrun_test.go uses errors.Is(err, io.EOF) (make lint: 0 issues); events_test.go covers an unwritable stdout and an over-cap event: logged, dropped, the next event still sent.
+
+lisa-selfreview:
+pass 3 (strict): approve, no findings. Re-read vmrun.go, job.go, events.go, adapters.go, the harnesstest and pipeline additions and every test against the ccf-review rules (core, go, repo/factory); build, vet, make lint and the race tests pass.
