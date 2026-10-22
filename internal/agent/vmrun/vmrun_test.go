@@ -35,8 +35,12 @@ import (
 
 // TestMain doubles as the workspace's `factory` CLI: the pipeline's bin/factory shim runs
 // `<test binary> fx <op>`, as it runs `factory-agent fx <op>` in a VM. An `fx` call that isn't
-// an op is a usage error: it never falls through to the suite.
+// an op is a usage error: it never falls through to the suite. It is also the container layer's
+// fake harness (container_test.go).
 func TestMain(m *testing.M) {
+	if len(os.Args) > 3 && os.Args[1] == fakeHarnessArg {
+		os.Exit(fakeHarnessMain(os.Args[2], os.Args[3], os.Args[4:]))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "fx" {
 		if !effector.IsOp(os.Args[2:]) {
 			fmt.Fprintln(os.Stderr, "factory: unsupported fx call", os.Args[2:])

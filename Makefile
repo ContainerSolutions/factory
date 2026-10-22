@@ -15,7 +15,7 @@ VACUUM_VERSION := v0.30.6
 
 .PHONY: help
 help: ## Show targets
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
 
 .PHONY: build
 build: ## Build bin/factory, bin/factory-agent and bin/factory-mock with the placeholder UI (no Node needed)
@@ -42,6 +42,24 @@ smoke-codex: ## Maintainer machine only, never CI: a trivial task end to end thr
 smoke-claude: ## Maintainer machine only, never CI: a trivial task end to end through the real claude (FACTORY_SMOKE_CLAUDE_CONFIG_DIR, _MODEL, _EFFORT, _BIN)
 	@if [ -n "$$CI" ]; then echo "smoke-claude runs a real claude on a maintainer machine, never in CI"; exit 1; fi
 	FACTORY_SMOKE_CLAUDE=1 go test -count=1 -v -run '^TestSmokeClaude$$' ./internal/agent/harness/claudecode/
+
+# The container layer of factory-agent run's tests (workspace-run.md §Tests, layer 5). The
+# image stands in for the workspace base (ghcr.io/cirruslabs/ubuntu): Ubuntu 24.04 with bash,
+# git and the CA roots, run as root. E2E_GOARCH must be the container runtime's architecture.
+E2E_CONTAINER_CLI ?= docker
+E2E_CONTAINER_IMAGE ?= docker.io/library/buildpack-deps:noble-scm
+E2E_GOARCH ?= $(shell go env GOARCH)
+E2E_DIR := bin/e2e-container
+
+.PHONY: e2e-run-container
+e2e-run-container: ## Opt-in, needs docker (E2E_CONTAINER_CLI) and pulls E2E_CONTAINER_IMAGE: factory-agent run, the linux binary, in a plain container as root with fake harnesses and no network
+	@mkdir -p $(E2E_DIR)
+	GOOS=linux GOARCH=$(E2E_GOARCH) CGO_ENABLED=0 go build -o $(E2E_DIR)/factory-agent ./cmd/factory-agent
+	GOOS=linux GOARCH=$(E2E_GOARCH) CGO_ENABLED=0 go test -c -o $(E2E_DIR)/vmrun.test ./internal/agent/vmrun
+	$(E2E_CONTAINER_CLI) run --rm --network none --user 0:0 \
+		--mount type=bind,src=$(CURDIR)/$(E2E_DIR),dst=/e2e,readonly \
+		-e FACTORY_E2E_CONTAINER=1 -e FACTORY_E2E_AGENT_BIN=/e2e/factory-agent \
+		$(E2E_CONTAINER_IMAGE) /e2e/vmrun.test -test.run '^TestRunInContainer$$' -test.count=1 -test.v
 
 # POC_ADDR is the PoC dispatcher's public listener (what ngrok forwards to). Not 8080 or 8000:
 # local-dev's CCF stack (the agent's has-local-stack runs) binds those.
