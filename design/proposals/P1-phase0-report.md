@@ -182,7 +182,8 @@ The shared setup for Q4 and Q5:
 - **In the guest:** 1.9 GiB used plus 7.6 GiB page cache, out of 12 GiB, with the full showcase
   and a 4-node kind cluster running. kind's control plane uses 583 MiB, and each worker about
   170 MiB.
-- **On the Mac:** the workspace VM's processes used 4.9 GiB RSS, including the 4 GiB check VM.
+- **On the Mac:** both running VMs together, the workspace VM and the 4 GiB check VM, used
+  4.9 GiB RSS.
 - **Sizing:** 8 GiB per workspace leaves headroom. The Mac can run one workspace comfortably,
   and two at a push.
 
