@@ -1,0 +1,6 @@
+lisa-selfreview:
+pass 1 (strict) of 4, ccf-review packs core,go,vue-app,repo/factory: 0 blocker, 0 must-fix, 1 should-fix, 2 nit.
+- should-fix CORE-DOC-001 design/workstreams/agent/LLD/effector.md:67: the error mapping still says 401 "refused the agent token"; the code and line 73 say "refused the run's credentials". Fix.
+- nit CORE-STYLE-001 internal/agent/effector/effector.go Options.Env: "instead" is wrong, the VM keeps a placeholder GH_TOKEN. Fix.
+- nit CORE-STYLE-001 internal/agent/effector/workspace_test.go newVMWorkspace: the fake gh's log path is hand-quoted; use gitcred.ShellQuote like git_test.go. Fix.
+Considered and not raised: an unknown FACTORY_RUNTIME value is treated as the host (only "workspace" changes behaviour; a wrong value in a VM fails loudly at the gateway, exit 5); the bare-repo fixture setup resembles newWorkspace's (test fixtures, nothing to keep in sync); FACTORY_RUNTIME set by a task's exposes on the host can only force the git fallback (a downgrade), and ReservedEnvNames is the LLD's risk 12 contract PR.
