@@ -241,7 +241,8 @@ func TestWorkspaceRuntime(t *testing.T) {
 	reqs := w.d.requests()
 	var ops []string
 	for _, q := range reqs {
-		ops = append(ops, q.Body["op"].(string))
+		op, _ := q.Body["op"].(string)
+		ops = append(ops, op)
 		if q.Auth != "Bearer "+fakegateway.RunToken {
 			t.Errorf("%s reached the dispatcher with Authorization %q, want the run token", q.Body["op"], q.Auth)
 		}
@@ -253,10 +254,18 @@ func TestWorkspaceRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var effects int
 	for _, rec := range w.gw.Records() {
-		if rec.Host == u.Hostname() && rec.ClientAuth != fakegateway.ClientAuthNone {
+		if rec.Host != u.Hostname() {
+			continue
+		}
+		effects++
+		if rec.ClientAuth != fakegateway.ClientAuthNone {
 			t.Errorf("an effect arrived with Authorization (%s)", rec.ClientAuth)
 		}
+	}
+	if effects != len(reqs) {
+		t.Errorf("the gateway saw %d dispatcher requests, the dispatcher %d", effects, len(reqs))
 	}
 	w.gw.AssertNoClientCredential(t)
 	for _, dir := range []string{app, ro} {
