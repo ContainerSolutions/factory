@@ -201,6 +201,12 @@ func TestWriteRead(t *testing.T) {
 		t.Errorf("Manifest = %+v", b.Manifest)
 	}
 
+	// A relative dir still gives absolute paths.
+	t.Chdir(filepath.Dir(dir))
+	if rb, err := Read("bundle"); err != nil || rb.CAFile != b.CAFile || rb.Skills()[0].Dir != b.Skills()[0].Dir {
+		t.Errorf("Read(relative) = %+v, %v", rb, err)
+	}
+
 	// Without a schema, a CA or codex.
 	dir2 := filepath.Join(t.TempDir(), "bundle")
 	f.Task, f.OutputSchema, f.CA, f.Codex = testTask("claude-code"), nil, nil, nil
@@ -224,7 +230,7 @@ func wantInvalid(t *testing.T, err error, field string) {
 	if !strings.HasPrefix(ve.Field, field) {
 		t.Errorf("Field = %q (%v), want %q", ve.Field, err, field)
 	}
-	if strings.Contains(err.Error(), ghsToken) || strings.Contains(err.Error(), rtkToken) {
+	if strings.Contains(err.Error(), ghsToken) || strings.Contains(err.Error(), rtkToken[4:]) {
 		t.Errorf("the error prints the token: %v", err)
 	}
 }
@@ -238,6 +244,7 @@ func TestWriteRefuses(t *testing.T) {
 	}{
 		{"an oversize prompt", func(_ *Manifest, f *Files) { f.Prompt = big(MaxPromptBytes + 1) }, PromptFile},
 		{"an oversize schema", func(_ *Manifest, f *Files) { f.OutputSchema = big(MaxSchemaBytes + 1) }, SchemaFile},
+		{"an oversize CA", func(_ *Manifest, f *Files) { f.CA = big(MaxCABytes + 1) }, CAFile},
 		{"an oversize context item", func(_ *Manifest, f *Files) {
 			f.Context[0] = contextJSON(t, 0, string(big(MaxContextBytes+1)))
 		}, "context/0.json"},
@@ -318,7 +325,7 @@ func TestValidate(t *testing.T) {
 		{"an agent token", func(m *Manifest) { m.Git.Host = "agt_me-host." + strings.Repeat("s", 32) }, "git.host"},
 		{"a ftp dispatcher", func(m *Manifest) { m.Dispatcher = "ftp://dispatcher" }, "dispatcher"},
 		{"a relative dispatcher", func(m *Manifest) { m.Dispatcher = "/dispatcher" }, "dispatcher"},
-		{"a dispatcher with user info", func(m *Manifest) { m.Dispatcher = "http://u:p@dispatcher" }, "dispatcher"},
+		{"a dispatcher with user info", func(m *Manifest) { m.Dispatcher = "http://u:" + rtkToken[4:] + "@dispatcher" }, "dispatcher"},
 		{"a dispatcher with a query", func(m *Manifest) { m.Dispatcher = "http://dispatcher?x=1" }, "dispatcher"},
 		{"a dispatcher with a fragment", func(m *Manifest) { m.Dispatcher = "http://dispatcher#x" }, "dispatcher"},
 		{"no prompt", func(m *Manifest) { m.Prompt = "" }, "prompt"},

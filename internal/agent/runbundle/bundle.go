@@ -344,17 +344,18 @@ func (m Manifest) validateTask(t v1alpha1.Task) error {
 	return nil
 }
 
+// checkURL's errors never print the URL: one refused for its user info holds a password.
 func checkURL(s string) error {
 	u, err := url.Parse(s)
 	switch {
 	case err != nil:
-		return err
+		return errors.New("not a URL")
 	case u.Scheme != "http" && u.Scheme != "https":
-		return fmt.Errorf("%q is not an http or https URL", s)
+		return errors.New("not an http or https URL")
 	case u.Host == "":
-		return fmt.Errorf("%q has no host", s)
+		return errors.New("no host")
 	case u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "":
-		return fmt.Errorf("%q has user info, a query or a fragment", s)
+		return errors.New("has user info, a query or a fragment")
 	}
 	return nil
 }
@@ -401,7 +402,13 @@ func Write(dir string, m Manifest, f Files) (err error) {
 	}
 	m.Codex = f.Codex
 	m.Context = nil
-	files := map[string][]byte{PromptFile: f.Prompt, m.OutputSchema: f.OutputSchema, m.Gateway.CAFile: f.CA}
+	files := map[string][]byte{PromptFile: f.Prompt}
+	if m.OutputSchema != "" {
+		files[SchemaFile] = f.OutputSchema
+	}
+	if m.Gateway.CAFile != "" {
+		files[CAFile] = f.CA
+	}
 	for i, c := range f.Task.Spec.Context {
 		if c.Kind == "repo" {
 			continue
@@ -420,7 +427,6 @@ func Write(dir string, m Manifest, f Files) (err error) {
 			return invalid("context", "item %d is not a non-repo item of the task", i)
 		}
 	}
-	delete(files, "")
 	if err := m.Validate(); err != nil {
 		return err
 	}
@@ -589,6 +595,10 @@ func copySkills(src, dst string) error {
 // and validates the manifest against the task. It doesn't read the skills (they were bounded
 // when materialised); it checks each skill's Dir is a directory.
 func Read(dir string) (*Bundle, error) {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("run bundle: %w", err)
+	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, fmt.Errorf("run bundle: %w", err)

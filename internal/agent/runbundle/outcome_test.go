@@ -74,6 +74,15 @@ func TestOutcomeRefuses(t *testing.T) {
 		})
 	}
 
+	t.Run("a symlink", func(t *testing.T) {
+		out := t.TempDir()
+		if err := os.Symlink("/etc/hosts", filepath.Join(out, OutcomeFile)); err != nil {
+			t.Fatal(err)
+		}
+		_, err := ReadOutcome(out)
+		wantInvalid(t, err, OutcomeFile)
+	})
+
 	t.Run("WriteOutcome", func(t *testing.T) {
 		out := t.TempDir()
 		wantInvalid(t, WriteOutcome(out, Outcome{Status: "great"}), "outcome.status")

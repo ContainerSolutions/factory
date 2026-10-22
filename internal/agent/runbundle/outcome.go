@@ -109,7 +109,15 @@ func WriteOutcome(outDir string, o Outcome) error {
 // ReadOutcome reads outDir/OutcomeFile, written by the untrusted VM: at most MaxOutcomeBytes,
 // and validated.
 func ReadOutcome(outDir string) (Outcome, error) {
-	f, err := os.Open(filepath.Join(outDir, OutcomeFile))
+	name := filepath.Join(outDir, OutcomeFile)
+	fi, err := os.Lstat(name)
+	if err != nil {
+		return Outcome{}, fmt.Errorf("outcome: %w", err)
+	}
+	if !fi.Mode().IsRegular() {
+		return Outcome{}, invalid(OutcomeFile, "is not a regular file")
+	}
+	f, err := os.Open(name)
 	if err != nil {
 		return Outcome{}, fmt.Errorf("outcome: %w", err)
 	}
