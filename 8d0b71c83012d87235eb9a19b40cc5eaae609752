@@ -1,0 +1,2 @@
+lisa-addressed:
+Pass 2 fixed: Write caps bundle.json at MaxManifestBytes; tests for the manifest and task caps.
