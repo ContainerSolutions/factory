@@ -46,8 +46,17 @@ CLAUDE_CODE_VERSION=2.1.304
 CODEX_VERSION=rust-v0.163.0
 CODEX_SHA256=a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4
 
-# The gh extensions the worker's base tooling needs (worker.md, deploy/poc/README.md).
-GH_EXTENSIONS=(agynio/gh-pr-review github/gh-stack)
+# The gh extensions the worker's base tooling needs (worker.md, deploy/poc/README.md). They are
+# installed without gh, the way `gh extension install --pin <tag>` installs a binary extension:
+# gh extension install needs a gh login, which the base build doesn't have. Each pin is the
+# newest release at least two weeks old when pinned (2026-10-22); the sha256 is its linux-arm64
+# asset's digest in GitHub's releases API (repos/<owner>/<repo>/releases/tags/<tag>).
+# https://github.com/agynio/gh-pr-review/releases/tag/v1.6.2 (2025-12-08).
+GH_PR_REVIEW_VERSION=v1.6.2
+GH_PR_REVIEW_SHA256=fea079f78e7224200d23de847b6210134ccec1a4d2dcff96ca8ca4ce1060fdde
+# https://github.com/github/gh-stack/releases/tag/v0.2.0 (2026-10-02; v0.2.1, 2026-10-09, was newer).
+GH_STACK_VERSION=v0.2.0
+GH_STACK_SHA256=d29684746f337a580667605b34877e5624792bcc390e61473a050bd4839557bf
 
 APT_PACKAGES=(ca-certificates curl gnupg git make jq openssl unzip python3 python3-venv bubblewrap)
 DOCKER_PACKAGES=(docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin)
@@ -123,15 +132,33 @@ section_gh() {
 		sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
 	apt_get update
 	apt_get install gh
-	local ext have
-	# the list goes into a variable: piped into grep -q under pipefail, gh could die of SIGPIPE
-	# and an installed extension would look missing.
-	have="$(sudo -u "$WS_USER" -H env GH_PROMPT_DISABLED=1 gh extension list)"
-	for ext in "${GH_EXTENSIONS[@]}"; do
-		if ! grep -qF "$ext" <<<"$have"; then
-			sudo -u "$WS_USER" -H env GH_PROMPT_DISABLED=1 gh extension install "$ext"
-		fi
-	done
+	gh_extension agynio gh-pr-review "$GH_PR_REVIEW_VERSION" "$GH_PR_REVIEW_SHA256"
+	gh_extension github gh-stack "$GH_STACK_VERSION" "$GH_STACK_SHA256"
+}
+
+# gh_extension OWNER REPO TAG SHA256 installs github.com/OWNER/REPO's linux-arm64 release binary
+# as WS_USER's pinned gh extension: <home>/.local/share/gh/extensions/REPO/REPO, executable, and
+# the manifest.yml gh writes for a binary extension. It never runs gh: an extension whose binary
+# has the sha256 and whose manifest matches is left alone.
+gh_extension() {
+	local owner=$1 repo=$2 tag=$3 sha=$4 home dir manifest
+	home="$(getent passwd "$WS_USER" | cut -d: -f6)"
+	dir="$home/.local/share/gh/extensions/$repo"
+	manifest="owner: $owner
+name: $repo
+host: github.com
+tag: $tag
+ispinned: true
+path: $dir/$repo"
+	if installed "$dir/$repo" "$sha" && [ "$(sudo cat "$dir/manifest.yml" 2>/dev/null || true)" = "$manifest" ]; then
+		return
+	fi
+	fetch "https://github.com/$owner/$repo/releases/download/$tag/linux-arm64" "$sha" "$TMP/$repo"
+	printf '%s\n' "$manifest" >"$TMP/$repo.manifest.yml"
+	# as WS_USER, so the dirs it makes (~/.local included) are theirs.
+	sudo -u "$WS_USER" mkdir -p "$dir"
+	sudo install -o "$WS_USER" -g "$(id -gn "$WS_USER")" -m 0755 "$TMP/$repo" "$dir/$repo"
+	sudo install -o "$WS_USER" -g "$(id -gn "$WS_USER")" -m 0600 "$TMP/$repo.manifest.yml" "$dir/manifest.yml"
 }
 
 section_node() {

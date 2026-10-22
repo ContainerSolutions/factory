@@ -689,6 +689,25 @@ func harnessLines(script string) []string {
 	return bad
 }
 
+// ghRE is gh run as a command word (a line that runs it), not gh_extension or gh-stack.
+var ghRE = regexp.MustCompile(`(^|[\s;|&(])gh(\s|$)`)
+
+// ghLines are the script's lines that run gh: every one but comments, the section banner and
+// the apt install.
+func ghLines(script string) []string {
+	var bad []string
+	for l := range strings.Lines(script) {
+		l = strings.TrimSpace(l)
+		if strings.HasPrefix(l, "#") || strings.HasPrefix(l, `echo "== `) || l == "apt_get install gh" {
+			continue
+		}
+		if ghRE.MatchString(l) {
+			bad = append(bad, l)
+		}
+	}
+	return bad
+}
+
 func TestProvisionScript(t *testing.T) {
 	if bad := harnessLines(string(provisionScript)); len(bad) > 0 {
 		t.Errorf("provision/base.sh names claude or codex outside the install lines and existence checks:\n%s", strings.Join(bad, "\n"))
@@ -698,9 +717,21 @@ func TestProvisionScript(t *testing.T) {
 			t.Errorf("the check misses %q", l)
 		}
 	}
-	for _, w := range []string{"set -euo pipefail", "KIND_VERSION=v0.33.0", "KUBECTL_VERSION=v1.37.1", "CODEX_SHA256=a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4", `main "$@" </dev/null`} {
+	for _, w := range []string{"set -euo pipefail", "KIND_VERSION=v0.33.0", "KUBECTL_VERSION=v1.37.1", "CODEX_SHA256=a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4", `main "$@" </dev/null`,
+		"GH_PR_REVIEW_VERSION=v1.6.2", "GH_PR_REVIEW_SHA256=fea079f78e7224200d23de847b6210134ccec1a4d2dcff96ca8ca4ce1060fdde",
+		"GH_STACK_VERSION=v0.2.0", "GH_STACK_SHA256=d29684746f337a580667605b34877e5624792bcc390e61473a050bd4839557bf",
+		"ispinned: true"} {
 		if !bytes.Contains(provisionScript, []byte(w)) {
 			t.Errorf("the script lacks %q", w)
+		}
+	}
+	// the base build has no gh login: the script never runs gh, only installs it.
+	if bad := ghLines(string(provisionScript)); len(bad) > 0 {
+		t.Errorf("provision/base.sh runs gh:\n%s", strings.Join(bad, "\n"))
+	}
+	for _, l := range []string{"gh extension install x/y", "sudo -u admin gh auth status", "x=$(gh extension list)"} {
+		if bad := ghLines(string(provisionScript) + l + "\n"); len(bad) != 1 {
+			t.Errorf("the gh check misses %q", l)
 		}
 	}
 	bash, err := exec.LookPath("bash")

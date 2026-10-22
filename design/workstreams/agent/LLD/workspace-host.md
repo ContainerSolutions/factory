@@ -112,10 +112,10 @@ Any failure, an interrupt included (cleanup gets its own context), stops the VM 
 | apt | ca-certificates curl gnupg git make jq openssl unzip python3 python3-venv bubblewrap | Ubuntu's archive |
 | docker | docker-ce, -cli, containerd.io, buildx and compose plugins from Docker's apt repo for the VM's codename; `admin` in the `docker` group; enabled | Docker's signed repo |
 | kind, kubectl | `/usr/local/bin`, each sha256-checked; inotify sysctls `max_user_watches=524288`, `max_user_instances=512`; `/var/lib/factory/kind-images` | kind v0.33.0 (`kind-linux-arm64.sha256sum`), kubectl v1.37.1 (`kubectl.sha256`) |
-| gh | GitHub's apt repo; `gh extension install agynio/gh-pr-review` and `github/gh-stack` as `admin` | GitHub CLI's signed repo |
+| gh | GitHub's apt repo; the extensions `agynio/gh-pr-review` and `github/gh-stack` as pinned linux-arm64 release binaries, sha256-checked, installed for `admin` as gh installs a pinned binary extension (`~/.local/share/gh/extensions/gh-<name>/gh-<name>` and its `manifest.yml`). The script never runs gh: `gh extension install` needs a login, which the base build doesn't have | GitHub CLI's signed repo; gh-pr-review v1.6.2 and gh-stack v0.2.0, each the newest release at least two weeks old, with the sha256 from the release asset's `digest` |
 | node | `/usr/local/lib/node`, linked into `/usr/local/bin`; `corepack enable` (yarn, pnpm) | v24.21.0, the newest 24.x LTS at least two weeks old (`SHASUMS256.txt`) |
 | go | `/usr/local/go`, linked into `/usr/local/bin` | go.mod's toolchain go1.26.9 (go.dev's JSON) |
-| playwright | `npx -y playwright@1.63.0 install-deps chromium` | web/package.json's pin |
+| playwright | `npx -y playwright@1.63.0 install-deps chromium` | web/package.json's pin (published 2026-09-04, so over two weeks old) |
 | harnesses | `npm install -g @anthropic-ai/claude-code@2.1.304` (npm's integrity check); codex `rust-v0.163.0`'s `codex-aarch64-unknown-linux-musl.tar.gz`, sha256-checked, at `/usr/local/bin/codex` | the owner's smoke run's claude; phase 0's codex |
 | cleanup | `apt-get clean`, the apt lists, `cloud-init clean --logs`, an empty `/etc/machine-id` (clones get fresh identities) | |
 
