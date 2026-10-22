@@ -2,7 +2,7 @@ module github.com/compliance-framework/factory
 
 go 1.26.0
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	github.com/bradleyfalzon/ghinstallation/v2 v2.19.0
