@@ -1,0 +1,2 @@
+lisa-addressed:
+Pass 1: 4714fb1121d0 Probe's VM error now says only that Probe doesn't run in a VM workspace; configDir(ws, vm) replaced by vmConfigPath(ws).
