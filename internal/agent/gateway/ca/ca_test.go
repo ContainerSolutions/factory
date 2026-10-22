@@ -54,6 +54,18 @@ func TestGenerateFiles(t *testing.T) {
 	if _, err := Generate(context.Background(), dir, clock.NewFake(t0)); !errors.Is(err, fs.ErrExist) {
 		t.Errorf("a second Generate: %v, want fs.ErrExist", err)
 	}
+
+	// A certificate that can't be written takes its new key with it.
+	stuck := filepath.Join(t.TempDir(), "gateway-ca")
+	if err := os.MkdirAll(filepath.Join(stuck, CertFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Generate(context.Background(), stuck, clock.NewFake(t0)); err == nil {
+		t.Fatal("Generate over a directory named ca.pem succeeded")
+	}
+	if _, err := os.Stat(filepath.Join(stuck, KeyFile)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the key was left behind: %v", err)
+	}
 }
 
 // TestNameConstraints: a leaf verifies for every intercepted host, and nothing else the CA

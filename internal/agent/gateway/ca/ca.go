@@ -121,12 +121,15 @@ func Generate(ctx context.Context, dir string, clk clock.Clock) (*CA, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("ca: create %s: %w", dir, err)
 	}
-	// The key first: a CertFile without its key never exists.
-	if err := writeNew(filepath.Join(dir, KeyFile), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
+	// The key first, removed again when the certificate can't be written: a CertFile without
+	// its key never exists, and a failed Generate leaves no key for the next one to trip on.
+	keyPath := filepath.Join(dir, KeyFile)
+	if err := writeNew(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
 		return nil, err
 	}
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	if err := writeNew(filepath.Join(dir, CertFile), certPEM, 0o644); err != nil {
+		_ = os.Remove(keyPath)
 		return nil, err
 	}
 	return newCA(der, key, certPEM, clk)
