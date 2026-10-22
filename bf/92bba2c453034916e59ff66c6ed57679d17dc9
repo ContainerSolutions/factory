@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 1 fixes: effector.md's 401 mapping now reads "refused the run's credentials" (the agent token on the host, the run token in a VM workspace); Options.Env's comment says a VM has no helper, a placeholder GH_TOKEN and the gateway's proxy and CA variables; workspace_test.go's fake gh quotes its log path with gitcred.ShellQuote.
