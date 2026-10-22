@@ -12,7 +12,7 @@ factory-agent host init  [--driver tart] [--dry-run] [--yes] [--no-pf] [--remove
 
 - `host` reads only the config's `workspace` block (`config.LoadWorkspace`): no dispatcher, pool or join token is needed, and without the default config file the defaults apply. An explicit `--config` must exist. `worker` validates the block too when it's present.
 - **`check`** prints one line per step, `<step> <state> <detail>`, with the states `ok`, `missing`, `outdated` and `wrong` (a step whose check fails is `wrong`, with the error). `--json` prints `[{step, state, detail}]`. Exit 0 when every step is ok, else 1; 2 for usage.
-- **`init`** checks every step, prints the plan, applies the steps that aren't ok in order, runs the root lines in one sudo script, then checks again: the exit code is that check's. `--dry-run` prints the plan, the sudo script and the statuses, changes nothing, and exits 0 (1 when the platform fails).
+- **`init`** checks every step, prints the plan, applies the steps that aren't ok in order, runs the root lines in one sudo script, then checks again: the exit code is that check's. When an `Apply` or the sudo script fails, `init` stops, prints a fresh check and exits 1. `--dry-run` prints the plan, the sudo script and the statuses, changes nothing, and exits 0 (1 when the platform fails).
 - `--driver kata` fails with "the kata driver's host init comes in P1 phase 9".
 
 ## Steps (tart driver)
@@ -31,7 +31,7 @@ The tart driver (P1 phase 5) runs Tart with `/usr/local/libexec/factory-agent` f
 
 **Pins** are in `internal/agent/host/pins.go`, each with where its checksum comes from: Tart 2.41.1 (tarball sha256, Cirrus Labs' team ID) and Softnet 0.24.1 (tarball and binary sha256; Softnet isn't code-signed). A bump records the sha256 of a download made on a trusted machine.
 
-**Downloads:** each goes into a new empty temp dir, at most 512 MiB, and its sha256 is checked before extraction. `host.Extract` (`archive/tar`, `compress/gzip`) refuses absolute paths, `..` entries, symlinks pointing outside the dir, hard links and other special entries, and more than 512 MiB in all. It writes through an `os.Root`, and keeps only the 0755 mode bits.
+**Downloads:** each goes into a new empty temp dir, at most 512 MiB, and its sha256 is checked before extraction. `host.Extract` (`archive/tar`, `compress/gzip`) refuses absolute paths, `..` entries, symlinks pointing outside the dir, entries under a symlink the archive made (so a chain of symlinks can't escape either), hard links and other special entries, and more than 512 MiB in all. It writes through an `os.Root`, and keeps only the 0755 mode bits.
 
 ## The sudo batch
 
@@ -53,7 +53,7 @@ Softnet's `--net-softnet-allow=@host` lets a VM reach every port on the Mac's br
 
 **The effect on other VMs.** `bridge` is pf's interface group for every `bridgeN`, so the rules also apply to other VMs' shared networking: plain Tart NAT, UTM, Docker Desktop on vmnet. Those VMs lose access to the Mac's other listening services. So `init` explains it and asks `y/N` before the pf step (`--yes` skips the question), and `--no-pf` skips the step with a warning that workspaces can then reach the Mac's listening services. A declined prompt does the same.
 
-**`--remove-pf`** undoes it in one sudo script (`testdata/remove-pf.golden`): bootout and remove the LaunchDaemon, remove the anchor file, flush the anchor's rules, delete the anchor line from `/etc/pf.conf` (any other edit made since stays), remove the backup when pf.conf is back to it, and reload pf.conf. pf stays enabled until the next boot.
+**`--remove-pf`** undoes it in one sudo script (`testdata/remove-pf.golden`): bootout and remove the LaunchDaemon, remove the anchor file, flush the anchor's rules, delete the anchor line from `/etc/pf.conf` (any other edit made since stays), remove the backup when pf.conf is back to it, and reload pf.conf (a failed reload fails the script). pf stays enabled until the next boot.
 
 ## Tests
 

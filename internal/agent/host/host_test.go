@@ -488,11 +488,12 @@ func TestInit(t *testing.T) {
 		answer  bool
 		wantPF  bool
 		wantOut string
+		noOut   string
 	}{
-		{"yes", InitOptions{Yes: true}, false, true, ""},
-		{"prompt accepted", InitOptions{}, true, true, "Install the pf anchor? [y/N]"},
-		{"prompt declined", InitOptions{}, false, false, "warning: pf skipped"},
-		{"no pf", InitOptions{NoPF: true}, false, false, "warning: --no-pf"},
+		{"yes", InitOptions{Yes: true}, false, true, "plan:", "Install the pf anchor?"},
+		{"prompt accepted", InitOptions{}, true, true, "Install the pf anchor? [y/N]", "warning:"},
+		{"prompt declined", InitOptions{}, false, false, "warning: pf skipped", "--no-pf"},
+		{"no pf", InitOptions{NoPF: true}, false, false, "warning: --no-pf", "Install the pf anchor?"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -514,8 +515,8 @@ func TestInit(t *testing.T) {
 			if got := strings.Contains(r.script, PFAnchorPath); got != tt.wantPF || !strings.Contains(r.script, SoftnetPath) {
 				t.Errorf("script has pf %v, want %v:\n%s", got, tt.wantPF, r.script)
 			}
-			if !strings.Contains(out.String(), tt.wantOut) {
-				t.Errorf("output %q, want %q", out.String(), tt.wantOut)
+			if !strings.Contains(out.String(), tt.wantOut) || strings.Contains(out.String(), tt.noOut) {
+				t.Errorf("output %q, want %q and not %q", out.String(), tt.wantOut, tt.noOut)
 			}
 			if _, err := os.Stat(filepath.Join(e.StageDir, "root.sh")); err == nil {
 				t.Error("the sudo script was left behind")
@@ -540,6 +541,22 @@ func TestInitStops(t *testing.T) {
 	}
 	if _, err := os.Stat(e.StateDir()); err == nil || r.ran("sudo") != 0 {
 		t.Error("a stopped init changed something")
+	}
+}
+
+// TestInitApplyFails: a failed Apply stops init before sudo, and the statuses it returns are
+// checked again, so they show what the earlier steps changed.
+func TestInitApplyFails(t *testing.T) {
+	e, r := testEnv(t)
+	e.LookPath = func(string) (string, error) { return "/opt/homebrew/bin/tart", nil }
+	r.versions["/opt/homebrew/bin/tart"] = TartVersion
+	e.Fetcher = newReleases(t, nil) // softnet.tar.gz is a 404
+	sts, err := Init(context.Background(), e, InitOptions{NoPF: true})
+	if err == nil || !strings.Contains(err.Error(), "softnet: GET") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(sts) != 5 || sts[1].State != StateOK || sts[3].State != StateMissing || r.ran("sudo") != 0 {
+		t.Errorf("statuses %+v, sudo calls %d", sts, r.ran("sudo"))
 	}
 }
 
@@ -568,7 +585,9 @@ func TestExtract(t *testing.T) {
 		{"absolute", []entry{{name: "/etc/evil", body: "x"}}, "outside the archive"},
 		{"symlink escape", []entry{{name: "a/l", typ: tar.TypeSymlink, link: "../../etc"}}, "points outside"},
 		{"absolute symlink", []entry{{name: "l", typ: tar.TypeSymlink, link: "/etc/passwd"}}, "points outside"},
-		{"write through a symlink", []entry{{name: "l", typ: tar.TypeSymlink, link: "."}, {name: "l/../../evil", body: "x"}}, "outside the archive"},
+		{"write through a symlink", []entry{{name: "l", typ: tar.TypeSymlink, link: "."}, {name: "l/evil", body: "x"}}, `under the symlink "l"`},
+		// a/l is the dir itself, so a/l/m -> .. would point outside it although a/.. is local.
+		{"symlink chain", []entry{{name: "a/", typ: tar.TypeDir}, {name: "a/l", typ: tar.TypeSymlink, link: ".."}, {name: "a/l/m", typ: tar.TypeSymlink, link: ".."}, {name: "a/l/m/evil", body: "x"}}, `under the symlink "a/l"`},
 		{"hard link", []entry{{name: "a", body: "x"}, {name: "h", typ: tar.TypeLink, link: "a"}}, "unsupported type"},
 		{"oversize", []entry{{name: "big", body: "x", size: MaxArchive + 1}}, "larger than 536870912 bytes"},
 		{"oversize in all", []entry{{name: "a", body: strings.Repeat("x", 1<<20)}, {name: "b", body: "x", size: MaxArchive - 1<<20 + 1}}, "larger than"},

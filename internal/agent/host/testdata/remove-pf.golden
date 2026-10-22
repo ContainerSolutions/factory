@@ -7,4 +7,4 @@ set -eu
 /sbin/pfctl -a com.compliance-framework.factory -F all 2>/dev/null || true
 /usr/bin/sed -i '' '/^anchor "com\.compliance-framework\.factory"$/d' $ROOT/etc/pf.conf
 if [ -e $ROOT/etc/pf.conf.factory-backup ] && /usr/bin/cmp -s $ROOT/etc/pf.conf $ROOT/etc/pf.conf.factory-backup; then /bin/rm -f $ROOT/etc/pf.conf.factory-backup; fi
-/sbin/pfctl -f $ROOT/etc/pf.conf 2>/dev/null || true
+/sbin/pfctl -f $ROOT/etc/pf.conf

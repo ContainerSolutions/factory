@@ -143,7 +143,7 @@ func RemovePFScript(e *Env) string {
 		"/sbin/pfctl -a " + PFAnchorName + " -F all 2>/dev/null || true",
 		"/usr/bin/sed -i '' '/^" + strings.ReplaceAll(pfConfLine, ".", `\.`) + "$/d' " + conf,
 		"if [ -e " + backup + " ] && /usr/bin/cmp -s " + conf + " " + backup + "; then /bin/rm -f " + backup + "; fi",
-		"/sbin/pfctl -f " + conf + " 2>/dev/null || true",
+		"/sbin/pfctl -f " + conf,
 	})
 }
 

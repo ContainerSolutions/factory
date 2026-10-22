@@ -102,7 +102,8 @@ func checkSHA256(p, want string) error {
 }
 
 // Extract unpacks the .tar.gz at src into dir, which must exist. It refuses absolute paths,
-// .. entries, symlinks that point outside dir, entries other than files, dirs and symlinks,
+// .. entries, symlinks that point outside dir, entries under a symlink the archive made (so a
+// chain of symlinks can't point outside either), entries other than files, dirs and symlinks,
 // and more than MaxArchive bytes in all. Writes go through an os.Root, so nothing lands
 // outside dir. Modes keep only the 0755 bits.
 func Extract(src, dir string) error {
@@ -122,6 +123,9 @@ func Extract(src, dir string) error {
 	defer func() { _ = root.Close() }()
 	tr := tar.NewReader(zr)
 	var total int64
+	// links are the symlinks extracted so far: with no entry under one, every entry's parent
+	// is a real directory, so the lexical checks below are exact.
+	links := map[string]bool{}
 	for {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
@@ -133,6 +137,11 @@ func Extract(src, dir string) error {
 		name := filepath.Clean(filepath.FromSlash(h.Name))
 		if !filepath.IsLocal(name) {
 			return fmt.Errorf("archive entry %q is outside the archive", h.Name)
+		}
+		for d := filepath.Dir(name); d != "."; d = filepath.Dir(d) {
+			if links[d] {
+				return fmt.Errorf("archive entry %q is under the symlink %q", h.Name, d)
+			}
 		}
 		if err := root.MkdirAll(filepath.Dir(name), 0o755); err != nil {
 			return err
@@ -147,6 +156,7 @@ func Extract(src, dir string) error {
 				return fmt.Errorf("archive symlink %q -> %q points outside the archive", h.Name, h.Linkname)
 			}
 			err = root.Symlink(h.Linkname, name)
+			links[name] = true
 		case tar.TypeReg:
 			if total += h.Size; h.Size < 0 || total > MaxArchive {
 				return fmt.Errorf("archive is larger than %d bytes", MaxArchive)

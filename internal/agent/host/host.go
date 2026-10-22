@@ -220,7 +220,8 @@ other listening services. ` + "`factory-agent host init --remove-pf`" + ` undoes
 
 // Init applies the steps that aren't ok, in order, then runs the root lines in one sudo
 // script and checks again. It returns the final check (the first one with DryRun, which
-// changes nothing). A failed platform check stops it before anything changes.
+// changes nothing), also when an Apply or the sudo script fails. A failed platform check
+// stops it before anything changes.
 func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	if e.StageDir == "" {
 		dir, err := os.MkdirTemp("", "factory-agent-host-")
@@ -280,15 +281,16 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 		}
 		return sts, nil
 	}
+	// after a failure the statuses are checked again: some steps may have changed things.
 	for _, s := range todo {
 		e.Log.DebugContext(ctx, "host init: apply", "step", s.Name())
 		if err := s.Apply(ctx); err != nil {
-			return sts, fmt.Errorf("%s: %w", s.Name(), err)
+			return Check(ctx, steps), fmt.Errorf("%s: %w", s.Name(), err)
 		}
 	}
 	if len(root) > 0 {
 		if err := runRoot(ctx, e, script); err != nil {
-			return sts, err
+			return Check(ctx, steps), err
 		}
 	}
 	return Check(ctx, steps), nil
