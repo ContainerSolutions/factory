@@ -1,0 +1,2 @@
+lisa-addressed:
+- c6b1f468ea6a CORE-DOC-001 api-server.md AGT-S1-T02b paragraph: added that getTaskOutputSchema (readerAgentOrRun) and getTaskPrompt (agentOrRun) also take their task's run token since P1 phase 1.2.
