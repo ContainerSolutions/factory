@@ -163,7 +163,7 @@ func start(t *testing.T, mut func(*Config), gmut ...func(*Gateway)) *env {
 	t.Helper()
 	h := &env{sink: &sink{t: t}, res: newResolver(), logs: &syncBuffer{}, errc: make(chan error, 1)}
 	cfg := Config{
-		TaskID: "task-1", RunID: "run-1", Clients: []netip.Addr{loopback}, Sink: h.sink, Resolver: h.res,
+		TaskID: "task-1", RunID: "run-1", Clients: []netip.Addr{loopback}, Sink: h.sink, Resolver: h.res, CA: testCA(t),
 		Logger: slog.New(slog.NewTextHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}
 	if mut != nil {

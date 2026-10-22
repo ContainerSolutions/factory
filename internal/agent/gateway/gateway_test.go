@@ -25,13 +25,14 @@ import (
 var update = flag.Bool("update", false, "rewrite the goldens under testdata/")
 
 func TestNewRefuses(t *testing.T) {
-	ok := Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2"), Sink: &sink{t: t}}
+	ok := Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2"), Sink: &sink{t: t}, CA: testCA(t)}
 	tests := []struct {
 		name, field string
 		mut         func(*Config)
 	}{
 		{"no task", "TaskID", func(c *Config) { c.TaskID = "" }},
 		{"no clients", "Clients", func(c *Config) { c.Clients = nil }},
+		{"no CA", "CA", func(c *Config) { c.CA = nil }},
 		{"unspecified client", "Clients[0]", func(c *Config) { c.Clients = addrs("0.0.0.0") }},
 		{"bad allow host", "Egress.AllowHosts[0]", func(c *Config) { c.Egress.AllowHosts = []string{"localhost"} }},
 	}
@@ -52,7 +53,7 @@ func TestNewRefuses(t *testing.T) {
 }
 
 func TestClientPin(t *testing.T) {
-	g, err := New(Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2"), Sink: &sink{t: t}})
+	g, err := New(Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2"), Sink: &sink{t: t}, CA: testCA(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +74,7 @@ func TestClientPin(t *testing.T) {
 	}
 
 	t.Run("the host's own address is refused by Serve", func(t *testing.T) {
-		g, err := New(Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2", "192.168.64.1"), Sink: &sink{t: t}})
+		g, err := New(Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2", "192.168.64.1"), Sink: &sink{t: t}, CA: testCA(t)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -236,7 +237,7 @@ func TestRefusals(t *testing.T) {
 		{"mixed answers", "CONNECT mixed.test:" + p + " HTTP/1.1\r\nHost: x\r\n\r\n", policy.CodeEgressDenied, ModeTunnel, "(private)"},
 		{"no such name", "CONNECT nowhere.test:443 HTTP/1.1\r\nHost: x\r\n\r\n", policy.CodeResolve, ModeTunnel, ""},
 		{"nothing listening", "CONNECT echo.test:" + closedPort + " HTTP/1.1\r\nHost: x\r\n\r\n", policy.CodeUpstream, ModeTunnel, ""},
-		{"intercepted (PR 5)", "CONNECT api.anthropic.com:443 HTTP/1.1\r\nHost: x\r\n\r\n", policy.CodeUpstream, ModeConnect, ""},
+		{"intercepted, another port", "CONNECT api.anthropic.com:8443 HTTP/1.1\r\nHost: x\r\n\r\n", policy.CodePort, ModeConnect, ""},
 		{"auth host", "CONNECT auth.openai.com:443 HTTP/1.1\r\nHost: x\r\n\r\n", policy.CodeAuthHost, ModeConnect, ""},
 		{"dispatcher (PR 7)", "POST http://dispatcher.factory.internal/api/v1/tasks/task-1/effects HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n", policy.CodeDispatcherRoute, ModeDispatcher, ""},
 	}

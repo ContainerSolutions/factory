@@ -103,40 +103,47 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request, start time.Tim
 		rec.Status, rec.Refusal = writeRefusal(w, code, class)
 		g.finish(rec)
 	}
+	var upConn net.Conn
 	switch d.Action {
+	case policy.Intercept: // TLS-terminated after the 200 (intercept)
 	case policy.Tunnel:
-	case policy.Intercept:
-		// TLS interception is PR 5's: until then no CONNECT reaches a credentialed host.
-		refuse(policy.CodeUpstream, "")
-		return
+		c, err := g.dialEgress(r.Context(), "tcp", d.Target.String())
+		if err != nil {
+			refuse(g.refusalOf(err))
+			return
+		}
+		upConn = c
 	default:
 		refuse(d.Refusal, "")
 		return
 	}
-	upConn, err := g.dialEgress(r.Context(), "tcp", d.Target.String())
-	if err != nil {
-		refuse(g.refusalOf(err))
-		return
+	closeUp := func() {
+		if upConn != nil {
+			_ = upConn.Close()
+		}
 	}
 	conn, brw, err := http.NewResponseController(w).Hijack()
 	if err != nil {
-		_ = upConn.Close()
+		closeUp()
 		refuse(policy.CodeUpstream, "")
 		return
 	}
-	defer func() { _ = conn.Close() }()
-	defer func() { _ = upConn.Close() }()
-	if _, err := io.WriteString(conn, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
+	tc, tracked := conn.(*trackedConn) // every accepted connection is one
+	if _, err := io.WriteString(conn, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil || !tracked {
+		_ = conn.Close()
+		closeUp()
 		g.finish(rec) // status 0: the client went away
 		return
 	}
 	rec.Status = http.StatusOK
-	client, ok := conn.(*trackedConn) // every accepted connection is one
-	if !ok {
-		g.finish(rec)
+	client := &bufConn{trackedConn: tc, r: brw.Reader}
+	if d.Action == policy.Intercept {
+		g.intercept(client, d, rec) // the inner server owns the connection from here
 		return
 	}
-	rec.Up, rec.Down, rec.Refusal = g.splice(&bufConn{trackedConn: client, r: brw.Reader}, upConn, d.Target)
+	defer func() { _ = conn.Close() }()
+	defer closeUp()
+	rec.Up, rec.Down, rec.Refusal = g.splice(client, upConn, d.Target)
 	g.finish(rec)
 }
 
