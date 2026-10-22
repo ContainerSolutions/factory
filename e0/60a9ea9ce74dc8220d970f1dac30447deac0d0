@@ -1,2 +1,10 @@
 lisa-addressed:
 pass 1 fixes: GitHost knob removed (policy.GitHost = github.com, tied to the CA's name constraints; subdomain semantics noted); a Refusals and errors table (codes, statuses, exact bodies, the X-Factory-Gateway-Refusal header, 502/503/504, egress classes); ca takes a clock but gateway tests use the real one; Clients' source per driver and no proxy auth; interface addresses read by gateway, policy stays pure; record mode is where (accept for peers), refusal marks refusals; refusal code peer; Close writes the records of the tunnels it ends.
+
+lisa-selfreview:
+pass 2 (strict), verdict request_changes, 5 findings:
+- must-fix absolute-https-unspecified: absolute-form https:// requests to the proxy are unspecified.
+- must-fix chatgpt-current-error-unspecified: no answer when ChatGPT.Current fails or no login exists.
+- should-fix egress-struct-undefined: policy.Egress's fields only in prose.
+- should-fix name-constraints-client-support: client support for a name-constrained root is assumed.
+- nit retry-401-large-body: a 401 body over 64 KiB unspecified.
