@@ -22,6 +22,8 @@ type Spawner interface {
 type Process interface {
 	// Exited is closed once the process has exited.
 	Exited() <-chan struct{}
+	// Err is how it exited (nil for status 0); valid once Exited is closed.
+	Err() error
 	// Stop ends the process's group (SIGTERM, then SIGKILL after stopGrace) and waits for it.
 	// Stopping an exited process does nothing.
 	Stop()
@@ -65,6 +67,8 @@ type execProcess struct {
 }
 
 func (p *execProcess) Exited() <-chan struct{} { return p.done }
+
+func (p *execProcess) Err() error { <-p.done; return p.err }
 
 func (p *execProcess) Stop() {
 	p.once.Do(func() {

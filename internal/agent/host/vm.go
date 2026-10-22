@@ -22,11 +22,18 @@ import (
 	"time"
 )
 
-// ProvisionScript is the base VM's provisioning script (provision/base.sh). basevm.json
+// provisionScript is the base VM's provisioning script (provision/base.sh). basevm.json
 // records its sha256, so editing it rebuilds the base.
 //
 //go:embed provision/base.sh
-var ProvisionScript []byte
+var provisionScript []byte
+
+// ProvisionScriptSHA256 is the embedded provisioning script's sha256: basevm.json's
+// scriptSHA256.
+func ProvisionScriptSHA256() string {
+	s := sha256.Sum256(provisionScript)
+	return hex.EncodeToString(s[:])
+}
 
 // The VM steps' names, records and the files they use (P1 §2, workspace-host.md).
 const (
@@ -166,8 +173,6 @@ func writeRecord(p string, v any) error {
 func (e *Env) stateDir() stateDirStep { return stateDirStep{e} }
 func (e *Env) baseVM() baseVMStep     { return baseVMStep{e} }
 
-func scriptSHA256() string { s := sha256.Sum256(ProvisionScript); return hex.EncodeToString(s[:]) }
-
 // baseVMStep builds the base VM from the pinned image, the provisioning script and the
 // linux factory-agent.
 type baseVMStep struct{ e *Env }
@@ -182,7 +187,7 @@ func (s baseVMStep) want() (BaseVMRecord, error) {
 	if err != nil {
 		return BaseVMRecord{}, err
 	}
-	return BaseVMRecord{Name: s.e.BaseVMName(), Source: s.e.Pins.BaseImage, ScriptSHA256: scriptSHA256(), AgentSHA256: sum, AgentVersion: s.e.AgentVersion}, nil
+	return BaseVMRecord{Name: s.e.BaseVMName(), Source: s.e.Pins.BaseImage, ScriptSHA256: ProvisionScriptSHA256(), AgentSHA256: sum, AgentVersion: s.e.AgentVersion}, nil
 }
 
 // agentMissing is the linux binary's problem, or "" when it's there.
@@ -249,7 +254,7 @@ func (s baseVMStep) Apply(ctx context.Context) error {
 		pctx, cancel := context.WithTimeout(ctx, s.e.VM.Provision)
 		defer cancel()
 		fmt.Fprintf(b.out, "running the provisioning script in %s\n", b.vm)
-		if err := b.e.Spawner.RunInput(pctx, bytes.NewReader(ProvisionScript), b.out, b.bin, "exec", "-i", b.vm, "bash", "-s"); err != nil {
+		if err := b.e.Spawner.RunInput(pctx, bytes.NewReader(provisionScript), b.out, b.bin, "exec", "-i", b.vm, "bash", "-s"); err != nil {
 			return fmt.Errorf("the provisioning script: %w", err)
 		}
 		return b.copyAgent(ctx, rec.AgentSHA256)
@@ -532,7 +537,11 @@ func (b *vmBuild) boot(ctx context.Context) error {
 	case err != nil:
 		return err
 	case exited:
-		return fmt.Errorf("%s: tart run exited before its guest agent answered", b.vm)
+		why := b.proc.Err()
+		if why == nil {
+			why = errors.New("exit status 0")
+		}
+		return fmt.Errorf("%s: tart run exited before its guest agent answered: %w", b.vm, why)
 	case !ok:
 		return fmt.Errorf("%s: timed out after %s waiting for its guest agent", b.vm, b.e.VM.Boot)
 	}

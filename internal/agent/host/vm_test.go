@@ -28,6 +28,7 @@ type fakeTart struct {
 	procs     map[string]*fakeProc
 	bootFails int    // tart exec <vm> true fails this many times first
 	noStop    bool   // shutdown -h doesn't stop the VM
+	runExits  bool   // tart run exits at once
 	fail      string // a tart call containing it fails
 	script    []byte // what bash -s read
 	files     map[string][]byte
@@ -45,6 +46,8 @@ type fakeProc struct {
 }
 
 func (p *fakeProc) Exited() <-chan struct{} { return p.done }
+
+func (p *fakeProc) Err() error { <-p.done; return errors.New("signal: terminated") }
 
 func (p *fakeProc) Stop() {
 	p.r.mu.Lock()
@@ -85,6 +88,9 @@ func (r *fakeRunner) Start(_ context.Context, _ io.Writer, name string, args ...
 	}
 	p := &fakeProc{r: r, vm: args[1], done: make(chan struct{})}
 	f.vms[args[1]], f.procs[args[1]] = "running", p
+	if f.runExits {
+		f.stop(args[1])
+	}
 	return p, nil
 }
 
@@ -261,7 +267,7 @@ func TestBaseVMApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	golden(t, "basevm-build.golden", e, r.tartCalls())
-	if !bytes.Equal(r.tart.script, ProvisionScript) {
+	if !bytes.Equal(r.tart.script, provisionScript) {
 		t.Error("bash -s didn't get the provisioning script")
 	}
 	if got := string(r.tart.files["factory-agent-base-0.1.0.building:/usr/local/bin/factory-agent"]); got != "factory-agent linux/arm64" {
@@ -272,7 +278,7 @@ func TestBaseVMApply(t *testing.T) {
 	}
 	rec := readBaseRecord(t, e)
 	agent, _ := os.ReadFile(e.AgentLinux)
-	if want := (BaseVMRecord{Name: "factory-agent-base-0.1.0", Source: BaseImage, ScriptSHA256: sum(ProvisionScript), AgentSHA256: sum(agent), AgentVersion: "v0.1.0", BuiltAt: "2026-10-22T09:30:00Z"}); rec != want {
+	if want := (BaseVMRecord{Name: "factory-agent-base-0.1.0", Source: BaseImage, ScriptSHA256: sum(provisionScript), AgentSHA256: sum(agent), AgentVersion: "v0.1.0", BuiltAt: "2026-10-22T09:30:00Z"}); rec != want {
 		t.Errorf("record %+v\nwant %+v", rec, want)
 	}
 	if fi, err := os.Stat(s.record()); err != nil || fi.Mode().Perm() != 0o600 {
@@ -352,6 +358,7 @@ func TestBaseVMApplyFails(t *testing.T) {
 		{"clone", "tart clone", nil, false, "injected failure"},
 		{"set", "tart set", nil, false, "injected failure"},
 		{"run", "tart run", nil, false, "injected failure"},
+		{"tart run exits", "", func(_ *Env, r *fakeRunner) { r.tart.runExits = true }, false, "tart run exited before its guest agent answered: signal: terminated"},
 		{"boot timeout", "", func(e *Env, r *fakeRunner) { r.tart.bootFails = 1 << 30; e.VM.Boot = 20 * time.Millisecond }, false, "timed out after 20ms waiting for its guest agent"},
 		{"provisioning", "bash -s", nil, false, "the provisioning script: injected failure"},
 		{"provisioning, kept", "bash -s", nil, true, "the provisioning script"},
@@ -683,16 +690,16 @@ func harnessLines(script string) []string {
 }
 
 func TestProvisionScript(t *testing.T) {
-	if bad := harnessLines(string(ProvisionScript)); len(bad) > 0 {
+	if bad := harnessLines(string(provisionScript)); len(bad) > 0 {
 		t.Errorf("provision/base.sh names claude or codex outside the install lines and existence checks:\n%s", strings.Join(bad, "\n"))
 	}
 	for _, l := range []string{"claude --version", "/usr/local/bin/codex --help", `[ -x /usr/local/bin/codex ] && codex login`, `"$(command -v claude)" -p hi`, "x=claude; $x"} {
-		if bad := harnessLines(string(ProvisionScript) + l + "\n"); len(bad) != 1 {
+		if bad := harnessLines(string(provisionScript) + l + "\n"); len(bad) != 1 {
 			t.Errorf("the check misses %q", l)
 		}
 	}
 	for _, w := range []string{"set -euo pipefail", "KIND_VERSION=v0.33.0", "KUBECTL_VERSION=v1.37.1", "CODEX_SHA256=a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4", `main "$@" </dev/null`} {
-		if !bytes.Contains(ProvisionScript, []byte(w)) {
+		if !bytes.Contains(provisionScript, []byte(w)) {
 			t.Errorf("the script lacks %q", w)
 		}
 	}
@@ -701,7 +708,7 @@ func TestProvisionScript(t *testing.T) {
 		t.Skip("no bash: skipping bash -n")
 	}
 	p := filepath.Join(t.TempDir(), "base.sh")
-	if err := os.WriteFile(p, ProvisionScript, 0o600); err != nil {
+	if err := os.WriteFile(p, provisionScript, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.Command(bash, "-n", p).CombinedOutput(); err != nil {
