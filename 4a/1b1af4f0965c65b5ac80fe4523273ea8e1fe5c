@@ -1,0 +1,2 @@
+lisa-addressed:
+Pass 3: IS_SANDBOX added to the unverified list in harness-adapters.md; workspace-run.md says a VM run without a resolved auth runs on the subscription.
