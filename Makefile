@@ -45,21 +45,46 @@ smoke-claude: ## Maintainer machine only, never CI: a trivial task end to end th
 
 # The container layer of factory-agent run's tests (workspace-run.md §Tests, layer 5). The
 # image stands in for the workspace base (ghcr.io/cirruslabs/ubuntu): Ubuntu 24.04 with bash,
-# git and the CA roots, run as root. E2E_GOARCH must be the container runtime's architecture.
+# git and the CA roots, run as root, as linux/$(E2E_GOARCH) (emulated when the runtime can).
+# It is pinned by its multi-arch index digest, as a tag can be repointed. To refresh it, read
+# the tag's index digest from the registry without pulling (or `docker buildx imagetools inspect`):
+#   tok=$(curl -fsS 'https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/buildpack-deps:pull' | jq -r .token)
+#   url=https://registry-1.docker.io/v2/library/buildpack-deps/manifests/noble-scm
+#   curl -fsSI -H "Authorization: Bearer $tok" -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' "$url" | grep -i docker-content-digest
 E2E_CONTAINER_CLI ?= docker
-E2E_CONTAINER_IMAGE ?= docker.io/library/buildpack-deps:noble-scm
+E2E_CONTAINER_IMAGE ?= docker.io/library/buildpack-deps:noble-scm@sha256:59d4f4d8581d741bb2c31f4bfd00a557ca94d182d082c81bd56d32afbad8dfc9
 E2E_GOARCH ?= $(shell go env GOARCH)
 E2E_DIR := bin/e2e-container
+E2E_LOG := $(E2E_DIR).log
 
+# The test's name and its opt-in variables (FACTORY_E2E_CONTAINER, FACTORY_E2E_AGENT_BIN) are
+# TestRunInContainer, envContainer and envContainerAgent in internal/agent/vmrun/container_test.go:
+# change them together. A -test.run that matches nothing, or a skip, exits 0, so the target
+# fails unless the test binary exited 0 and its output (E2E_LOG) has TestRunInContainer's
+# top-level PASS and no SKIP. The exit status goes through a file: make's sh may lack pipefail.
 .PHONY: e2e-run-container
 e2e-run-container: ## Opt-in, needs docker (E2E_CONTAINER_CLI) and pulls E2E_CONTAINER_IMAGE: factory-agent run, the linux binary, in a plain container as root with fake harnesses and no network
 	@mkdir -p $(E2E_DIR)
 	GOOS=linux GOARCH=$(E2E_GOARCH) CGO_ENABLED=0 go build -o $(E2E_DIR)/factory-agent ./cmd/factory-agent
 	GOOS=linux GOARCH=$(E2E_GOARCH) CGO_ENABLED=0 go test -c -o $(E2E_DIR)/vmrun.test ./internal/agent/vmrun
-	$(E2E_CONTAINER_CLI) run --rm --network none --user 0:0 \
+	@rm -f $(E2E_LOG) $(E2E_LOG).status
+	{ $(E2E_CONTAINER_CLI) run --rm --platform linux/$(E2E_GOARCH) --network none --user 0:0 \
 		--mount type=bind,src=$(CURDIR)/$(E2E_DIR),dst=/e2e,readonly \
 		-e FACTORY_E2E_CONTAINER=1 -e FACTORY_E2E_AGENT_BIN=/e2e/factory-agent \
-		$(E2E_CONTAINER_IMAGE) /e2e/vmrun.test -test.run '^TestRunInContainer$$' -test.count=1 -test.v
+		$(E2E_CONTAINER_IMAGE) /e2e/vmrun.test -test.run '^TestRunInContainer$$' -test.count=1 -test.v 2>&1; \
+		echo $$? > $(E2E_LOG).status; } | tee $(E2E_LOG)
+	@status=$$(cat $(E2E_LOG).status 2>/dev/null); \
+	case "$$status" in \
+	0) ;; \
+	''|*[!0-9]*) echo "e2e-run-container: no exit status for the run"; exit 1 ;; \
+	*) echo "e2e-run-container: the run exited $$status"; exit "$$status" ;; \
+	esac; \
+	if grep -q -e '--- SKIP' $(E2E_LOG); then \
+		echo "e2e-run-container: a test was skipped (see $(E2E_LOG)): is the opt-in variable still FACTORY_E2E_CONTAINER?"; exit 1; \
+	fi; \
+	if ! grep -q '^--- PASS: TestRunInContainer ' $(E2E_LOG); then \
+		echo "e2e-run-container: TestRunInContainer didn't run and pass (see $(E2E_LOG)): does -test.run still match its name?"; exit 1; \
+	fi
 
 # POC_ADDR is the PoC dispatcher's public listener (what ngrok forwards to). Not 8080 or 8000:
 # local-dev's CCF stack (the agent's has-local-stack runs) binds those.

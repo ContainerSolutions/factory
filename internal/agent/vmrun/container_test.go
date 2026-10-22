@@ -29,7 +29,9 @@ import (
 
 // The container layer (workspace-run.md §Tests, layer 5) is opt-in: `make e2e-run-container`
 // builds the linux factory-agent and this package's test binary, and runs
-// TestRunInContainer in a plain container as root, with no network, with these set.
+// TestRunInContainer in a plain container as root, with no network, with these set. The
+// Makefile's target names the test and both variables: change them together. It fails unless
+// TestRunInContainer passed and nothing skipped, so a rename there can't pass silently.
 const (
 	// envContainer=1 opts in; the test then requires linux and root.
 	envContainer = "FACTORY_E2E_CONTAINER"
@@ -143,6 +145,12 @@ func runInContainer(t *testing.T, agent, name string) {
 	o := readOutcome(t, work)
 	if o.Status != runner.StatusDone || o.Result == nil || o.Result.Outcome != "pr-opened" || o.Transcript != runbundle.TranscriptFile {
 		t.Fatalf("outcome %+v %+v", o, o.Result)
+	}
+	// The real adapter captured the fake's stdout: the stream's last message is in it.
+	if lines := gunzipLines(t, filepath.Join(work, runbundle.OutDir, runbundle.TranscriptFile)); !slices.ContainsFunc(lines, func(l string) bool {
+		return strings.Contains(l, "pushed the intro")
+	}) {
+		t.Errorf("the transcript: %q", lines)
 	}
 	if _, err := runbundle.ReadOutcome(filepath.Join(work, runbundle.OutDir), time.Now()); err != nil {
 		t.Errorf("the host's ReadOutcome: %v", err)
