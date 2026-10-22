@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/compliance-framework/factory/internal/agent/gitsafe"
+	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
@@ -191,10 +192,12 @@ func (e *Effector) base(ctx context.Context, a args) (string, error) {
 	return "main", nil
 }
 
-// useGHStack: gh stack runs when not refused (--git), the checkout has gh-stack's state
-// (<git-common-dir>/gh-stack) and `gh stack` exists for the run's gh.
+// useGHStack: gh stack runs when not refused (--git), the run isn't in a VM workspace, the
+// checkout has gh-stack's state (<git-common-dir>/gh-stack) and `gh stack` exists for the
+// run's gh. A workspace always takes the git fallback (workspace-run.md §The Effector in the
+// workspace runtime): gh-stack writes through the GitHub API, which the gateway refuses.
 func (e *Effector) useGHStack(ctx context.Context, a args) bool {
-	if a.flag("git") {
+	if a.flag("git") || e.o.Runtime == pipeline.RuntimeWorkspace {
 		return false
 	}
 	common, err := e.git(ctx, "rev-parse", "--git-common-dir")
