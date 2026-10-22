@@ -32,7 +32,7 @@ var errDispatcherAddr = errors.New("gateway: the dispatcher transport dials only
 
 // routeIntercepted applies the class's request rule inside an intercepted tunnel (github.com
 // by repo, api.github.com's reads) and returns the Authorization to set after the carriers are
-// stripped (""for none); it answers a refusal itself and returns ok false then. The model hosts
+// stripped ("" for none); it answers a refusal itself and returns ok false then. The model hosts
 // are a later PR's: they get no credential yet.
 func (g *Gateway) routeIntercepted(w http.ResponseWriter, r *http.Request, d policy.Decision, rec *Record) (auth string, ok bool) {
 	switch d.Class {
@@ -84,8 +84,7 @@ func (g *Gateway) checkGraphQL(r *http.Request) policy.Code {
 		return policy.CodeAPIWrite
 	}
 	_ = r.Body.Close()
-	r.Body, r.ContentLength = io.NopCloser(bytes.NewReader(body)), int64(len(body))
-	r.Header.Del("Transfer-Encoding")
+	r.Body, r.ContentLength, r.TransferEncoding = io.NopCloser(bytes.NewReader(body)), int64(len(body)), nil
 	return ""
 }
 
@@ -177,7 +176,7 @@ func (g *Gateway) newDispatcherTransport() *http.Transport {
 	return &http.Transport{
 		Proxy: nil, ForceAttemptHTTP2: false, DisableCompression: true,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			if addr != want {
+			if !strings.EqualFold(addr, want) {
 				return nil, errDispatcherAddr
 			}
 			c, err := plain.DialContext(ctx, network, want)

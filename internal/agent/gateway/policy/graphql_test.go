@@ -47,6 +47,8 @@ func TestCheckGraphQLDocument(t *testing.T) {
 		{"a stray closer", `{ a } }`, false},
 		{"a value at the top", `"x" { a }`, false},
 		{"a number at the top", `1 { a }`, false},
+		{"a value inside a definition's head", `query Q "x" { a }`, false},
+		{"a name v inside a definition's head", `query v { a }`, true},
 		{"a spread at the top", `...F`, false},
 		{"unterminated string", `{ a(x: "abc) }`, false},
 		{"a newline in a string", "{ a(x: \"a\nb\") }", false},

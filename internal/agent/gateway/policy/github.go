@@ -116,11 +116,14 @@ func gitFetch(method, rest, rawQuery string) bool {
 const GraphQLPath = "/graphql"
 
 // DecideGitHubAPI applies the api.github.com rule: GET and HEAD on any path are reads (the path
-// isn't matched, so encoded branch names pass); POST /graphql, exactly and without a query, is
-// a read only when its body is (graphql true: the caller checks it with CheckGraphQLRequest);
-// every other request is api-write.
+// isn't matched, so encoded branch names pass), except on the GraphQL endpoint in any spelling,
+// which can't be checked there; POST /graphql, exactly and without a query, is a read only when
+// its body is (graphql true: the caller checks it with CheckGraphQLRequest); every other
+// request is api-write.
 func DecideGitHubAPI(method string, u *url.URL) (graphql bool, refusal Code) {
 	switch {
+	case (method == http.MethodGet || method == http.MethodHead) && path.Clean(asciiLower(u.Path)) == GraphQLPath:
+		return false, CodeAPIWrite
 	case method == http.MethodGet || method == http.MethodHead:
 		return false, ""
 	case method == http.MethodPost && u.Path == GraphQLPath && u.RawPath == "" && u.RawQuery == "":

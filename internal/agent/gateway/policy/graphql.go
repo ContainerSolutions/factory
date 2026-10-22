@@ -103,8 +103,7 @@ func CheckGraphQLDocument(doc string) error {
 		case "{", "(", "[":
 			stack = append(stack, tok[0])
 		case "}", ")", "]":
-			open := map[string]byte{"}": '{', ")": '(', "]": '['}[tok]
-			if len(stack) == 0 || stack[len(stack)-1] != open {
+			if len(stack) == 0 || stack[len(stack)-1] != opener(tok[0]) {
 				return ErrGraphQLNotRead
 			}
 			stack = stack[:len(stack)-1]
@@ -119,9 +118,24 @@ func CheckGraphQLDocument(doc string) error {
 	return nil
 }
 
+// valueTok is the token lexGraphQL returns for a string or a number: a value, which never
+// appears at the top level, and which no name or punctuator equals.
+const valueTok = "0"
+
+// opener is the bracket a closing one closes.
+func opener(c byte) byte {
+	switch c {
+	case '}':
+		return '{'
+	case ')':
+		return '('
+	}
+	return '['
+}
+
 // lexGraphQL reads the token at doc[i:] and returns it and the index after it: "" for an
-// ignored token, the token's text for a punctuator or a name, and "v" for a string or a number
-// (a value, which never appears at the top level). It is stricter than the spec where that
+// ignored token, the token's text for a punctuator or a name, and valueTok for a string or a
+// number. It is stricter than the spec where that
 // costs nothing (no control character in a comment or string, only the spec's escapes), so a
 // document another lexer might read differently is an error.
 func lexGraphQL(doc string, i int) (tok string, next int, err error) {
@@ -136,13 +150,13 @@ func lexGraphQL(doc string, i int) (tok string, next int, err error) {
 	case c == '"':
 		if strings.HasPrefix(doc[i:], `"""`) {
 			next, err := skipBlockString(doc, i+3)
-			return "v", next, err
+			return valueTok, next, err
 		}
 		next, err := skipString(doc, i+1)
-		return "v", next, err
+		return valueTok, next, err
 	case c == '-' || isDigit(c):
 		next, err := skipNumber(doc, i)
-		return "v", next, err
+		return valueTok, next, err
 	case isNameStart(c):
 		j := i + 1
 		for j < len(doc) && (isNameStart(doc[j]) || isDigit(doc[j])) {
