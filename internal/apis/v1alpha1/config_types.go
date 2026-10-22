@@ -630,11 +630,23 @@ type TaskSpec struct {
 // GetName returns metadata.name.
 func (t *TaskSpec) GetName() string { return t.Metadata.Name }
 
-// Validate checks the workspace's hosts.
+// Validate checks the workspace (Workspace.Validate), and that an environment's
+// versions.input names one of the spec's inputs.
 func (t *TaskSpec) Validate() error {
-	if ws := t.Spec.Workspace; ws != nil {
-		if err := ws.Validate(); err != nil {
-			return prefixField("spec.workspace", err)
+	ws := t.Spec.Workspace
+	if ws == nil {
+		return nil
+	}
+	if err := ws.Validate(); err != nil {
+		return prefixField("spec.workspace", err)
+	}
+	if env := ws.Environment; env != nil && env.Versions != nil && env.Versions.Input != "" {
+		if _, ok := t.Spec.Inputs[env.Versions.Input]; !ok {
+			return &ValidationError{
+				Field:   "spec.workspace.environment.versions.input",
+				Message: fmt.Sprintf("%q is not one of spec.inputs", env.Versions.Input),
+				Err:     ErrEnvVersionsInput,
+			}
 		}
 	}
 	return nil
@@ -731,6 +743,60 @@ type Workspace struct {
 	// Hosts widen what a prompt-injected run could reach, so a catalog change to them needs
 	// two approvals (FACTORY-CAT-002).
 	Hosts []string `json:"hosts,omitzero"`
+	// Environment is what the task's VM workspace brings up before the harness runs (P1 §4).
+	// The compiler copies it to the Task's spec.environment.
+	Environment *Environment `json:"environment,omitzero"`
+}
+
+// Environment is what a task's workspace brings up before the harness runs (P1 §4): plain
+// commands run as root inside the task's VM workspace, which has its own Docker. It never runs
+// on the dispatcher, and the factory knows nothing about what the commands start.
+type Environment struct {
+	// Versions says where component versions come from; the compiler resolves them into the
+	// Task's spec.versions.
+	Versions *VersionSource `json:"versions,omitzero"`
+	// Setup runs first (install tools the base image lacks); Up brings the environment up;
+	// Down runs best effort at the end. Each is a shell script for /bin/bash, at most 64 KiB.
+	Setup string `json:"setup,omitzero"`
+	Up    string `json:"up,omitzero"`
+	Down  string `json:"down,omitzero"`
+	// Ready is checked after Up; the run fails (environment failure) if it isn't ready in time.
+	Ready *ReadyCheck `json:"ready,omitzero"`
+	// Exposes are exported to the harness's environment: FACTORY_* names to values, typically
+	// URLs inside the workspace (FACTORY_STACK_URL: http://localhost:8000). At most 20; no
+	// name the runtime sets (ReservedEnvNames, FACTORY_VERSION_*).
+	Exposes map[string]string `json:"exposes,omitzero"`
+	// Egress narrows the workspace's network (P1 §3); default is open through the gateway.
+	// Like hosts, a catalog change to egress.allow needs two approvals.
+	Egress *EgressPolicy `json:"egress,omitzero"`
+}
+
+// VersionSource is where an environment's component versions come from.
+type VersionSource struct {
+	// From is latest (each component's latest final release), inputs (a map in the task's
+	// inputs) or train (a release-train reference in the task's inputs).
+	From string `json:"from" jsonschema:"enum=latest,enum=inputs,enum=train"`
+	// Input names the TaskSpec input that holds the map (inputs) or the train reference
+	// (train). Required for those two, forbidden for latest.
+	Input string `json:"input,omitzero"`
+}
+
+// ReadyCheck is how the runtime waits for an environment.
+type ReadyCheck struct {
+	// HTTP URLs that must each answer 2xx or 3xx; at most 10, http or https.
+	HTTP []string `json:"http,omitzero"`
+	// Timeout for all of them together; default 15m, at most 60m.
+	Timeout Duration `json:"timeout,omitzero"`
+}
+
+// EgressPolicy narrows a workspace's network.
+type EgressPolicy struct {
+	// Mode is default (open through the gateway, except its denied ranges) or deny-by-default
+	// (only Allow, plus the git host and the dispatcher).
+	Mode string `json:"mode,omitzero" jsonschema:"enum=default,enum=deny-by-default"`
+	// Allow are hostnames reachable under deny-by-default; same rules as workspace.hosts
+	// (ValidateHost, at most 20). Only valid with deny-by-default.
+	Allow []string `json:"allow,omitzero"`
 }
 
 // RepoMount is one repo in the workspace.

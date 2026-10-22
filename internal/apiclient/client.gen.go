@@ -540,6 +540,12 @@ type EffectiveConfig = v1alpha1.EffectiveConfig
 // EffectsPolicy EffectsPolicy is what a task may do.
 type EffectsPolicy = v1alpha1.EffectsPolicy
 
+// EgressPolicy EgressPolicy narrows a workspace's network.
+type EgressPolicy = v1alpha1.EgressPolicy
+
+// Environment Environment is what a task's workspace brings up before the harness runs (P1 §4): plain commands run as root inside the task's VM workspace, which has its own Docker.
+type Environment = v1alpha1.Environment
+
 // Evaluation What the rule engine decided for an event (internal/rules Evaluation).
 type Evaluation struct {
 	// Decisions The ordered actions that would be applied.
@@ -911,6 +917,9 @@ type QueueView struct {
 // RailVerdict RailVerdict is one safety rail's verdict on a decision as the work item stores it (lowercase, unsupported included); the dry-run API's EvaluationRail is a different view of it (Allowed, Suppressed or Deferred), where unsupported shows as Suppressed and the rail name is prefixed to the reason.
 type RailVerdict = v1alpha1.RailVerdict
 
+// ReadyCheck ReadyCheck is how the runtime waits for an environment.
+type ReadyCheck = v1alpha1.ReadyCheck
+
 // RegisterAgentRequest The agent's pool, host and offer. The credentials travel in the security headers.
 type RegisterAgentRequest struct {
 	// AgentVersion The `factory-agent` version.
@@ -1095,6 +1104,9 @@ type UsageDelta struct {
 	InputTokens  *int64   `json:"inputTokens,omitempty"`
 	OutputTokens *int64   `json:"outputTokens,omitempty"`
 }
+
+// VersionSource VersionSource is where an environment's component versions come from.
+type VersionSource = v1alpha1.VersionSource
 
 // Webhook Webhook is where the provider's webhook is mounted, and the secret that signs it.
 type Webhook = v1alpha1.Webhook

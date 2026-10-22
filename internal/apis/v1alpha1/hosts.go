@@ -129,17 +129,20 @@ func ValidateHost(h string) error {
 
 // validateHosts checks a hosts list: at most MaxWorkspaceHosts entries, each one ValidateHost
 // accepts. Field paths are relative to the list's parent (hosts, hosts[i]).
-func validateHosts(hosts []string) error {
+func validateHosts(hosts []string) error { return validateHostList("hosts", hosts) }
+
+// validateHostList is validateHosts for a list in the field named field (hosts, allow).
+func validateHostList(field string, hosts []string) error {
 	if len(hosts) > MaxWorkspaceHosts {
 		return &ValidationError{
-			Field:   "hosts",
+			Field:   field,
 			Message: fmt.Sprintf("%d hosts: at most %d", len(hosts), MaxWorkspaceHosts),
 			Err:     ErrTooManyHosts,
 		}
 	}
 	for i, h := range hosts {
 		if err := ValidateHost(h); err != nil {
-			return &ValidationError{Field: fmt.Sprintf("hosts[%d]", i), Message: err.Error(), Err: err}
+			return &ValidationError{Field: fmt.Sprintf("%s[%d]", field, i), Message: err.Error(), Err: err}
 		}
 	}
 	return nil
@@ -148,8 +151,11 @@ func validateHosts(hosts []string) error {
 // extendHostsSchema constrains the "hosts" property of s the way validateHosts does, except
 // for the 253-character limit: at most MaxWorkspaceHosts entries matching HostPattern and
 // not localhost.
-func extendHostsSchema(s *jsonschema.Schema) {
-	p, ok := s.Properties.Get("hosts")
+func extendHostsSchema(s *jsonschema.Schema) { extendHostListSchema(s, "hosts") }
+
+// extendHostListSchema is extendHostsSchema for the property named field (hosts, allow).
+func extendHostListSchema(s *jsonschema.Schema, field string) {
+	p, ok := s.Properties.Get(field)
 	if !ok {
 		return
 	}
@@ -161,19 +167,41 @@ func extendHostsSchema(s *jsonschema.Schema) {
 	}
 }
 
-// Validate checks hosts (validateHosts).
-func (w *Workspace) Validate() error { return validateHosts(w.Hosts) }
-
-// JSONSchemaExtend constrains hosts (extendHostsSchema).
-func (Workspace) JSONSchemaExtend(s *jsonschema.Schema) { extendHostsSchema(s) }
-
-// Validate checks the task's hosts (validateHosts).
-func (t *Task) Validate() error {
-	if err := validateHosts(t.Spec.Hosts); err != nil {
-		return prefixField("spec", err)
+// Validate checks hosts (validateHosts) and the environment (Environment.Validate).
+func (w *Workspace) Validate() error {
+	if err := validateHosts(w.Hosts); err != nil {
+		return err
+	}
+	if w.Environment != nil {
+		if err := w.Environment.Validate(); err != nil {
+			return prefixField("environment", err)
+		}
 	}
 	return nil
 }
 
 // JSONSchemaExtend constrains hosts (extendHostsSchema).
-func (TaskRunSpec) JSONSchemaExtend(s *jsonschema.Schema) { extendHostsSchema(s) }
+func (Workspace) JSONSchemaExtend(s *jsonschema.Schema) { extendHostsSchema(s) }
+
+// Validate checks the task's hosts (validateHosts), environment (Environment.Validate) and
+// versions (validateVersions).
+func (t *Task) Validate() error {
+	if err := validateHosts(t.Spec.Hosts); err != nil {
+		return prefixField("spec", err)
+	}
+	if env := t.Spec.Environment; env != nil {
+		if err := env.Validate(); err != nil {
+			return prefixField("spec.environment", err)
+		}
+	}
+	if err := validateVersions(t.Spec.Versions); err != nil {
+		return prefixField("spec", err)
+	}
+	return nil
+}
+
+// JSONSchemaExtend constrains hosts (extendHostsSchema) and versions (extendVersionsSchema).
+func (TaskRunSpec) JSONSchemaExtend(s *jsonschema.Schema) {
+	extendHostsSchema(s)
+	extendVersionsSchema(s)
+}

@@ -223,6 +223,12 @@ type TaskRunSpec struct {
 	// dispatcher and the local stack. Same rules as workspace.hosts (ValidateHost, at most
 	// 20).
 	Hosts []string `json:"hosts,omitzero"`
+	// Environment is copied from the TaskSpec's workspace.environment when the Task is compiled.
+	Environment *Environment `json:"environment,omitzero"`
+	// Versions are the environment's component versions, resolved at compile time from
+	// environment.versions (component name -> version). The workspace runtime exports each as
+	// FACTORY_VERSION_<COMPONENT>, so a Redispatch re-resolves explicitly.
+	Versions map[string]string `json:"versions,omitzero"`
 }
 
 // TaskSpecRef is the TaskSpec a task was made from, by name and digest.
