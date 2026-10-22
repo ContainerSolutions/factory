@@ -62,6 +62,10 @@ func (r *redactor) secrets() []string {
 	return out
 }
 
+// RedactShapes redacts s by the token shapes alone, as a run that holds no token of its own
+// (a VM workspace's) does.
+func RedactShapes(s string) string { return newRedactor(nil).String(s) }
+
 // String redacts s.
 func (r *redactor) String(s string) string {
 	for _, sec := range r.secrets() {

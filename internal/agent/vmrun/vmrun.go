@@ -189,16 +189,19 @@ func (r *vm) onFinished(o runner.Outcome) {
 	r.report(runbundle.OutcomeOf(o, transcript))
 }
 
-// fail reports a run that ended outside the pipeline: failed with reason and a Result whose
-// summary is err (the pipeline's shape), or cancelled when a signal cancelled ctx.
+// fail reports a run that ended outside the pipeline: failed with reason and a failed Result
+// whose summary is err redacted (the shape the pipeline gives its own failures; decided
+// 2026-10-22), or cancelled, with no Result, when a signal cancelled ctx. The VM holds no
+// token, so the redaction is by the token shapes alone.
 func (r *vm) fail(ctx context.Context, reason string, err error) int {
 	if ctx.Err() != nil {
 		reason = runner.ReasonCancelled
 	}
-	r.log.Error("the run failed", "reason", reason, "err", err)
+	msg := pipeline.RedactShapes(err.Error())
+	r.log.Error("the run failed", "reason", reason, "err", msg)
 	o := runbundle.Outcome{Status: runner.StatusFailed, Reason: reason}
 	if reason != runner.ReasonCancelled {
-		o.Result = &v1alpha1.Result{Task: r.b.TaskID(), Status: v1alpha1.ResultFailed, Summary: truncate(reason+": "+err.Error(), maxSummary)}
+		o.Result = &v1alpha1.Result{Task: r.b.TaskID(), Status: v1alpha1.ResultFailed, Summary: truncate(reason+": "+msg, maxSummary)}
 	}
 	r.report(o)
 	return r.code
@@ -270,7 +273,7 @@ func parseFlags(args []string, stderr io.Writer) (*options, int) {
 	fs.StringVar(&o.work, "work", DefaultWork, "the workspace root: empty or absent")
 	fs.StringVar(&o.state, "state-dir", DefaultStateDir, "what the runtime writes outside the workspace")
 	fs.DurationVar(&o.remaining, "remaining", 0, "what is left of the task's wall clock (0: all of limits.maxWallClock)")
-	setup := fs.String("system-setup", string(SetupOff), "on (a VM: the supervisor passes it) or off: the privileged system setup")
+	setup := fs.String("system-setup", string(DefaultSystemSetup), "on (a VM: the supervisor passes it) or off: the privileged system setup")
 	fs.DurationVar(&o.downTimeout, "down-timeout", pipeline.StackDownTimeout, "bounds the environment's down")
 	fs.StringVar(&o.logLevel, "log-level", "info", "debug, info, warn or error")
 	fs.StringVar(&o.logForm, "log-format", "json", "json or text")

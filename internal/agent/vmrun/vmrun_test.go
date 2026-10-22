@@ -55,13 +55,16 @@ const (
 	badResult  = `{"status": "done", "outcome": "shipped", "summary": "x"}`
 )
 
+// shapedToken is shaped like an API key: what vmrun reports of an error never holds it.
+const shapedToken = "sk-vmrunErrorKeyShapeNeverReported0123"
+
 // t0 is the fake clock's start: every event's time.
 var t0 = time.Date(2026, 10, 22, 9, 0, 0, 0, time.UTC)
 
 // noRunner fails the test on any command: --system-setup off runs none.
 type noRunner struct{ t *testing.T }
 
-func (r noRunner) Run(_ context.Context, _ io.Writer, name string, args ...string) error {
+func (r noRunner) Run(_ context.Context, _, _ io.Writer, name string, args ...string) error {
 	r.t.Errorf("system setup ran %s %v", name, args)
 	return fmt.Errorf("%s: not in a test", name)
 }
@@ -447,12 +450,17 @@ func TestRunOutcomes(t *testing.T) {
 		}},
 		{name: "no adapter", script: func(r *vmRig) fake.Script {
 			r.adapters = func(*runbundle.Bundle, adapterOptions) (map[string]harness.Adapter, error) {
-				return nil, fmt.Errorf("no adapter for harness %q", fake.Name)
+				return nil, fmt.Errorf("no adapter for harness %q (key %s)", fake.Name, shapedToken)
 			}
 			return fake.Script{}
-		}, status: runner.StatusFailed, reason: runner.ReasonHarnessError, check: func(t *testing.T, _ *vmRig, o runbundle.Outcome) {
-			if o.Result == nil || !strings.Contains(o.Result.Summary, "adapters: no adapter") {
-				t.Errorf("result %+v", o.Result)
+		}, status: runner.StatusFailed, reason: runner.ReasonHarnessError, check: func(t *testing.T, r *vmRig, o runbundle.Outcome) {
+			// The failed Result's summary is the error, redacted, as the pipeline's are.
+			want := "harness-error: adapters: no adapter for harness \"fake\" (key " + pipeline.Redacted + ")"
+			if o.Result == nil || o.Result.Status != v1alpha1.ResultFailed || o.Result.Task != vmTaskID || o.Result.Summary != want {
+				t.Errorf("result %+v, want the summary %q", o.Result, want)
+			}
+			if strings.Contains(r.stderr.String(), shapedToken) || !strings.Contains(r.stderr.String(), pipeline.Redacted) {
+				t.Errorf("the log isn't redacted:\n%s", r.stderr.String())
 			}
 		}},
 	} {
@@ -566,6 +574,7 @@ func TestRunUsage(t *testing.T) {
 		{"a negative remaining", append(slices.Clone(ok), "--remaining", "-1s"), "must not be negative"},
 		{"a zero down timeout", append(slices.Clone(ok), "--down-timeout", "0s"), "must be positive"},
 		{"an unknown setup mode", append(slices.Clone(ok), "--system-setup", "maybe"), "--system-setup"},
+		{"the removed auto mode", append(slices.Clone(ok), "--system-setup", "auto"), "there is no automatic mode"},
 		{"an unknown harness binary", append(slices.Clone(ok), "--harness-bin", "gemini=/bin/g"), "the harness must be one of"},
 		{"a bad log format", append(slices.Clone(ok), "--log-format", "xml"), "--log-format"},
 		{"an argument", append(slices.Clone(ok), "extra"), "unexpected arguments"},

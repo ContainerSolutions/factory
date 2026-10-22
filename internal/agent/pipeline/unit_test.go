@@ -838,3 +838,13 @@ func TestFileTranscript(t *testing.T) {
 		}
 	}
 }
+
+// RedactShapes redacts the token shapes and Authorization values, with no run's own secrets.
+func TestRedactShapes(t *testing.T) {
+	t.Parallel()
+	in := "key sk-abcdefghijklmnop0123 token ghs_abcdefghijklmnop0123 Authorization: Bearer opaque-value kept"
+	want := "key " + Redacted + " token " + Redacted + " Authorization: " + Redacted + " kept"
+	if got := RedactShapes(in); got != want {
+		t.Errorf("RedactShapes = %q, want %q", got, want)
+	}
+}
