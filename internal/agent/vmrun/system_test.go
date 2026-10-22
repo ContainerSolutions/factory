@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/compliance-framework/factory/internal/agent/effector"
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/harness/fake"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
@@ -333,8 +334,9 @@ func golden(t *testing.T, p, got string) {
 }
 
 // TestSetupEnvIsPipelineEnv: every variable Setup returns passes pipeline.Options.Env's
-// checks (no reserved name, no git, loader or shell control variable). Its state dir is
-// nested, as the default /var/lib/factory-agent/run is: the user makes its parents.
+// checks (no reserved name, no git, loader or shell control variable) and the Effector's
+// (FACTORY_RUNTIME=workspace, no FACTORY_TOKEN). Its state dir is nested, as the default
+// /var/lib/factory-agent/run is: the user makes its parents.
 func TestSetupEnvIsPipelineEnv(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, adminUser, "internal.example.com")
@@ -352,6 +354,13 @@ func TestSetupEnvIsPipelineEnv(t *testing.T) {
 	}
 	if fi, err := os.Stat(w.sys.StateDir); err != nil || fi.Mode().Perm() != 0o700 || len(w.run.calls) != 0 {
 		t.Errorf("the state dir %v, %v, calls %q: want a 0700 directory and no command", fi, err, w.run.calls)
+	}
+	// The Effector's checks too: a known FACTORY_RUNTIME, and no FACTORY_TOKEN in the workspace.
+	if _, ok := env[pipeline.EnvToken]; ok {
+		t.Errorf("Setup sets %s", pipeline.EnvToken)
+	}
+	if _, err := effector.FromEnv(func(k string) string { return env[k] }, nil); err != nil {
+		t.Errorf("effector.FromEnv refuses Setup's env: %v", err)
 	}
 	if env["GH_TOKEN"] != harness.Placeholder || env[pipeline.EnvRuntime] != pipeline.RuntimeWorkspace {
 		t.Errorf("GH_TOKEN %q, %s %q", env["GH_TOKEN"], pipeline.EnvRuntime, env[pipeline.EnvRuntime])
