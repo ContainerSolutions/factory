@@ -1,0 +1,8 @@
+lisa-addressed:
+Pass 1 fixes:
+- 43d8aa30a880 CORE-TEST-002: TestBundleSourcesRefusals asserts each refusal's text, and covers an item the bundle doesn't list.
+- CORE-DUP-001: checkContext(i, tc) is the context item's size refusal, shared by renderPrompt and PrepareBundle's bundleContext.
+
+lisa-selfreview:
+Pass 2 (strict): 1 finding.
+- CORE-INPUT-001-like (no rule; key fetchskills-pointer) skills.go materialiseSkills: Options.Skills = &FetchSkills{} satisfies SkillSource (value receiver) but would take the interface path and fail with "runs only as a pipeline's skills source". Match the pointer too.
