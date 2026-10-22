@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "runId": "run_1-1",
+  "leaseId": "lse_1",
+  "taskId": "tsk_1",
+  "startedAt": "2026-10-22T12:00:00Z",
+  "dispatcher": "http://dispatcher.factory.internal",
+  "gateway": {
+    "caFile": "gateway/ca.pem",
+    "noProxy": [
+      "registry.example.com",
+      "10.0.0.0/8"
+    ]
+  },
+  "git": {
+    "provider": "github",
+    "host": "github.com",
+    "repo": "acme/app",
+    "permissions": {
+      "contents": "write",
+      "pull_requests": "write"
+    },
+    "reads": [
+      {
+        "repo": "acme/lib",
+        "readRepos": [
+          "acme/lib"
+        ]
+      }
+    ]
+  },
+  "prompt": "prompt.md",
+  "context": [
+    {
+      "index": 0,
+      "file": "context/0.json"
+    },
+    {
+      "index": 2,
+      "gone": true
+    }
+  ],
+  "outputSchema": "output-schema.json",
+  "skills": [
+    {
+      "name": "lisa",
+      "plugin": "ccf",
+      "dir": "skills/ccf/skills/lisa"
+    }
+  ],
+  "codex": {
+    "accountId": "acct-1",
+    "userId": "user-1",
+    "planType": "pro"
+  }
+}

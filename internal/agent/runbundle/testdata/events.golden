@@ -1,0 +1,7 @@
+{"v":1,"type":"start","at":"2026-10-22T12:00:00Z","start":{"version":1,"runId":"run_1-1","taskId":"tsk_1"}}
+{"v":1,"type":"step","at":"2026-10-22T12:00:00Z","step":{"name":"prompt","state":"ok","ms":1500}}
+{"v":1,"type":"progress","at":"2026-10-22T12:00:01Z","progress":{"at":"2026-10-22T12:00:01Z","kind":"tool","message":"go test ./..."}}
+{"v":1,"type":"usage","at":"2026-10-22T12:00:00Z","usage":{"costUSD":0.25,"inputTokens":1200,"outputTokens":300}}
+{"v":1,"type":"step","at":"2026-10-22T12:00:00Z","step":{"name":"harness","state":"error","ms":120000,"error":"exit status 1"}}
+{"v":1,"type":"outcome","at":"2026-10-22T12:00:00Z","outcome":{"status":"failed","reason":"harness-error","transcript":"transcript.jsonl.gz"}}
+{"v":1,"type":"step","at":"2026-10-22T12:00:00Z","step":{"name":"environment.down","state":"ok","ms":3000}}
