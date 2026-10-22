@@ -467,6 +467,26 @@ func TestContract(t *testing.T) {
 		t.Errorf("resyncs %d", e.status.resyncs)
 	}
 
+	// enrollments: stubs until P1 phase 6, so an admin gets a 501 problem.
+	ce, err := e.c.CreateEnrollmentWithResponse(ctx, apiclient.EnrollmentRequest{Pool: "local", Owner: "gus", Name: "mac2"}, session(gus))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "createEnrollment", ce.HTTPResponse, ce.Body, http.StatusNotImplemented, CodeNotImplemented)
+	sh.check("createEnrollment", ce.HTTPResponse, ce.Body, http.StatusNotImplemented)
+	le, err := e.c.ListEnrollmentsWithResponse(ctx, &apiclient.ListEnrollmentsParams{}, bearer(cliToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "listEnrollments", le.HTTPResponse, le.Body, http.StatusNotImplemented, CodeNotImplemented)
+	sh.check("listEnrollments", le.HTTPResponse, le.Body, http.StatusNotImplemented)
+	de, err := e.c.DeleteEnrollmentWithResponse(ctx, "enl_01jab3q8r9s0t1v2w3x4y5z6a7", session(gus))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "deleteEnrollment", de.HTTPResponse, de.Body, http.StatusNotImplemented, CodeNotImplemented)
+	sh.check("deleteEnrollment", de.HTTPResponse, de.Body, http.StatusNotImplemented)
+
 	// sign out, deregister
 	lo, err := e.c.LogoutWithResponse(ctx, session(gus))
 	if err != nil {
@@ -514,7 +534,8 @@ func TestOperationsCovered(t *testing.T) {
 		readerOrAgent: {"agentToken", "cliToken", "uiSession"},
 		admin:         {"cliToken", "uiSession"},
 		sessionOnly:   {"uiSession"},
-		registration:  {"joinToken", "ownerToken"},
+		registration:  {"agentRefreshToken", "enrollmentToken", "joinToken", "ownerToken"},
+		agentOrAdmin:  {"agentToken", "cliToken", "uiSession"},
 		public:        nil,
 	}
 	for id, acc := range operations {
