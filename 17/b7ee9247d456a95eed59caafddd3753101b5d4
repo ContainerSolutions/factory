@@ -1,0 +1,4 @@
+lisa-selfreview:
+pass 1 (strict): request_changes
+- must-fix 8a66671485c3 egress.go CheckAddr: Unmap drops a zone, so ::ffff:8.8.8.8%en0 was allowed; check the zone first.
+- should-fix (fingerprint in classify output) hosts.go parseHostPort: a bracketed IPv6 zone accepted any bytes into Target.Host; restrict to interface-name bytes.
