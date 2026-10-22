@@ -49,6 +49,7 @@ func TestNewWorkspaceOptions(t *testing.T) {
 		{"Env sets GIT_ALLOW_PROTOCOL", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{"GIT_ALLOW_PROTOCOL": "file"}}, "GIT_ALLOW_PROTOCOL is set"},
 		{"Env sets FACTORY_TOKEN", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{pipeline.EnvToken: "x"}}, "FACTORY_TOKEN is set"},
 		{"Env sets FACTORY_API", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{pipeline.EnvAPI: "x"}}, "FACTORY_API is set"},
+		{"Env sets FACTORY_STACK_URL", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{"FACTORY_STACK_URL": "x"}}, "FACTORY_STACK_URL is set"},
 		{"Env sets FACTORY_EFFECTOR", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{pipeline.EnvEffector: "x"}}, "FACTORY_EFFECTOR is set"},
 		{"an empty name", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{"": "x"}}, `"" is not a variable name`},
 		{"a name with =", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{"A=B": "x"}}, `"A=B" is not a variable name`},
@@ -84,6 +85,11 @@ func TestRunRootWorkspace(t *testing.T) {
 			writeFile(t, filepath.Join(root, "leftover"), "x")
 		}, "is not empty"},
 		{"a file", func(t *testing.T, root string) { writeFile(t, root, "x") }, "is not a directory"},
+		{"its parent is missing", func(t *testing.T, root string) {
+			if err := os.Remove(filepath.Dir(root)); err != nil {
+				t.Fatal(err)
+			}
+		}, "no such file or directory"},
 		{"a symlink", func(t *testing.T, root string) {
 			dir := filepath.Join(t.TempDir(), "elsewhere")
 			mkdir(t, dir)
@@ -288,8 +294,8 @@ func TestRunGatewayMode(t *testing.T) {
 	}
 	env := envMap(ws[0].Env)
 	for k, want := range genv {
-		if env[k] != want {
-			t.Errorf("the harness's %s=%q, want %q", k, env[k], want)
+		if got, ok := env[k]; !ok || got != want {
+			t.Errorf("the harness's %s=%q (set %v), want %q", k, got, ok, want)
 		}
 	}
 	for k := range env {

@@ -56,19 +56,20 @@ func ownerEnv(environ []string) map[string]string {
 	return out
 }
 
-// ReservedEnv are the variables the pipeline sets itself (commonEnv and buildEnv), which
-// Options.Env may not set; so are the GIT_CONFIG_KEY_<n> and GIT_CONFIG_VALUE_<n> entries
-// (ReservedEnvPrefixes). A collision is New's error, not a silently lost value. GH_TOKEN
-// isn't one: Options.Env may set its placeholder, which a job's real token replaces.
-var ReservedEnv = []string{
+// reservedEnv are the variables the pipeline sets itself (commonEnv, and buildEnv with the
+// stack's URLs), which Options.Env may not set; so are the GIT_CONFIG_KEY_<n> and
+// GIT_CONFIG_VALUE_<n> entries (reservedEnvPrefixes). A collision is New's error, not a
+// silently lost value. GH_TOKEN isn't one: Options.Env may set its placeholder, which a job's
+// real token replaces.
+var reservedEnv = append([]string{
 	"HOME", "TMPDIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "PATH",
 	"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT", "GIT_ALLOW_PROTOCOL", "GIT_CONFIG_COUNT",
 	"GCM_INTERACTIVE", gitcred.EnvSocket,
 	EnvHeadless, EnvHarness, EnvTaskID, EnvAPI, EnvToken, EnvOut, EnvResult, EnvEffector,
-}
+}, stackURLVars...)
 
-// ReservedEnvPrefixes are the reserved name prefixes: the helper's process-scoped git config.
-var ReservedEnvPrefixes = []string{"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"}
+// reservedEnvPrefixes are the reserved name prefixes: the helper's process-scoped git config.
+var reservedEnvPrefixes = []string{"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"}
 
 // checkEnv refuses an Options.Env that sets a reserved variable or has a name that isn't one
 // (empty, or holding "=" or NUL), naming the variable but never its value.
@@ -77,10 +78,10 @@ func checkEnv(env map[string]string) error {
 		switch {
 		case k == "" || strings.ContainsAny(k, "=\x00"):
 			return fmt.Errorf("%q is not a variable name", k)
-		case slices.Contains(ReservedEnv, k):
+		case slices.Contains(reservedEnv, k):
 			return fmt.Errorf("%s is set by the pipeline", k)
 		}
-		for _, p := range ReservedEnvPrefixes {
+		for _, p := range reservedEnvPrefixes {
 			if strings.HasPrefix(k, p) {
 				return fmt.Errorf("%s is set by the pipeline", k)
 			}

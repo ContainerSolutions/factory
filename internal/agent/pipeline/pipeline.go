@@ -104,9 +104,10 @@ type Options struct {
 	GitAuth GitAuth
 	// Env is added to the environment that the pipeline's own git and the harness share,
 	// after the owner's allow-list (so it wins over Environ) and before the pipeline's own
-	// variables: the gateway's proxies and CA, a GH_TOKEN placeholder, DOCKER_CONFIG. A
-	// variable the pipeline sets itself (ReservedEnv) is refused by New. On the host it is
-	// usually empty.
+	// variables: the gateway's proxies and CA, a GH_TOKEN placeholder, DOCKER_CONFIG. New
+	// refuses a variable the pipeline sets itself (HOME, TMPDIR, the XDG and PATH ones, the
+	// GIT_* and GCM_* ones of the git setup, the credential socket and the FACTORY_* ones of
+	// the harness's environment, the stack's URLs). On the host it is usually empty.
 	Env map[string]string
 	// Adapters are the harness adapters by harness name (task.harness.resolved.name).
 	Adapters map[string]harness.Adapter
