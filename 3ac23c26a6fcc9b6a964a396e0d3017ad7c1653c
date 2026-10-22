@@ -1,0 +1,4 @@
+lisa-selfreview:
+Pass 1 (strict): 2 findings.
+- 43d8aa30a880 CORE-TEST-002 must-fix runbundle_test.go TestBundleSourcesRefusals: the refusal table only asserts err != nil; assert each error's text.
+- CORE-DUP-001 should-fix runbundle.go bundleContext: the context item's size refusal repeats renderPrompt's; factor checkContext.
