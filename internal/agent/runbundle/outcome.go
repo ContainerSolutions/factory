@@ -20,7 +20,8 @@ const (
 	EnvironmentLog = "environment.log"
 )
 
-// MaxOutcomeBytes caps outcome.json and an outcome event's payload.
+// MaxOutcomeBytes caps outcome.json. The outcome event carries the Outcome without its
+// Result (see OutcomeEvent), so it fits an event line.
 const MaxOutcomeBytes = 2 << 20
 
 // Outcome is runner.Outcome on the wire: outcome.json and the outcome event. Transcript is
@@ -44,15 +45,16 @@ var (
 	}
 )
 
-// Validate checks Status and Reason against the runner's, and Transcript.
+// Validate checks Status and Reason against the runner's, and Transcript. Its errors never
+// quote a value: an outcome comes from the untrusted VM.
 func (o Outcome) Validate() error {
 	switch {
 	case !statuses[o.Status]:
-		return invalid("outcome.status", "%q is not a run status", o.Status)
+		return invalid("outcome.status", "is not a run status")
 	case !reasons[o.Reason]:
-		return invalid("outcome.reason", "%q is not a run reason", o.Reason)
+		return invalid("outcome.reason", "is not a run reason")
 	case o.Transcript != "" && o.Transcript != TranscriptFile:
-		return invalid("outcome.transcript", "%q is not %q", o.Transcript, TranscriptFile)
+		return invalid("outcome.transcript", "is not %q", TranscriptFile)
 	}
 	return nil
 }
@@ -106,22 +108,30 @@ func WriteOutcome(outDir string, o Outcome) error {
 	return nil
 }
 
-// ReadOutcome reads outDir/OutcomeFile, written by the untrusted VM: at most MaxOutcomeBytes,
-// and validated.
+// ReadOutcome reads outDir/OutcomeFile, written by the untrusted VM: through an os.Root on
+// outDir, a regular file only (no symlink, FIFO or device, checked before and after opening
+// it), at most MaxOutcomeBytes, and validated.
 func ReadOutcome(outDir string) (Outcome, error) {
-	name := filepath.Join(outDir, OutcomeFile)
-	fi, err := os.Lstat(name)
+	root, err := os.OpenRoot(outDir)
 	if err != nil {
 		return Outcome{}, fmt.Errorf("outcome: %w", err)
 	}
-	if !fi.Mode().IsRegular() {
+	defer func() { _ = root.Close() }()
+	before, err := root.Lstat(OutcomeFile)
+	if err != nil {
+		return Outcome{}, fmt.Errorf("outcome: %w", err)
+	}
+	if !before.Mode().IsRegular() {
 		return Outcome{}, invalid(OutcomeFile, "is not a regular file")
 	}
-	f, err := os.Open(name)
+	f, err := root.Open(OutcomeFile)
 	if err != nil {
 		return Outcome{}, fmt.Errorf("outcome: %w", err)
 	}
 	defer func() { _ = f.Close() }()
+	if after, err := f.Stat(); err != nil || !after.Mode().IsRegular() || !os.SameFile(before, after) {
+		return Outcome{}, invalid(OutcomeFile, "changed while it was opened")
+	}
 	data, err := io.ReadAll(io.LimitReader(f, MaxOutcomeBytes+1))
 	if err != nil {
 		return Outcome{}, fmt.Errorf("outcome: %w", err)
@@ -131,7 +141,7 @@ func ReadOutcome(outDir string) (Outcome, error) {
 	}
 	var o Outcome
 	if err := json.Unmarshal(data, &o); err != nil {
-		return Outcome{}, invalid(OutcomeFile, "%v", err)
+		return Outcome{}, invalid(OutcomeFile, "%s", jsonError(err))
 	}
 	if err := o.Validate(); err != nil {
 		return Outcome{}, err

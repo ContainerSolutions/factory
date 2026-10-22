@@ -37,7 +37,8 @@ const (
 )
 
 // Event is one line of factory-agent run's stdout. It has one payload: the pointer for its
-// Type.
+// Type. An outcome event's Outcome has no Result (OutcomeEvent): the Result is in
+// outcome.json.
 type Event struct {
 	V        int                     `json:"v"`
 	Type     string                  `json:"type"`
@@ -63,6 +64,13 @@ type Step struct {
 	State string `json:"state"`
 	MS    int64  `json:"ms"`
 	Error string `json:"error,omitempty"`
+}
+
+// OutcomeEvent is the outcome event for o: o without its Result, which can be larger than
+// an event line and lives in outcome.json (written first).
+func OutcomeEvent(o Outcome) Event {
+	o.Result = nil
+	return Event{Type: EventOutcome, Outcome: &o}
 }
 
 // StepOf is the Step for an OnStep call.
@@ -121,8 +129,10 @@ func (e Event) validate() error {
 		}
 	}
 	switch {
+	case e.Outcome != nil && e.Outcome.Result != nil:
+		return invalid("event.outcome.result", "is in outcome.json only, not in the event")
 	case e.Step != nil && e.Step.State != StepOK && e.Step.State != StepError:
-		return invalid("event.step.state", "%q is not ok or error", e.Step.State)
+		return invalid("event.step.state", "is not ok or error")
 	case e.Outcome != nil:
 		return e.Outcome.Validate()
 	}
@@ -206,7 +216,7 @@ func (d *Decoder) Next() (Event, error) {
 		}
 		var e Event
 		if jerr := json.Unmarshal(line, &e); jerr != nil {
-			return Event{}, invalid("event", "%v", jerr)
+			return Event{}, invalid("event", "%s", jsonError(jerr))
 		}
 		switch verr := e.validate(); {
 		case errors.Is(verr, errUnknownType):

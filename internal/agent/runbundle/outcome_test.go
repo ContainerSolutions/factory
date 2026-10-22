@@ -58,6 +58,9 @@ func TestOutcomeRefuses(t *testing.T) {
 		{"an unknown reason", `{"status":"failed","reason":"bored"}`, "outcome.reason"},
 		{"a transcript elsewhere", `{"status":"done","transcript":"../../etc/passwd"}`, "outcome.transcript"},
 		{"not JSON", `{`, OutcomeFile},
+		{"a token for a status", `{"status":"` + ghsToken + `"}`, "outcome.status"},
+		{"a token for a time", `{"status":"throttled","throttledUntil":"` + ghsToken + `"}`, OutcomeFile},
+		{"a token for a reason", `{"status":"failed","reason":"` + ghsToken + `"}`, "outcome.reason"},
 		{"an oversize outcome", `{"status":"done","result":{"summary":"` + strings.Repeat("a", MaxOutcomeBytes) + `"}}`, OutcomeFile},
 	}
 	for _, tt := range tests {

@@ -495,6 +495,22 @@ func Write(dir string, m Manifest, f Files) (err error) {
 	return nil
 }
 
+// jsonError describes a decoding error without the input it quotes (a time's parse error
+// repeats the string, which a VM controls): where it is and what was wrong, never the value.
+func jsonError(err error) string {
+	var syn *json.SyntaxError
+	var typ *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &syn):
+		return fmt.Sprintf("not JSON at offset %d", syn.Offset)
+	case errors.As(err, &typ):
+		return fmt.Sprintf("%s: a JSON %s where %s goes", typ.Field, typ.Value, typ.Type)
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		return "truncated JSON"
+	}
+	return "not valid"
+}
+
 func contextFile(i int) string { return ContextDir + "/" + strconv.Itoa(i) + ".json" }
 
 // checkSizes applies Read's caps to what Write writes, so an oversize item fails on the host,
@@ -526,7 +542,7 @@ func checkSizes(files map[string][]byte) error {
 func parseContext(name string, data []byte) (apiclient.TaskContext, error) {
 	var tc apiclient.TaskContext
 	if err := json.Unmarshal(data, &tc); err != nil {
-		return tc, invalid(name, "not a task context: %v", err)
+		return tc, invalid(name, "not a task context: %s", jsonError(err))
 	}
 	if want := strings.TrimSuffix(path.Base(name), ".json"); strconv.Itoa(tc.Index) != want {
 		return tc, invalid(name, "holds item %d", tc.Index)
@@ -614,7 +630,7 @@ func Read(dir string) (*Bundle, error) {
 	}
 	b := &Bundle{Dir: dir}
 	if err := json.Unmarshal(raw, &b.Manifest); err != nil {
-		return nil, invalid(ManifestFile, "%v", err)
+		return nil, invalid(ManifestFile, "%s", jsonError(err))
 	}
 	m := b.Manifest
 	if err := m.Validate(); err != nil {
@@ -624,7 +640,7 @@ func Read(dir string) (*Bundle, error) {
 		return nil, err
 	}
 	if err := json.Unmarshal(raw, &b.Task); err != nil {
-		return nil, invalid(TaskFile, "%v", err)
+		return nil, invalid(TaskFile, "%s", jsonError(err))
 	}
 	if err := m.validateTask(b.Task); err != nil {
 		return nil, err

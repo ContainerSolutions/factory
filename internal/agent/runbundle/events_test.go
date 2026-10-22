@@ -26,7 +26,7 @@ func stream() []Event {
 		{Type: EventProgress, At: t0.Add(time.Second), Progress: &v1alpha1.ProgressEvent{At: t0.Add(time.Second), Kind: "tool", Message: "go test ./..."}},
 		{Type: EventUsage, Usage: UsageOf(runner.UsageDelta{InputTokens: 1200, OutputTokens: 300, CostUSD: &cost})},
 		{Type: EventStep, Step: StepOf("harness", 2*time.Minute, errors.New("exit status 1"))},
-		{Type: EventOutcome, Outcome: &Outcome{Status: runner.StatusFailed, Reason: runner.ReasonHarnessError, Transcript: TranscriptFile}},
+		OutcomeEvent(Outcome{Status: runner.StatusFailed, Reason: runner.ReasonHarnessError, Transcript: TranscriptFile, Result: &v1alpha1.Result{Summary: strings.Repeat("a", 2*MaxEventBytes)}}),
 		{Type: EventStep, Step: StepOf("environment.down", 3*time.Second, nil)},
 	}
 }
@@ -97,6 +97,7 @@ func TestEncoderLineCap(t *testing.T) {
 		t.Errorf("an oversize event wrote %d bytes", buf.Len())
 	}
 	wantInvalid(t, enc.Encode(Event{Type: EventStep}), "event")
+	wantInvalid(t, enc.Encode(Event{Type: EventOutcome, Outcome: &Outcome{Status: runner.StatusDone, Result: &v1alpha1.Result{}}}), "event.outcome.result")
 	wantInvalid(t, enc.Encode(Event{Type: EventOutcome, Outcome: &Outcome{Status: "great"}}), "outcome.status")
 }
 
@@ -161,6 +162,9 @@ func TestDecoder(t *testing.T) {
 		{"no payload", `{"v":1,"type":"step","at":"2026-10-22T12:00:00Z"}` + "\n", []result{{field: "event"}}},
 		{"another type's payload", `{"v":1,"type":"usage","at":"2026-10-22T12:00:00Z","usage":{},"step":{"name":"x","state":"ok","ms":1}}` + "\n", []result{{field: "event"}}},
 		{"a bad step state", `{"v":1,"type":"step","at":"2026-10-22T12:00:00Z","step":{"name":"x","state":"meh","ms":1}}` + "\n", []result{{field: "event.step.state"}}},
+		{"an outcome with a Result", `{"v":1,"type":"outcome","at":"2026-10-22T12:00:00Z","outcome":{"status":"done","result":{"task":"tsk_1"}}}` + "\n", []result{{field: "event.outcome.result"}}},
+		{"a token for a time", `{"v":1,"type":"step","at":"` + ghsToken + `","step":{"name":"x","state":"ok","ms":1}}` + "\n", []result{{field: "event"}}},
+		{"a token for a state", `{"v":1,"type":"step","at":"2026-10-22T12:00:00Z","step":{"name":"x","state":"` + ghsToken + `","ms":1}}` + "\n", []result{{field: "event.step.state"}}},
 		{"a bad outcome", `{"v":1,"type":"outcome","at":"2026-10-22T12:00:00Z","outcome":{"status":"done","transcript":"/etc/passwd"}}` + "\n", []result{{field: "outcome.transcript"}}},
 	}
 	for _, tt := range tests {
