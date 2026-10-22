@@ -6,3 +6,8 @@ pass 1:
 - 405799b8d99e fixed: section_gh captures gh extension list into a variable, then grep -qF (no SIGPIPE under pipefail).
 - da5df1032982 fixed: one poll helper for boot and shutdown (cond returns bool; tart run exiting is a failure for boot, ignored for shutdown).
 - 928a4ecf178b dismissed: the waits are deadlines and poll intervals on external tart processes (the rule's I/O-deadline exception); every duration is injected through Env.VM, so tests run them in milliseconds. Env.Now is the clock for decisions (builtAt).
+
+lisa-selfreview:
+pass 2 (strict): request_changes
+- [nit] a0ef9dddc575 internal/agent/host/proc.go:66 execProcess.err is written and never read
+- [nit] f0a55bce1cda internal/agent/host/vm.go:29 The embedded script is an exported, mutable []byte
