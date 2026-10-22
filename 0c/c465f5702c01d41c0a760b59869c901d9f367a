@@ -1,0 +1,5 @@
+lisa-addressed:
+Pass 1 fixes:
+- 194acbe8c361 ensureDir: os.MkdirAll for the run user's attempt (the default state dir's parent is absent in the base); sudo -n install -d already makes parents. Tests: TestSetupEnvIsPipelineEnv uses a nested state dir; TestSetupMakesDirsWithSudo a nested one under a locked parent.
+- cbfa5aa9d1cb readCapped: TestSetupErrors gains an oversize CA and a CA that's a directory.
+- 00b8fb31ddb9 daemonConfig: wraps json.Unmarshal's error with %w; null keeps its own message; a not-JSON case added.
