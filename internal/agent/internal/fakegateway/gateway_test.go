@@ -100,6 +100,7 @@ func TestRoutes(t *testing.T) {
 		{"push to a read repo: pack", "POST", "https://github.com/acme/ro.git/git-receive-pack", "", 403, "-", PushRefused, InjectedNone, ClientAuthNone},
 		{"push to an unknown repo", "POST", "https://github.com/acme/public/git-receive-pack", "", 403, "-", PushRefused, InjectedNone, ClientAuthNone},
 		{"a dot-dot path is refused", "POST", "https://github.com/acme/docs/../ro.git/git-receive-pack", "", 400, "-", BadPath, InjectedNone, ClientAuthNone},
+		{"an encoded slash is refused", "POST", "https://github.com/acme%2Fro.git/git-receive-pack", "", 400, "-", BadPath, InjectedNone, ClientAuthNone},
 		{"api GET injects the token", "GET", "https://api.github.com/repos/acme/docs/pulls", "token " + DefaultPlaceholder, 200, "Bearer " + apiToken, "ok", InjectedAPI, "token placeholder"},
 		{"api HEAD injects the token", "HEAD", "https://api.github.com/repos/acme/docs", "", 200, "Bearer " + apiToken, "", InjectedAPI, ClientAuthNone},
 		{"api POST is refused", "POST", "https://api.github.com/repos/acme/docs/issues/1/comments", "", 403, "-", APIWriteRefused, InjectedNone, ClientAuthNone},
@@ -175,6 +176,25 @@ func TestNoUpstream(t *testing.T) {
 	}
 	if _, err := New(Config{Dispatcher: "dispatcher:8080"}); err == nil {
 		t.Fatal("New accepted a relative upstream")
+	}
+}
+
+func TestConfiguredHosts(t *testing.T) {
+	g, a := newEcho(t), newEcho(t)
+	gw := Start(t, Config{GitHost: "Git.Example.Test", GitUpstream: g.URL, APIHost: "API.Example.Test", APIUpstream: a.URL, APIToken: apiToken,
+		Repos: map[string]Repo{"acme/docs": {Token: rwToken}}})
+	for u, want := range map[string]string{
+		"https://git.example.test/acme/docs.git/info/refs?service=git-upload-pack": basic(rwToken),
+		"https://api.example.test/user":                                            "Bearer " + apiToken,
+	} {
+		resp, err := gw.Client().Get(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if got := resp.Header.Get("X-Echo-Auth"); got != want {
+			t.Errorf("%s: upstream got %.16q…, want %.16q…", u, got, want)
+		}
 	}
 }
 
@@ -271,6 +291,34 @@ func TestTunnel(t *testing.T) {
 			t.Errorf("body %q", body)
 		}
 		if got := gw.Records(); len(got) != 1 || got[0] != (Record{Method: "CONNECT", Host: hostname, Status: 200, ClientAuth: ClientAuthNone}) {
+			t.Errorf("records %+v", got)
+		}
+	})
+	t.Run("allowed: plain HTTP forwarded as it is", func(t *testing.T) {
+		up := newEcho(t)
+		gw := Start(t, Config{AllowTunnel: true})
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, up.URL+"/x", nil)
+		req.Header.Set("Authorization", "Bearer kept")
+		resp, err := gw.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != 200 || resp.Header.Get("X-Echo-Auth") != "Bearer kept" {
+			t.Errorf("got %d with Authorization %q", resp.StatusCode, resp.Header.Get("X-Echo-Auth"))
+		}
+	})
+	t.Run("allowed: a failed dial is a 502", func(t *testing.T) {
+		closed := httptest.NewServer(http.NotFoundHandler())
+		addr := closed.Listener.Addr().String()
+		closed.Close()
+		gw := Start(t, Config{AllowTunnel: true})
+		resp, err := client(gw).Get("https://" + addr)
+		if err == nil {
+			_ = resp.Body.Close()
+			t.Fatal("the tunnel to a closed port worked")
+		}
+		if got := gw.Records(); len(got) != 1 || got[0].Status != http.StatusBadGateway {
 			t.Errorf("records %+v", got)
 		}
 	})

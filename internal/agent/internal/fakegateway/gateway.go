@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -127,6 +128,7 @@ type Gateway struct {
 	repos        map[string]Repo
 	placeholders map[string]bool
 	transport    *http.Transport
+	client       *http.Client
 
 	srv   *httptest.Server
 	inner *http.Server
@@ -155,6 +157,7 @@ func New(cfg Config) (*Gateway, error) {
 	if cfg.APIHost == "" {
 		cfg.APIHost = DefaultAPIHost
 	}
+	cfg.DispatcherHost, cfg.GitHost, cfg.APIHost = strings.ToLower(cfg.DispatcherHost), strings.ToLower(cfg.GitHost), strings.ToLower(cfg.APIHost)
 	if cfg.Placeholders == nil {
 		cfg.Placeholders = []string{DefaultPlaceholder}
 	}
@@ -182,7 +185,7 @@ func New(cfg Config) (*Gateway, error) {
 	}
 	g.ln = &connListener{ch: make(chan net.Conn), done: make(chan struct{})}
 	g.inner = &http.Server{Handler: http.HandlerFunc(g.intercepted), ReadHeaderTimeout: 10 * time.Second,
-		ErrorLog: log.New(io.Discard, "", 0),
+		ErrorLog: discardLog(),
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			if hc, ok := c.(*hostConn); ok {
 				return context.WithValue(ctx, hostKey{}, hc.host)
@@ -191,10 +194,16 @@ func New(cfg Config) (*Gateway, error) {
 		}}
 	go func() { _ = g.inner.Serve(g.ln) }()
 	g.srv = httptest.NewUnstartedServer(http.HandlerFunc(g.serve))
-	g.srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+	g.srv.Config.ErrorLog = discardLog()
 	g.srv.Start()
+	u, _ := url.Parse(g.srv.URL) // httptest's own URL always parses
+	g.client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(u),
+		TLSClientConfig: &tls.Config{RootCAs: g.ca.Pool(), MinVersion: tls.VersionTLS12}}}
 	return g, nil
 }
+
+// discardLog is the servers' ErrorLog: a test's aborted connections aren't news.
+func discardLog() *log.Logger { return slog.NewLogLogger(slog.DiscardHandler, slog.LevelError) }
 
 // Start is New for a test: it fails t on an error and closes the gateway in t.Cleanup.
 func Start(t testing.TB, cfg Config) *Gateway {
@@ -227,11 +236,9 @@ func (g *Gateway) URL() string { return g.srv.URL }
 // CA is the gateway's CA.
 func (g *Gateway) CA() *CA { return g.ca }
 
-// Client is an HTTP client that goes through the gateway and trusts only its CA.
-func (g *Gateway) Client() *http.Client {
-	u, _ := url.Parse(g.srv.URL) // httptest's own URL always parses
-	return &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(u), TLSClientConfig: &tls.Config{RootCAs: g.ca.Pool(), MinVersion: tls.VersionTLS12}}}
-}
+// Client is the HTTP client that goes through the gateway and trusts only its CA. Close closes
+// its idle connections.
+func (g *Gateway) Client() *http.Client { return g.client }
 
 // Close stops the gateway and closes every tunnel and intercepted connection. It is idempotent.
 func (g *Gateway) Close() {
@@ -247,6 +254,7 @@ func (g *Gateway) Close() {
 		g.mu.Unlock()
 		g.wg.Wait()
 		g.transport.CloseIdleConnections()
+		g.client.CloseIdleConnections()
 	})
 }
 
