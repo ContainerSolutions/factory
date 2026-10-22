@@ -245,6 +245,10 @@ func TestWriteRefuses(t *testing.T) {
 		{"an oversize prompt", func(_ *Manifest, f *Files) { f.Prompt = big(MaxPromptBytes + 1) }, PromptFile},
 		{"an oversize schema", func(_ *Manifest, f *Files) { f.OutputSchema = big(MaxSchemaBytes + 1) }, SchemaFile},
 		{"an oversize CA", func(_ *Manifest, f *Files) { f.CA = big(MaxCABytes + 1) }, CAFile},
+		{"an oversize manifest", func(m *Manifest, _ *Files) {
+			m.Gateway.NoProxy = slices.Repeat([]string{"registry.example.com"}, 50000)
+		}, ManifestFile},
+		{"an oversize task", func(_ *Manifest, f *Files) { f.Task.Spec.Inputs = map[string]any{"x": string(big(MaxTaskBytes))} }, TaskFile},
 		{"an oversize context item", func(_ *Manifest, f *Files) {
 			f.Context[0] = contextJSON(t, 0, string(big(MaxContextBytes+1)))
 		}, "context/0.json"},

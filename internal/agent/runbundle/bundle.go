@@ -442,6 +442,9 @@ func Write(dir string, m Manifest, f Files) (err error) {
 	if files[ManifestFile], err = json.MarshalIndent(m, "", "  "); err != nil {
 		return fmt.Errorf("run bundle: %s: %w", ManifestFile, err)
 	}
+	if len(files[ManifestFile]) > MaxManifestBytes {
+		return invalid(ManifestFile, "is over %d bytes", MaxManifestBytes)
+	}
 	if files[TaskFile], err = json.MarshalIndent(f.Task, "", "  "); err != nil {
 		return fmt.Errorf("run bundle: %s: %w", TaskFile, err)
 	}
