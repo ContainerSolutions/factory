@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
@@ -146,14 +147,7 @@ func DenyClasses() []DenyClass {
 }
 
 // Valid reports whether c is one of the DenyClasses.
-func (c DenyClass) Valid() bool {
-	switch c {
-	case DenyUnspecified, DenyLoopback, DenyPrivate, DenyCGNAT, DenyLinkLocal, DenyULA,
-		DenyMulticast, DenyReserved, DenyDocumentation, DenyAgentHost, DenyExtra:
-		return true
-	}
-	return false
-}
+func (c DenyClass) Valid() bool { return slices.Contains(DenyClasses(), c) }
 
 // DenyRange is one row of the default deny table.
 type DenyRange struct {
