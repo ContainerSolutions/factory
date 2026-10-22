@@ -81,16 +81,20 @@ type vmRig struct {
 	extraArgs           []string
 	pushedSHA           string
 	system              System
-	adapters            func(*runbundle.Bundle, AdapterOptions) (map[string]harness.Adapter, error)
+	adapters            func(*runbundle.Bundle, adapterOptions) (map[string]harness.Adapter, error)
 }
 
-func newVMRig(t *testing.T) *vmRig {
+// newVMRig builds the rig; mutate changes the job before its bundle is written.
+func newVMRig(t *testing.T, mutate ...func(*runner.Job)) *vmRig {
 	t.Helper()
 	e := harnesstest.NewE2E(t, vmTaskID, vmPrompt)
 	gw := fakegateway.Start(t, fakegateway.Config{RunToken: fakegateway.RunToken, Dispatcher: e.DispatcherURL(), TaskID: vmTaskID,
 		GitUpstream: e.GitURL(), Repos: map[string]fakegateway.Repo{"acme/docs": {Token: harnesstest.GitToken, RW: true}}})
 	job := e.Job(v1alpha1.HarnessResolved{Name: fake.Name, Model: "m"}, []string{"pr-opened"})
 	job.Lease.Task.Spec.Effects = &v1alpha1.EffectsPolicy{Allow: []v1alpha1.EffectOp{v1alpha1.OpPushBranch, v1alpha1.OpComment}}
+	for _, m := range mutate {
+		m(job)
+	}
 	base := t.TempDir()
 	r := &vmRig{
 		t: t, e: e, gw: gw, bundle: e.BundleJob(job, pipeline.BundleExtras{CA: gw.CA().CertPEM()}),
@@ -102,7 +106,7 @@ func newVMRig(t *testing.T) *vmRig {
 		User: func() (*user.User, error) {
 			return &user.User{Uid: "1000", Gid: "1000", Username: "admin", HomeDir: home}, nil
 		}}
-	r.adapters = func(*runbundle.Bundle, AdapterOptions) (map[string]harness.Adapter, error) {
+	r.adapters = func(*runbundle.Bundle, adapterOptions) (map[string]harness.Adapter, error) {
 		return map[string]harness.Adapter{fake.Name: r.adapter}, nil
 	}
 	return r
@@ -288,7 +292,7 @@ func TestRunEndToEnd(t *testing.T) {
 
 	// The event stream, pinned.
 	evs := r.events()
-	if got := eventTypes(evs); got[0] != runbundle.EventStart || got[len(got)-1] != runbundle.EventOutcome {
+	if got := eventTypes(evs); len(got) < 2 || got[0] != runbundle.EventStart || got[len(got)-1] != runbundle.EventOutcome {
 		t.Errorf("event types %v", got)
 	}
 	golden(t, filepath.Join("testdata", "run", "events.golden"), r.stdout.String())
@@ -364,11 +368,13 @@ func TestRunOutcomes(t *testing.T) {
 	for _, tt := range []struct {
 		name       string
 		args       []string
+		job        func(*runner.Job)
 		script     func(r *vmRig) fake.Script
 		status     string
 		reason     string
 		transcript bool
 		steps      []string // a subsequence of the step events
+		logs       []string // in the log, in any order
 		check      func(t *testing.T, r *vmRig, o runbundle.Outcome)
 	}{
 		{name: "repair", script: func(*vmRig) fake.Script {
@@ -401,14 +407,30 @@ func TestRunOutcomes(t *testing.T) {
 				r.sigs <- syscall.SIGTERM
 				return nil
 			}}}
-		}, status: runner.StatusFailed, reason: runner.ReasonCancelled, steps: []string{"harness:error", "finish:ok"}},
+		}, status: runner.StatusFailed, reason: runner.ReasonCancelled, steps: []string{"harness:error", "finish:ok"},
+			logs: []string{"cancelling the run"}},
 		{name: "SIGTERM twice", script: func(r *vmRig) fake.Script {
-			return fake.Script{Turn: fake.Turn{Block: true, Do: func(context.Context, harness.Workspace, string) error {
+			return fake.Script{Turn: fake.Turn{Block: true, Do: func(ctx context.Context, _ harness.Workspace, _ string) error {
 				r.sigs <- syscall.SIGTERM
+				<-ctx.Done() // the first cancelled the run
 				r.sigs <- syscall.SIGINT
+				// The run ends once Do returns: wait until the second signal is handled.
+				for deadline := time.Now().Add(10 * time.Second); !strings.Contains(r.stderr.String(), "a second signal") && time.Now().Before(deadline); {
+					time.Sleep(5 * time.Millisecond)
+				}
 				return nil
 			}}}
-		}, status: runner.StatusFailed, reason: runner.ReasonCancelled},
+		}, status: runner.StatusFailed, reason: runner.ReasonCancelled,
+			logs: []string{"cancelling the run", "a second signal"}},
+		{name: "an invalid maxWallClock", job: func(job *runner.Job) {
+			job.Lease.Task.Spec.Limits.MaxWallClock = "soon"
+		}, script: func(*vmRig) fake.Script { return fake.Script{} }, status: runner.StatusFailed, reason: runner.ReasonHarnessError,
+			check: func(t *testing.T, r *vmRig, o runbundle.Outcome) {
+				// Run refuses it before any step: vmrun reports the outcome itself.
+				if o.Result == nil || !strings.Contains(o.Result.Summary, "limits.maxWallClock") || len(r.adapter.Prepared()) != 0 || len(stepNames(r.events())) != 0 {
+					t.Errorf("result %+v, prepared %d, steps %v", o.Result, len(r.adapter.Prepared()), stepNames(r.events()))
+				}
+			}},
 		{name: "system setup fails", script: func(r *vmRig) fake.Script {
 			if err := os.WriteFile(r.state, []byte("x"), 0o600); err != nil {
 				r.t.Fatal(err)
@@ -423,7 +445,7 @@ func TestRunOutcomes(t *testing.T) {
 			}
 		}},
 		{name: "no adapter", script: func(r *vmRig) fake.Script {
-			r.adapters = func(*runbundle.Bundle, AdapterOptions) (map[string]harness.Adapter, error) {
+			r.adapters = func(*runbundle.Bundle, adapterOptions) (map[string]harness.Adapter, error) {
 				return nil, fmt.Errorf("no adapter for harness %q", fake.Name)
 			}
 			return fake.Script{}
@@ -435,7 +457,11 @@ func TestRunOutcomes(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			r := newVMRig(t)
+			var mutate []func(*runner.Job)
+			if tt.job != nil {
+				mutate = append(mutate, tt.job)
+			}
+			r := newVMRig(t, mutate...)
 			r.extraArgs = tt.args
 			r.adapter.Script = tt.script(r)
 			if code := r.main(); code != ExitOK {
@@ -456,6 +482,11 @@ func TestRunOutcomes(t *testing.T) {
 			}
 			if steps := stepNames(evs); !isSubsequence(tt.steps, steps) {
 				t.Errorf("steps %v, want %v among them", steps, tt.steps)
+			}
+			for _, l := range tt.logs {
+				if !strings.Contains(r.stderr.String(), l) {
+					t.Errorf("the log has no %q:\n%s", l, r.stderr.String())
+				}
 			}
 			if tt.check != nil {
 				tt.check(t, r, o)

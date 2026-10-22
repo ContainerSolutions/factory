@@ -76,21 +76,21 @@ func TestJobFromBundle(t *testing.T) {
 	}
 }
 
-// Adapters builds only the task's harness, under IsolationVM; codex gets the bundle's account.
+// taskAdapters builds only the task's harness, under IsolationVM; codex gets the bundle's account.
 func TestAdapters(t *testing.T) {
 	t.Parallel()
 	clk := clock.NewFake(time.Date(2026, 10, 22, 9, 0, 0, 0, time.UTC))
 	acct := runbundle.CodexAccount{AccountID: "acct_1", UserID: "user_1", PlanType: "pro"}
 
 	b := jobBundle("", config.HarnessClaudeCode)
-	ads, err := Adapters(b, AdapterOptions{Clock: clk})
+	ads, err := taskAdapters(b, adapterOptions{Clock: clk})
 	if _, ok := ads[config.HarnessClaudeCode].(*claudecode.Adapter); err != nil || !ok || len(ads) != 1 {
 		t.Errorf("claude-code: %v %v", ads, err)
 	}
 
 	b = jobBundle("", config.HarnessCodex)
 	b.Manifest.Codex = &acct
-	ads, err = Adapters(b, AdapterOptions{Clock: clk, Binaries: map[string]string{config.HarnessCodex: "/opt/codex"}})
+	ads, err = taskAdapters(b, adapterOptions{Clock: clk, Binaries: map[string]string{config.HarnessCodex: "/opt/codex"}})
 	cx, ok := ads[config.HarnessCodex].(*codex.Adapter)
 	if err != nil || !ok || len(ads) != 1 {
 		t.Fatalf("codex: %v %v", ads, err)
@@ -113,7 +113,7 @@ func TestAdapters(t *testing.T) {
 			return b
 		},
 	} {
-		if ads, err := Adapters(mk(), AdapterOptions{Clock: clk}); err == nil {
+		if ads, err := taskAdapters(mk(), adapterOptions{Clock: clk}); err == nil {
 			t.Errorf("%s: %v", name, ads)
 		}
 	}

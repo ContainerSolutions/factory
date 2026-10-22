@@ -15,19 +15,19 @@ import (
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
-// AdapterOptions are what vmrun builds the task's adapter with.
-type AdapterOptions struct {
+// adapterOptions are what vmrun builds the task's adapter with.
+type adapterOptions struct {
 	// Binaries override a harness's executable by harness name (--harness-bin).
 	Binaries map[string]string
 	// Clock stamps the adapter's events (and codex's placeholder login).
 	Clock clock.Clock
 }
 
-// Adapters builds the adapters for b's task: only its harness (workspace-run.md §Sequence,
+// taskAdapters builds the adapters for b's task: only its harness (workspace-run.md §Sequence,
 // step 5), with harness.IsolationVM and a config.Harness made from the task's resolved
 // harness (the VM has no owner config dir or home, and no Probe runs). codex gets the bundle's
 // codex/account.json as its Account.
-func Adapters(b *runbundle.Bundle, o AdapterOptions) (map[string]harness.Adapter, error) {
+func taskAdapters(b *runbundle.Bundle, o adapterOptions) (map[string]harness.Adapter, error) {
 	h := b.Task.Spec.Harness
 	if h == nil || h.Resolved == nil || h.Resolved.Name == "" {
 		return nil, errors.New("the task has no resolved harness")

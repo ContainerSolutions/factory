@@ -54,7 +54,7 @@ type deps struct {
 	// system is the system setup's template; StateDir and WorkDir come from the flags.
 	system System
 	// adapters builds the task's adapters; default Adapters.
-	adapters func(*runbundle.Bundle, AdapterOptions) (map[string]harness.Adapter, error)
+	adapters func(*runbundle.Bundle, adapterOptions) (map[string]harness.Adapter, error)
 	// agentBinary is the workspace's `factory` CLI; default os.Executable (pipeline.New).
 	agentBinary string
 	// clock times the run and stamps the events; default clock.Real.
@@ -97,7 +97,7 @@ func mainWith(ctx context.Context, args []string, stdout, stderr io.Writer, d de
 		d.clock = clock.Real{}
 	}
 	if d.adapters == nil {
-		d.adapters = Adapters
+		d.adapters = taskAdapters
 	}
 	b, err := runbundle.Read(o.bundle)
 	if err != nil {
@@ -153,7 +153,7 @@ func (r *vm) run(ctx context.Context) int {
 		return r.fail(ctx, setupFailReason, err)
 	}
 	job := JobFromBundle(r.b, r.d.clock.Now(), r.o.remaining)
-	adapters, err := r.d.adapters(r.b, AdapterOptions{Binaries: r.o.bins, Clock: r.d.clock})
+	adapters, err := r.d.adapters(r.b, adapterOptions{Binaries: r.o.bins, Clock: r.d.clock})
 	if err != nil {
 		return r.fail(ctx, runner.ReasonHarnessError, fmt.Errorf("adapters: %w", err))
 	}
@@ -244,7 +244,10 @@ func watchSignals(sigs <-chan os.Signal, cancel context.CancelFunc, log *slog.Lo
 			select {
 			case <-done:
 				return
-			case s := <-sigs:
+			case s, ok := <-sigs:
+				if !ok {
+					return
+				}
 				n++
 				if n == 1 {
 					log.Warn("cancelling the run", "signal", s.String())
