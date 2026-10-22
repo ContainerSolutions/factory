@@ -1,0 +1,2 @@
+lisa-addressed:
+Pass 3 fixed: OutcomeEvent (no Result in the event, validate refuses one); jsonError and no quoted values in Outcome/Event errors; ReadOutcome through os.Root with SameFile.
