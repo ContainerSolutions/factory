@@ -1,0 +1,5 @@
+lisa-design:
+- getTaskOutputSchema keeps uiSession and cliToken and adds runToken (a new readerAgentOrRun access level), instead of the spec's literal "[agentToken, runToken]" list: dropping the reader schemes would remove existing access, and the PR is meant to be additive. The other four routes get agentOrRun ({agentToken, runToken}).
+- authenticate refuses any bearer with the `run_` prefix on the run-token routes with 401 "run tokens are not issued yet", before the agent/user checks; everything else follows the route's previous path unchanged. P1 phase 6 replaces refuseRunToken with the hash lookup.
+- Run IDs are also `run_…` (ULIDs, 26 chars) but only ever in paths, never as bearers; the token's format (43 base64url chars) keeps them distinguishable if ever needed.
+- Lease.runToken is optional so older dispatchers stay compatible; the example uses run_ + 43 'x' (clearly fake).
