@@ -1,0 +1,8 @@
+lisa-design:
+- One read-only credential per private read repo ({contents: read}), so each token fits one App installation and the agent maps repo→token directly; lists omitted when empty; refreshed with the task token.
+- Task (rw) token covers only its repo; GitCredentialRequest.Validate refuses ReadRepos on any token that can write.
+- Private vs public decided by the TaskSpec (workspace.publicReads → credentials.git.publicReads at compile time): true = read repos cloned anonymously, no token; else every read repo gets a read token. Limitation documented: can't mix private repos with public repos outside the App's installations.
+- Mint is all-or-nothing; a failed read mint leaves the task Pending (git-credential); tokens never stored, credentialExpiresAt = earliest expiry.
+
+lisa-selfreview:
+Pass 1: no findings.

@@ -1,0 +1,3 @@
+lisa-design:
+- The header names the two pinned files but not the SHA: the Makefile extracts WORKFLOWS_SHA with a sed over ci.yml matching `ci-go-service.yml@<40-hex>`, so a SHA spelled that way in a comment would match twice and break `make lint`; it would also drift on every manual bump.
+- Pins stay manual by decision (Gustavo, workflows#145 review): factory is listed with release: false so the monthly train doesn't wait on a release-please run factory doesn't have. Don't "fix" by moving factory to release: true until factory's release workflow lands.

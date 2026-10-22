@@ -1,0 +1,4 @@
+lisa-selfreview:
+- [blocker] CORE-SIZE-001 LICENSE:1 — PR over 1000 counted lines
+- [should-fix] gitignore-coverage-glob-too-broad .gitignore:13 — `coverage*` ignores any file starting with coverage, at any depth
+- [nit] CORE-STYLE-001 Makefile:24 — generate runs go generate twice for the api packages

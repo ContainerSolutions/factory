@@ -1,0 +1,11 @@
+lisa-design:
+- Idempotent by construction: decision key evt/<event>/<rule>/<i> → task id tsk_<hash>, effect idempotency keys; wi_<hash(provider/ref)>; rails ignore tasks from the same event, so a replay yields one task and one comment.
+- One lock per work item ("wi/<id>") for rule, debounce, run-finish and retention paths; store writes are CAS.
+- Permanent failures (bad dispatch, template, rejected effect) go into the decision reason; store errors and ErrRetryable fail the reconcile for retry.
+- Run controller is store-driven (watches Task/Run), RunAPI is the hand-off for RT-S2-T02/T03; run ended before counters increment (a retried finish under-counts, never double-counts).
+- Internal store kinds: EventStatus (processed mark), Debounce, TaskPrompt (prompt.ref api://tasks/<id>/prompt).
+- Rails implemented here: factory:stop, run cap 20, single active run per spec, queue daily budget defer; RuleSet budgets at lease time (RT-S2-T02); pause kill-switches with RT-S2-T03.
+- TaskRunSpec.requires and RunStatus.end (contract fields added in #21) replace label workarounds.
+
+lisa-selfreview:
+Pass 1: no blocking findings; ccf-review to raise lock lease vs reconcile duration.

@@ -1,0 +1,2 @@
+lisa-addressed:
+ccf-review: egress-allow-governance-missing (07 now lists workspace.environment.egress under two approvals; FACTORY-CAT-002 in ccf-skills is a separate change) and exposes-count-uses-name-sentinel (ErrEnvTooManyExposes).
