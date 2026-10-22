@@ -156,9 +156,10 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
-// start serves a gateway whose only client is 127.0.0.1; mut edits the Config first. Cleanup
+// start serves a gateway whose only client is 127.0.0.1; mut edits the Config first, and gmut
+// the gateway before it serves. Cleanup
 // closes it, checks Serve returned nil, and checks no record or log line holds a secret.
-func start(t *testing.T, mut func(*Config)) *env {
+func start(t *testing.T, mut func(*Config), gmut ...func(*Gateway)) *env {
 	t.Helper()
 	h := &env{sink: &sink{t: t}, res: newResolver(), logs: &syncBuffer{}, errc: make(chan error, 1)}
 	cfg := Config{
@@ -173,6 +174,9 @@ func start(t *testing.T, mut func(*Config)) *env {
 		t.Fatalf("New: %v", err)
 	}
 	g.ifaces.read = hostIfaces
+	for _, m := range gmut {
+		m(g)
+	}
 	h.g = g
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

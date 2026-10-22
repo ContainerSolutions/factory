@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -218,6 +219,51 @@ func TestRefusals(t *testing.T) {
 	}
 }
 
+func TestConnectionLimit(t *testing.T) {
+	e := start(t, nil, func(g *Gateway) { g.maxConns = 1 })
+	dial := func() net.Conn {
+		c, err := net.Dial("tcp", e.addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = c.SetDeadline(time.Now().Add(5 * time.Second))
+		return c
+	}
+	// The first connection is admitted: it gets an answer and stays open.
+	first := dial()
+	ask := func(c net.Conn) error {
+		_, _ = io.WriteString(c, "GET /x HTTP/1.1\r\nHost: x\r\n\r\n")
+		resp, err := http.ReadResponse(bufio.NewReader(c), nil)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		return err
+	}
+	if err := ask(first); err != nil {
+		t.Fatalf("the first connection: %v", err)
+	}
+	second := dial()
+	if n, err := second.Read(make([]byte, 1)); n != 0 || err == nil {
+		t.Fatal("the connection over the limit wasn't closed")
+	}
+	_ = second.Close()
+	_ = first.Close()
+	// Closing the first frees its slot (the gateway sees the close asynchronously).
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		c := dial()
+		err := ask(c)
+		_ = c.Close()
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no slot after the first connection closed: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestEgressDialer(t *testing.T) {
 	echo := newEcho(t)
 	e := start(t, open(echo.addr()))
@@ -239,6 +285,9 @@ func TestEgressDialer(t *testing.T) {
 	}
 	if n := e.res.count("rebind.test"); n != 2 {
 		t.Errorf("%d lookups for two dials, want one each", n)
+	}
+	for deadline := time.Now().Add(5 * time.Second); echo.count() < 1 && time.Now().Before(deadline); {
+		time.Sleep(5 * time.Millisecond) // the echo counts its accept asynchronously
 	}
 	if n := echo.count(); n != 1 {
 		t.Errorf("the upstream saw %d connections, want 1", n)

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/tls"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -17,9 +18,11 @@ import (
 // TestTunnelSNI runs real TLS clients through tunnels to an httptest TLS server, whose
 // certificate names example.com (resolved to 127.0.0.1 by the fake resolver).
 func TestTunnelSNI(t *testing.T) {
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "through")
 	}))
+	ts.Config.ErrorLog = log.New(io.Discard, "", 0) // the refused tunnels' aborted handshakes
+	ts.StartTLS()
 	t.Cleanup(ts.Close)
 	_, port, _ := net.SplitHostPort(ts.Listener.Addr().String())
 	roots := ts.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs

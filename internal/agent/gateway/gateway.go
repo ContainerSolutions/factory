@@ -96,8 +96,10 @@ type Gateway struct {
 	log     *slog.Logger
 	clk     clock.Clock
 	ifaces  *hostAddrs
-	// peekTimeout bounds a tunnel's ClientHello peek; tests shorten it.
+	// peekTimeout bounds a tunnel's ClientHello peek, and maxConns the client connections at
+	// once; New sets the constants, tests lower them.
 	peekTimeout time.Duration
+	maxConns    int
 	dialer      *net.Dialer
 	forward     *http.Transport
 	srv         *http.Server
@@ -153,7 +155,7 @@ func New(cfg Config) (*Gateway, error) {
 	g := &Gateway{
 		cfg: cfg, clients: clients, clk: cfg.Clock,
 		log:   cfg.Logger.With("task", cfg.TaskID, "run", cfg.RunID),
-		conns: map[*trackedConn]struct{}{}, peekTimeout: peekTimeout,
+		conns: map[*trackedConn]struct{}{}, peekTimeout: peekTimeout, maxConns: maxConns,
 	}
 	g.ifaces = &hostAddrs{read: net.InterfaceAddrs, clk: cfg.Clock, log: g.log}
 	g.ctx, g.cancel = context.WithCancel(context.Background())
@@ -294,7 +296,7 @@ func (l *listener) Accept() (net.Conn, error) {
 	}
 }
 
-// admit tracks c when it comes from a Clients address, the gateway is open and under maxConns;
+// admit tracks c when it comes from a Clients address, the gateway is open and under g.maxConns;
 // otherwise it closes c (a peer outside Clients with a record) and returns nil.
 func (g *Gateway) admit(c net.Conn) *trackedConn {
 	start := g.clk.Now()
@@ -306,10 +308,10 @@ func (g *Gateway) admit(c net.Conn) *trackedConn {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.closed || g.nclients >= maxConns {
+	if g.closed || g.nclients >= g.maxConns {
 		_ = c.Close()
 		if !g.closed {
-			g.log.Info("gateway: connection limit reached; closed a connection", "limit", maxConns)
+			g.log.Info("gateway: connection limit reached; closed a connection", "limit", g.maxConns)
 		}
 		return nil
 	}
