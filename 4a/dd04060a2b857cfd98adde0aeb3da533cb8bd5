@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 2 fixes: TestWorkspaceRuntime counts the gateway's dispatcher records and requires one per dispatcher request (the no-Authorization check can't pass on zero records); the recorded op uses the two-value assertion.
