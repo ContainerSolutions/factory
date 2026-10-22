@@ -126,6 +126,7 @@ Scriptable (`fake.Script{Events, Result, Err, RateLimitAfter}`) for pipeline and
   - the minimum version `2.1.0` and `claude --version`'s `x.y.z (Claude Code)`;
   - `CLAUDE_CONFIG_DIR`; `ANTHROPIC_API_KEY` taking precedence over a subscription login; `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`); the login in `<configDir>/.credentials.json` outside macOS and in the Keychain on macOS, with `<configDir>/.claude.json` present once the dir is set up; the login hint (`CLAUDE_CONFIG_DIR=<dir> claude`, then `/login`);
   - `DISABLE_AUTOUPDATER=1` and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`;
+  - `IS_SANDBOX=1` letting a root run use `bypassPermissions` (set only under `IsolationVM`, for a root run);
   - `--print` reading the prompt from stdin, `--output-format stream-json` with `--verbose`, `--model`, `--append-system-prompt`, `--plugin-dir` (once per plugin), `--settings <file>`, `--setting-sources user`, `--mcp-config <file>` with `--strict-mcp-config`, `--json-schema` taking the schema **inline** (not a path), `--max-turns`, `--max-budget-usd`, `--permission-mode bypassPermissions`, `--disallowedTools` as one comma-separated list, `--add-dir`, `--resume <session id>` from the same working directory;
   - `useJSONSchema` (true), i.e. that claude accepts the Result schemas (local `$defs`/`$ref`, `oneOf`, `additionalProperties: false`);
   - the settings keys `enabledPlugins`, `effortLevel` (the LLD's example) and `hooks.PreToolUse[].{matcher, hooks[].{type: command, command, timeout}}`, the matcher being a regular expression over tool names;

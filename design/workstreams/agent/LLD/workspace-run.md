@@ -243,7 +243,7 @@ const ReasonEnvironmentError = "environment-error" // in internal/agent/runner, 
 
 - **Skipped:** `sandboxSupport` (Probe and Prepare), `checkConfigDir`, and Probe itself (the supervisor never probes inside the VM). `CLAUDE_CONFIG_DIR` is `<home>/.claude`, a scratch directory in the workspace's `HOME`.
 - **Settings:** no `sandbox` block and no `permissions` block (`sandboxSettings` isn't called); `enabledPlugins: {}`, `effortLevel` and the PreToolUse hook stay. The hook keeps its `git push` and gh-write rules, so pushes still go through `factory push` (#83) and gh writes through the Effector, and it gets `--write /` in a writable workspace. A read-only workspace keeps `--disallowedTools Write,Edit,MultiEdit,NotebookEdit`.
-- **Environment:** `CLAUDE_CODE_OAUTH_TOKEN=harness.Placeholder` on a subscription run, `ANTHROPIC_API_KEY=harness.Placeholder` on an API-key run (the gateway sets `x-api-key`); nothing is read from `Environ`, and `USER` isn't set (there's no Keychain). `IS_SANDBOX=1` only when the run is root (**UNVERIFIED**: what claude needs for `bypassPermissions` as root; a constant in `flags.go`).
+- **Environment:** `CLAUDE_CODE_OAUTH_TOKEN=harness.Placeholder` on a subscription run, `ANTHROPIC_API_KEY=harness.Placeholder` on an API-key run (the gateway sets `x-api-key`); nothing is read from `Environ`, and `USER` isn't set (there's no Keychain). A task without a resolved auth runs on the subscription: the VM has no owner's environment or login to tell the mode from. `IS_SANDBOX=1` only when the run is root (**UNVERIFIED**: what claude needs for `bypassPermissions` as root; a constant in `flags.go`).
 
 ### codex
 
