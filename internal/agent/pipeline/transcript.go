@@ -73,6 +73,24 @@ func (r *redactor) String(s string) string {
 	return authHeaderRE.ReplaceAllString(s, "${1}"+Redacted)
 }
 
+// Error redacts err's text: the result's Error() is the redacted text, and it unwraps to
+// err, so errors.Is and errors.As still match. nil stays nil.
+func (r *redactor) Error(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &redactedError{msg: r.String(err.Error()), err: err}
+}
+
+// redactedError is an error whose text was redacted; it wraps the original.
+type redactedError struct {
+	msg string
+	err error
+}
+
+func (e *redactedError) Error() string { return e.msg }
+func (e *redactedError) Unwrap() error { return e.err }
+
 // factoryLine is a transcript line the pipeline itself writes.
 func factoryLine(event string, data map[string]any) []byte {
 	m := map[string]any{"type": "factory." + event}

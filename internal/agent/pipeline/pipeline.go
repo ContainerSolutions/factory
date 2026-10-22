@@ -118,7 +118,11 @@ type Options struct {
 	// OnStep, when set, is called after each step that ran with its name, its duration and
 	// its error (nil on success): workspace, credentials, clone, stack, skills, schema,
 	// prompt, environment, prepare, harness, repair (only after an invalid Result) and
-	// finish (its error is the transcript's). The error is not redacted.
+	// finish (its error is the transcript's). The error is redacted with the run's redactor
+	// (its tokens and anything shaped like one): its Error() is the redacted text, and it
+	// unwraps to the step's own error, so errors.Is and errors.As still match. An error
+	// unwrapped from it is the original, unredacted: report the error OnStep gets, not one
+	// errors.Unwrap or errors.As returns.
 	OnStep func(name string, d time.Duration, err error)
 	// Finished, when set, is called once with the run's Outcome at the end of finish, after
 	// the transcript is stored and before cleanup (the stack's Down, the credential socket,
@@ -331,10 +335,10 @@ func (r *run) execute(ctx context.Context) stepResult {
 	return r.runHarness(ctx)
 }
 
-// stepDone reports a step that started at t0 to Options.OnStep.
+// stepDone reports a step that started at t0 to Options.OnStep, its error redacted.
 func (r *run) stepDone(name string, t0 time.Time, err error) {
 	if f := r.p.o.OnStep; f != nil {
-		f(name, r.p.clk.Now().Sub(t0), err)
+		f(name, r.p.clk.Now().Sub(t0), r.red.Error(err))
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -944,6 +945,63 @@ func (s orderStack) Up(context.Context, harness.Workspace, v1alpha1.Task) (map[s
 func (s orderStack) Down(context.Context) error {
 	s.record("down")
 	return nil
+}
+
+// errComposeUp is the cause failStack's Up wraps.
+var errComposeUp = errors.New("compose up failed")
+
+// failStack is a Stack whose Up fails with an error carrying the task's git token and a
+// token-shaped string, as untrusted command output can.
+type failStack struct{}
+
+func (failStack) Up(context.Context, harness.Workspace, v1alpha1.Task) (map[string]string, error) {
+	return nil, fmt.Errorf("git clone https://x-access-token:%s@github.com/acme/docs (key sk-ant-api03-abcdefghijklmnopqrstuvwx): %w", gitSecret, errComposeUp)
+}
+
+func (failStack) Down(context.Context) error { return nil }
+
+// TestRunOnStepRedacted: OnStep gets a failing step's error redacted, still matching its
+// cause with errors.Is.
+func TestRunOnStepRedacted(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.opts.Stack = failStack{}
+	var mu sync.Mutex
+	var got error
+	f.opts.OnStep = func(name string, _ time.Duration, err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if name == "stack" {
+			got = err
+		} else if err != nil {
+			t.Errorf("step %s: %v", name, err)
+		}
+	}
+	task := f.task()
+	task.Spec.Requires = &v1alpha1.Requires{Labels: []string{"has-local-stack"}}
+	task.Spec.Inputs = map[string]any{"train": "acme/workflows#1"}
+	out, err := f.pipeline().Run(context.Background(), f.job(task, time.Now()), &sink{})
+	if err != nil || out.Status != runner.StatusFailed || out.Reason != runner.ReasonStackError {
+		t.Fatalf("outcome %+v %v", out, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if got == nil {
+		t.Fatal("OnStep got no error for the stack step")
+	}
+	msg := got.Error()
+	for _, s := range []string{gitSecret, "sk-ant-api03-abcdefghijklmnopqrstuvwx"} {
+		if strings.Contains(msg, s) {
+			t.Errorf("OnStep's error holds a secret %q: %s", s, msg)
+		}
+	}
+	if !strings.Contains(msg, pipeline.Redacted) || !strings.Contains(msg, "compose up failed") {
+		t.Errorf("OnStep's error %q: want the redacted text", msg)
+	}
+	if !errors.Is(got, errComposeUp) {
+		t.Errorf("errors.Is(%v, errComposeUp) = false", got)
+	}
+	f.checkClean("")
 }
 
 // TestRunHooks: OnStep sees every step that ran, in order, with the failing step's error;
