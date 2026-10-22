@@ -18,9 +18,13 @@
 | Caller | Mechanism | Checks |
 |---|---|---|
 | Agent | `Authorization: Bearer <agentToken>` | token hash lookup → Agent; lease/task routes require the lease to belong to the agent |
+| Enrollment (issued from P1 phase 6) | `X-Factory-Enrollment-Token: <enrollmentToken>` on `registerAgent` ([P1 §6](../../../proposals/P1-agent-workspaces.md#6-enrollment-replaces-the-device-flow)): `enr_` + 43 base64url characters, one-time | hash lookup → an unused, unexpired enrollment; the request's `pool` and `host` must match its pool and name (`400` otherwise); registers `agt_<owner>-<name>`, **spends** the token and returns the agent's first refresh token. Until then the server refuses the header (`401 unauthenticated`, "enrollment is not available yet") |
+| Agent refresh (issued from P1 phase 6) | `X-Factory-Agent-Refresh-Token: <refreshToken>` on `registerAgent`: `arf_` + 43 base64url characters, one per agent | hash lookup → its agent's enrollment (pool, owner, name, which the request must match); a fresh 24 h agent token and a new refresh token: **rotated** on each use, the old one spent; **revoked with the agent** (an admin's `deregisterAgent`). Refused like the enrollment header until then |
 | UI | GitHub OAuth web flow → server-side session cookie (`HttpOnly`, `Secure`, `SameSite=Lax`, 12 h) | `GET /user`; **commands** require membership of the catalog Group `maintainers` (resolved via `Conn.ResolveGroup`, cached 10 min — the CCF org admins in the PoC); any org member may read |
 | CLI | `Authorization: Bearer <cliToken>` (static token from env, PoC) | full admin; for `factory dispatch` |
 | Webhooks | provider HMAC (in `Conn.Handler()`) | — |
+
+**Admin enrollment routes** (P1 §6; stubs answering `501 not-implemented` until P1 phase 6): `POST /enrollments` (`createEnrollment`, `{pool, owner, name, ttl}` → `201 {enrollment, token}`, the token only there), `GET /enrollments` (`listEnrollments`, a page of enrollments without tokens) and `DELETE /enrollments/{id}` (`deleteEnrollment`, revokes an unused one → `204`, `404` unknown) take the `admin` access: a UI session of the `maintainers` Group, or the CLI token (`factory agent enroll`). `deregisterAgent` takes `agentOrAdmin`: an `agt_` bearer is the agent acting on itself, as before; otherwise a UI admin or the CLI token, whose delete also revokes the agent's refresh token (`501` until P1 phase 6).
 
 OAuth app config: `FACTORY_OAUTH_CLIENT_ID`, `FACTORY_OAUTH_CLIENT_SECRET` (a GitHub OAuth App, or the author GitHub App's user-to-server flow). CSRF: `state` param bound to a short-lived cookie.
 

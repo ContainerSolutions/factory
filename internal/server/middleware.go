@@ -24,7 +24,8 @@ type access int
 const (
 	// public: no credential (the OAuth routes, device config).
 	public access = iota
-	// registration: the join token and the owner token headers (checked by the scheduler).
+	// registration: the join token and the owner token headers (checked by the scheduler). The
+	// enrollment and refresh token headers are refused until P1 phase 6.
 	registration
 	// agentOnly: an agent token. Lease and task routes also check the lease's holder.
 	agentOnly
@@ -36,6 +37,8 @@ const (
 	admin
 	// sessionOnly: a UI session (getMe).
 	sessionOnly
+	// agentOrAdmin: an agent token, else admin (deregisterAgent: the agent itself, or an admin).
+	agentOrAdmin
 )
 
 // operations is the access of every generated operation, by operationId. A test checks it
@@ -44,7 +47,10 @@ var operations = map[string]access{
 	"registerAgent":       registration,
 	"listAgents":          reader,
 	"updateAgent":         agentOnly,
-	"deregisterAgent":     agentOnly,
+	"deregisterAgent":     agentOrAdmin,
+	"createEnrollment":    admin,
+	"listEnrollments":     admin,
+	"deleteEnrollment":    admin,
 	"leaseTask":           agentOnly,
 	"heartbeatLease":      agentOnly,
 	"completeLease":       agentOnly,
@@ -75,10 +81,13 @@ var operations = map[string]access{
 	"getDeviceConfig":     public,
 }
 
-// Registration headers (the joinToken and ownerToken security schemes).
+// Registration headers (the joinToken, ownerToken, enrollmentToken and agentRefreshToken
+// security schemes).
 const (
-	HeaderJoinToken  = "X-Factory-Join-Token"
-	HeaderOwnerToken = "X-Factory-Owner-Token"
+	HeaderJoinToken         = "X-Factory-Join-Token"
+	HeaderOwnerToken        = "X-Factory-Owner-Token"
+	HeaderEnrollmentToken   = "X-Factory-Enrollment-Token"
+	HeaderAgentRefreshToken = "X-Factory-Agent-Refresh-Token"
 )
 
 type (
@@ -129,6 +138,11 @@ func (s *Server) authenticate(ctx context.Context, r *http.Request, acc access) 
 	case public:
 		return auth.Principal{}, s.sameOrigin(r)
 	case registration:
+		// Enrollment and refresh tokens are issued from P1 phase 6; until then neither can be
+		// checked, so a request with one is refused whatever else it carries.
+		if r.Header.Get(HeaderEnrollmentToken) != "" || r.Header.Get(HeaderAgentRefreshToken) != "" {
+			return auth.Principal{}, problemf(http.StatusUnauthorized, CodeUnauthenticated, "enrollment is not available yet")
+		}
 		if r.Header.Get(HeaderJoinToken) == "" || r.Header.Get(HeaderOwnerToken) == "" {
 			return auth.Principal{}, problemf(http.StatusUnauthorized, CodeUnauthenticated,
 				"registration needs the %s and %s headers", HeaderJoinToken, HeaderOwnerToken)
@@ -141,6 +155,11 @@ func (s *Server) authenticate(ctx context.Context, r *http.Request, acc access) 
 			return a.Agent(ctx, r)
 		}
 		return s.user(ctx, r, false)
+	case agentOrAdmin:
+		if strings.HasPrefix(auth.BearerToken(r), "agt_") {
+			return a.Agent(ctx, r)
+		}
+		return s.user(ctx, r, true)
 	case reader:
 		return s.user(ctx, r, false)
 	case admin:

@@ -1,0 +1,14 @@
+{
+  "enrollment": {
+    "id": "enl_01jab3q8r9s0t1v2w3x4y5z6a7",
+    "pool": "maintainer-agents",
+    "owner": "gusfcarvalho",
+    "name": "mac",
+    "createdAt": "2026-10-16T08:00:00Z",
+    "expiresAt": "2026-10-23T08:00:00Z",
+    "createdBy": "github-public:gusfcarvalho",
+    "usedAt": null,
+    "agent": null
+  },
+  "token": "enr_EXAMPLE-enrollment-token-not-real0000000000"
+}

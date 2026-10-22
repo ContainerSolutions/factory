@@ -113,6 +113,27 @@ export const operations: readonly MockOperation[] = [
     contentType: 'application/json',
   },
   {
+    id: 'listEnrollments',
+    method: 'get',
+    path: '/api/v1/enrollments',
+    status: 200,
+    contentType: 'application/json',
+  },
+  {
+    id: 'createEnrollment',
+    method: 'post',
+    path: '/api/v1/enrollments',
+    status: 201,
+    contentType: 'application/json',
+  },
+  {
+    id: 'deleteEnrollment',
+    method: 'delete',
+    path: '/api/v1/enrollments/{id}',
+    status: 204,
+    contentType: '',
+  },
+  {
     id: 'getHealthz',
     method: 'get',
     path: '/healthz',
