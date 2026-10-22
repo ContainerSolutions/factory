@@ -67,17 +67,18 @@ var ReservedEnvNames = []string{
 // Environment validation errors. Workspace.Validate and Task.Validate return a
 // *ValidationError wrapping one of them (or a host error, for egress.allow).
 var (
-	ErrEnvVersionsFrom  = errors.New("invalid versions.from")
-	ErrEnvVersionsInput = errors.New("invalid versions.input")
-	ErrEnvScriptTooLong = errors.New("script too long")
-	ErrEnvNoUp          = errors.New("needs up")
-	ErrEnvReadyURL      = errors.New("invalid ready URL")
-	ErrEnvReadyTimeout  = errors.New("invalid ready timeout")
-	ErrEnvExposeName    = errors.New("invalid exposes name")
-	ErrEnvExposeValue   = errors.New("invalid exposes value")
-	ErrEnvEgressMode    = errors.New("invalid egress mode")
-	ErrEnvEgressAllow   = errors.New("egress.allow needs deny-by-default")
-	ErrEnvVersions      = errors.New("invalid versions")
+	ErrEnvVersionsFrom   = errors.New("invalid versions.from")
+	ErrEnvVersionsInput  = errors.New("invalid versions.input")
+	ErrEnvScriptTooLong  = errors.New("script too long")
+	ErrEnvNoUp           = errors.New("needs up")
+	ErrEnvReadyURL       = errors.New("invalid ready URL")
+	ErrEnvReadyTimeout   = errors.New("invalid ready timeout")
+	ErrEnvExposeName     = errors.New("invalid exposes name")
+	ErrEnvTooManyExposes = errors.New("too many exposes")
+	ErrEnvExposeValue    = errors.New("invalid exposes value")
+	ErrEnvEgressMode     = errors.New("invalid egress mode")
+	ErrEnvEgressAllow    = errors.New("egress.allow needs deny-by-default")
+	ErrEnvVersions       = errors.New("invalid versions")
 )
 
 var (
@@ -192,7 +193,7 @@ func validateExposes(exposes map[string]string) error {
 		return &ValidationError{
 			Field:   "exposes",
 			Message: fmt.Sprintf("%d variables: at most %d", len(exposes), MaxEnvExposes),
-			Err:     ErrEnvExposeName,
+			Err:     ErrEnvTooManyExposes,
 		}
 	}
 	for _, name := range sortedKeys(exposes) {

@@ -132,7 +132,7 @@ These are the engine invariants listed in [02](02-architecture.md#safety-rails-t
 ## Governance of the catalog itself
 
 - `catalog/**` changes need a maintainer review. **Two approvals** are needed for changes to:
-  - TaskSpec `permissions`, `effects`, `identity` or `workspace.hosts` (the hosts widen what a prompt-injected run could reach; FACTORY-CAT-002);
+  - TaskSpec `permissions`, `effects`, `identity`, `workspace.hosts`, or `workspace.environment.egress`: adding to `allow`, or changing `mode` away from `deny-by-default`. Hosts and egress widen what a prompt-injected run could reach (FACTORY-CAT-002);
   - any RuleSet that starts selecting the `merge` pack;
   - Pool `admission`;
   - Providers.

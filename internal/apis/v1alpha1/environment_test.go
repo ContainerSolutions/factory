@@ -92,7 +92,7 @@ var envCases = []struct {
 	{"ready timeout invalid", map[string]any{"up": "u", "ready": map[string]any{"http": []string{"http://localhost/"}, "timeout": "soon"}}, "ready.timeout", ErrEnvReadyTimeout},
 
 	{"exposes at the limit", map[string]any{"up": "u", "exposes": numberedMap(MaxEnvExposes, "FACTORY_X%d", "v")}, "", nil},
-	{"exposes too many", map[string]any{"up": "u", "exposes": numberedMap(MaxEnvExposes+1, "FACTORY_X%d", "v")}, "exposes", ErrEnvExposeName},
+	{"exposes too many", map[string]any{"up": "u", "exposes": numberedMap(MaxEnvExposes+1, "FACTORY_X%d", "v")}, "exposes", ErrEnvTooManyExposes},
 	{"exposes no prefix", map[string]any{"up": "u", "exposes": map[string]any{"STACK_URL": "v"}}, "exposes.STACK_URL", ErrEnvExposeName},
 	{"exposes lowercase", map[string]any{"up": "u", "exposes": map[string]any{"FACTORY_stack": "v"}}, "exposes.FACTORY_stack", ErrEnvExposeName},
 	{"exposes prefix only", map[string]any{"up": "u", "exposes": map[string]any{"FACTORY_": "v"}}, "exposes.FACTORY_", ErrEnvExposeName},
