@@ -1,0 +1,6 @@
+lisa-addressed:
+ccf-review PR #113 findings (lead-accepted), fixed in internal/agent/effector/effector.go FromEnv:
+- 24529e1548aa (must-fix): FromEnv fails closed: FACTORY_RUNTIME accepts only "" (host) and "workspace"; any other value is a usage error (exit 2) naming $FACTORY_RUNTIME and the accepted values, not the value. Test: TestFromEnvRuntime (unknown, "host", wrong case).
+- a9b1990d4388 (nit): in the workspace runtime a non-empty FACTORY_TOKEN is a usage error naming $FACTORY_TOKEN, never its value. Test: TestFromEnvRuntime "the workspace with a token" (checks the token is absent from the error).
+- LLDs: effector.md workspace-runtime bullet, workspace-run.md §The Effector in the workspace runtime (new bullet).
+- Lead's answers to the PR's open questions: (a) a host task's exposes setting FACTORY_RUNTIME=workspace only forces the git fallback (after this fix: FromEnv refuses whenever the agent token is set, i.e. fails closed); reserving the name is risk 12's contract PR. (b) unknown values are refused (this fix).
