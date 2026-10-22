@@ -144,7 +144,8 @@ local-dev findings. They're local-dev's own issues, not the factory's:
 - **Condition 2: refresh belongs to the gateway.** The VM's `refresh_token` is a placeholder and
   `last_refresh` is fresh, so codex never refreshes. The real access token expires, so the
   gateway (the supervisor, on the owner's machine) has to refresh it from the real
-  `refresh_token` and write back the owner's `auth.json`. Phase 5 builds that.
+  `refresh_token` and keep the rotated tokens in the supervisor's copy of the login. P1's
+  gateway phase builds that.
 - **Two harmless warnings:**
   - bubblewrap is missing: that's codex's own sandbox, which is off in the workspace;
   - `codex-code-mode-host` isn't installed.
@@ -228,6 +229,8 @@ Not done yet. It reuses the spike's Kata provisioning:
 
 ## Changes to P1
 
+[P1](P1-agent-workspaces.md) is revised with these changes in the same PR.
+
 1. **Where it runs** becomes two drivers:
    - **macOS: the `tart` driver.** The supervisor runs on the Mac itself; there is no always-on
      agent host VM.
@@ -238,12 +241,9 @@ Not done yet. It reuses the spike's Kata provisioning:
        stay in the supervisor's 0600 state dir on the Mac.
    - **Linux: the `kata` driver**, as designed (nerdctl, Kata with Cloud Hypervisor, a CNI
      network whose only route out is the gateway).
-2. **The workspace image:**
-   - **kata:** the OCI image, as designed.
-   - **tart:** a Tart base VM image (an OCI artifact in GHCR, built with Packer or a script)
-     with the same toolchain. A TaskSpec's `workspace.environment.image` is then run *inside*
-     the VM by its dockerd when it isn't the base, so the TaskSpec contract stays one OCI image
-     for both drivers.
+2. **The workspace image:** one toolchain, published as a Tart VM image (for tart) and an OCI
+   image (for kata). It belongs to the agent host's configuration, and TaskSpecs don't name
+   images (P1 Decision 8).
 3. **Warm starts:**
    - **tart:** warm bases are APFS clones of a base whose Docker cache holds the TaskSpec's
      images, refreshed when the image list changes. Images inside kind are preloaded with `kind
@@ -260,7 +260,7 @@ Not done yet. It reuses the spike's Kata provisioning:
 7. **Decision 4** (claude-code everywhere if codex can't be carried) isn't needed: the gateway
    carries codex. Phase 5 adds:
    - the codex account claims to the run bundle;
-   - ChatGPT token refresh in the gateway, which writes back the owner's `auth.json` on the
-     agent host.
+   - ChatGPT token refresh in the gateway, which writes the rotated tokens back to the
+     supervisor's copy of the login on the agent host.
 8. **The workspace base image** adds `bubblewrap`, to silence codex's sandbox warning; the
    harness sandboxes stay off inside the VM.
