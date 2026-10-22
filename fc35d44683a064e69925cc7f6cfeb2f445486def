@@ -8,3 +8,6 @@ lisa-design:
 - An existing Root keeps its mode (whoever made it chose it); only a Root the run creates is chmod 0700. A symlinked Root is refused.
 - PrepareBundle refuses a pipeline with Root or GitAuthGateway: it is the host side and needs WorkRoot and the helper.
 - Gateway mode doesn't refuse a job that carries tokens; buildEnv's GH_TOKEN-from-a-non-empty-token rule is the LLD's.
+
+lisa-selfreview:
+Pass 2 (strict), verdict approve, no findings. Re-read the full diff against the ccf-review core, go and repo/factory rules; also checked the tests against #109's coming rules (non-rw repos: upload-pack only; stricter AssertNoClientCredential; dispatcher allow-list): the gateway test only clones and fetches, with no proxy userinfo and no dispatcher route.
