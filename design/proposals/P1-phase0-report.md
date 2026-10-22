@@ -241,9 +241,9 @@ Not done yet. It reuses the spike's Kata provisioning:
        stay in the supervisor's 0600 state dir on the Mac.
    - **Linux: the `kata` driver**, as designed (nerdctl, Kata with Cloud Hypervisor, a CNI
      network whose only route out is the gateway).
-2. **The workspace image:** one toolchain, published as a Tart VM image (for tart) and an OCI
-   image (for kata). It belongs to the agent host's configuration, and TaskSpecs don't name
-   images (P1 Decision 8).
+2. **The workspace image:** one provisioning script, embedded in `factory-agent`. Each agent host
+   builds its own base: a Tart VM on the Mac, an OCI image for Kata. Nothing is published, and
+   TaskSpecs don't name images (P1 Decision 8).
 3. **Warm starts:**
    - **tart:** warm bases are APFS clones of a base whose Docker cache holds the TaskSpec's
      images, refreshed when the image list changes. Images inside kind are preloaded with `kind
@@ -252,13 +252,15 @@ Not done yet. It reuses the spike's Kata provisioning:
 4. **Network:** P1 §Gateway is unchanged. Softnet's default-deny plus `@host` does the job of
    the kata driver's iptables. Add the pf port restriction for the tart driver.
 5. **Phase 2 (agent host provisioning):**
-   - **Mac:** Tart, Softnet (SUID), the base VM image and the pf anchor.
+   - **Mac:** `factory-agent host init` installs Tart and Softnet (SUID), adds the pf anchor and
+     builds the base VM and the warm base. One `sudo` prompt; the logins and enrollment are the
+     only other manual steps.
    - **Linux:** containerd, Kata and the rendered config.
    - The always-on Linux agent host VM on the Mac is dropped.
 6. **Decision 2** (Mac = 1 workspace, in an agent host VM) becomes: Mac = 1 workspace as a Tart
    VM, 8 GiB / 6 vCPU, 2 at most.
 7. **Decision 4** (claude-code everywhere if codex can't be carried) isn't needed: the gateway
-   carries codex. Phase 5 adds:
+   carries codex. The gateway phase adds:
    - the codex account claims to the run bundle;
    - ChatGPT token refresh in the gateway, which writes the rotated tokens back to the
      supervisor's copy of the login on the agent host.

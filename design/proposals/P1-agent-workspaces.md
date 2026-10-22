@@ -75,7 +75,9 @@ process inside it is privileged only inside that VM.
  └───────────────────────────────────────────────┘
 ```
 
-- **On the Mac the supervisor runs on macOS itself** (a darwin build of `factory-agent`). There's
+- **On the Mac the supervisor runs on macOS itself** (a darwin build of `factory-agent`), and
+  `factory-agent host init` sets the Mac up: it installs Tart and Softnet, then builds the base
+  VM locally (§7). There's
   no always-on Linux VM and no nesting: each workspace is a plain Tart Linux VM, which
   Virtualization.framework runs at full speed. Tart is a small, maintained CLI that stores VMs as
   OCI images and clones them with APFS copy-on-write (0.3 s per clone in Phase 0).
@@ -157,21 +159,27 @@ process inside it is privileged only inside that VM.
 
 ### 2. The workspace and `factory-agent run`
 
-- **The base image.** The factory repo builds one toolchain, published in two forms per release:
-  - `ghcr.io/compliance-framework/factory-workspace-tart:<version>`: a Tart VM image (Ubuntu
-    arm64), pushed with `tart push`;
-  - `ghcr.io/compliance-framework/factory-workspace:<version>`: an OCI image (Debian) for Kata.
+- **The base image is built on the agent host, not published.** The factory repo holds one
+  provisioning script, embedded in `factory-agent`, and `host init` builds the base with it:
+  - **tart:** clones `ghcr.io/cirruslabs/ubuntu` (pinned by digest) into `factory-ws-base`, boots
+    it, runs the script, and shuts it down;
+  - **kata:** builds an OCI image (Debian) from the same script with `nerdctl build`.
 
   Both carry:
   - dockerd with the compose and buildx plugins, kind, kubectl, git, gh (with the pr-review and
     stack extensions), jq, python3, curl, make, node LTS with corepack (yarn and pnpm), go,
     Playwright's dependencies and bubblewrap;
   - the `claude` and `codex` CLIs, pinned;
-  - `factory-agent` (linux).
+  - `factory-agent` (linux/arm64 on the Mac). `make tart-up` cross-builds it alongside the
+    darwin binary, and `host init` copies it in.
 
-  The image belongs to the agent host's configuration (`workspace.base`), not to the catalog. A
-  TaskSpec can't name another image; tools a task needs beyond the base come from its
-  environment's `setup` (Decision 8).
+  The base is versioned with `factory-agent`: a new release rebuilds it. Nothing is pushed to a
+  registry, and the macOS form never needs CI: GitHub's hosted macOS runners are themselves VMs,
+  and Virtualization.framework can't start a VM inside one. CI builds the kata form on Linux to
+  test the script.
+
+  The base belongs to the agent host, not to the catalog. A TaskSpec can't name another image;
+  tools a task needs beyond the base come from its environment's `setup` (Decision 8).
 - **Docker inside:**
   - **tart:** dockerd runs on the VM's own disk (overlayfs, native);
   - **kata:** the entrypoint loop-mounts an ext4 file for `/var/lib/docker`, after creating
@@ -355,25 +363,36 @@ Every credential is added by the workspace's gateway, so none enters a VM. Where
 
 ### 7. Setting up the Mac (the `tart` agent host)
 
-What Gustavo does once on the Mac, and what `factory-agent host init --driver tart` automates:
+**`factory-agent host init --driver tart` does the setup, and anyone with an Apple Silicon Mac
+on macOS 26 can run it.** `make tart-up` in the factory repo builds `factory-agent` and runs it.
+`factory-agent supervise` runs the same checks (`host check`) at start: if something is missing
+or out of date, it runs the missing `init` steps itself. It stops only for a step that needs a
+person, and says which.
 
-| Step | By hand (Phase 0) | `host init` |
+| Step | Phase 0 (by hand) | `host init` |
 |---|---|---|
-| Tart | notarized release (the Homebrew tap is broken), on `PATH` | checks the version |
-| Softnet | release 0.24.1 installed SUID root (`sudo install -o root -g wheel -m 4755`) | checks it's SUID and on `PATH` |
-| pf anchor | — | installs `com.compliance-framework.factory` (needs sudo once): from Softnet bridges, only the gateway port reaches the Mac |
-| Base VM image | built by hand | `tart pull ghcr.io/compliance-framework/factory-workspace-tart:<version>` |
-| Warm base | cloned by hand | builds it from `warm.images` and `warm.kindImages` |
-| Subscriptions | the spike's 0600 secrets files | `factory-agent login claude` (stdin) and `factory-agent login codex` (imports `~/.codex/auth.json`) |
-| Enrollment | — | `factory-agent supervise --enroll <token>` the first time |
-| State dir | — | `~/Library/Application Support/factory-agent/` (0700): agent credential, logins, gateway CA, run bundles |
+| Checks | — | Apple Silicon, macOS 26 or later (Softnet needs it), free disk and memory for `workspace.size` |
+| Tart | notarized release, sha256-checked (the Homebrew tap is broken) | installs the pinned release into the state dir if it's missing or older: sha256 from `factory-agent`'s own pin list, and the Developer ID checked with `codesign` |
+| Softnet | release 0.24.1, installed SUID root by hand | installs the pinned release to `/usr/local/libexec/factory-agent/softnet`, root-owned and SUID. Tart is run with that directory on its `PATH`. **Needs `sudo` once:** it prompts in the terminal |
+| pf anchor | — | from Softnet bridges, only the gateway port reaches the Mac (`com.compliance-framework.factory`, loaded by a LaunchDaemon). **The same `sudo` prompt** |
+| Base VM | cloned and provisioned by hand | builds `factory-ws-base` locally (§2): about 6 minutes on a good connection |
+| Warm base | cloned by hand | clones the base into `factory-ws-warm` and pulls `warm.images` into it, with `warm.kindImages` saved for `kind load`. Rebuilt when the list or the base changes |
+| Subscriptions | the spike's 0600 files | **a person, once:** `factory-agent login claude` reads `claude setup-token`'s output from stdin; `factory-agent login codex` imports `~/.codex/auth.json` |
+| Enrollment | — | **a person, once:** `factory-agent supervise --enroll <token>` with a token an admin minted (§6) |
+| State dir | — | `~/Library/Application Support/factory-agent/` (0700): agent credential, logins, gateway CA, Tart, run bundles |
+
+The only steps that need a person:
+- one `sudo` prompt, for Softnet's SUID bit and the pf anchor;
+- the two logins;
+- the enrollment token.
+
+`host init` is idempotent, and `host init --dry-run` lists what it would change.
 
 The agent config gains:
 
 ```yaml
 workspace:
   driver: tart                      # tart | kata
-  base: ghcr.io/compliance-framework/factory-workspace-tart:0.1.0
   size: { cpus: 6, memory: 8Gi, disk: 60Gi }
   warm:
     images: [postgres:17.5, ghcr.io/compliance-framework/api:…, …]
@@ -413,12 +432,13 @@ the workstation dry run (Q8).
    3. enrollment: `POST /agents` with the enrollment token (§6).
 
    web/ regenerates its client.
-2. **Workspace base image, Tart form (AGT):**
-   - a provisioning script shared with the Kata image;
-   - `make workspace-image-tart` builds it on a Mac and `tart push`es it to GHCR.
+2. **`host init` and the base VM (AGT):**
+   - the provisioning script, embedded in `factory-agent`;
+   - `host check` and `host init --driver tart` (§7): install Tart and Softnet, the pf anchor,
+     the base VM and the warm base;
+   - `make tart-up`.
 
-   GitHub's macOS runners can't run Virtualization.framework VMs, so the Tart form is built on
-   Gustavo's Mac for the PoC. CI builds the OCI form, in phase 9.
+   Tested on the Mac: Tart can't run in CI. CI runs the script's kata form on Linux.
 3. **`factory-agent run` in the VM (AGT):**
    - the pipeline moves in, and git goes through the gateway;
    - the harness configs drop their sandboxes and use placeholders;
@@ -433,8 +453,8 @@ the workstation dry run (Q8).
    Table tests per row of §3. It replaces the spike's mitmproxy addon.
 5. **`factory-agent supervise` with the `tart` driver (AGT):**
    - the driver interface (§1) and the tart driver;
-   - the warm base, limits, the event relay, teardown;
-   - `host init --driver tart` with the pf anchor (§7), and `factory-agent login`.
+   - limits, the event relay, teardown;
+   - `factory-agent login`, and `supervise` running `host check` at start.
 
    E2E on the Mac, since Tart can't run in CI.
 6. **Dispatcher (RT):** run tokens, the credential bundle in leases, the enrollment endpoints,
@@ -454,7 +474,7 @@ the workstation dry run (Q8).
    2. `host init --driver kata` (containerd, nerdctl, Kata with the rendered Cloud Hypervisor
       config, CNI, iptables, the registry mirror);
    3. the kata driver;
-   4. the OCI form of the base image, published by CI.
+   4. the base image's kata form, built by `host init` (CI only tests the script).
 
    Then the workstation joins with `maxConcurrent: 3`.
 
@@ -506,7 +526,8 @@ From 2026-10-21, revised 2026-10-22 after Phase 0.
    Still no container-or-VM hybrid, so every task CCF needs (local-dev, kind, testcontainers)
    can run. Revised: nested Kata on the Mac was too slow and unstable.
 2. **Two agent hosts, four workspaces in all:**
-   - **Gustavo's Mac: 1 workspace,** a Tart VM of 8 GiB / 6 vCPUs, 2 at most.
+   - **Gustavo's Mac: 1 workspace,** a Tart VM of 8 GiB / 6 vCPUs, 2 at most. Any Mac sets
+     itself up with `host init` (§7).
      `lending.maxConcurrent: 1`.
    - **Gustavo's Linux workstation (64 GiB): 3 workspaces**, Kata on the host.
      `maxConcurrent: 3`.
@@ -523,7 +544,8 @@ From 2026-10-21, revised 2026-10-22 after Phase 0.
    layer the VM reaches only its gateway. Every request is logged.
 7. **One gateway per workspace,** started and stopped with it, bound to that workspace's gateway
    address.
-8. **The workspace image is the agent host's, not the catalog's** (new). The factory publishes
-   the base image, and each agent host is provisioned with it. TaskSpecs declare only commands
+8. **The workspace image is the agent host's, not the catalog's** (new). The factory ships the
+   provisioning script in `factory-agent`, and each agent host builds its base locally; nothing
+   is published. TaskSpecs declare only commands
    (`workspace.environment`), which always run inside a workspace on a registered agent; the
    dispatcher never runs them.
