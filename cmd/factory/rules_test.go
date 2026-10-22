@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-var updateGolden = flag.Bool("update", false, "rewrite the goldens under testdata/rules")
+var updateGolden = flag.Bool("update", false, "rewrite the goldens under testdata/rules and testdata/state")
 
 // pocCases are the rule engine's cases for the PoC catalog.
 const pocCases = "../../internal/rules/testdata/cases/poc"

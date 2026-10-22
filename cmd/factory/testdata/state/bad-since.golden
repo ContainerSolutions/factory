@@ -1,0 +1,2 @@
+--- stderr
+factory state events: --since "yesterday": want a positive duration such as 30m, 24h or 7d

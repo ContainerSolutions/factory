@@ -123,7 +123,33 @@ type dump struct {
 
 func takeDump(t *testing.T, s *Store) dump {
 	t.Helper()
-	recs, v := s.mem.Snapshot()
+	d := memDump(t, s.mem)
+
+	s.tmu.Lock()
+	type tr struct {
+		run string
+		b   tblob
+	}
+	var trs []tr
+	for run, b := range s.blobs {
+		trs = append(trs, tr{run, *b})
+	}
+	s.tmu.Unlock()
+	slices.SortFunc(trs, func(a, b tr) int { return int(a.b.seq) - int(b.b.seq) })
+	for _, x := range trs {
+		data, err := s.GetTranscript(t.Context(), x.run)
+		if err != nil {
+			t.Fatalf("GetTranscript %s: %v", x.run, err)
+		}
+		d.Transcripts = append(d.Transcripts, fmt.Sprintf("%s %d %x %s", x.run, len(data), sha256.Sum256(data), x.b.created.UTC().Format(time.RFC3339Nano)))
+	}
+	return d
+}
+
+// memDump is the records and fields part of a dump, from a memory store.
+func memDump(t *testing.T, mem *memory.Store) dump {
+	t.Helper()
+	recs, v := mem.Snapshot()
 	slices.SortFunc(recs, func(a, b memory.Record) int { return strings.Compare(a.Key.String(), b.Key.String()) })
 	d := dump{Version: v}
 	fields := map[string]map[string]bool{} // "kind\x00field" → values
@@ -148,7 +174,7 @@ func takeDump(t *testing.T, s *Store) dump {
 		kind, f, _ := strings.Cut(key, "\x00")
 		for v := range vals {
 			var objs []store.Object
-			if _, err := s.List(t.Context(), kind, store.ListOptions{Field: map[string]string{f: v}}, &objs); err != nil {
+			if _, err := mem.List(t.Context(), kind, store.ListOptions{Field: map[string]string{f: v}}, &objs); err != nil {
 				t.Fatalf("List %s %s=%s: %v", kind, f, v, err)
 			}
 			names := make([]string, len(objs))
@@ -159,25 +185,6 @@ func takeDump(t *testing.T, s *Store) dump {
 		}
 	}
 	slices.Sort(d.Fields)
-
-	s.tmu.Lock()
-	type tr struct {
-		run string
-		b   tblob
-	}
-	var trs []tr
-	for run, b := range s.blobs {
-		trs = append(trs, tr{run, *b})
-	}
-	s.tmu.Unlock()
-	slices.SortFunc(trs, func(a, b tr) int { return int(a.b.seq) - int(b.b.seq) })
-	for _, x := range trs {
-		data, err := s.GetTranscript(t.Context(), x.run)
-		if err != nil {
-			t.Fatalf("GetTranscript %s: %v", x.run, err)
-		}
-		d.Transcripts = append(d.Transcripts, fmt.Sprintf("%s %d %x %s", x.run, len(data), sha256.Sum256(data), x.b.created.UTC().Format(time.RFC3339Nano)))
-	}
 	return d
 }
 
@@ -222,6 +229,16 @@ func TestRestart(t *testing.T) {
 			s2 := mustOpen(t, dir, opts)
 			defer s2.Close()
 			sameDump(t, "after reopen", takeDump(t, s2), before)
+			li := s2.Loaded()
+			n := 0
+			for _, c := range li.Objects {
+				n += c
+			}
+			closed := tc.name == "Close"
+			if li.Version != before.Version || n != len(before.Records) || li.Snapshot != closed || (li.JournalLines == 0) == !closed ||
+				li.TornLine || li.Transcripts != len(before.Transcripts) {
+				t.Fatalf("Loaded() = %+v; want version %d, %d objects, %d transcripts, snapshot %v", li, before.Version, n, len(before.Transcripts), closed)
+			}
 
 			// Watches start from the restored version; older ones have expired.
 			ctx := t.Context()
