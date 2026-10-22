@@ -293,14 +293,13 @@ func (Environment) JSONSchemaExtend(s *jsonschema.Schema) {
 	}
 }
 
-// JSONSchemaExtend constrains http: required, 1 to MaxEnvReadyURLs absolute http or https
-// URLs.
+// JSONSchemaExtend constrains http: 1 to MaxEnvReadyURLs absolute http or https URLs. It
+// stays optional in the schema (the field is omitzero); Validate requires it.
 func (ReadyCheck) JSONSchemaExtend(s *jsonschema.Schema) {
 	p, ok := s.Properties.Get("http")
 	if !ok {
 		return
 	}
-	s.Required = append(s.Required, "http")
 	p.MinItems = ptr(uint64(1))
 	p.MaxItems = ptr(uint64(MaxEnvReadyURLs))
 	p.Items = &jsonschema.Schema{Type: "string", Pattern: readyURLPattern}

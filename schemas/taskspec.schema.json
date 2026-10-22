@@ -312,10 +312,7 @@
         }
       },
       "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "http"
-      ]
+      "type": "object"
     },
     "RepoMount": {
       "properties": {

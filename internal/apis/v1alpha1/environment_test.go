@@ -264,13 +264,14 @@ func TestTaskWithEnvironmentAndVersions(t *testing.T) {
 // TestEnvironmentSchemaMatchesGo checks that taskspec.schema.json and the Task's schema agree
 // with Validate on every case the schema can express: the byte limits are only Validate's (the
 // schema counts characters), and so are the rules across fields (ready and exposes need up,
-// versions.input against versions.from, allow only with deny-by-default) and the timeout.
+// versions.input against versions.from, allow only with deny-by-default), a missing
+// ready.http, an empty URL host and the timeout.
 func TestEnvironmentSchemaMatchesGo(t *testing.T) {
 	taskSpecSchema := compileSchemas(t)["taskspec.schema.json"]
 	taskSchema := taskSchema(t)
 	goOnly := map[error]bool{ErrEnvNoUp: true, ErrEnvVersionsInput: true, ErrEnvEgressAllow: true, ErrEnvReadyTimeout: true}
 	for _, tt := range envCases {
-		if goOnly[tt.want] || tt.name == "ready URL empty host" {
+		if goOnly[tt.want] || tt.name == "ready URL empty host" || tt.name == "ready no URLs" {
 			continue
 		}
 		t.Run(tt.name, func(t *testing.T) {

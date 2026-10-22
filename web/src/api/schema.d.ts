@@ -1832,7 +1832,7 @@ export interface components {
         /** @description ReadyCheck is how the runtime waits for an environment. */
         ReadyCheck: {
             /** @description HTTP URLs that must each answer 2xx or 3xx; at most 10, http or https. */
-            http: string[];
+            http?: string[];
             timeout?: components["schemas"]["Duration"];
         };
         /** @description RepoMount is one repo in the workspace. */

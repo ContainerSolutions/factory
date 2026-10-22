@@ -3704,8 +3704,6 @@ components:
         path: github.com/compliance-framework/factory/internal/apis/v1alpha1
       description: ReadyCheck is how the runtime waits for an environment.
       type: object
-      required:
-        - http
       properties:
         http:
           description: HTTP URLs that must each answer 2xx or 3xx; at most 10, http or https.
