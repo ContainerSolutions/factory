@@ -37,6 +37,9 @@ func (g *Gateway) handle(w http.ResponseWriter, r *http.Request) {
 // egress dialer. An origin-form request, and any scheme but http, is not-proxy.
 func (g *Gateway) plain(w http.ResponseWriter, r *http.Request, start time.Time) {
 	rec := g.newRecord(r, ModeForward, start)
+	// Deferred: a response body cut after its headers went out makes the ReverseProxy panic
+	// with http.ErrAbortHandler, and the request is still one record.
+	defer func() { g.finish(rec) }()
 	d := policy.DecidePlain(r.URL.Scheme, r.URL.Host, g.cfg.Egress)
 	rec.Host, rec.Port = d.Target.Host, d.Target.Port
 	switch d.Action {
@@ -49,11 +52,11 @@ func (g *Gateway) plain(w http.ResponseWriter, r *http.Request, start time.Time)
 	default:
 		rec.Status, rec.Refusal = writeRefusal(w, d.Refusal, "")
 	}
-	g.finish(rec)
 }
 
 // forwardPlain sends r to its own host through the egress dialer. Only Proxy-Authorization is
-// dropped: an ordinary host gets no credential and keeps the rest.
+// dropped: an ordinary host gets no credential and keeps the rest. rec gets its status and byte
+// counts on every exit, the ReverseProxy's http.ErrAbortHandler panic included.
 func (g *Gateway) forwardPlain(w http.ResponseWriter, r *http.Request, rec *Record) {
 	up := &countReader{r: r.Body}
 	if r.Body != nil && r.Body != http.NoBody {
@@ -76,11 +79,13 @@ func (g *Gateway) forwardPlain(w http.ResponseWriter, r *http.Request, rec *Reco
 		},
 		ErrorLog: g.srv.ErrorLog,
 	}
+	defer func() {
+		if !refused {
+			rec.Status = cw.status()
+		}
+		rec.Up, rec.Down = up.n.Load(), cw.n
+	}()
 	rp.ServeHTTP(cw, r)
-	if !refused {
-		rec.Status = cw.status()
-	}
-	rec.Up, rec.Down = up.n.Load(), cw.n
 }
 
 // connect serves a CONNECT: the host table, then a tunnel through the egress dialer. A refused

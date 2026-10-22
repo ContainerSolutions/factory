@@ -164,6 +164,52 @@ func TestForward(t *testing.T) {
 	}
 }
 
+// TestForwardCutResponse: an upstream that promises 100 bytes, sends 7 and closes makes the
+// ReverseProxy abort the handler (http.ErrAbortHandler); the request is still exactly one
+// forward record, with its byte counts.
+func TestForwardCutResponse(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		req, err := http.ReadRequest(bufio.NewReader(c))
+		if err != nil {
+			return
+		}
+		_, _ = io.Copy(io.Discard, req.Body)
+		_, _ = io.WriteString(c, "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n1234567")
+	}()
+	e := start(t, open(ln.Addr().String()))
+	e.res.set("plain.test", addrs("127.0.0.1"))
+	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	c, err := net.Dial("tcp", e.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+	_, _ = io.WriteString(c, "POST http://plain.test:"+port+"/exfil HTTP/1.1\r\nHost: plain.test\r\n"+
+		"Content-Length: 6\r\n\r\nabcdef")
+	_, _ = io.ReadAll(c) // the aborted handler's connection is closed, whatever it had sent
+	e.sink.wait(t, 1)
+	e.close(t)
+	recs := e.sink.all()
+	if len(recs) != 1 {
+		t.Fatalf("records %+v, want one", recs)
+	}
+	if r := recs[0]; r.Mode != ModeForward || r.Host != "plain.test" || r.Path != "/exfil" ||
+		r.Status != http.StatusOK || r.Up != 6 || r.Down != 7 || r.Refusal != "" {
+		t.Errorf("record %+v, want forward 200 up 6 down 7", r)
+	}
+}
+
 func TestRefusals(t *testing.T) {
 	echo := newEcho(t)
 	closed, err := net.Listen("tcp", "127.0.0.1:0")
