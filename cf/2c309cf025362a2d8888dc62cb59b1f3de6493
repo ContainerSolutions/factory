@@ -1,0 +1,5 @@
+lisa-addressed:
+ccf-review PR #111 (cf2c309):
+- fc59a58f9366 (should-fix) within sibling-prefix: TestHookMain denies Write to <root>/outside/x under --write <root>/out; allows <root>/out/outside/x. Mutation HasPrefix(rp, rr) fails it.
+- 2cba35021e46 (should-fix) TestVMRefusals: the Isolation(7) adapter and vmAdapter("" binary) get noBinary (a nonexistent claude path), refuseCommands (t.Error), and Environ/LookPath that t.Error. Mutation (vm() default returns false,nil) fails in 0.01s under the guard PATH. Audit: codex TestWorkDirFor New(Options{}).Run now gets a nonexistent codex path and an Environ that t.Errors; smoke tests (FACTORY_SMOKE_*) intentionally use the real binaries; prepare/probe/capabilities tests exec nothing or use fake Commands/binaries.
+- 12681e57a576 (nit) Options.Isolation doc: Config.ConfigDir and the GOOS, LookPath and Environ options.
