@@ -1,2 +1,8 @@
 lisa-addressed:
 pass 2 fixes: absolute-form non-http requests are 400 not-proxy (no https fetch outside a tunnel); Current returns the cached token with its error, no token at all is 503 no-login; policy.Egress struct in the API block; a risk on clients' support for a name-constrained root (checks in PR 3/7/phase 8, fallback = drop constraints and rotate); a 401 body over 64 KiB is passed through, not retried.
+
+lisa-selfreview:
+pass 3 (strict), verdict request_changes, 3 findings:
+- must-fix fake-refusal-header-missing: conformance compares X-Factory-Gateway-Refusal, which the fake doesn't send.
+- must-fix dispatcher-other-port-code: a non-80 dispatcher port had no code (the port body says 443).
+- nit config-clock-comment: Config.Clock said "leaf validity", which is the CA's clock.
