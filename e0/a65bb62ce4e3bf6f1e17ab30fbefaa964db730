@@ -1,0 +1,6 @@
+lisa-addressed:
+Pass 1: 4714fb1121d0 Probe's VM error now says only that Probe doesn't run in a VM workspace; configDir(ws, vm) replaced by vmConfigPath(ws).
+
+lisa-selfreview:
+Pass 2 (strict), verdict request_changes, 1 nit: CORE-STYLE-001 vm_test.go TestIsolationString tests harness.Isolation from the claudecode package; move it to internal/agent/harness/harness_test.go.
+Rechecked: TestVMRun's hook-index access is guarded by the slices.Equal short-circuit; the env goldens fail without withoutEnv (apikey-root carries a stray CLAUDE_CODE_OAUTH_TOKEN, subscription a stray ANTHROPIC_API_KEY) and without IS_SANDBOX.
