@@ -3,3 +3,8 @@ Pass 1 (strict), verdict request_changes, 2 nits (ccfr classify):
 - 4714fb1121d0 CORE-STYLE-001 claudecode.go Probe: the VM error claims the supervisor probes on the agent host; say only that there is no Probe in a VM workspace.
 - (prepare.go configDir) CORE-STYLE-001: (*Adapter).configDir(ws, vm) is only ever called with vm=true; replace with a plain vmConfigPath(ws).
 Checked and clean: CRED-001 (only harness.Placeholder reaches claude; nothing from Environ), TEST-001 (within's / root, unknown isolation, IS_SANDBOX, the dropped auth variable all tested), host path byte-identical (existing goldens and tests unchanged and green).
+
+lisa-design:
+- IsolationVM's hook gets --write / in a writable workspace (LLD), so the file tools can also rewrite the scratch .factory-claude/ (the settings and hook a Repair restarts with). Accepted: in the VM the hook is a guard against mistakes, not a boundary (a Bash command could bypass it anyway); the VM and the gateway are the boundary.
+- A VM run whose task has no resolved auth runs on the subscription (the PoC's mode): the VM has no owner's environment or login to tell the mode from. Not in the LLD; listed as a departure.
+- A read-only VM workspace keeps the host's hook roots (out/, tmp/) and --disallowedTools.
