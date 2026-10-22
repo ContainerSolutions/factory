@@ -814,3 +814,27 @@ func TestAPISourcesWithoutClient(t *testing.T) {
 		t.Errorf("Store without a run: %q %v", ref, err)
 	}
 }
+
+// FileTranscript writes the gzip to its path (replacing a previous one) and returns no ref;
+// a missing directory or path is an error that leaves nothing behind.
+func TestFileTranscript(t *testing.T) {
+	t.Parallel()
+	ctx, dir := context.Background(), t.TempDir()
+	p := filepath.Join(dir, "transcript.jsonl.gz")
+	for _, body := range []string{"first", "second"} {
+		if ref, err := (FileTranscript{Path: p}).Store(ctx, &runner.Job{}, []byte(body)); ref != "" || err != nil {
+			t.Fatalf("Store: %q %v", ref, err)
+		}
+		if b, err := os.ReadFile(p); err != nil || string(b) != body {
+			t.Errorf("the file: %q %v, want %q", b, err, body)
+		}
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Errorf("leftovers beside the transcript: %v", entries)
+	}
+	for name, s := range map[string]FileTranscript{"no path": {}, "no directory": {Path: filepath.Join(dir, "missing", "t.gz")}} {
+		if _, err := s.Store(ctx, &runner.Job{}, []byte("x")); err == nil || !strings.Contains(err.Error(), "the transcript file") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

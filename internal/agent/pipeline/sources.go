@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apiclient"
@@ -97,4 +99,40 @@ func (APITranscripts) Store(ctx context.Context, job *runner.Job, gz []byte) (st
 		return "", apiError("PUT /runs/"+*runID+"/transcript", res.StatusCode(), res.Body)
 	}
 	return res.JSON200.TranscriptRef, nil
+}
+
+// FileTranscript is the TranscriptStore of a VM workspace (workspace-run.md §Sources): it
+// writes the gzip to Path, through a temp file beside it and a rename, and returns no ref:
+// the supervisor uploads it. Path's directory must exist.
+type FileTranscript struct {
+	Path string
+}
+
+var _ TranscriptStore = FileTranscript{}
+
+// Store implements TranscriptStore.
+func (s FileTranscript) Store(_ context.Context, _ *runner.Job, gz []byte) (string, error) {
+	if s.Path == "" {
+		return "", errors.New("the transcript file has no path")
+	}
+	f, err := os.CreateTemp(filepath.Dir(s.Path), "."+filepath.Base(s.Path)+".*")
+	if err != nil {
+		return "", fmt.Errorf("the transcript file: %w", err)
+	}
+	tmp := f.Name()
+	_, err = f.Write(gz)
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, s.Path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("the transcript file: %w", err)
+	}
+	return "", nil
 }
