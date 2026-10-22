@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 2: DenyClass.Valid is slices.Contains(DenyClasses(), c), one list.
