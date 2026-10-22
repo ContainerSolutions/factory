@@ -1,0 +1,8 @@
+lisa-selfreview:
+pass 1 (strict): request_changes
+- [must-fix] 405799b8d99e internal/agent/host/provision/base.sh:119 gh extension list | grep -q under pipefail can misreport an installed extension
+- [must-fix] 05c0351a1b2e internal/agent/host/vm.go:78 The VM steps can run a different tart than the tart step accepted
+- [must-fix] 9d4a56c8170a internal/agent/host/vm.go:355 --only warmbase builds the warm base from a base that isn't ok
+- [must-fix] 4696791dd940 internal/agent/host/vm.go:430 A leftover .building VM that is still running can't be deleted
+- [should-fix] 928a4ecf178b internal/agent/host/vm.go:531 time.After in the VM build's poll loops
+- [should-fix] da5df1032982 internal/agent/host/vm.go:538 shutdown re-implements wait's poll loop

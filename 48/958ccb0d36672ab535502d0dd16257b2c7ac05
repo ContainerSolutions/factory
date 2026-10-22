@@ -1,0 +1,9 @@
+lisa-addressed:
+pass 2 fixes:
+- b8a871d136c8 symlink-target-through-symlink: Extract ends with checkLinks, which Stats every extracted symlink through the os.Root; an escape or loop error rejects the archive, a dangling link is allowed. New TestExtract case (a/l -> .., x -> a/l/../..). LLD updated.
+- dfc24f92b9c5 path-tart-version-error-dropped: a PATH tart whose --version fails is reported wrong with the error; new TestTartCheck case "broken on PATH".
+
+lisa-selfreview:
+pass 3/4 (strict), verdict request_changes:
+- [must-fix e157e0c81381] CORE-TEST-001 cmd/factory-agent/host.go linePrompt: the y/N parsing (y/yes, empty, EOF, read error) has no test.
+- [must-fix 8321622af93e] X:error-handling/pf-load-failure-unseen pf.go pfStep.Check: the anchor is loaded only by launchd's async RunAtLoad, so a pfctl failure neither fails the sudo script nor shows in Check (it only checks the job exists). Fix: run the daemon's pfctl command synchronously in the root script; Check reads launchctl print's `last exit code`.

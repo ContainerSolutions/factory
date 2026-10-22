@@ -1,0 +1,3 @@
+lisa-addressed:
+- CodeRabbit PRRT_kwDOVK0lgs6tJZNa / ccf-review X:security/ops-routes-exposed-via-tunnel: ops routes on a localhost-only ops listener (--ops-addr 127.0.0.1:9090) in api-server.md and contracts.md; rollout adds an ngrok Traffic Policy denying /healthz, /readyz, /metrics as defence in depth.
+- ccf-review CORE-DOC-001: FACTORY_PUBLIC_URL documented (non-secret) in rollout Secrets table and api-server env table.

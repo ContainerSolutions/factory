@@ -1,0 +1,12 @@
+lisa-selfreview:
+Pass 1 (strict): 2 findings.
+- 43d8aa30a880 CORE-TEST-002 must-fix runbundle_test.go TestBundleSourcesRefusals: the refusal table only asserts err != nil; assert each error's text.
+- CORE-DUP-001 should-fix runbundle.go bundleContext: the context item's size refusal repeats renderPrompt's; factor checkContext.
+
+lisa-design:
+- FetchSkills is the zero value of Options.Skills, but it needs the run's git, tmp/ and the skills cache, which SkillSource.Skills(ctx, job, dst) doesn't carry: the pipeline recognises FetchSkills and runs its skillFetcher itself; FetchSkills.Skills called alone returns an error. PrebuiltSkills (and any other source) goes through the interface.
+- PrepareBundle fetches through the pipeline's Prompts and Schemas (defaults APIPrompts, APISchemas), not hard-wired API sources, so a supervisor's pipeline with defaults gets the API ones and tests can inject fakes.
+- PrepareBundle starts the gitcred helper for the skills fetch, as the host run does, so a private skills repo covered by the job's credentials materialises the same on the host side. The socket lives only for PrepareBundle.
+- PrepareBundle checks the prompt's size and digest (checkPrompt, shared with renderPrompt) and compiles and bundles the schema (as prepareSchema) on the host, so a bad prompt or schema fails before a VM exists; the VM re-checks both.
+- The bundle keeps the output schema as served; the VM's schema step bundles it (BundleSchema).
+- harnesstest's Bundle is a method of E2E, like Job and Pipeline: (e *E2E) Bundle(h, outcomes) (dir, job).

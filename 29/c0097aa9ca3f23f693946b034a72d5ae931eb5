@@ -1,0 +1,12 @@
+lisa-design:
+- One operationId → access table drives auth and body limits via the generated OperationMiddlewares; a test pins it to the spec's security exactly.
+- No Echo middleware package (would pull golang.org/x/time, not allow-listed): request id and body limit are ~30 lines here.
+- Errors are Go errors rendered by one handler as problem+json (stable codes, request id as instance, Retry-After).
+- Effector: record name and provider idempotency key are eff_<sha256(task,key)>; failed applies aren't recorded (retry with the same key); 429 for retryable provider errors.
+- SSE: one store watch per stream (Last-Event-ID = store replay), expired watches reopen from the last version, keep-alives on the injected clock.
+- Sessions: store records keyed by sha256(session id) behind HMAC-signed cookies (HttpOnly, Secure, SameSite=Lax); OAuth state cookie-bound, server-side, single-use; same-origin check on cookie writes; no GitHub token stored.
+- Readers need the catalog Group `readers` (or maintainers); fails closed. CLI token is a full admin (accepted where uiSession is; spec updated).
+- RuleController.DryRun is exported for the dry-run endpoint (behind an Evaluator interface); StoreKillSwitches is now the rule controller's default.
+
+lisa-selfreview:
+Pass 1: no findings (open redirect, cookie flags, CSRF same-origin, OAuth state).

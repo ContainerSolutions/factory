@@ -1,0 +1,5 @@
+lisa-addressed:
+Pass 2 fix: materialiseSkills runs the skillFetcher for FetchSkills and *FetchSkills; TestRunFetchSkillsOption covers nil, value and pointer.
+
+lisa-selfreview:
+Pass 3 (strict): no findings; approve.
