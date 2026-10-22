@@ -56,6 +56,12 @@ type ChatGPTSource interface {
     Current(ctx context.Context) (chatgpt.Token, error)                  // refreshed ahead of expiry
     Unauthorized(ctx context.Context, used chatgpt.Token) (chatgpt.Token, error) // after an upstream 401
 }
+type Egress struct { // in package policy
+    Mode       string           // "default" | "deny-by-default" (#100's environment.egress.mode)
+    AllowHosts []string         // deny-by-default's allow list: host or host:port
+    Deny       []netip.Prefix   // added to DefaultDeny and the agent host's own prefixes
+    Allow      []netip.AddrPort // exact exceptions to the deny list
+}
 type Sink interface{ Egress(Record) } // called synchronously, never after Close returns; must not block
 type Resolver interface{ LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) }
 
@@ -71,7 +77,7 @@ func (g *Gateway) Close() error                     // idempotent; see [Close](#
 
 ## The host table
 
-Host names are compared lower-cased and without a trailing dot, exactly (no suffixes): `downloads.claude.ai` is an ordinary host. A CONNECT names `host:port`, and a port is required. The intercepted hosts take CONNECT on port 443 only; any other port is refused (`port`). Plain HTTP to an intercepted host is refused (`plain-http`), and so is a request that isn't in proxy form (`not-proxy`, 400).
+Host names are compared lower-cased and without a trailing dot, exactly (no suffixes): `downloads.claude.ai` is an ordinary host. A CONNECT names `host:port`, and a port is required. The intercepted hosts take CONNECT on port 443 only; any other port is refused (`port`). Plain HTTP to an intercepted host is refused (`plain-http`). A request that isn't in proxy form, and an absolute-form request with any scheme but `http` (a `GET https://…` sent without CONNECT), get 400 `not-proxy`: the gateway never fetches `https` on a client's behalf outside an intercepted tunnel.
 
 | Host | Methods and paths | Credential | Refused |
 |---|---|---|---|
@@ -111,6 +117,7 @@ Every answer the gateway makes itself is `text/plain; charset=utf-8`, with `X-Fa
 | `upstream` | 502 | `the upstream is unreachable` (dial or TLS failure; the error is logged at debug, never sent: it can hold addresses) |
 | `timeout` | 504 | `the upstream timed out` |
 | `closing` | 503 | `the gateway is closing` |
+| `no-login` | 503 | `no model login for this host on this agent host` (chatgpt.com when `ChatGPT.Current` has no token at all) |
 | `peer` | — | none: a peer outside `Clients` is closed at accept |
 
 ### github.com
@@ -190,7 +197,7 @@ After `200 Connection Established` for an intercepted host, the gateway runs a T
 - **Permanent failures:** a 401, or a 400 whose `error` is `invalid_grant`, `refresh_token_expired`, `refresh_token_reused` or `refresh_token_invalidated`. The refresher stops trying until the stored login changes, and `Err()` reports it, so phase 5 can stop leasing codex tasks and tell the owner to log in again and re-import.
 - **Transient failures** (network, 5xx, a bad body): up to 3 attempts in all (1 s, then 2 s between them, within 30 s). After that the caller gets the error, and the request goes out with the current token.
 
-**In the gateway,** a chatgpt.com request with an `Authorization` is sent through a retrying `RoundTripper`. Its body is buffered when it's at most 1 MiB (an upgrade has none). On a 401 it reads that response's body (at most 64 KiB), calls `Unauthorized`, and resends once with the new token. When it can't (a body over 1 MiB, or a failed refresh), the client gets the original 401 unchanged. **The VM never refreshes:** its `auth.json` has placeholders and a fresh `last_refresh`, and a refresh it tries anyway is refused at CONNECT to `auth.openai.com` (`auth-host`), so its placeholder refresh token never leaves the gateway.
+**In the gateway,** a chatgpt.com request with an `Authorization` is sent through a retrying `RoundTripper`. Its body is buffered when it's at most 1 MiB (an upgrade has none). On a 401 it reads that response's body (at most 64 KiB), calls `Unauthorized`, and resends once with the new token. When it can't (a request body over 1 MiB, a 401 body over 64 KiB, or a failed refresh), the client gets the original 401 unchanged (a long body is streamed on after the part already read). `Current` returns the cached token along with a refresh error; the gateway logs the error and sends that token, so a failed refresh shows up as the upstream's 401. Only when there is no token at all (no login loaded, `Load` failed) does chatgpt.com get 503 `no-login`. **The VM never refreshes:** its `auth.json` has placeholders and a fresh `last_refresh`, and a refresh it tries anyway is refused at CONNECT to `auth.openai.com` (`auth-host`), so its placeholder refresh token never leaves the gateway.
 
 **UNVERIFIED** (the one list; each is a constant or a `Config` field, so a fix doesn't change the design): read from openai/codex `main` at `0eb98b4617` (2026-10-22: `codex-rs/login/src/auth/manager.rs`, `codex-rs/login/src/oauth/client.rs`), not from the pinned `rust-v0.163.0`, and never run; Phase 0 made no call to `auth.openai.com`.
 
@@ -276,7 +283,8 @@ PRs 2, 3 and 5 to 7 build on darwin and linux; PR 4 only adds a step to the tart
 1. **gh's GraphQL reads are refused.** `gh pr view` and the `gh-pr-review` extension `POST /graphql`, which "GET only" refuses. Telling a query from a mutation means parsing the VM's GraphQL, which the PoC doesn't do. The skills' reads may need REST, or the Effector. Check at phase 8's first run.
 2. **The ChatGPT refresh is UNVERIFIED** ([the list](#chatgpt-refresh)), and if the owner keeps using the same login in their own codex, one side ends up holding a spent refresh token (P1 §5: log in again and re-import).
 3. **Name constraints tie the CA to the host list:** adding a host means `--rotate-ca`, which the `gatewayca` check flags as `outdated`.
-4. **The Anthropic presence rule** follows Phase 0's claude-code 2.1.x. A claude that authenticates a call without any carrier would get no credential: forwarded without, and visible as a 401 in the log.
-5. **#100's comment** says deny-by-default allows "only Allow, plus the git host and the dispatcher". The gateway also keeps the model hosts and api.github.com, its own routes. The contract's comment should say so (a one-line contract PR).
-6. **IPv6:** the denied ranges cover the special-purpose blocks and the host's own prefixes, but not every public range a LAN might route. The network layer (Softnet, iptables) is still the first line.
-7. **Tunnels have no idle timeout.** A VM can hold up to 512 connections open for its lifetime; the workspace's wall clock bounds them.
+4. **Name-constrained roots** must be accepted by every client in the VM: claude's runtime (BoringSSL), codex (rustls), git (GnuTLS on Ubuntu), Node and Python (OpenSSL). All of them implement the extension, but none was tried with it in Phase 0, whose CA was mitmproxy's unconstrained one. PR 3's tests run Go's verifier and PR 7's end-to-end test adds git's (the real `git` binary through the gateway); phase 8's first run checks claude and codex. If one refuses, `Generate` drops the constraints (a constant) and the CA rotates; the key's 0600 file is then the only protection, as in P1.
+5. **The Anthropic presence rule** follows Phase 0's claude-code 2.1.x. A claude that authenticates a call without any carrier would get no credential: forwarded without, and visible as a 401 in the log.
+6. **#100's comment** says deny-by-default allows "only Allow, plus the git host and the dispatcher". The gateway also keeps the model hosts and api.github.com, its own routes. The contract's comment should say so (a one-line contract PR).
+7. **IPv6:** the denied ranges cover the special-purpose blocks and the host's own prefixes, but not every public range a LAN might route. The network layer (Softnet, iptables) is still the first line.
+8. **Tunnels have no idle timeout.** A VM can hold up to 512 connections open for its lifetime; the workspace's wall clock bounds them.
