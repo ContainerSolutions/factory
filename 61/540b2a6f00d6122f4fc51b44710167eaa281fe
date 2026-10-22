@@ -1,0 +1,4 @@
+lisa-addressed:
+pass 3 fixes:
+- e157e0c81381 linePrompt: TestLinePrompt covers y, YES, spaces, n, other text, empty line, EOF with and without text, and a read error.
+- 8321622af93e pf-load-failure-unseen: pfLoad renders the two pfctl commands for both the LaunchDaemon (joined with &&) and the root script, which runs them as separate lines before bootout/bootstrap so set -eu stops on a failure (separate lines because set -e ignores a failure before && ). pfStep.Check reads launchctl print's `last exit code = N` and reports wrong for non-zero; "(never exited)" stays ok. Golden, TestPFCheck cases and LLD updated.
