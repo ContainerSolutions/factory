@@ -1,0 +1,5 @@
+lisa-selfreview:
+Pass 1 (strict), verdict request_changes, 2 nits (ccfr classify):
+- 4714fb1121d0 CORE-STYLE-001 claudecode.go Probe: the VM error claims the supervisor probes on the agent host; say only that there is no Probe in a VM workspace.
+- (prepare.go configDir) CORE-STYLE-001: (*Adapter).configDir(ws, vm) is only ever called with vm=true; replace with a plain vmConfigPath(ws).
+Checked and clean: CRED-001 (only harness.Placeholder reaches claude; nothing from Environ), TEST-001 (within's / root, unknown isolation, IS_SANDBOX, the dropped auth variable all tested), host path byte-identical (existing goldens and tests unchanged and green).
