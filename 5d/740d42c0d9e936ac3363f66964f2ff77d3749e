@@ -1,0 +1,7 @@
+lisa-addressed:
+ccf-review PR #114 findings, fixed in this commit:
+- 8408797fe38f (must-fix) pem-check-skips-leading-junk: parseCertificates requires each block to decode from the start of the remaining input (the consumed bytes hold no other "\n-----BEGIN "), no headers, x509.ParseCertificate, BasicConstraintsValid && IsCA; installs pem.EncodeToMemory of the accepted blocks. The reviewer's three inputs are in TestSetupErrors; TestParseCertificates pins the re-encoding.
+- 61375893630c (must-fix, lead's answer to d5d97c16b9cb) system-setup-no-auto: modes on|off, default off (DefaultSystemSetup), ParseSystemSetup("auto") is an error saying there is no automatic mode; the supervisor (phase 5) passes on. LLD §factory-agent run and §System setup updated.
+- 2930b139a823 (must-fix, lead's answer to the PR's open question) daemon-json-read-privileged: on mode reads daemon.json with sudo -n cat via the Runner; absent -> {} without a command; non-regular or >1 MiB refused. Runner.Run(ctx, stdout, stderr, ...) separates the streams.
+- f1e1fa4ee411 (nit) system-file-install-not-atomic: install -m <existing mode|0644> to .<name>.factory-tmp in the target dir, then sudo -n mv -f over the target.
+Decision: a failed mv leaves the temp file behind (harmless; the next run installs over it); no cleanup command.
