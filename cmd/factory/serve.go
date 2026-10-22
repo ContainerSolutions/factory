@@ -61,6 +61,10 @@ type serveConfig struct {
 	Retention       time.Duration
 	ShutdownTimeout time.Duration
 
+	// StateDir keeps the store in files there (the file store), so the state survives a
+	// restart; empty keeps it in memory.
+	StateDir string
+
 	// DevFakeProviders registers the in-memory fake adapter for the github type, for
 	// development and tests only.
 	DevFakeProviders bool
@@ -108,6 +112,7 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 	fl.DurationVar(&cfg.CatalogTimeout, "catalog-timeout", defaultCatalogTimeout, "how long startup waits for the first valid catalog")
 	fl.DurationVar(&cfg.Retention, "retention", defaultRetention, "how long runs, events, effects and finished tasks (and closed work items) are kept")
 	fl.DurationVar(&cfg.ShutdownTimeout, "shutdown-timeout", defaultShutdownTimeout, "how long shutdown waits for in-flight requests")
+	fl.StringVar(&cfg.StateDir, "state-dir", "", "keep the dispatcher's state in this directory (0700, created if missing), so it survives restarts; empty: in memory")
 	fl.BoolVar(&cfg.DevFakeProviders, "dev-fake-providers", false, "DEVELOPMENT ONLY: connect github Providers to the in-memory fake adapter (no GitHub calls)")
 	fl.StringVar(&cfg.AuthProvider, "auth-provider", "", "catalog Provider of the UI and agent-owner logins (default: the catalog's only github Provider)")
 	fl.StringVar(&cfg.GitHubURL, "github-url", defaultGitHubURL, "GitHub web URL for the OAuth flow")
@@ -191,6 +196,12 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 		}
 	}
 
+	if cfg.StateDir != "" {
+		if info, err := os.Stat(cfg.StateDir); err == nil && !info.IsDir() {
+			bad("--state-dir %q is not a directory", cfg.StateDir)
+		}
+	}
+
 	if strings.TrimSpace(cfg.DeployEnvironment) == "" {
 		bad("--deploy-environment must not be empty")
 	}
@@ -262,11 +273,13 @@ func isLoopback(host string) bool {
 func serveUsage(w io.Writer, fl *flag.FlagSet) {
 	fmt.Fprintln(w, `usage: factory serve [--addr :8800] [--ops-addr 127.0.0.1:9090] [--public-url URL]
                      [--catalog-repo URL --catalog-ref main --catalog-path catalog | --catalog-dir DIR]
-                     [--retention 2160h] [--deploy-environment github-pages] [--log-level info]
-                     [--log-format json|text] [--dev-fake-providers]
+                     [--retention 2160h] [--state-dir DIR] [--deploy-environment github-pages]
+                     [--log-level info] [--log-format json|text] [--dev-fake-providers]
 
 Runs the dispatcher: the store, catalog-sync, the provider connections, the controllers, the
 scheduler, the API server with the embedded UI on --addr, and the ops routes on --ops-addr.
+With --state-dir the store is kept in files there and survives restarts; without it the
+store is in memory.
 
 environment (secrets come from the environment only and are never logged):
   `+envOAuthClientID+`, `+envOAuthClientSecret+`   UI login (GitHub OAuth App)

@@ -117,8 +117,10 @@ func (s *Store) load() error {
 	}
 
 	recs := make([]memory.Record, 0, len(state))
+	s.loaded.Version, s.loaded.Snapshot, s.loaded.Objects = version, s.haveSnapshot, map[string]int{}
 	for k, e := range state {
 		recs = append(recs, memory.Record{Key: k, Type: s.types[k.Kind], Data: e.data, Version: e.v, Created: e.created, Updated: e.updated})
+		s.loaded.Objects[k.Kind]++
 	}
 	if err := s.mem.Restore(recs, version); err != nil {
 		return fmt.Errorf("filestore: %w: %w", ErrCorrupt, err)
@@ -149,7 +151,11 @@ func (s *Store) load() error {
 	if n := len(s.marks); s.jsize >= s.cfg.compactBytes || n >= s.cfg.compactLines {
 		s.needCompact.Store(true)
 	}
-	return s.loadTranscripts()
+	if err := s.loadTranscripts(); err != nil {
+		return err
+	}
+	s.loaded.Transcripts = len(s.blobs)
+	return nil
 }
 
 // replay applies the journal lines above snapV to state. It returns the store version and the
@@ -179,6 +185,7 @@ func (s *Store) replay(state map[store.Key]*entry, snapV uint64) (version uint64
 			if end == len(data) {
 				s.log.Warn("store: dropping a torn last journal line (a crash mid-append)",
 					"line", n, "bytes", end-off, "err", perr)
+				s.loaded.TornLine = true
 				break
 			}
 			return 0, 0, fmt.Errorf("filestore: %w: %s line %d: %w", ErrCorrupt, journalFile, n, perr)
@@ -195,6 +202,7 @@ func (s *Store) replay(state map[store.Key]*entry, snapV uint64) (version uint64
 			return 0, 0, fmt.Errorf("filestore: %w: %s line %d: %w", ErrCorrupt, journalFile, n, err)
 		}
 		version = v
+		s.loaded.JournalLines++
 	}
 	return version, int64(off), nil
 }

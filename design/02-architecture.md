@@ -145,7 +145,7 @@ The model is deliberately **Kubernetes-shaped**: `metadata`, `spec`, `status`, l
 
   The format (versioned, URL-encoded values, `b64:` for structured values) is defined once in [github-provider.md §Observe, list and projection](workstreams/provider-github/LLD/github-provider.md#observe-list-and-projection).
 
-  **Rule:** anything rules need to continue must be in the projection. History (old runs, transcripts, cost) is lost on restart until the store is durable. Runs that finish while the dispatcher is down report back with their full task (the runner keeps a copy), so they're adopted after the rebuild.
+  **Rule:** anything rules need to continue must be in the projection. With the in-memory store, history (old runs, transcripts, cost) is lost on restart; `factory serve --state-dir` (the file store, [store.md §Serving](workstreams/dispatcher-runtime/LLD/store.md#serving-factory-serve---state-dir), on in the PoC run kit) keeps it, and the rebuild then only brings back the work items the state dir lacks. Runs that finish while the dispatcher is down report back with their full task (the runner keeps a copy), so they're adopted after the rebuild.
 - **Queue:** one logical queue per `Queue` resource, implemented on the store at first. Tasks are `Task` resources with a phase (`Pending → Leased → Running → Succeeded / Failed / Cancelled`, plus `Cancelling`; a task waiting on budget or capacity stays `Pending` with a reason). That gives leases, retries and visibility in the UI for free. Postgres with SKIP LOCKED (e.g. River) comes when the store goes durable.
 
 ### Factory UI

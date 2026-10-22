@@ -16,6 +16,8 @@ the `dev-*` RuleSets target `compliance-framework/mock-docs` and the `poc-*` Rul
 | `events/mock-train.json` | the closing event of a real mock release train (`workflows#132`), for the first dev dispatch (mock-docs only). |
 | `logs/` | the dispatcher's JSON logs, one file per start (gitignored). |
 
+The dispatcher's state lives outside the repository, in `~/.factory/state` (§6, State).
+
 Commands run from the repository root unless a step says otherwise.
 
 ## 1. Prerequisites (dispatcher host)
@@ -116,11 +118,15 @@ make poc-up
 
 1. loads and checks `.env` (§3);
 2. runs `make build-release` (`web/` with `npm ci`, then `go build -tags webui`). Use `SKIP_BUILD=1 make poc-up` to reuse `bin/factory`;
-3. runs `bin/factory serve --addr 127.0.0.1:8800 --ops-addr 127.0.0.1:9090 --public-url "$FACTORY_PUBLIC_URL" <catalog flags> --retention 2160h --log-format json`, plus any arguments given to `run.sh` (for example `deploy/poc/run.sh --log-level debug`). `FACTORY_ADDR` in `.env` overrides `--addr`.
+3. runs `bin/factory serve --addr 127.0.0.1:8800 --ops-addr 127.0.0.1:9090 --public-url "$FACTORY_PUBLIC_URL" <catalog flags> --retention 2160h --state-dir <FACTORY_STATE_DIR, default ~/.factory/state> --log-format json`, plus any arguments given to `run.sh` (for example `deploy/poc/run.sh --log-level debug`). `FACTORY_ADDR` in `.env` overrides `--addr`.
 
 The JSON log goes to the terminal and to `deploy/poc/logs/factory-serve-<UTC time>.log` (one file per start).
 
-The store is in memory. A restart loses runs, transcripts and agent registrations. Work items are rebuilt from the `<!-- factory:wi … -->` markers on GitHub. There is no data directory.
+### State
+
+The dispatcher keeps its store in `FACTORY_STATE_DIR` (default `~/.factory/state`, created 0700): `snapshot.json`, `journal.jsonl` (every change since the snapshot, fsync'd), `transcripts/` and a `LOCK`. Tasks, runs, transcripts, events, decisions, budgets, agent registrations and leases survive a restart, and an agent that keeps heartbeating across one finishes its run. The start-up log line `store: loaded the state dir` says what was loaded. The work-item rebuild from the GitHub markers still runs, and adds only the work items the state doesn't hold.
+
+`factory serve` refuses to start when the dir or a file in it can be read by others (it names the `chmod`), when another dispatcher has it open, or when it can't load it (an unknown format, or a corrupt journal line, with its number). To start clean, stop the dispatcher (§11) and move the dir aside, keeping it as evidence: `mv ~/.factory/state ~/.factory/state.$(date -u +%Y%m%dT%H%M%SZ)`. The next start creates an empty one, and work items come back from the markers.
 
 ## 7. Check it
 
@@ -223,7 +229,7 @@ For each agent owner, on their machine (rollout.md §Agent onboarding). The owne
 
     There is no separate `register` command. On first start the worker prints `To register this agent, open https://github.com/login/device and enter the code XXXX-XXXX`. Approve it as the owner. The agent then registers as `agt_<login>-<host>` and shows on the UI's Pools page (or `GET /api/v1/agents`).
 
-    The user token is used once and never stored, and the agent token lives in memory. **Every worker or dispatcher restart means a new device login.**
+    The user token is used once and never stored, and the agent token lives in memory. **Every worker restart means a new device login**; a dispatcher restart doesn't, since it keeps the agent's (hashed) token in its state dir (§6, State), unless it starts on an empty one.
 
     The worker logs to stderr, as text by default (`--log-format json`, `--log-level debug`). It writes no log file, so redirect it yourself, for example `factory-agent worker 2>&1 | tee -a ~/factory-agent.log`.
 
@@ -271,7 +277,7 @@ The commands below go to `POST /api/v1/commands` with the CLI token. The UI show
 | Stop an agent | The owner presses Ctrl-C (or sends SIGTERM) to drain; a second one aborts the running task. SIGHUP re-reads `lending` only. There is no `factory-agent pause` command; to stop lending, change `lending` and send SIGHUP, or stop the worker. |
 | Dispatcher logs | `deploy/poc/logs/factory-serve-<UTC time>.log`, JSON. Follow the latest with `tail -f "$(ls -t deploy/poc/logs/factory-serve-*.log \| head -1)" \| jq -c '{time, level, msg}'`. |
 | Agent logs | the worker's stderr (§8 step 10). Per-task workspaces are under `~/.factory-agent/work/<task>/`, removed after each run unless `--keep-workspace`. A failed stack up leaves make's output in `<state dir>/logs/stack-*.log` (state dir default `~/.factory-agent`; the newest 20 are kept), and the run's summary names the file. |
-| Transcripts | `GET /api/v1/runs/<run_id>/transcript` (gzip JSONL), or the UI's run page. They are lost on a dispatcher restart. |
+| Transcripts | `GET /api/v1/runs/<run_id>/transcript` (gzip JSONL), or the UI's run page. They are kept across restarts, as files under `<state dir>/transcripts/` (§6, State). |
 
 ## 11. Stopping
 
@@ -280,4 +286,4 @@ The commands below go to `POST /api/v1/commands` with the CLI token. The UI show
 3. Stop the dispatcher with Ctrl-C in the `make poc-up` terminal. It shuts down gracefully (`--shutdown-timeout`, 30 s by default), and the log ends with `shutdown complete`.
 4. Stop ngrok.
 
-A dispatcher restart keeps nothing but what GitHub holds: work items come back from their markers, and agents must register again with a new device login.
+A dispatcher restart keeps its state (§6, State): agents stay registered and running tasks carry on. Started with an empty state dir, it keeps nothing but what GitHub holds: work items come back from their markers, and agents must register again with a new device login.
