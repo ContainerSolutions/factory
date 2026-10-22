@@ -1,0 +1,2 @@
+lisa-addressed:
+Pass 1: e84acb812bde FACTORY_STACK_URL/API reserved (stackURLVars appended to reservedEnv); 608f6264b503 reserved lists unexported, Options.Env doc names them in words; c5b00bcafa18 TestRunGatewayMode checks Env by presence; 5172a6a8e501 TestRunRootWorkspace "its parent is missing" case.
