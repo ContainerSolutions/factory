@@ -290,9 +290,9 @@ func (r *setup) resolve(ctx context.Context, mode SystemSetup) (SystemSetup, err
 	return SetupOn, nil
 }
 
-// dirs makes the state dir and the work dir when they're absent: 0700, by the run's user
-// when their parent is writable, else, with SetupOn, by sudo -n install -d owned by the run's
-// user. An existing directory is left as it is (the pipeline checks that the work dir is
+// dirs makes the state dir and the work dir when they're absent, with their missing parents:
+// 0700, by the run's user when it can, else, with SetupOn, by sudo -n install -d owned by the
+// run's user (the default state dir's /var/lib/factory-agent isn't in the base). An existing directory is left as it is (the pipeline checks that the work dir is
 // empty); a symlink or a file is refused.
 func (r *setup) dirs(ctx context.Context, mode SystemSetup) error {
 	if err := r.ensureDir(ctx, r.StateDir, mode); err != nil {
@@ -316,7 +316,7 @@ func (r *setup) ensureDir(ctx context.Context, dir string, mode SystemSetup) err
 	case !errors.Is(err, fs.ErrNotExist):
 		return err
 	}
-	err = os.Mkdir(dir, 0o700)
+	err = os.MkdirAll(dir, 0o700)
 	if err == nil || !errors.Is(err, fs.ErrPermission) || mode != SetupOn || r.root {
 		return err
 	}
@@ -418,8 +418,11 @@ func (r *setup) daemonConfig() ([]byte, error) {
 	case err != nil:
 		return nil, err
 	case len(bytes.TrimSpace(raw)) > 0:
-		if err := json.Unmarshal(raw, &cfg); err != nil || cfg == nil {
-			return nil, errors.New("it isn't a JSON object")
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			return nil, fmt.Errorf("it isn't a JSON object: %w", err)
+		}
+		if cfg == nil {
+			return nil, errors.New("it isn't a JSON object: null")
 		}
 	}
 	px, err := json.Marshal(map[string]string{"http-proxy": r.proxy, "https-proxy": r.proxy, "no-proxy": r.noPx})

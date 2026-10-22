@@ -114,7 +114,10 @@ func (f *fakeRunner) install(args []string) error {
 		}
 	}
 	if dir && len(rest) == 1 {
-		parent := filepath.Dir(rest[0])
+		parent := filepath.Dir(rest[0]) // the nearest existing ancestor: install -d makes the rest
+		for _, err := os.Stat(parent); errors.Is(err, fs.ErrNotExist); _, err = os.Stat(parent) {
+			parent = filepath.Dir(parent)
+		}
 		if fi, err := os.Stat(parent); err == nil {
 			_ = os.Chmod(parent, fi.Mode().Perm()|0o700)
 			defer func() { _ = os.Chmod(parent, fi.Mode().Perm()) }()
@@ -330,10 +333,12 @@ func golden(t *testing.T, p, got string) {
 }
 
 // TestSetupEnvIsPipelineEnv: every variable Setup returns passes pipeline.Options.Env's
-// checks (no reserved name, no git, loader or shell control variable).
+// checks (no reserved name, no git, loader or shell control variable). Its state dir is
+// nested, as the default /var/lib/factory-agent/run is: the user makes its parents.
 func TestSetupEnvIsPipelineEnv(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, adminUser, "internal.example.com")
+	w.sys.StateDir = filepath.Join(w.base, "var", "lib", "factory-agent", "run")
 	env, err := w.setup(t, proxyURL, SetupOff)
 	if err != nil {
 		t.Fatal(err)
@@ -344,6 +349,9 @@ func TestSetupEnvIsPipelineEnv(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("pipeline.New refuses Setup's env: %v", err)
+	}
+	if fi, err := os.Stat(w.sys.StateDir); err != nil || fi.Mode().Perm() != 0o700 || len(w.run.calls) != 0 {
+		t.Errorf("the state dir %v, %v, calls %q: want a 0700 directory and no command", fi, err, w.run.calls)
 	}
 	if env["GH_TOKEN"] != harness.Placeholder || env[pipeline.EnvRuntime] != pipeline.RuntimeWorkspace {
 		t.Errorf("GH_TOKEN %q, %s %q", env["GH_TOKEN"], pipeline.EnvRuntime, env[pipeline.EnvRuntime])
@@ -374,6 +382,17 @@ func TestSetupErrors(t *testing.T) {
 		}, want: `a PEM "PRIVATE KEY" block`},
 		{name: "a CA that isn't PEM", mode: SetupOff, prep: func(t *testing.T, w *world) { mustWrite(t, w.bundle.CAFile, "not a cert", 0o600) }, want: "no PEM CERTIFICATE block"},
 		{name: "trailing data after the CA", mode: SetupOff, prep: func(t *testing.T, w *world) { mustWrite(t, w.bundle.CAFile, testCA+"junk", 0o600) }, want: "trailing data"},
+		{name: "an oversize CA", mode: SetupOff, prep: func(t *testing.T, w *world) {
+			mustWrite(t, w.bundle.CAFile, strings.Repeat("a", runbundle.MaxCABytes+1), 0o600)
+		}, want: fmt.Sprintf("ca.pem is over %d bytes", runbundle.MaxCABytes)},
+		{name: "a CA that's a directory", mode: SetupOff, prep: func(t *testing.T, w *world) {
+			if err := os.Remove(w.bundle.CAFile); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(w.bundle.CAFile, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "ca.pem is not a regular file"},
 		{name: "a relative state dir", mode: SetupOff, prep: func(_ *testing.T, w *world) { w.sys.StateDir = "state" }, want: `the state dir "state" must be absolute`},
 		{name: "a relative work dir", mode: SetupOff, prep: func(_ *testing.T, w *world) { w.sys.WorkDir = "work" }, want: `the work dir "work" must be absolute`},
 		{name: "the user lookup fails", mode: SetupOff, prep: func(_ *testing.T, w *world) {
@@ -386,10 +405,13 @@ func TestSetupErrors(t *testing.T) {
 		}, want: "the state dir: " + "$T/state exists and is not a directory"},
 		{name: "a daemon.json that's an array", mode: SetupOn, prep: func(t *testing.T, w *world) {
 			mustWrite(t, filepath.Join(w.root, daemonJSON), "[]", 0o644)
-		}, want: "/etc/docker/daemon.json: it isn't a JSON object", calls: 3},
+		}, want: "/etc/docker/daemon.json: it isn't a JSON object: json: cannot unmarshal array", calls: 3},
+		{name: "a daemon.json that isn't JSON", mode: SetupOn, prep: func(t *testing.T, w *world) {
+			mustWrite(t, filepath.Join(w.root, daemonJSON), "{", 0o644)
+		}, want: "it isn't a JSON object: unexpected end of JSON input", calls: 3},
 		{name: "a daemon.json that's null", mode: SetupOn, prep: func(t *testing.T, w *world) {
 			mustWrite(t, filepath.Join(w.root, daemonJSON), "null", 0o644)
-		}, want: "it isn't a JSON object", calls: 3},
+		}, want: "it isn't a JSON object: null", calls: 3},
 		{name: "sudo refuses", mode: SetupOn, prep: func(_ *testing.T, w *world) { w.run.sudo = errors.New("exit status 1") },
 			want: "the gateway CA: sudo -n install -d -m 0755 $T/root/usr/local/share/ca-certificates: exit status 1: sudo: a password is required", calls: 1},
 		{name: "update-ca-certificates fails", mode: SetupOn, prep: func(_ *testing.T, w *world) {
@@ -457,7 +479,8 @@ func TestSetupMakesDirsWithSudo(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
-			w.sys.StateDir, w.sys.WorkDir = filepath.Join(locked, "state"), filepath.Join(locked, "work")
+			// the state dir's parent is absent too, as /var/lib/factory-agent is in the base.
+			w.sys.StateDir, w.sys.WorkDir = filepath.Join(locked, "factory-agent", "run"), filepath.Join(locked, "work")
 			// keep the privileged part to the dirs: dockerd and the CA are TestSetup's.
 			w.run.fail = map[string]error{"update-ca-certificates": errors.New("stop here")}
 			_, err := w.setup(t, proxyURL, mode)
@@ -468,7 +491,7 @@ func TestSetupMakesDirsWithSudo(t *testing.T) {
 				return
 			}
 			want := []string{
-				"sudo -n install -d -o 1000 -g 1000 -m 0700 $T/locked/state",
+				"sudo -n install -d -o 1000 -g 1000 -m 0700 $T/locked/factory-agent/run",
 				"sudo -n install -d -o 1000 -g 1000 -m 0700 $T/locked/work",
 			}
 			if len(w.run.calls) < 2 || !slices.Equal(w.run.calls[:2], want) {
