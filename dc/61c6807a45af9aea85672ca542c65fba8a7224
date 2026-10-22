@@ -1,0 +1,2 @@
+lisa-selfreview:
+pass 1: one finding (docs accuracy): Q7 attributed the 4.9 GiB Mac RSS to the workspace VM alone; it was both running VMs. Links and table column counts checked; no credentials in the file; 265 lines.

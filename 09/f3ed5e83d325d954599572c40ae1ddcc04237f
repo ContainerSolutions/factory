@@ -1,0 +1,12 @@
+lisa-design:
+- omitzero instead of omitempty: absent stays absent and explicit []/{} survive, so semantic round-trips are exact.
+- Duration is a string with Parse() (adds a d suffix), not time.Duration: documents round-trip unchanged; CORE validates.
+- StringOrList remembers scalar vs list instead of normalising to a list.
+- ExprOr[T] (an expression string or a typed value, schema oneOf) only where the examples need it (dispatch.harness); not every field.
+- Action one-of: Validate() (called by the decoder) plus minProperties/maxProperties 1 in the schema; no custom union decoder.
+- Schemas come from Schemas() in the package; schemagen writes them and removes stale files; tests validate the fixtures against the in-memory schemas.
+- The YAML 1.1 `on` key (parsed as true by sigs.k8s.io/yaml) is read back as `on` for RuleSpec and RetryPolicy only, instead of adding a YAML 1.2 parser dependency.
+- contracts.md describes the implemented types: where the doc examples and the old table disagreed, the examples won.
+
+lisa-selfreview:
+Pass 1 (strict): CORE-INPUT-001 YAML 1.1 rewrites `on`/yes/no outside RuleSpec/RetryPolicy (must-fix → switch to go.yaml.in/yaml/v3, drop sigs.k8s.io/yaml); CORE-INPUT-001 GroupSource/Destination one-of not enforced (must-fix → Validate + schema); CORE-STYLE-001 `...` doc-end markers (nit, covered by the v3 decoder).

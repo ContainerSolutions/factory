@@ -1,0 +1,5 @@
+lisa-selfreview:
+pass 1 (strict): request_changes
+- [should-fix] CORE-DUP-001 78df089c13d3 environment_test.go taskSchema: Task schema compile duplicated from hosts_test.go TestTaskHostSchemaMatchesGo -> fix: reuse taskSchema(t) there.
+- [nit] CORE-STYLE-001 d541fa1572b4 environment_test.go many/manyMap: package-level helpers shadowed by locals named many in hosts_test.go -> fix: rename to numbered/numberedMap.
+- Verified: make reviewable gen check, lint (0 issues), catalog and openapi-lint pass; web npm run reviewable passes. internal/agent/harness/claudecode TestRunFailures and internal/agent/pipeline TestRunWallClockLimit fail intermittently on wall-clock limits under full-suite load; they pass alone and this PR touches no agent code (environmental, not a finding).

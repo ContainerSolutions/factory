@@ -1,0 +1,2 @@
+lisa-addressed:
+ccf-review #23 should-fix lock-lease-outlives-reconcile (8fc758d1ee52) fixed in 8acd3ce: withItemLock with a 3/4-lease deadline; TestLockedSectionEndsInsideTheLease.

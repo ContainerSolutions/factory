@@ -1,0 +1,2 @@
+lisa-selfreview:
+- pass 1 (core,go + CI): no findings. Checked: script-injection (event fields via env only), closed-PR skips, empty diff, fork PRs (origin/base exists with fetch-depth 0), unknown push base, notify no-op without token, actions SHA-pinned. verdict approve
