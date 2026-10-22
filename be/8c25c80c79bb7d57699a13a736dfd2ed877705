@@ -1,0 +1,12 @@
+lisa-addressed:
+ccf-review findings on #104, all accepted and fixed in this commit:
+- cc846424d981 (must-fix): shutdown honours tart run's exit, then waits for tart list alone; tart stop's "is not running" is success. Fake modes listLag and stopStrict; TestBaseVMShutdown.
+- 99decf128783 (question): install.cjs (2.1.304, read from npm pack) only links/copies the claude-code-linux-arm64 native binary over the bin/claude.exe stub; it runs nothing on linux. Install allows exactly that script (--allow-scripts=@anthropic-ai/claude-code); claude_code_installed checks the native binary (version, ELF magic, -x, cmp, readlink), never runs it.
+- c618e7ba8dfa (must-fix): with --only, statedir is applied first whenever Init applies anything and it isn't ok. TestInitOnlyStateDir (tart, pf --no-pf, pf declined).
+- ee555d4f45a4: no_apt_timers at the start of main: disable --now + mask apt-daily(-upgrade).timer/.service and unattended-upgrades.service, APT::Periodic "0".
+- 576c87506668: after a build, the previous basevm.json's base is deleted (prefix, other name, not running; else a warning). Plan line. TestBaseVMPreviousVersion.
+- 4e417b95c108: chose re-tag: name:tag@digest is pulled by digest, docker tag'd name:tag, saved by tag (archive named by tag); a digest without a tag is refused in config validation (config.KindImageTag). Keeps digest pinning, which refusing digests would lose.
+- 259998cd2cba: flock(LOCK_EX|LOCK_NB) on <statedir>/host.lock during Init's applies, ErrHostLocked. TestInitLock.
+- f433c840b389: replace(): rename older to <name>.old, rename .building in, delete .old; on failure rename .old back; leftover .old handled. TestBaseVMReplace.
+- d81de315b1fc: apt_key fetches each key to $TMP through fetch with a pinned sha256 (DOCKER_KEY_SHA256, GH_KEY_SHA256; fingerprints in comments), then sudo install.
+- e06fe2db7dee: TestInitOnly asserts on plan lines ("  <step>  "), with a dry-run control proving they appear without --only.

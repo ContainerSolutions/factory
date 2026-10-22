@@ -1,0 +1,9 @@
+lisa-addressed:
+ccf-review on #108 (all 6 accepted), fixed in this commit:
+- 73a3f97946cf (must-fix): TestBundleRunMatchesAPIRun asserts the bundle run's ws.Skills == b.Path("skills") and zero git requests to acme/ccf-skills (SkillsCache off for the bundle run). Mutation `case FetchSkills, *FetchSkills:` -> `default:` fails both subtests.
+- b97cfc9d7957 (must-fix): fixture SocketDir per test (os.MkdirTemp("", "fxs-")); checkNoToken asserts no fxgc-* left. Mutation (Close no-op) fails TestPrepareBundle (3), TestPrepareBundleCancelled and 8 refusal cases.
+- 0f231d9fcb8e: named return + defer red.Error(err); refusal case "the job's token in the task id" expects [REDACTED]. Mutation fails it.
+- c5a696a3de00: maxPrompt/maxContext/maxSchema = runbundle.Max{Prompt,Context,Schema}Bytes.
+- c6b8c0ca9ac8: workspace-run.md §PrepareBundle and §Sources updated (Prompts/Schemas, scratch dir, gitcred socket for the call, FetchSkills.Skills alone an error, exact-match check, redaction, ctx check).
+- dc3ade140742: fixed scratch WorkRoot/.bundle-<id>, leftover replaced (leading dot: no task id can collide, unlike a <id>.bundle-* glob). Test case "a leftover scratch directory"; mutation fails it.
+- reviewer aside: ctx.Err() before runbundle.Write; TestPrepareBundleCancelled; mutation fails it.

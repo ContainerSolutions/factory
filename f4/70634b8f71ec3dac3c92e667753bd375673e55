@@ -1,0 +1,7 @@
+lisa-selfreview:
+Pass 1 (strict), 5 findings:
+- CORE-SIZE-001 [blocker] 1171 counted lines: add the size-exception label with the reason (owner consented for P1 phases 2-4).
+- GO-RES-001 [must-fix] Gateway.Client built a new Transport per call; idle connections never closed.
+- CORE-TEST-001 [must-fix] untested: plain-HTTP forwarding with AllowTunnel, the 502 on a failed tunnel dial, the RawPath refusal.
+- CORE-INPUT-001 [must-fix] configured hosts compared lower-cased but not normalised in New.
+- FACTORY-LOG-001 [should-fix] log.New for the discarded ErrorLog; use slog.NewLogLogger(slog.DiscardHandler).

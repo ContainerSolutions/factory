@@ -1,0 +1,5 @@
+lisa-selfreview:
+pass 1 (the only pass, per the lead): request_changes.
+- must-fix CORE-TEST-001 (f7f9c86bd8e4) gateway.go admit: the connection limit (maxConns) has no test; it is a constant, so a test can't lower it. Fix: a Gateway field set from the constant, and a test.
+- nit CORE-STYLE-001 record.go ModeIntercept unused until PR 5: kept on purpose (the LLD's mode set), deferred.
+Checked and clean: tracked/hijacked conns closed by Close, wg holds under mu, no record after Close (sink sealed in tests), egress dialer resolve-once and literal dials (rebinding test), every resolved address checked, peek bounded (16 KiB, 10 s), no token/query/header value in records or logs, lint 0 issues, -race x10.

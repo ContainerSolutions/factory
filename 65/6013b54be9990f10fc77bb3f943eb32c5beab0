@@ -1,0 +1,10 @@
+lisa-addressed:
+Pass 1 fixes:
+- duplicated-system-roots-path: container_test.go uses system.go's systemRoots constant.
+- duplicated-rig-readers: decodeEvents(t, s) and readOutcome(t, work) in vmrun_test.go; vmRig.events/outcome and runInContainer call them.
+- GO-CTX-001: runInContainer's timeout derives from t.Context().
+- agents-md-missing-target: AGENTS.md Commands lists make e2e-run-container.
+
+lisa-selfreview:
+Pass 2 (strict), 1 finding:
+- nit vacuous-ran-once-comment (container_test.go runInContainer: "The fake ran once" is never asserted; a repair would rerun it) -> fix: assert no repair step in the events

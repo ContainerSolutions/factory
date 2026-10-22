@@ -1,0 +1,10 @@
+lisa-design:
+- Authoritative lease expiry is Task.status.leaseExpiresAt; commit order: mint credential → CAS task Leased (+harness.resolved) → Lease record → charge runs → RunAPI.LeaseIssued; failures roll back without consuming an attempt.
+- Lease controller keyed by task id: revokes leases whose task left Leased/Running (the RT-S2-T01 timeout hook), expiry → Pending attempts+1 (agent-lost) within Queue.retry else Failed; ended leases kept 1h for retried calls.
+- One scheduler mutex for match + budget + charge; task CAS guards other writers; BudgetCounters (queue, RuleSet, agent; UTC days) are CAS create-or-update.
+- Fairness: greedy per pass, tasks by priority then age; limited agents first (prefer-unlimited flips), then least-recently-leased.
+- Tokens: crypto/rand, stored as sha256 only, constant-time compare, renewed on any authenticated call (≤ every 10 min); owner token discarded after the exchange; git credentials never stored (expiry only), re-minted on heartbeat under 10 min left.
+- The API server must call Scheduler.Complete (usage top-up from the lease record), not RunAPI.Complete.
+
+lisa-selfreview:
+Pass 1: no findings (token handling, credential storage, lease commit order).

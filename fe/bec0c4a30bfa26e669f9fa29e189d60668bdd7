@@ -1,0 +1,7 @@
+lisa-addressed:
+Pass 1: f189c63b0942 exec args golden (testdata/vm/exec-args.golden, run and repair); f466f0706081 VM Run has its own empty-workdir error, tested; 1dd74676d782 plant takes the subtest's t.
+
+lisa-selfreview:
+Pass 2 (strict) on 9ea3afd:
+- nit (docs/unsourced-refresh-and-recheck-claims) flags.go authKeyLastRefresh + workspace-run.md: the refresh interval (a source reading) and "re-checked by make smoke-codex" (host path only) were stated as facts.
+Considered, not raised: vm() duplicated with claudecode's (kept as PR 8's pattern, each adapter names itself in the error).

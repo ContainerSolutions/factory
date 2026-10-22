@@ -1,0 +1,5 @@
+lisa-selfreview:
+Pass 1 (strict) on 140906d:
+- should-fix f189c63b0942 vm_test.go TestVMRun: the VM exec flags aren't pinned by a golden (workspace-run.md test layer 3 names codex's config.toml, flags and auth.json).
+- nit f466f0706081 run.go Run: under IsolationVM the empty-workdir error names workDirFor's host rule.
+- nit 1dd74676d782 vm_test.go TestVMRefusals: the existing-symlink case makes its owner home with the parent test's t.

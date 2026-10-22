@@ -1,0 +1,2 @@
+lisa-addressed:
+CI flake (TempDir cleanup vs detached git gc) fixed: gitsource disables auto gc/maintenance.

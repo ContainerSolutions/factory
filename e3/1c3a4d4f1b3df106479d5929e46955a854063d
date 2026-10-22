@@ -1,0 +1,5 @@
+lisa-addressed:
+Pass 2: TestIsolationString moved to internal/agent/harness/harness_test.go.
+
+lisa-selfreview:
+Pass 3 (strict), verdict request_changes, 1 should-fix: CORE-DOC-001 the new UNVERIFIED constant IS_SANDBOX isn't in harness-adapters.md's claude unverified list, and workspace-run.md doesn't say what a VM run without a resolved auth does (subscription).

@@ -1,0 +1,2 @@
+lisa-addressed:
+Real build (2026-10-22): basevm and warmbase ok in under 2 min each. init --only now exits on the listed steps plus platform and statedir; the LLD says to inspect clones, never the bases.

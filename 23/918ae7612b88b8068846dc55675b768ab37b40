@@ -1,0 +1,2 @@
+lisa-addressed:
+- 78df089c13d3 CORE-DUP-001: TestTaskHostSchemaMatchesGo now uses taskSchema(t). d541fa1572b4 CORE-STYLE-001: many/manyMap renamed numbered/numberedMap.

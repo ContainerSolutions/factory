@@ -1,0 +1,6 @@
+lisa-selfreview:
+Pass 1 (strict), reviewer verdict request_changes:
+- must-fix 194acbe8c361 X:correctness/state-dir-parents-not-made (system.go ensureDir): os.Mkdir fails ENOENT for the default --state-dir /var/lib/factory-agent/run, whose parent the base lacks. Fix: MkdirAll.
+- must-fix cbfa5aa9d1cb CORE-TEST-001 (readCapped): the cap and the regular-file check are untested. Fix: oversize CA and CA-is-a-directory cases.
+- should-fix 00b8fb31ddb9 GO-ERR-001 (daemonConfig): the json.Unmarshal error is dropped. Fix: wrap with %w.
+Considered and dismissed: ExecRunner mirrors host.ExecRunner (10 lines; importing internal/agent/host into the VM runtime for it would couple the agent-host init to the workspace runtime; they needn't stay equal); context.WithTimeout per docker info is an I/O deadline (FACTORY-CLOCK-001's exception).

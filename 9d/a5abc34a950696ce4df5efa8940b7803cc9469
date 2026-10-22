@@ -1,0 +1,2 @@
+lisa-addressed:
+ccf-review 1a406740eda5 (should-fix, accepted): fixed. stepDone passes r.red.Error(err) to Options.OnStep: the run's redactor (newRedactor(job), as buildTranscript uses) redacts the text, and the redactedError wraps the original so errors.Is/As still match. OnStep's doc and workspace-run.md say so. TestRunOnStepRedacted: a stack Up error carrying the task's git token and an sk- token reaches OnStep without either, and errors.Is matches the cause.

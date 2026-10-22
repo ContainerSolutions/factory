@@ -1,0 +1,8 @@
+lisa-addressed:
+ccf-review PR #115 findings fixed in 5bb8266:
+- 8cc48858fd98 (must-fix) FileTranscript.Store temp-file cleanup: TestFileTranscript's rename-failure case (Path an existing directory), no .transcript.jsonl.gz.* left.
+- 5b937fe99cbd (must-fix) explicit --remaining <= 0 is a usage error (exit 2) naming the flag; absent = whole maxWallClock. Usage cases 0s/-1s; LLD flag list updated. Decided by the lead (answer to question 8ba31c63204f).
+- df848abb43ca (should-fix) pipeline.FailedResult shared by pipeline.finish and vm.fail; host output unchanged (existing tests untouched).
+- 54902f60f232 (should-fix) scanOutputs: credential() over stdout (events) and stderr (log) in TestRunEndToEnd and TestRunOutcomes' tail.
+- a57c9364acbd (nit) options.check: --work in --bundle, --state-dir overlapping --bundle either way, refused, with cases.
+- 38cbbe46a723 (nit) TestMain: an fx call that isn't an op exits ExitUsage; TestFXNotAnOp.

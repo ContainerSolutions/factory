@@ -1,0 +1,2 @@
+lisa-design:
+Gustavo, 2026-10-22: one gateway CA per agent host; per-task CAs are not needed (P1 Decision 9).
