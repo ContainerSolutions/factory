@@ -54,6 +54,7 @@ const (
 	CodeNotInCatalog           = "not-in-catalog"
 	CodeNotCompilable          = "not-compilable"
 	CodeInternal               = "internal"
+	CodeNotImplemented         = "not-implemented"
 )
 
 // apiError is an error with its problem: what a handler returns for a known failure.

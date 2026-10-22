@@ -33,6 +33,8 @@ servers:
 tags:
   - name: agents
     description: Agent registration, status and deregistration.
+  - name: enrollments
+    description: One-time enrollments an admin mints for an agent host, which registers with them (P1 §6).
   - name: leases
     description: Long-poll leases, heartbeats, completion and abandonment.
   - name: tasks
@@ -62,14 +64,28 @@ paths:
       tags: [agents]
       summary: Register an agent
       description: |
-        Registers (or re-registers) an agent in a pool. The caller presents the pool's join token
-        and a short-lived GitHub user token of the owner from the device flow; the owner token is
-        exchanged for a login and discarded, never stored or logged. The owner must be a member of
-        the pool's `admission.owners` Group and the capabilities must meet `Pool.spec.require`.
-        The agent is named `agt_<owner>-<host>`; registering again replaces it.
+        Registers (or re-registers) an agent in a pool, with one of three credentials:
+
+        - **Join and owner tokens** (the device flow, until P1's removal phase): the pool's join
+          token and a short-lived GitHub user token of the owner; the owner token is exchanged
+          for a login and discarded, never stored or logged. The owner must be a member of the
+          pool's `admission.owners` Group.
+        - **An enrollment token** (`createEnrollment`), once: an admin minted it for a pool, an
+          owner and a name. The response adds the agent's long-lived `refreshToken`, and the
+          enrollment token is spent.
+        - **The agent's refresh token**, on every restart or after a `401`: the response carries
+          a fresh agent token and a new refresh token, which replaces the one presented.
+
+        With an enrollment or refresh token the pool, owner and name come from the enrollment:
+        the request's `pool` and `host` must match them, or the response is `400`. In every case
+        the capabilities must meet `Pool.spec.require`, and the agent is named
+        `agt_<owner>-<host>`; registering again replaces it. Enrollment and refresh tokens are
+        issued from P1 phase 6; until then a request with either is a `401`.
       security:
         - joinToken: []
           ownerToken: []
+        - enrollmentToken: []
+        - agentRefreshToken: []
       requestBody:
         description: The agent's pool, host and capabilities.
         required: true
@@ -79,7 +95,7 @@ paths:
               $ref: '#/components/schemas/RegisterAgentRequest'
       responses:
         '201':
-          description: Registered. The agent token is returned only here.
+          description: Registered. The agent token, and the refresh token when there is one, are returned only here.
           content:
             application/json:
               schema:
@@ -157,12 +173,112 @@ paths:
       operationId: deregisterAgent
       tags: [agents]
       summary: Deregister an agent
-      description: Revokes the agent token and marks the agent `Offline`. Running leases are abandoned.
+      description: |
+        Revokes the agent token and marks the agent `Offline`. Running leases are abandoned. The
+        agent itself, an admin UI session (the `maintainers` Group) or the CLI token may call it.
+        An admin's delete also revokes the agent's refresh token. Until P1 phase 6 an admin's
+        delete is a `501`.
       security:
         - agentToken: []
+        - uiSession: []
+        - cliToken: []
       responses:
         '204':
           description: Deregistered.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---- enrollments -------------------------------------------------------------------------
+  /enrollments:
+    post:
+      operationId: createEnrollment
+      tags: [enrollments]
+      summary: Mint an enrollment
+      description: |
+        Mints a one-time enrollment for an agent host: the pool it joins, the owner who lends it
+        and its name (the agent is `agt_<owner>-<name>`). The admin vouches for the owner; no
+        GitHub login happens on the agent side. The response holds the enrollment token, shown
+        only here and stored hashed. The host's supervisor registers once with it
+        (`registerAgent` with `X-Factory-Enrollment-Token`) before `expiresAt`. A UI session
+        must belong to the `maintainers` Group; the CLI token is a full admin (`factory agent
+        enroll`). Issued from P1 phase 6; until then the response is a `501`.
+      security:
+        - uiSession: []
+        - cliToken: []
+      requestBody:
+        description: The enrollment's pool, owner, name and lifetime.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentRequest'
+      responses:
+        '201':
+          description: Minted. The enrollment token is returned only here.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentCreated'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listEnrollments
+      tags: [enrollments]
+      summary: List enrollments
+      description: |
+        The enrollments, used and unused, without their tokens. Admins only, as for
+        `createEnrollment`. Until P1 phase 6 the response is a `501`.
+      security:
+        - uiSession: []
+        - cliToken: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of enrollments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        default:
+          $ref: '#/components/responses/Error'
+  /enrollments/{id}:
+    parameters:
+      - $ref: '#/components/parameters/EnrollmentID'
+    delete:
+      operationId: deleteEnrollment
+      tags: [enrollments]
+      summary: Revoke an enrollment
+      description: |
+        Revokes an unused enrollment: its token can no longer register an agent. A used
+        enrollment's token is already spent, so deleting it only removes the record; the agent
+        it registered stays (revoke that with `deregisterAgent`). Admins only, as for
+        `createEnrollment`. Until P1 phase 6 the response is a `501`.
+      security:
+        - uiSession: []
+        - cliToken: []
+      responses:
+        '204':
+          description: Revoked.
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1183,6 +1299,23 @@ components:
       description: |
         A short-lived GitHub user token of the agent's owner, from the device flow against the
         dispatcher's OAuth client (`getDeviceConfig`). Exchanged for the login, then discarded.
+    enrollmentToken:
+      type: apiKey
+      in: header
+      name: X-Factory-Enrollment-Token
+      description: |
+        A one-time enrollment token from `createEnrollment` (`enr_` and 43 base64url characters,
+        32 random bytes; stored hashed). It registers exactly one agent, then it's spent. It
+        expires at the enrollment's `expiresAt`. Issued from P1 phase 6.
+    agentRefreshToken:
+      type: apiKey
+      in: header
+      name: X-Factory-Agent-Refresh-Token
+      description: |
+        The agent's long-lived refresh token (`arf_` and 43 base64url characters, 32 random bytes;
+        stored hashed), one per agent, from `AgentRegistration.refreshToken`. Each successful
+        `registerAgent` with it rotates it: the response carries the new one and the old one is
+        spent. Revoked when an admin deletes the agent (`deregisterAgent`). Issued from P1 phase 6.
     uiSession:
       type: apiKey
       in: cookie
@@ -1210,6 +1343,14 @@ components:
       in: path
       required: true
       description: The agent's name (`agt_<owner>-<host>`).
+      schema:
+        type: string
+        minLength: 1
+    EnrollmentID:
+      name: id
+      in: path
+      required: true
+      description: The enrollment's id (`enl_…`).
       schema:
         type: string
         minLength: 1
@@ -1441,6 +1582,13 @@ components:
         expiresAt:
           type: string
           format: date-time
+        refreshToken:
+          type: string
+          pattern: '^arf_[A-Za-z0-9_-]{43}$'
+          description: |
+            The agent's new refresh token (the `agentRefreshToken` scheme). Present only when
+            registering with an enrollment token or a refresh token. Keep it 0600 on the agent
+            host; it replaces the previous one, which is now spent.
     AgentUpdate:
       type: object
       description: A status report and/or a lending update. At least one field.
@@ -1665,6 +1813,95 @@ components:
           type: string
         url:
           type: string
+
+    # ---- enrollments (API-only) --------------------------------------------------------------
+    EnrollmentRequest:
+      type: object
+      description: The enrollment to mint. The pool, owner and name are fixed by the admin.
+      required: [pool, owner, name]
+      properties:
+        pool:
+          type: string
+          minLength: 1
+          description: The Pool the agent joins.
+        owner:
+          type: string
+          pattern: '^[A-Za-z0-9-]{1,39}$'
+          description: The GitHub login of the owner who lends the agent (its lending rules apply).
+        name:
+          type: string
+          minLength: 1
+          pattern: '^[a-z0-9][a-z0-9-]*$'
+          description: The agent host's name, its `RegisterAgentRequest.host`; the agent is named `agt_<owner>-<name>`.
+        ttl:
+          type: string
+          x-go-type: v1alpha1.Duration
+          x-go-type-import:
+            path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+          default: 7d
+          description: How long the enrollment token may be used, a Duration (`7d`, `36h`). At most `30d`.
+    EnrollmentCreated:
+      type: object
+      description: The minted enrollment and its one-time token.
+      required: [enrollment, token]
+      properties:
+        enrollment:
+          $ref: '#/components/schemas/Enrollment'
+        token:
+          type: string
+          pattern: '^enr_[A-Za-z0-9_-]{43}$'
+          description: |
+            The enrollment token (the `enrollmentToken` scheme), returned only here; the
+            dispatcher keeps its hash. Hand it to the agent host's supervisor out of band.
+    Enrollment:
+      type: object
+      description: An enrollment, without its token or the token's hash.
+      required: [id, pool, owner, name, createdAt, expiresAt, createdBy, usedAt, agent]
+      properties:
+        id:
+          type: string
+          pattern: '^enl_[a-z0-9]{26}$'
+          description: The enrollment's id, `enl_` and a lowercase ULID.
+        pool:
+          type: string
+          description: The Pool the agent joins.
+        owner:
+          type: string
+          description: The GitHub login of the agent's owner.
+        name:
+          type: string
+          description: The agent host's name.
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+          description: After this the token no longer registers an agent.
+        createdBy:
+          type: string
+          description: The admin who minted it, as an actor id (`<provider>:<login>`, or `factory:cli` for the CLI token).
+        usedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the token registered the agent; null while unused.
+        agent:
+          type: string
+          nullable: true
+          description: The agent the token registered (`agt_<owner>-<name>`); null while unused.
+    EnrollmentList:
+      type: object
+      description: A page of enrollments.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Enrollment'
+        nextCursor:
+          type: string
+          description: Absent on the last page.
 
     # ---- read models (API-only) --------------------------------------------------------------
     WorkItemList:

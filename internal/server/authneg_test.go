@@ -104,7 +104,7 @@ func TestAuthRequired(t *testing.T) {
 			switch acc {
 			case agentOnly:
 				wrong = []func(*http.Request){withBearer("agt_nobody-x.wrong"), withBearer(cliToken), withSession("forged.cookie")}
-			case reader, admin, sessionOnly:
+			case reader, admin, sessionOnly, agentOrAdmin:
 				wrong = []func(*http.Request){withSession("forged.cookie"), withBearer("not-the-cli-token"), withBearer("agt_nobody-x.wrong")}
 			case readerOrAgent:
 				wrong = []func(*http.Request){withSession("forged.cookie"), withBearer("agt_nobody-x.wrong")}
@@ -135,6 +135,54 @@ func TestAuthRequired(t *testing.T) {
 		r.Header.Set(HeaderOwnerToken, "tok-rita")
 	})
 	wantProblemReply(t, "register as a non-owner", res, b, http.StatusForbidden, CodeForbidden)
+}
+
+// TestEnrollmentNotAvailable: registerAgent declares the enrollment and refresh token schemes,
+// but neither token is issued yet (P1 phase 6), so a request with one is a 401 problem, even
+// with the join and owner tokens; the join and owner tokens alone still register. An admin's
+// deregisterAgent is a 501 until then; the agent's own still works.
+func TestEnrollmentNotAvailable(t *testing.T) {
+	e := newEnv(t)
+	body, err := json.Marshal(apiclient.RegisterAgentRequest{Pool: "local", Host: "mac1", AgentVersion: "1",
+		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joinOwner := func(r *http.Request) {
+		r.Header.Set(HeaderJoinToken, joinSecret)
+		r.Header.Set(HeaderOwnerToken, "tok-gus")
+	}
+	enrollment := func(r *http.Request) { r.Header.Set(HeaderEnrollmentToken, "enr_"+strings.Repeat("x", 43)) }
+	refresh := func(r *http.Request) { r.Header.Set(HeaderAgentRefreshToken, "arf_"+strings.Repeat("x", 43)) }
+	for _, c := range []struct {
+		name  string
+		edits []func(*http.Request)
+	}{
+		{"an enrollment token", []func(*http.Request){enrollment}},
+		{"a refresh token", []func(*http.Request){refresh}},
+		{"an enrollment token and the join and owner tokens", []func(*http.Request){joinOwner, enrollment}},
+		{"a refresh token and the join and owner tokens", []func(*http.Request){joinOwner, refresh}},
+	} {
+		res, b := e.do(http.MethodPost, BasePath+"/agents", body, c.edits...)
+		wantProblemReply(t, "register with "+c.name, res, b, http.StatusUnauthorized, CodeUnauthenticated)
+		if !strings.Contains(string(b), "enrollment is not available yet") {
+			t.Errorf("register with %s: %s", c.name, b)
+		}
+	}
+	agent, tok := e.register("gus", "mac1")
+
+	gus, rita := e.login("gus"), e.login("rita")
+	path := BasePath + "/agents/" + agent
+	res, b := e.do(http.MethodDelete, path, nil, withSession(gus))
+	wantProblemReply(t, "an admin's deregister", res, b, http.StatusNotImplemented, CodeNotImplemented)
+	res, b = e.do(http.MethodDelete, path, nil, withBearer(cliToken))
+	wantProblemReply(t, "the CLI's deregister", res, b, http.StatusNotImplemented, CodeNotImplemented)
+	res, b = e.do(http.MethodDelete, path, nil, withSession(rita))
+	wantProblemReply(t, "a reader's deregister", res, b, http.StatusForbidden, CodeNotAdmin)
+	res, b = e.do(http.MethodDelete, path, nil, withBearer(tok))
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("the agent's own deregister: %d %s", res.StatusCode, b)
+	}
 }
 
 // TestAgentIsolation: agent A can't act on agent B, its lease, its task or its run.
