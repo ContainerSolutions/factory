@@ -93,6 +93,9 @@ type Options struct {
 	// Prompts gives the rendered prompt template and the context items. Default:
 	// APIPrompts, the dispatcher's getTaskPrompt and getTaskContext through the job's client.
 	Prompts PromptSource
+	// Skills gives the run its materialised skills. Default: FetchSkills, the pinned skills
+	// repos fetched with the run's git (through SkillsCache) into the workspace's skills/.
+	Skills SkillSource
 	// Transcripts keeps the redacted, gzipped transcript. Default: APITranscripts, the
 	// dispatcher's uploadTranscript through the job's client.
 	Transcripts TranscriptStore
@@ -175,6 +178,9 @@ func New(o Options) (*Pipeline, error) {
 	}
 	if o.Prompts == nil {
 		o.Prompts = APIPrompts{}
+	}
+	if o.Skills == nil {
+		o.Skills = FetchSkills{}
 	}
 	if o.Transcripts == nil {
 		o.Transcripts = APITranscripts{}

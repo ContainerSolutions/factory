@@ -11,12 +11,14 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
@@ -30,42 +32,122 @@ const (
 )
 
 // skillsURL is a skills source as a URL: sources that aren't URLs are under SkillsBase.
-func (r *run) skillsURL(source string) string {
+func (r *run) skillsURL(source string) string { return r.p.skillsURL(source) }
+
+func (p *Pipeline) skillsURL(source string) string {
 	if strings.Contains(source, "://") {
 		return source
 	}
-	return strings.TrimRight(r.p.o.SkillsBase, "/") + "/" + strings.TrimLeft(source, "/")
+	return strings.TrimRight(p.o.SkillsBase, "/") + "/" + strings.TrimLeft(source, "/")
 }
 
-// materialiseSkills copies the selected skills of each pinned skills repo into skills/, as
-// plugin directories (run-pipeline.md §Steps 5): skills/<plugin>/.claude-plugin/plugin.json,
-// the plugin's other root files and directories (bin/, rules/, …) and
-// skills/<plugin>/skills/<skill>/ for the selected skills only. The harness adapters lay them
-// out for their harness in Prepare (Claude Code's --plugin-dir takes the plugin directories as
-// they are; Codex copies the skill folders), and each plugin's bin/ is on the harness's PATH.
-func (r *run) materialiseSkills(ctx context.Context) error {
-	for i, s := range r.task.Spec.Skills {
-		if len(s.Use) == 0 {
-			continue
-		}
-		tree, err := r.skillsTree(ctx, i, s)
-		if err != nil {
-			return err
-		}
-		skills, err := materialise(tree, s, r.ws.Skills)
-		if err != nil {
-			return fmt.Errorf("%s: %w", s.Source, err)
-		}
-		r.ws.SkillList = append(r.ws.SkillList, skills...)
+// SkillSource gives a run its materialised skills (workspace-run.md §Sources): dir is the
+// workspace's Skills directory (the plugin directories) and list the selected skills, their
+// Dir absolute under dir. dst is the workspace's own skills/ directory, which a source that
+// fetches fills; a source with the skills elsewhere returns that directory instead.
+type SkillSource interface {
+	Skills(ctx context.Context, job *runner.Job, dst string) (dir string, list []harness.Skill, err error)
+}
+
+// FetchSkills is the default SkillSource: each pinned skills repo is fetched with the run's
+// git (through the skills cache, by commit) and the selected skills are materialised into
+// the workspace's skills/ (run-pipeline.md §Steps 5). It needs the run's git, so only the
+// pipeline runs it: its Skills method, called on its own, is an error.
+type FetchSkills struct{}
+
+var _ SkillSource = FetchSkills{}
+
+// errFetchSkillsAlone is FetchSkills called outside a run.
+var errFetchSkillsAlone = errors.New("FetchSkills runs only as a pipeline's skills source")
+
+// Skills implements SkillSource. The pipeline runs FetchSkills itself, with the run's git and
+// the skills cache; called on its own it fails.
+func (FetchSkills) Skills(context.Context, *runner.Job, string) (string, []harness.Skill, error) {
+	return "", nil, errFetchSkillsAlone
+}
+
+// PrebuiltSkills is the SkillSource of skills materialised before the run: a run bundle's
+// skills/ (Dir) and its manifest's list (List, each Dir absolute under Dir), returned as they
+// are. The workspace's Skills is then Dir, which the adapters only read.
+type PrebuiltSkills struct {
+	Dir  string
+	List []harness.Skill
+}
+
+var _ SkillSource = PrebuiltSkills{}
+
+// Skills implements SkillSource.
+func (s PrebuiltSkills) Skills(context.Context, *runner.Job, string) (string, []harness.Skill, error) {
+	if s.Dir == "" && len(s.List) > 0 {
+		return "", nil, errors.New("prebuilt skills without their directory")
 	}
+	return s.Dir, slices.Clone(s.List), nil
+}
+
+// materialiseSkills fills the workspace's skills from the run's SkillSource: with
+// FetchSkills, the run's skillFetcher copies the selected skills of each pinned skills repo
+// into skills/, as plugin directories (run-pipeline.md §Steps 5); any other source gives the
+// directory and the list itself.
+func (r *run) materialiseSkills(ctx context.Context) error {
+	if _, ok := r.p.o.Skills.(FetchSkills); ok {
+		list, err := r.p.skillFetcher(r.git, r.ws.Root, r.ws.Tmp).fetch(ctx, r.task.Spec.Skills, r.ws.Skills)
+		r.ws.SkillList = append(r.ws.SkillList, list...)
+		return err
+	}
+	dir, list, err := r.p.o.Skills.Skills(ctx, r.job, r.ws.Skills)
+	if err != nil {
+		return err
+	}
+	r.ws.Skills, r.ws.SkillList = dir, list
 	return nil
 }
 
-// skillsTree returns a checkout of the skills repo at its commit (or ref when the task
-// carries no commit): from the cache when the commit is cached, else fetched (into the
-// cache when there is one, into the workspace otherwise).
-func (r *run) skillsTree(ctx context.Context, i int, s v1alpha1.SkillRef) (string, error) {
-	src := r.skillsURL(s.Source)
+// skillFetcher fetches pinned skills repos and materialises their selected skills, with no
+// workspace of its own: a run's (its git, its root and tmp/) or PrepareBundle's scratch one.
+type skillFetcher struct {
+	p   *Pipeline
+	git *gitRunner
+	cwd string // where git runs
+	tmp string // uncached checkouts: tmp/skills-src-<i>
+}
+
+// skillFetcher is a fetcher with g, running git in cwd and keeping uncached checkouts in tmp;
+// the cache, its per-entry lock and SkillsBase are the pipeline's.
+func (p *Pipeline) skillFetcher(g *gitRunner, cwd, tmp string) *skillFetcher {
+	return &skillFetcher{p: p, git: g, cwd: cwd, tmp: tmp}
+}
+
+// fetch copies the selected skills of each pinned skills repo into dst, as plugin directories
+// (run-pipeline.md §Steps 5): dst/<plugin>/.claude-plugin/plugin.json, the plugin's other root
+// files and directories (bin/, rules/, …) and dst/<plugin>/skills/<skill>/ for the selected
+// skills only. The harness adapters lay them out for their harness in Prepare (Claude Code's
+// --plugin-dir takes the plugin directories as they are; Codex copies the skill folders), and
+// each plugin's bin/ is on the harness's PATH. It returns the skills materialised so far, also
+// on an error.
+func (f *skillFetcher) fetch(ctx context.Context, refs []v1alpha1.SkillRef, dst string) ([]harness.Skill, error) {
+	var out []harness.Skill
+	for i, s := range refs {
+		if len(s.Use) == 0 {
+			continue
+		}
+		tree, err := f.tree(ctx, i, s)
+		if err != nil {
+			return out, err
+		}
+		skills, err := materialise(tree, s, dst)
+		if err != nil {
+			return out, fmt.Errorf("%s: %w", s.Source, err)
+		}
+		out = append(out, skills...)
+	}
+	return out, nil
+}
+
+// tree returns a checkout of the skills repo at its commit (or ref when the task carries no
+// commit): from the cache when the commit is cached, else fetched (into the cache when there
+// is one, into tmp otherwise).
+func (f *skillFetcher) tree(ctx context.Context, i int, s v1alpha1.SkillRef) (string, error) {
+	src := f.p.skillsURL(s.Source)
 	want := s.Commit
 	if want == "" {
 		want = s.Ref
@@ -76,10 +158,10 @@ func (r *run) skillsTree(ctx context.Context, i int, s v1alpha1.SkillRef) (strin
 	if !validRef(want) {
 		return "", fmt.Errorf("%s: %q is not a commit or a ref", s.Source, want)
 	}
-	cache := r.p.o.SkillsCache
+	cache := f.p.o.SkillsCache
 	if cache == "" || !commitRE.MatchString(s.Commit) {
-		dir := filepath.Join(r.ws.Tmp, "skills-src-"+strconv.Itoa(i))
-		if err := r.fetchTree(ctx, src, want, s.Commit, dir); err != nil {
+		dir := filepath.Join(f.tmp, "skills-src-"+strconv.Itoa(i))
+		if err := f.fetchTree(ctx, src, want, s.Commit, dir); err != nil {
 			return "", err
 		}
 		return dir, nil
@@ -89,7 +171,7 @@ func (r *run) skillsTree(ctx context.Context, i int, s v1alpha1.SkillRef) (strin
 		key = "skills"
 	}
 	final := filepath.Join(cache, key, s.Commit)
-	lk := r.p.skillsLock(final)
+	lk := f.p.skillsLock(final)
 	lk.Lock()
 	defer lk.Unlock()
 	if st, err := os.Stat(final); err == nil && st.IsDir() {
@@ -103,7 +185,7 @@ func (r *run) skillsTree(ctx context.Context, i int, s v1alpha1.SkillRef) (strin
 		return "", fmt.Errorf("skills cache: %w", err)
 	}
 	dir := filepath.Join(tmp, "tree")
-	if err := r.fetchTree(ctx, src, want, s.Commit, dir); err != nil {
+	if err := f.fetchTree(ctx, src, want, s.Commit, dir); err != nil {
 		_ = removeAll(tmp)
 		return "", err
 	}
@@ -129,15 +211,15 @@ func (p *Pipeline) skillsLock(key string) *sync.Mutex {
 
 // fetchTree fetches ref of src at depth 1 into dir, checks it is commit (when given) and
 // drops .git: the tree is plain files.
-func (r *run) fetchTree(ctx context.Context, src, ref, commit, dir string) error {
-	g := r.git
+func (f *skillFetcher) fetchTree(ctx context.Context, src, ref, commit, dir string) error {
+	g := f.git
 	steps := [][]string{
 		{"init", "--quiet", dir},
 		{"-C", dir, "fetch", "--quiet", "--depth", "1", "--no-tags", "--", src, ref},
 		{"-C", dir, "-c", "advice.detachedHead=false", "checkout", "--quiet", "FETCH_HEAD"},
 	}
 	for _, args := range steps {
-		if _, err := g.run(ctx, r.ws.Root, args...); err != nil {
+		if _, err := g.run(ctx, f.cwd, args...); err != nil {
 			return fmt.Errorf("fetch %s@%s: %w", src, ref, err)
 		}
 	}
