@@ -27,6 +27,7 @@ func TestHookMain(t *testing.T) {
 	}
 	readWrite := []string{"pre-tool-use", "--write", out, "--write", repo}
 	readOnly := []string{"pre-tool-use", "--write", out}
+	vm := []string{"pre-tool-use", "--write", "/"} // IsolationVM's writable workspace
 	tests := []struct {
 		name  string
 		args  []string
@@ -62,6 +63,11 @@ func TestHookMain(t *testing.T) {
 		{"no event", nil, call("Read", nil, ro), "usage"},
 		{"a relative root", []string{"pre-tool-use", "--write", "out"}, call("Read", nil, ro), "bad arguments"},
 		{"an extra argument", []string{"pre-tool-use", "extra"}, call("Read", nil, ro), "bad arguments"},
+		{"the VM: write anywhere", vm, call("Write", map[string]any{"file_path": "/etc/apt/sources.list.d/x.list"}, repo), ""},
+		{"the VM: through a symlink", vm, call("Write", map[string]any{"file_path": filepath.Join(out, "escape", "x")}, repo), ""},
+		{"the VM: a relative edit", vm, call("Edit", map[string]any{"file_path": "docs/a.md"}, repo), ""},
+		{"the VM: git push", vm, call("Bash", map[string]any{"command": "git push origin HEAD"}, repo), "factory push"},
+		{"the VM: gh api POST", vm, call("Bash", map[string]any{"command": "gh api -X POST repos/acme/docs/issues -f title=x"}, repo), "gh api"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

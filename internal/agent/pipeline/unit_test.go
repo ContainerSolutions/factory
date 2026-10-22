@@ -189,6 +189,8 @@ func TestRedact(t *testing.T) {
 		"-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----": Redacted,
 		`"-----BEGIN PRIVATE KEY-----\\nMIIE\\n-----END PRIVATE KEY-----"`:     `"` + Redacted + `"`,
 		"nothing secret": "nothing secret",
+		// The VM workspace's placeholder credential isn't one.
+		"GH_TOKEN=" + harness.Placeholder: "GH_TOKEN=" + harness.Placeholder,
 	}
 	for in, want := range tests {
 		if got := r.String(in); got != want {
