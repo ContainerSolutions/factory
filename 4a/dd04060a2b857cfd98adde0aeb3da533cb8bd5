@@ -3,3 +3,8 @@ pass 2 fixes: TestWorkspaceRuntime counts the gateway's dispatcher records and r
 
 lisa-selfreview:
 pass 3 (strict) of 4: approve, no findings. Checked again: the runtime guard is mutation-tested (removing it makes TestWorkspaceRuntime fail with via gh-stack); FromEnv's FACTORY_RUNTIME read runs through a real `fx` process; HTTP_PROXY is honoured by the default client in that process; the record checks can't pass on zero data; no credential in argv, .git or any gateway record.
+
+lisa-design:
+- FACTORY_RUNTIME's name and value live in pipeline (EnvRuntime, RuntimeWorkspace) beside the other run variables, so vmrun (PR 11) sets and the Effector reads the same constants. It's not in pipeline's reservedEnv: vmrun sets it through Options.Env.
+- The Effector takes Runtime as an explicit Options field (FromEnv fills it), not a lookup in Options.Env, so in-process callers and tests choose it directly.
+- The 401 message change applies to both runtimes, per the LLD; TestDispatcherErrors' 401 row is the one existing assertion changed.
