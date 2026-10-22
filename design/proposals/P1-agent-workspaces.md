@@ -195,8 +195,9 @@ process inside it is privileged only inside that VM.
   - the gateway's CA certificate and the gateway's URL;
   - for codex, the account identifiers it reads locally (account id, user id, plan type: not
     credentials, §5);
-  - a **run token**: an opaque per-run identifier, not a credential. The gateway maps it to this
-    task.
+  - the run's id (`run_…`), for logs and the transcript. It's not a credential, and the
+    gateway needs no identifier from the workspace: it serves exactly one. The lease's run
+    token (§5) stays in the gateway and never enters the bundle.
 - **`factory-agent run`** (in the VM) is today's pipeline from step 2 on:
   1. Clones the repos through the gateway: rw into `/work/repo`, ro into `/work/ro/<name>`.
      - The LLM is root in its VM, so "ro" inside the VM is advisory.
@@ -338,7 +339,8 @@ Every credential is added by the workspace's gateway, so none enters a VM. Where
     and `PUT` its own transcript;
   - **it expires with the lease.**
 
-  - **its format:** `run_` followed by 43 base64url characters (32 random bytes).
+  - **its format:** `rtk_` followed by 43 base64url characters (32 random bytes), a prefix no
+    identifier uses (run IDs start with `run_`).
 
   It replaces `FACTORY_TOKEN` = agent token: the lease's `runToken`, for the API's
   [`runToken` security scheme](../../api/openapi.yaml) (`components.securitySchemes.runToken`).

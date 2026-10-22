@@ -141,8 +141,8 @@ func TestAuthRequired(t *testing.T) {
 	wantProblemReply(t, "register as a non-owner", res, b, http.StatusForbidden, CodeForbidden)
 }
 
-// fakeRunToken has the runToken scheme's format (`run_` + 43 base64url characters).
-var fakeRunToken = "run_" + strings.Repeat("x", 43)
+// fakeRunToken has the runToken scheme's format (`rtk_` + 43 base64url characters).
+var fakeRunToken = "rtk_" + strings.Repeat("x", 43)
 
 // TestRunTokenRefused: the five run routes take the runToken scheme, but no run token is
 // issued yet (P1 phase 6), so one is a 401 problem; the agent token still works on them.

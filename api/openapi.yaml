@@ -1184,7 +1184,7 @@ components:
       type: http
       scheme: bearer
       description: |
-        A run-scoped token from the lease (`Lease.runToken`): `run_` followed by 43 base64url
+        A run-scoped token from the lease (`Lease.runToken`): `rtk_` followed by 43 base64url
         characters (32 random bytes), stored hashed, valid only while its lease is (heartbeats
         extend both; complete, abandon or expiry end both). It authorises only its own task's
         prompt, output schema and context, effects on that task, and its own run's transcript
@@ -1500,7 +1500,7 @@ components:
             $ref: '#/components/schemas/GitCredential'
         runToken:
           type: string
-          pattern: '^run_[A-Za-z0-9_-]{43}$'
+          pattern: '^rtk_[A-Za-z0-9_-]{43}$'
           description: |
             The run-scoped token for this lease (the `runToken` scheme). Appears only in this
             response; the dispatcher keeps only its hash. Not refreshed by heartbeats: it lives

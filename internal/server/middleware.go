@@ -43,8 +43,9 @@ const (
 	readerAgentOrRun
 )
 
-// runTokenPrefix starts every run token (the runToken scheme's format).
-const runTokenPrefix = "run_"
+// runTokenPrefix starts every run token (the runToken scheme's format). It differs from the
+// run IDs' run_ so a token is always recognisable as a credential.
+const runTokenPrefix = "rtk_"
 
 // operations is the access of every generated operation, by operationId. A test checks it
 // covers exactly the spec's operations.
