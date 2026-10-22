@@ -78,6 +78,7 @@ type fixture struct {
 	adapter      *fake.Adapter
 	opts         pipeline.Options
 	workRoot     string
+	sockets      string // Options.SocketDir: this test's own, so a leftover socket is seen
 	cache        string
 	argvDir      string
 	logs         *syncBuffer
@@ -108,6 +109,13 @@ func newFixture(t *testing.T) *fixture {
 
 	f.workRoot = filepath.Join(t.TempDir(), "work")
 	f.cache = filepath.Join(t.TempDir(), "cache")
+	// Short (Unix socket paths are at most 104 bytes on macOS), so not under t.TempDir().
+	sockets, err := os.MkdirTemp("", "fxs-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sockets) })
+	f.sockets = sockets
 	f.argvDir = t.TempDir()
 	exe, err := os.Executable()
 	if err != nil {
@@ -127,6 +135,7 @@ func newFixture(t *testing.T) *fixture {
 		Git:           gitw,
 		GitBaseURL:    f.git.ts.URL,
 		SkillsCache:   f.cache,
+		SocketDir:     f.sockets,
 		Environ: func() []string {
 			return []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8", "TERM=dumb", "DOCKER_HOST=unix:///tmp/docker.sock",
 				"SECRET_THING=owner-secret", "GH_TOKEN=owner-gh-token", "AWS_SECRET_ACCESS_KEY=owner-aws", "HOME=/Users/owner", "GIT_ASKPASS=/bin/owner"}

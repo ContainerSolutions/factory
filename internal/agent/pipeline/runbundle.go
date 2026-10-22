@@ -35,13 +35,17 @@ type BundleExtras struct {
 // (workspace-run.md §pipeline.PrepareBundle). It fetches the rendered prompt (checked
 // against spec.prompt.digest), each non-repo context item (a 404 is Gone) and the output
 // schema (a 404 is no schema) through the pipeline's sources, with the bounds and refusals of
-// the prompt and schema steps; materialises the skills with the pipeline's git and skills
-// cache into a scratch directory under WorkRoot, which is always removed; keeps the job's git
-// credentials without their tokens (runbundle.GitAccess); refuses a bundle any of whose bytes
-// hold one of the job's real secrets (checkSecrets); and calls runbundle.Write, which refuses
-// an existing dir. No token reaches the bundle. Its errors name the step that failed;
-// a caller fails the run with harness-error, as the matching host step would.
-func (p *Pipeline) PrepareBundle(ctx context.Context, job *runner.Job, dir string, x BundleExtras) error {
+// the prompt and schema steps; materialises the skills with the pipeline's git (its gitcred
+// socket lives only for the call) and skills cache into the scratch directory
+// WorkRoot/.bundle-<id> (bundleScratch), which replaces a leftover and is always removed;
+// keeps the job's git credentials without their tokens (runbundle.GitAccess); refuses a
+// bundle any of whose bytes hold one of the job's real secrets (checkSecrets); and, unless
+// ctx is done, calls runbundle.Write, which refuses an existing dir. No token reaches the
+// bundle. Its errors name the step that failed and are redacted as the host steps' are; a
+// caller fails the run with harness-error, as the matching host step would.
+func (p *Pipeline) PrepareBundle(ctx context.Context, job *runner.Job, dir string, x BundleExtras) (err error) {
+	red := newRedactor(job)
+	defer func() { err = red.Error(err) }()
 	task := job.Lease.Task
 	id := task.Metadata.ID
 	if !taskIDRE.MatchString(id) || strings.Contains(id, "..") {
@@ -58,7 +62,7 @@ func (p *Pipeline) PrepareBundle(ctx context.Context, job *runner.Job, dir strin
 	if start.IsZero() {
 		start = p.clk.Now()
 	}
-	r := &run{p: p, job: job, task: task, id: id, start: start, log: p.log.With("task", id), red: newRedactor(job)}
+	r := &run{p: p, job: job, task: task, id: id, start: start, log: p.log.With("task", id), red: red}
 
 	raw, err := p.o.Prompts.Prompt(ctx, job)
 	if err == nil {
@@ -79,7 +83,7 @@ func (p *Pipeline) PrepareBundle(ctx context.Context, job *runner.Job, dir strin
 	if err := os.MkdirAll(p.o.WorkRoot, 0o700); err != nil {
 		return fmt.Errorf("work root: %w", err)
 	}
-	scratch, err := os.MkdirTemp(p.o.WorkRoot, id+".bundle-")
+	scratch, err := r.bundleScratch()
 	if err != nil {
 		return fmt.Errorf("workspace: %w", err)
 	}
@@ -124,11 +128,36 @@ func (p *Pipeline) PrepareBundle(ctx context.Context, job *runner.Job, dir strin
 	if err := r.checkSecrets(m, f); err != nil {
 		return fmt.Errorf("bundle: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("bundle: %w", err)
+	}
 	if err := runbundle.Write(dir, m, f); err != nil {
 		return err
 	}
 	r.log.Debug("run bundle written", "dir", dir, "skills", len(skills))
 	return nil
+}
+
+// bundleScratch makes PrepareBundle's scratch directory, WorkRoot/.bundle-<id>, replacing a
+// leftover from a crashed call for the same task, as makeWorkspace replaces a run's. The
+// leading dot keeps it apart from every task's workspace (a task id starts with a letter or
+// a digit).
+func (r *run) bundleScratch() (string, error) {
+	scratch := filepath.Join(r.p.o.WorkRoot, ".bundle-"+r.id)
+	if _, err := os.Lstat(scratch); err == nil {
+		r.log.Warn("removing a leftover bundle scratch directory", "dir", scratch)
+		if err := removeAll(scratch); err != nil {
+			return "", fmt.Errorf("leftover scratch directory: %w", err)
+		}
+	}
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(scratch, 0o700); err != nil { // umask-proof
+		_ = removeAll(scratch)
+		return "", err
+	}
+	return scratch, nil
 }
 
 // checkSecrets refuses a bundle that would hold one of the job's real secrets (its git token,

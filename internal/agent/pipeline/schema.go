@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/agent/runner"
 )
 
-// maxSchema bounds a served output schema.
-const maxSchema = 1 << 20
+// maxSchema bounds a served output schema: runbundle's bound, which Write and Read apply too.
+const maxSchema = runbundle.MaxSchemaBytes
 
 // SchemaSource gives a task's spec-specific output schema (the TaskSpec's output.schema, a
 // JSON Schema document). A nil document means the TaskSpec declares none: the Result is then

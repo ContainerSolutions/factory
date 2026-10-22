@@ -76,6 +76,7 @@ type gitServer struct {
 	authed map[string]int    // requests that carried the right token, by repo
 	denied map[string]int    // requests to a private repo without it, by repo
 	sent   map[string]int    // requests to a public repo that carried credentials anyway
+	reqs   map[string]int    // every request, by repo
 }
 
 func newGitServer(t *testing.T) *gitServer {
@@ -85,7 +86,7 @@ func newGitServer(t *testing.T) *gitServer {
 	if _, err := os.Stat(backend); err != nil {
 		t.Skipf("git http-backend not available: %v", err)
 	}
-	g := &gitServer{t: t, root: t.TempDir(), tokens: map[string]string{}, authed: map[string]int{}, denied: map[string]int{}, sent: map[string]int{}}
+	g := &gitServer{t: t, root: t.TempDir(), tokens: map[string]string{}, authed: map[string]int{}, denied: map[string]int{}, sent: map[string]int{}, reqs: map[string]int{}}
 	h := &cgi.Handler{
 		Path:       backend,
 		Env:        []string{"GIT_PROJECT_ROOT=" + g.root, "GIT_HTTP_EXPORT_ALL=1", "GIT_CONFIG_NOSYSTEM=1", "HOME=" + g.root},
@@ -96,6 +97,7 @@ func newGitServer(t *testing.T) *gitServer {
 		repo := repoOf(r.URL.Path)
 		user, pass, hasAuth := r.BasicAuth()
 		g.mu.Lock()
+		g.reqs[repo]++
 		want := g.tokens[repo]
 		switch {
 		case want == "" && hasAuth:
@@ -182,6 +184,13 @@ func (g *gitServer) counts(repo string) (authed, denied, sent int) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.authed[repo], g.denied[repo], g.sent[repo]
+}
+
+// requests is how many requests a repo got, answered or refused.
+func (g *gitServer) requests(repo string) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.reqs[repo]
 }
 
 // dispatcher is the agent API the pipeline calls: the prompt, the output schema, the context

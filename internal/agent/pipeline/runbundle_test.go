@@ -47,7 +47,8 @@ func (f *fixture) prepare(job *runner.Job, x pipeline.BundleExtras) (string, *ru
 }
 
 // checkNoToken fails if any file under dir holds one of the job's tokens or a value shaped
-// like a token, and checks the scratch directory under the work root is gone.
+// like a token, and checks the scratch directory under the work root and the credential
+// socket's directory are gone.
 func (f *fixture) checkNoToken(dir string) {
 	t := f.t
 	t.Helper()
@@ -64,24 +65,38 @@ func (f *fixture) checkNoToken(dir string) {
 	if ents, err := os.ReadDir(f.workRoot); (err != nil && !errors.Is(err, fs.ErrNotExist)) || len(ents) != 0 {
 		t.Errorf("the work root after PrepareBundle: %v %v", ents, err)
 	}
+	if left, err := filepath.Glob(filepath.Join(f.sockets, "fxgc-*")); err != nil || len(left) != 0 {
+		t.Errorf("the credential socket after PrepareBundle: %v %v", left, err)
+	}
 }
 
 func TestPrepareBundle(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
-		name    string
-		gone    bool
-		schema  string
-		context []runbundle.ContextFile
+		name     string
+		gone     bool
+		schema   string
+		context  []runbundle.ContextFile
+		leftover bool // a crashed call's scratch directory is there
 	}{
 		{name: "everything", schema: releaseDocsSchema, context: []runbundle.ContextFile{{Index: 0, File: "context/0.json"}}},
 		{name: "a gone item and no schema", gone: true, context: []runbundle.ContextFile{{Index: 0, Gone: true}}},
+		{name: "a leftover scratch directory", schema: releaseDocsSchema, context: []runbundle.ContextFile{{Index: 0, File: "context/0.json"}}, leftover: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			f := newFixture(t)
 			f.disp.gone[0] = tt.gone
 			f.disp.schema = tt.schema
+			if tt.leftover {
+				stale := filepath.Join(f.workRoot, ".bundle-"+taskID, "skills", "stale", "SKILL.md")
+				if err := os.MkdirAll(filepath.Dir(stale), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(stale, []byte("stale\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			job := f.job(f.task(), time.Date(2026, 10, 22, 9, 0, 0, 0, time.UTC))
 			dir, b := f.prepare(job, pipeline.BundleExtras{CA: []byte(testCA)})
 			m := b.Manifest
@@ -119,8 +134,10 @@ func TestPrepareBundle(t *testing.T) {
 					t.Errorf("skills/%s: %v", p, err)
 				}
 			}
-			if _, err := os.Stat(filepath.Join(dir, "skills", "ccf-docs", "skills", "docs-gif")); err == nil {
-				t.Error("an unselected skill is in the bundle")
+			for _, p := range []string{"ccf-docs/skills/docs-gif", "stale"} {
+				if _, err := os.Stat(filepath.Join(dir, "skills", filepath.FromSlash(p))); err == nil {
+					t.Errorf("skills/%s, not selected, is in the bundle", p)
+				}
 			}
 			if calls := f.disp.callList(); hasCall(calls, "PUT") {
 				t.Errorf("PrepareBundle uploaded: %v", calls)
@@ -196,6 +213,9 @@ func TestPrepareBundleRefusals(t *testing.T) {
 			job.Lease.Task.Spec.Skills = []v1alpha1.SkillRef{{Source: f.git.ts.URL + "/acme/leaky-skills", Commit: commit, Use: []string{"leak"}}}
 			f.opts.SkillsCache = "" // the source repo holds the token; without a cache it is fetched into the scratch dir
 		}, "bundle: skills/leaky/skills/leak/SKILL.md holds one of the job's credentials"},
+		{"the job's token in the task id", func(_ *testing.T, _ *fixture, job *runner.Job, _ *pipeline.BundleExtras, _ string) {
+			job.Lease.Task.Metadata.ID = "x/" + gitSecret
+		}, `task id "x/` + pipeline.Redacted + `" can't name a workspace`},
 		{"an existing bundle", func(t *testing.T, _ *fixture, _ *runner.Job, _ *pipeline.BundleExtras, dir string) {
 			if err := os.Mkdir(dir, 0o700); err != nil {
 				t.Fatal(err)
@@ -313,6 +333,9 @@ func TestBundleRunMatchesAPIRun(t *testing.T) {
 			f.opts.Prompts = pipeline.BundlePrompts{B: b}
 			f.opts.Schemas = pipeline.BundleSchemas{B: b}
 			f.opts.Skills = pipeline.BundleSkills(b)
+			// Without the cache, a run that fetched its skills would ask the git server for them.
+			f.opts.SkillsCache = ""
+			skillsReqs := f.git.requests("acme/ccf-skills")
 			f.adapter.Script = fake.Script{Turn: fake.Turn{Result: []byte(validResult), Do: bundled.capture(t)}}
 			job := f.job(f.task(), time.Now())
 			job.API = nil
@@ -323,6 +346,16 @@ func TestBundleRunMatchesAPIRun(t *testing.T) {
 			if calls := f.disp.callList()[before:]; len(calls) != 0 {
 				t.Errorf("the bundle run called the dispatcher: %v", calls)
 			}
+			if n := f.git.requests("acme/ccf-skills") - skillsReqs; n != 0 {
+				t.Errorf("the bundle run fetched its skills: %d requests", n)
+			}
+			if ws := f.adapter.Prepared(); len(ws) != 2 || ws[1].Skills != b.Path(runbundle.SkillsDir) {
+				var dirs []string
+				for _, w := range ws {
+					dirs = append(dirs, w.Skills)
+				}
+				t.Errorf("the runs' skills directories %q; the bundle run's should be %s", dirs, b.Path(runbundle.SkillsDir))
+			}
 			if got, want := bundled.String(), api.String(); got != want {
 				t.Errorf("the bundle run differs from the API run:\n--- bundle\n%s\n--- api\n%s", got, want)
 			}
@@ -332,6 +365,30 @@ func TestBundleRunMatchesAPIRun(t *testing.T) {
 			golden(t, tt.golden, []byte(api.summary()))
 		})
 	}
+}
+
+// A PrepareBundle whose context is done by the time the bundle is ready writes nothing.
+func TestPrepareBundleCancelled(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	_, b := f.prepare(f.job(f.task(), time.Now()), pipeline.BundleExtras{})
+	// Sources that don't look at ctx, and no skills to fetch, so only the check before
+	// runbundle.Write can see the cancellation.
+	f.opts.Prompts = pipeline.BundlePrompts{B: b}
+	f.opts.Schemas = pipeline.BundleSchemas{B: b}
+	job := f.job(f.task(), time.Now())
+	job.Lease.Task.Spec.Skills = nil
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	dir := filepath.Join(t.TempDir(), "bundle")
+	err := f.pipeline().PrepareBundle(ctx, job, dir, pipeline.BundleExtras{})
+	if !errors.Is(err, context.Canceled) || !strings.HasPrefix(err.Error(), "bundle: ") {
+		t.Fatalf("PrepareBundle: %v, want bundle: context canceled", err)
+	}
+	if _, err := os.Lstat(dir); err == nil {
+		t.Error("a cancelled PrepareBundle wrote its bundle")
+	}
+	f.checkNoToken(filepath.Dir(dir))
 }
 
 // golden compares got with testdata/name, or rewrites it with -update.

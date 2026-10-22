@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
@@ -35,10 +36,12 @@ func Preamble(taskID, taskSpec string) string {
 	return fmt.Sprintf(preamble, taskID, taskSpec)
 }
 
-// maxPrompt bounds the rendered prompt and each context item fetched.
+// maxPrompt bounds the rendered prompt and maxContext each context item fetched: runbundle's
+// bounds, so an oversize item fails here, on the host, never in runbundle.Write or the VM's
+// Read.
 const (
-	maxPrompt  = 1 << 20
-	maxContext = 4 << 20
+	maxPrompt  = runbundle.MaxPromptBytes
+	maxContext = runbundle.MaxContextBytes
 )
 
 // contextItem is one fetched context item.
