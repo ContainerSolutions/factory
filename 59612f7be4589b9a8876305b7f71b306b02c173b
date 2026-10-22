@@ -1,2 +1,7 @@
 lisa-addressed:
 pass 1: fixed all 7 (bundle modes readable by admin; start event after the bundle read; vmrun writes the outcome on setup failure and Run errors; no transcript on cancel; --system-setup off dirs; cross-references to P1 not the scratch plan; kind images are the warm base's)
+
+lisa-selfreview:
+pass 2 (strict):
+- [must-fix] bundle-cap-below-pipeline-cap: A 1 MiB cap on every bundle file refuses context items the host pipeline accepts (maxContext is 4 MiB)
+- [should-fix] envrun-down-unbounded: envrun's Down has no budget of its own; only vmrun's downGuard bounds it
