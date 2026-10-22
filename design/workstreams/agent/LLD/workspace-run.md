@@ -69,7 +69,7 @@ func (m Manifest) Validate() error
 ### Rules
 
 - **No token field anywhere.** `GitAccess` is the lease's `gitCredential` and `readCredentials` without their `token`; `task.json` is the Task, which by contract carries no credential (the lease carries them beside it). `CodexAccount` holds identifiers, not credentials (P1 §5). A test walks every exported type of the package with reflection and fails on a field named `*Token*`, `*Secret*`, `*Key*` or `*Password*`.
-- **`Write`** refuses an existing `dir` (the supervisor writes each run's bundle once), removes a leftover `dir.tmp`, writes everything into `dir.tmp` (directories 0700, files 0600, a skill's executable files 0700, as the pipeline's `materialise` does), fsyncs the files, then renames `dir.tmp` to `dir`. A failure removes `dir.tmp`. The driver's `Put` copies the tree to `/run/factory`, owned by root and read-only (phase 5).
+- **`Write`** refuses an existing `dir` (the supervisor writes each run's bundle once), removes a leftover `dir.tmp`, writes everything into `dir.tmp` (directories 0700, files 0600, a skill's executable files 0700, as the pipeline's `materialise` does), fsyncs the files, then renames `dir.tmp` to `dir`. A failure removes `dir.tmp`. The driver's `Put` copies the tree to `/run/factory`, owned by root and read-only to everyone (files 0444, directories and executable files 0555), so the run's user, `admin`, can read it and not change it (phase 5).
 - **`Read`** opens the bundle through an `os.Root`, so no manifest path leaves it, reads `bundle.json`, `task.json`, the prompt, the context files and the schema with a 1 MiB cap each (`MaxFileBytes`), and runs `Validate`. It doesn't read the skills: they were bounded when they were materialised (run-pipeline.md §Skills: 50 MB and 5,000 entries per plugin).
 - **`Validate`** checks: `Version == 1`; `RunID` starts with `run_` (a `rtk_` value is refused by name: it's the run token's prefix); `TaskID` and `LeaseID` are set and `TaskID` is `task.json`'s; `Dispatcher` is an absolute `http`/`https` URL without user info, query or fragment; every file path is relative, clean and without `..`; each `Context` index is a non-repo item of the Task's `spec.context`, listed once, with a `File` exactly when it isn't `Gone`; each `Skills` entry's `Dir` is under `skills/` and names one plugin; `Gateway.NoProxy` entries are hosts (`v1alpha1.ValidateHost`) or CIDRs; `Codex` is set exactly when `spec.harness.resolved.name` is `codex`, with all three fields non-empty. Every failure is a `*runbundle.ValidationError{Field, Message}`.
 - **The outcome** (`outcome.go`): the wire `Outcome{Status, Reason, ThrottledUntil, Result, Transcript}`, where `Transcript` is the transcript's file name under `out/` (or empty). `WriteOutcome` writes through a temp file and a rename; `ReadOutcome` caps it at 2 MiB (`MaxOutcomeBytes`) and checks `Status` and `Reason` against the `runner` constants.
@@ -86,7 +86,7 @@ factory-agent run --proxy http://<gateway>:<port> [--bundle /run/factory] [--wor
 ```
 
 - **`--proxy`** is required: an absolute `http` URL with a host and port and nothing else.
-- **`--work`** is the workspace root (`pipeline.Options.Root`); it must be empty or absent. **`--state-dir`** holds what the runtime writes outside the workspace: the environment's scripts, the docker client config, the combined CA bundle. When either is absent and its parent isn't writable by the run's user, system setup creates it with `sudo -n install -d -o <uid> -g <gid> -m 0700`.
+- **`--work`** is the workspace root (`pipeline.Options.Root`); it must be empty or absent. **`--state-dir`** holds what the runtime writes outside the workspace: the environment's scripts, the docker client config, the combined CA bundle. When either is absent and its parent isn't writable by the run's user, system setup creates it with `sudo -n install -d -o <uid> -g <gid> -m 0700`; with `--system-setup off` the run's user must be able to create it (tests pass temp dirs).
 - **`--remaining`** is how much of the task's wall clock is left, measured by the supervisor (no clock skew between the agent host and the VM). Absent: the whole `limits.maxWallClock`.
 - **`--system-setup`**: `on` runs the privileged part of [system setup](#system-setup-vmrunsystemgo); `off` only builds the environment; `auto` is `on` when `/run/systemd/system` exists and `sudo -n true` succeeds (a VM), else `off` (a plain container, a test).
 - **`--harness-bin name=path`** (hidden, repeatable) overrides a harness binary; tests use it for the fake harnesses.
@@ -94,13 +94,13 @@ factory-agent run --proxy http://<gateway>:<port> [--bundle /run/factory] [--wor
 
 ### Sequence (`vmrun.Main`)
 
-1. Parse the flags (exit 2 on a usage error). Start the event encoder and send `start {version, runId, taskId}`.
-2. `runbundle.Read(--bundle)`; a failure is exit 3, with the error on stderr and no outcome.
-3. `Setup(ctx, manifest, proxy, mode)` ([system setup](#system-setup-vmrunsystemgo)). A failure is the outcome `failed{environment-error}` (exit 0): the environment can't be reached without it.
+1. Parse the flags (exit 2 on a usage error).
+2. `runbundle.Read(--bundle)`; a failure is exit 3, with the error on stderr, no events and no outcome. Then send `start {version, runId, taskId}`.
+3. `Setup(ctx, manifest, proxy, mode)` ([system setup](#system-setup-vmrunsystemgo)). A failure is the outcome `failed{environment-error}` (exit 0): the environment can't be reached without it. The pipeline hasn't run, so vmrun writes that outcome itself, creating `<work>/out/`.
 4. `JobFromBundle(b, remaining)` (`job.go`): `Lease` rebuilt from the manifest and `task.json`, with `Git` a `runner.Credentials` holding `GitAccess`'s metadata and empty tokens, `API` nil, `AgentToken` nil, `Dispatcher` the manifest's, and `StartedAt = now + remaining − wall`, where `wall` is the task's `maxWallClock` (else `pipeline.DefaultWallClock`) and `remaining` is capped at `wall`. The pipeline's deadline, `StartedAt + wall`, is then `now + remaining`.
 5. `adapters(b)` (`adapters.go`) builds only the task's harness, with `Isolation: harness.IsolationVM` and a `config.Harness` made from the task's resolved harness (no owner config dir or home: the VM has none).
 6. `pipeline.New` with the workspace options ([below](#pipeline-changes-internalagentpipeline)), then `Run(ctx, job, sink)`, where `sink` (`events.go`) writes `progress` and `usage` events.
-7. `Finished` writes `out/outcome.json` and sends `outcome`; the environment's `down` runs after it, in the pipeline's cleanup.
+7. `Finished` writes `out/outcome.json` and sends `outcome`; the environment's `down` runs after it, in the pipeline's cleanup. When `Run` returns an error instead of an Outcome (it does so before any step, for an invalid `maxWallClock`), `Finished` isn't called and vmrun writes `failed{harness-error}` itself, as in step 3.
 
 ### Event stream
 
@@ -108,13 +108,13 @@ One `runbundle.Event` per line on stdout:
 
 | Type | Payload | When |
 |---|---|---|
-| `start` | `{version, runId, taskId}` | first, before the bundle is read |
+| `start` | `{version, runId, taskId}` | first, once the bundle is read (an invalid bundle gets no events) |
 | `step` | `{name, state: ok\|error, ms, error?}` | each `OnStep` call: the pipeline's steps and envrun's sub-steps |
 | `progress` | a `v1alpha1.ProgressEvent` | each `Sink.Progress` |
 | `usage` | `runner.UsageDelta` in `apiclient.UsageDelta`'s wire shape | each `Sink.Usage` |
 | `outcome` | `runbundle.Outcome` | once, from `Finished` |
 
-**The outcome comes before `down`.** `outcome.json`, the transcript file and the `outcome` event are all written before the environment's `down` runs, so a slow or hung `down` never costs the run its outcome. After the `outcome` event the files under `out/` are final, apart from `environment.log`, which `down` still appends to; the supervisor may `Get` them at once and destroy the VM after its own down budget. Only `step` events for `environment.down` can follow `outcome`.
+**The outcome comes before `down`.** `outcome.json`, the transcript file (when there is one: as on the host, a run that was cancelled or failed before its harness started has none) and the `outcome` event are all written before the environment's `down` runs, so a slow or hung `down` never costs the run its outcome. After the `outcome` event the files under `out/` are final, apart from `environment.log`, which `down` still appends to; the supervisor may `Get` them at once and destroy the VM after its own down budget. Only `step` events for `environment.down` can follow `outcome`.
 
 ### Exit codes and signals
 
@@ -124,7 +124,7 @@ One `runbundle.Event` per line on stdout:
 
 ### The run's user
 
-The run runs as the base image's `admin` user (`WS_USER` in `internal/agent/host/provision/base.sh`; [workspace-host.md](workspace-host.md#the-vm-steps-p1-2)), as `tart exec` gives it. It's root whenever it needs to be: `admin` has passwordless sudo, so the LLM can `sudo apt-get install` (Decision 5), and system setup uses `sudo -n`. `admin` is in the `docker` group, and gh's pinned extensions are installed for it. This is the plan's fallback for claude as root (risk 2), and it uses a user the base already has. A run as root (a plain-container test) still works: it then sets `IS_SANDBOX=1` for claude, and doesn't use `sudo`.
+The run runs as the base image's `admin` user (`WS_USER` in `internal/agent/host/provision/base.sh`; [workspace-host.md](workspace-host.md#the-vm-steps-p1-2)), as `tart exec` gives it. It's root whenever it needs to be: `admin` has passwordless sudo, so the LLM can `sudo apt-get install` (Decision 5), and system setup uses `sudo -n`. `admin` is in the `docker` group, and gh's pinned extensions are installed for it. It also avoids running claude as root ([risk 2](#risks-and-open-questions)), with a user the base already has rather than a new one. A run as root (a plain-container test) still works: it then sets `IS_SANDBOX=1` for claude, and doesn't use `sudo`.
 
 ## Pipeline changes (`internal/agent/pipeline`)
 
@@ -267,7 +267,7 @@ func (p *Pipeline) PrepareBundle(ctx context.Context, job *runner.Job, dir strin
 Phase 5's entry: the supervisor calls it for each lease, before it creates the VM.
 
 - Fetches the prompt, each non-repo context item and the output schema through the `API*` sources (with the same 1 MB schema bound and the same refusals as the `schema` step; a 404 schema is omitted).
-- Materialises the skills with `FetchSkills` into `dir`'s `skills/` (host git fetches only ccf-skills at a pinned commit, never an agent checkout; P1 risk 4).
+- Materialises the skills with `FetchSkills` into `dir`'s `skills/` (host git fetches only ccf-skills at a pinned commit, never an agent checkout; P1 §2's "materialised from the supervisor's cache").
 - Strips the lease's credentials into `GitAccess` (repo, host, permissions, read scopes; no token).
 - Calls `runbundle.Write`. A failure before the VM exists fails the run as the matching host step would (`harness-error`).
 
@@ -295,7 +295,7 @@ Checked against [workspace-host.md](workspace-host.md#the-vm-steps-p1-2):
 | the pinned claude and codex | `/usr/local/bin/claude` (2.1.304), `/usr/local/bin/codex` (rust-v0.163.0) |
 | root when needed | `admin` with passwordless sudo |
 | gh with its extensions | gh and the pinned `gh-pr-review`, `gh-stack` for `admin` (found through `XDG_DATA_HOME`) |
-| kind images | `/var/lib/factory/kind-images/*.tar` (`FACTORY_KIND_IMAGES`) |
+| kind images | the warm base's `/var/lib/factory/kind-images/*.tar` (`FACTORY_KIND_IMAGES`); the base has the empty directory |
 
 ### Phase 4's gateway
 
