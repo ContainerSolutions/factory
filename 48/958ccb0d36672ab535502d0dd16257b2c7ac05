@@ -1,0 +1,4 @@
+lisa-addressed:
+pass 2 fixes:
+- b8a871d136c8 symlink-target-through-symlink: Extract ends with checkLinks, which Stats every extracted symlink through the os.Root; an escape or loop error rejects the archive, a dangling link is allowed. New TestExtract case (a/l -> .., x -> a/l/../..). LLD updated.
+- dfc24f92b9c5 path-tart-version-error-dropped: a PATH tart whose --version fails is reported wrong with the error; new TestTartCheck case "broken on PATH".
