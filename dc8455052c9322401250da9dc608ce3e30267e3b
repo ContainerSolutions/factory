@@ -1,2 +1,5 @@
 lisa-addressed:
 - c6b1f468ea6a CORE-DOC-001 api-server.md AGT-S1-T02b paragraph: added that getTaskOutputSchema (readerAgentOrRun) and getTaskPrompt (agentOrRun) also take their task's run token since P1 phase 1.2.
+
+lisa-design:
+- The contract PR carries the one server change the spec forces (FACTORY-CONTRACT-001 dismissed): TestOperationsCovered checks each operation's access level against the spec's security list, so the new runToken requirement can't merge without the agentOrRun/readerAgentOrRun levels; no handler, store or agent code changes.
