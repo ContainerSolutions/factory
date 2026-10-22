@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 1: CheckAddr checks the zone before Unmap (::ffff:8.8.8.8%en0 is now link-local, with a test); parseHostPort accepts an IPv6 zone only of interface-name bytes (tests for a space, a newline and a colon).
