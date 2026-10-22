@@ -50,7 +50,8 @@ func hostUsage(w io.Writer) {
         again: its exit code is that check's. --dry-run prints the plan and the sudo script
         and changes nothing. --yes installs pf without asking; --no-pf skips it and records
         the opt-out in the state dir (a later init without --no-pf asks again).
-        --only basevm,warmbase applies only those steps (all are still checked).
+        --only basevm,warmbase applies only those steps; all are still checked and printed, but
+        the exit code judges only those steps, platform and statedir.
         --keep-failed keeps a failed VM build's <name>.building VM, for debugging.
         --remove-pf removes the pf anchor, its LaunchDaemon and its pf.conf line.
 
@@ -175,10 +176,30 @@ func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hos
 		return fail(err)
 	}
 	warnSkipped(stderr, sts)
-	if !host.AllOK(sts) {
+	if !host.AllOK(onlyStatuses(sts, o.Only)) {
 		return 1
 	}
 	return 0
+}
+
+// onlyStatuses is what init --only's exit code judges: the listed steps plus platform and
+// statedir, which every apply needs. Without --only, it's every status. The full check is
+// still printed, so a skipped step's state stays visible.
+func onlyStatuses(sts []host.Status, only []string) []host.Status {
+	if len(only) == 0 {
+		return sts
+	}
+	keep := map[string]bool{"platform": true, "statedir": true}
+	for _, n := range only {
+		keep[n] = true
+	}
+	var out []host.Status
+	for _, st := range sts {
+		if keep[st.Step] {
+			out = append(out, st)
+		}
+	}
+	return out
 }
 
 func printStatuses(w io.Writer, sts []host.Status, asJSON bool) error {

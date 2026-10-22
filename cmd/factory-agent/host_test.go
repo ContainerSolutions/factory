@@ -249,3 +249,28 @@ func TestLinePrompt(t *testing.T) {
 		})
 	}
 }
+
+// TestOnlyStatuses: init --only's exit code judges only the listed steps (plus platform and
+// statedir), so steps it didn't apply, like softnet without sudo, don't fail it.
+func TestOnlyStatuses(t *testing.T) {
+	sts := []host.Status{
+		{Step: "platform", State: host.StateOK}, {Step: "statedir", State: host.StateOK},
+		{Step: "softnet", State: host.StateMissing}, {Step: "basevm", State: host.StateOK},
+	}
+	for _, tt := range []struct {
+		only []string
+		ok   bool
+	}{
+		{nil, false},
+		{[]string{"basevm"}, true},
+		{[]string{"basevm", "softnet"}, false},
+	} {
+		if got := host.AllOK(onlyStatuses(sts, tt.only)); got != tt.ok {
+			t.Errorf("--only %v: AllOK = %v, want %v", tt.only, got, tt.ok)
+		}
+	}
+	sts[0].State = host.StateWrong
+	if host.AllOK(onlyStatuses(sts, []string{"basevm"})) {
+		t.Error("--only basevm with a failed platform check: AllOK, want not")
+	}
+}
