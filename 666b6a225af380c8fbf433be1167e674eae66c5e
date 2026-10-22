@@ -11,3 +11,11 @@ lisa-design:
 - TestContract marks the three enrollment ops as covered by checking the 501 problem (sh.check with 501), so the coverage check still holds for every spec operation.
 - The registerAgent example stays the join/owner flow (no refreshToken): it's what the server returns today.
 - The admin 403 message "commands need the maintainers Group" is left as is: web mocks mirror the text and web/ can't change in a Go PR.
+
+lisa-selfreview:
+Self-review pass 1 (strict, ccf-review packs core,go,vue-app,repo/factory): verdict approve, no blocking findings.
+- FACTORY-CONTRACT-001: server changes (access table, 401 refusal of the new headers, three 501 stubs, admin deregister 501) are the minimum the spec forces; recorded as a design note, not a violation.
+- FACTORY-GEN-001 / FACTORY-SPLIT-001: make generate and npm run gen:api leave a clean tree; web/ changes are only schema.d.ts and operations.gen.ts.
+- CORE-TEST-001: covered by TestEnrollmentNotAvailable (both headers alone and with join+owner -> 401; join+owner still registers; admin session and CLI deregister -> 501; reader -> 403 not-admin; agent self -> 204), TestContract (the three stubs -> 501 not-implemented to an admin), TestAuthRequired (new ops and agentOrAdmin refuse missing/wrong credentials) and TestOperationsCovered (access <-> spec security).
+- Considered, not raised: the "agt_" literal now appears in two authenticate cases (pre-existing pattern); the admin 403 detail still says "commands need the maintainers Group" (web mocks mirror it; out of scope for a Go PR); 501 details are not returned to clients and log at error (existing errorHandler rule for 5xx).
+- Verification: make reviewable fails only on the known flake internal/agent/harness/claudecode TestRunFailures under -race (passes on re-run alone); make check-generated lint catalog openapi-lint pass (vacuum 100/100); web vitest 446/446.
