@@ -1,0 +1,14 @@
+lisa-addressed:
+ccf-review of PR #109 (head acf8e81), all 11 findings accepted, fixed in one commit:
+- 992478d63f3b Basic placeholder needs a non-secret username (empty, x, x-access-token or a placeholder); token-as-username is "basic other". TestClassify + TestAssertNoClientCredential.
+- cbfa2534238e every Authorization value classified (first "other" wins). Test: two values.
+- f31ec9c3e20d Record.Credentials: proxy-authorization (CONNECT and plain HTTP), x-api-key, cookie, userinfo; AssertNoClientCredential fails on any "other"; injectAuth drops them and URL.User on the injected routes. Tests for each carrier, plus the upstream never sees them.
+- 11a03eb2cbdd non-rw repos fail closed: gitFetch allows only GET info/refs with RawQuery exactly service=git-upload-pack and POST git-upload-pack without a query. Tests: duplicate service, upper-case path and value, no service, other path, GET upload-pack.
+- 4b6207526263 X-Echo-Path == RequestURI asserted in TestRoutes, TestDispatcherRoutes, TestConcurrent (queries added).
+- fa021c8a1508 hold/release track hijacked CONNECT conns until a tunnel or the inner server owns them; intercepted handlers and inner Serve in wg; Close closes conns, CloseClientConnections, srv.Close, ln.close, inner.Close, wg.Wait. Tests: TestCloseClosesPendingIntercepts, TestCloseWaitsForHandlers.
+- d31456beac9f normHost trims a trailing dot (New, serve, connect).
+- af2368b547ed repoKey: lower-case, trim .git, owner/name only; duplicates after normalising are ErrConfig.
+- 20332f394b5f non-proxy record host via hostOnly(r.Host).
+- 08cb956a7639 package doc + AllowTunnel doc: egress deny list not modelled.
+- df4b39aa2b25 (lead's decision) Config.TaskID + Config.DispatcherRoutes (Route{Method, Path}, only {id} as a pattern), default DefaultDispatcherRoutes() = POST /api/v1/tasks/{id}/effects; others 403 DispatcherRefused and recorded; canonical() check (RawPath, path.Clean) gives 400 first; no ServeMux. TestDispatcherRoutes covers default, opt-in, wrong task id, non-canonical.
+Each fix was mutation-checked (the mutation fails its test; reverted).
