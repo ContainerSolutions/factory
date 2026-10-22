@@ -288,7 +288,7 @@ func validName(h string) bool {
 // letters, digits, '.', '-', '_' and '%', as in %25en0), so Target.Host holds no other text.
 func validZone(z string) bool {
 	for i := 0; i < len(z); i++ {
-		if c := z[i]; !nameByte(c) && !('A' <= c && c <= 'Z') && c != '.' && c != '%' {
+		if c := z[i]; !nameByte(c) && (c < 'A' || c > 'Z') && c != '.' && c != '%' {
 			return false
 		}
 	}
