@@ -3,3 +3,7 @@ lisa-addressed:
 
 lisa-design:
 - The contract PR carries the one server change the spec forces (FACTORY-CONTRACT-001 dismissed): TestOperationsCovered checks each operation's access level against the spec's security list, so the new runToken requirement can't merge without the agentOrRun/readerAgentOrRun levels; no handler, store or agent code changes.
+
+lisa-selfreview:
+pass 2:
+- [nit] CORE-STYLE-001 internal/server/authneg_test.go TestRunTokenRefused: the createEffect body put `body` at the top level instead of in `args` (passed, but not the EffectRequest shape). -> fix.
