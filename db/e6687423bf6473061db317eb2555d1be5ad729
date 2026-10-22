@@ -1,0 +1,11 @@
+lisa-design:
+- OrgToken: the only token body without repositories — organisation permissions only (members: read), installation via GET /orgs/{org}/installation, never handed to an agent. Amends GH-S1-T01's "unscoped tokens impossible" for org reads.
+- Group membership by listing (ResolveGroup cached per member source for the Group's cache.ttl, default 10m), not per-user lookups.
+- Factory identities = <slug>[bot] (slug from GET /app once per Conn; failure fails Normalise → retried).
+- authorAssociation only when the sender authored the object; body/comment text inlined only for maintainer/bot tier and the sender's own text.
+- Deploys link by choosing the Events' objects: one Event per merged PR the SHA contains (newest 20, compare API); none → owner/name#d-<id>.
+- Release previousTag = highest final release below the tag with the same release-please component prefix; non-semver tags get only tag.
+- Recover lists each App's deliveries with the JWT (404 = no webhook), oldest first, once per GUID.
+
+lisa-selfreview:
+Pass 1: no blocking findings; security trade-off (org-scoped members:read token) flagged for the owner.

@@ -1,0 +1,2 @@
+lisa-addressed:
+Open question settled in-PR: P1 §4 example now uses versions: {from: latest} and egress: {mode: default}, and explains FACTORY_VERSION_*.

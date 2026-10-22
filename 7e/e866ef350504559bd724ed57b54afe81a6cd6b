@@ -1,0 +1,13 @@
+lisa-addressed:
+Rebase of PR #104 onto PR #103's head b640022 (was cut from 61540b2), plus the gh-extension fix in 7ee866e.
+
+Conflicts, both sides kept:
+- internal/agent/host/host.go: Env has 2a's Clock and 2b's AgentVersion/AgentLinux/KeepFailed/VM; 2b's Env.Now was dropped and vm.go's builtAt uses Env.Clock (one injected clock; vm_test's dates moved to the fake clock's 09:30). Init keeps 2b's --only and lastRoot (sudo script right after the last step with root lines, before the VM builds) and 2a's pf opt-out: the opt-out is written right after the statedir step (or before the loop when statedir isn't applied), and removed right after the sudo script installs pf, so a failed VM build loses neither. stateDirName const added in steps.go.
+- internal/agent/host/host_test.go: testEnv takes 2b's fields with 2a's clock.NewFake(2026-10-22T09:30Z); TestInitDryRun keeps 2a's sh -n check of the script with 2b's 7 statuses.
+- cmd/factory-agent/host.go: usage has 2a's skipped state and opt-out text plus 2b's --only and --keep-failed; flags have 2a's --no-pf text plus 2b's --only/--keep-failed/--agent-linux.
+- design/workstreams/agent/LLD/workspace-host.md: 2a's pf row (heredocs, skipped) plus 2b's basevm/warmbase rows; the opt-out paragraph says when init writes it.
+- init-dry-run.golden regenerated: 2a's heredoc sudo script plus 2b's basevm/warmbase plan lines (+9 lines vs 2a).
+
+gh extensions (PR question): gh extension install needs a gh login the base build lacks, so base.sh installs gh-pr-review v1.6.2 (sha256 fea079f7...) and gh-stack v0.2.0 (sha256 d2968474...; v0.2.1 was 13 days old) as linux-arm64 release binaries with curl + sha256, into ~admin/.local/share/gh/extensions/gh-<name>/ with gh's binary-extension manifest.yml (ispinned: true), and never runs gh.
+
+Playwright: 1.63.0 published 2026-09-04 (48 days), kept to match web/package.json.
