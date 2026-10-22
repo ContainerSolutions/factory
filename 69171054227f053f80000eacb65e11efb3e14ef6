@@ -1,2 +1,5 @@
 lisa-addressed:
 - TestRunTokenRefused's createEffect body now uses args.body, the EffectRequest shape.
+
+lisa-selfreview:
+pass 3: approve, no new findings (re-read spec, middleware, tests, docs; open question 4ef1728076da stays for reviewers).
