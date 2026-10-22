@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 1 fixes: GitHost knob removed (policy.GitHost = github.com, tied to the CA's name constraints; subdomain semantics noted); a Refusals and errors table (codes, statuses, exact bodies, the X-Factory-Gateway-Refusal header, 502/503/504, egress classes); ca takes a clock but gateway tests use the real one; Clients' source per driver and no proxy auth; interface addresses read by gateway, policy stays pure; record mode is where (accept for peers), refusal marks refusals; refusal code peer; Close writes the records of the tunnels it ends.
