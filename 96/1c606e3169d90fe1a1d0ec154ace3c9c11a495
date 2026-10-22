@@ -3,3 +3,6 @@ Pass 2: the refresh interval is marked as read from codex-rs/login (Phase 0 saw 
 
 lisa-selfreview:
 Pass 3 (strict) on 961c606: approve, no findings. Questions for reviewers listed in the PR body (empty JWT signature vs the LLD; VM smoke coverage; read-only checkout advisory in AGENTS.md).
+
+lisa-design:
+codex IsolationVM: the account comes from codex.Options.Account (*runbundle.CodexAccount), set by vmrun from the bundle; the adapter reads no file for it. The id_token's signature segment is a non-empty dummy ("unsigned"), a departure from the LLD's "empty signature", because codex's decoder may refuse an empty segment and ignores its content. vm() mirrors claudecode's (PR 8) rather than moving to harness.
