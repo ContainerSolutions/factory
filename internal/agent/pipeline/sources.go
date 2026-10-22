@@ -13,7 +13,8 @@ import (
 
 // PromptSource gives a task's rendered prompt template and its context items
 // (workspace-run.md §Sources). renderPrompt keeps the digest check, the size caps, the
-// preamble, the fencing and the tickets; a source only fetches.
+// preamble, the fencing and the tickets; a source only fetches. Its errors fail the prompt
+// step as they are, so each names its operation (APIPrompts: the request).
 type PromptSource interface {
 	// Prompt is the rendered template, byte-exact (its digest is checked against
 	// spec.prompt.digest).
@@ -69,7 +70,8 @@ func (APIPrompts) Context(ctx context.Context, job *runner.Job, i int) (apiclien
 
 // TranscriptStore keeps a run's transcript: gz is the redacted, capped, gzipped JSON Lines
 // buildTranscript made. ref is the Outcome's TranscriptRef; "" when the store returns none
-// (nothing was stored, or someone else uploads it).
+// (nothing was stored, or someone else uploads it). Its errors are logged as they are, so
+// each names its operation (APITranscripts: the request).
 type TranscriptStore interface {
 	Store(ctx context.Context, job *runner.Job, gz []byte) (ref string, err error)
 }

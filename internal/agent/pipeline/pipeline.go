@@ -415,7 +415,7 @@ func stepFromCause(cause error) stepResult {
 // and hands it to Options.Finished. parent is the worker's context.
 func (r *run) finish(parent context.Context, s stepResult) runner.Outcome {
 	t0 := r.p.clk.Now()
-	var stored error
+	var storeErr error
 	// A step that failed because a limit or a rate limit cancelled it (the clone was
 	// cancelled by the wall-clock timer) ended for that reason.
 	if cause := r.mon.stopped(); cause != nil && s.status == runner.StatusFailed &&
@@ -458,13 +458,13 @@ func (r *run) finish(parent context.Context, s stepResult) runner.Outcome {
 		ref, err := r.storeTranscript(uctx)
 		cancel()
 		if err != nil {
-			stored = err
+			storeErr = err
 			r.log.Warn("transcript not uploaded", "err", r.red.String(err.Error()))
 		} else {
 			out.TranscriptRef = ref
 		}
 	}
-	r.stepDone("finish", t0, stored)
+	r.stepDone("finish", t0, storeErr)
 	if f := r.p.o.Finished; f != nil {
 		f(out)
 	}
