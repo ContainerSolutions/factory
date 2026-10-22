@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 2: fixed both (bundle file caps follow the pipeline's maxPrompt/maxContext/maxSchema and Write refuses the same; envrun.Options.DownTimeout bounds Down)
