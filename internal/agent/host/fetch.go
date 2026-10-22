@@ -104,7 +104,7 @@ func checkSHA256(p, want string) error {
 // Extract unpacks the .tar.gz at src into dir, which must exist. It refuses absolute paths,
 // .. entries, symlinks that point outside dir, entries under a symlink the archive made (so a
 // chain of symlinks can't point outside either), entries other than files, dirs and symlinks,
-// and more than MaxArchive bytes in all. Writes go through an os.Root, so nothing lands
+// and more than MaxArchive bytes in all; once extracted, every symlink must resolve inside dir. Writes go through an os.Root, so nothing lands
 // outside dir. Modes keep only the 0755 bits.
 func Extract(src, dir string) error {
 	f, err := os.Open(src)
@@ -123,13 +123,14 @@ func Extract(src, dir string) error {
 	defer func() { _ = root.Close() }()
 	tr := tar.NewReader(zr)
 	var total int64
-	// links are the symlinks extracted so far: with no entry under one, every entry's parent
-	// is a real directory, so the lexical checks below are exact.
+	// links are the symlinks extracted so far: no entry goes under one, so every entry's
+	// parent is a real directory. A target can still go through one, so they're resolved
+	// once everything is extracted.
 	links := map[string]bool{}
 	for {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return nil
+			return checkLinks(root, links)
 		}
 		if err != nil {
 			return err
@@ -169,6 +170,17 @@ func Extract(src, dir string) error {
 			return err
 		}
 	}
+}
+
+// checkLinks resolves every extracted symlink through root: one whose target goes through
+// another symlink and out of the dir (or loops) is an error. A dangling one is fine.
+func checkLinks(root *os.Root, links map[string]bool) error {
+	for name := range links {
+		if _, err := root.Stat(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("archive symlink %q points outside the archive: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func writeEntry(root *os.Root, name string, mode fs.FileMode, r io.Reader, size int64) error {

@@ -180,7 +180,11 @@ func (s tartStep) Check(ctx context.Context) (Status, error) {
 		if err == nil && semver.Compare("v"+v, "v"+s.e.Pins.TartVersion) >= 0 {
 			return Status{State: StateOK, Detail: fmt.Sprintf("tart %s on PATH (%s)", v, p)}, nil
 		}
-		if found == nil {
+		switch {
+		case found != nil:
+		case err != nil:
+			found = &Status{State: StateWrong, Detail: fmt.Sprintf("%s: %v", p, err)}
+		default:
 			found = &Status{State: StateOutdated, Detail: fmt.Sprintf("%s is %q, want %s or newer", p, v, s.e.Pins.TartVersion)}
 		}
 	}

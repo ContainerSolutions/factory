@@ -255,6 +255,7 @@ func TestTartCheck(t *testing.T) {
 		{"old in the state dir", "2.30.0", "", StateOutdated, "is 2.30.0, want " + TartVersion},
 		{"newer on PATH", "", "2.42.0", StateOK, "tart 2.42.0 on PATH (/opt/homebrew/bin/tart)"},
 		{"old on PATH", "", "2.40.0", StateOutdated, `"2.40.0", want ` + TartVersion + " or newer"},
+		{"broken on PATH", "", "broken", StateWrong, "/opt/homebrew/bin/tart: exec format error"},
 		{"old in the state dir, newer on PATH", "2.30.0", "2.41.1", StateOK, "on PATH"},
 	}
 	for _, tt := range tests {
@@ -272,7 +273,9 @@ func TestTartCheck(t *testing.T) {
 			}
 			if tt.onPath != "" {
 				e.LookPath = func(string) (string, error) { return "/opt/homebrew/bin/tart", nil }
-				r.versions["/opt/homebrew/bin/tart"] = tt.onPath
+				if tt.onPath != "broken" { // no version: the fake's --version fails
+					r.versions["/opt/homebrew/bin/tart"] = tt.onPath
+				}
 			}
 			wantState(t, check(t, s), tt.want, tt.detail)
 		})
@@ -588,6 +591,7 @@ func TestExtract(t *testing.T) {
 		{"write through a symlink", []entry{{name: "l", typ: tar.TypeSymlink, link: "."}, {name: "l/evil", body: "x"}}, `under the symlink "l"`},
 		// a/l is the dir itself, so a/l/m -> .. would point outside it although a/.. is local.
 		{"symlink chain", []entry{{name: "a/", typ: tar.TypeDir}, {name: "a/l", typ: tar.TypeSymlink, link: ".."}, {name: "a/l/m", typ: tar.TypeSymlink, link: ".."}, {name: "a/l/m/evil", body: "x"}}, `under the symlink "a/l"`},
+		{"symlink target through a symlink", []entry{{name: "a/", typ: tar.TypeDir}, {name: "a/l", typ: tar.TypeSymlink, link: ".."}, {name: "x", typ: tar.TypeSymlink, link: "a/l/../.."}}, `symlink "x" points outside`},
 		{"hard link", []entry{{name: "a", body: "x"}, {name: "h", typ: tar.TypeLink, link: "a"}}, "unsupported type"},
 		{"oversize", []entry{{name: "big", body: "x", size: MaxArchive + 1}}, "larger than 536870912 bytes"},
 		{"oversize in all", []entry{{name: "a", body: strings.Repeat("x", 1<<20)}, {name: "b", body: "x", size: MaxArchive - 1<<20 + 1}}, "larger than"},
