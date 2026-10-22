@@ -1,0 +1,2 @@
+lisa-selfreview:
+- pass 1: no findings (framework wording only; behaviour, routes, auth and tests unchanged; links resolve). verdict approve

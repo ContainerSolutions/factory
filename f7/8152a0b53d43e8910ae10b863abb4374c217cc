@@ -1,0 +1,2 @@
+lisa-design:
+Decided 2026-10-22 (reviewer, per P1 and the PoC): the run executes as the base admin user with passwordless sudo; the docker client gets no proxies (containers have no internet egress; dockerd keeps its proxy for pulls); supervisors advertise vm-workspace and environment TaskSpecs require it.

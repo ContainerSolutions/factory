@@ -1,0 +1,2 @@
+lisa-addressed:
+ccf-review #52 099d185ee72f: laneOf classifies values against NEEDS_HUMAN/RUNNING/DONE/OPEN vocabularies and ignores the rest

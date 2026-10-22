@@ -1,0 +1,12 @@
+lisa-addressed:
+pass 1 fixes:
+- ed0b2f93783b chained-symlink-escape: Extract tracks the symlinks it made and refuses any entry under one ("archive entry %q is under the symlink %q"), so parents are real dirs and the lexical symlink check is exact. LLD updated.
+- 5ac4334467ce TestExtract: 'write through a symlink' now writes l/evil under l -> . and a new 'symlink chain' case (a/l -> .., a/l/m -> ..) both expect "under the symlink".
+- 07582c935d5d RemovePFScript: the pf.conf reload no longer ends in `2>/dev/null || true`; set -eu reports a failure (golden updated). bootout and the anchor flush stay ignorable.
+- 9f34ae89c5c4 TestInit: each case has noOut; --yes and --no-pf assert no prompt was shown.
+- 9cce6fc22aea Init: an Apply or sudo failure returns a fresh Check with the error; TestInitApplyFails covers it (statedir ok after a softnet 404, no sudo). LLD notes the exit.
+
+lisa-selfreview:
+pass 2/4 (strict), verdict request_changes:
+- [must-fix b8a871d136c8] X:security/symlink-target-through-symlink fetch.go Extract: a/l -> .. then x -> a/l/../.. passes the lexical target check but resolves outside the dir. Fix: Stat every extracted symlink through the os.Root at the end; an escape or loop rejects the archive.
+- [nit dfc24f92b9c5] X:error-handling/path-tart-version-error-dropped steps.go tartStep.Check: a PATH tart whose --version fails is reported as version "" (outdated), dropping the error.

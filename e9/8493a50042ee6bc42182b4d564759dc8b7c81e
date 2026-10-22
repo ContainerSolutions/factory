@@ -1,0 +1,3 @@
+lisa-addressed:
+ccf-review #47 137ba40b1129: stack hosts added to Workspace.Hosts (sandbox allow-list)
+ccf-review #47 f403ee65b4db: stack up/down refuse inside a run; skills get env/wait (reviewer decision: pipeline-managed only)

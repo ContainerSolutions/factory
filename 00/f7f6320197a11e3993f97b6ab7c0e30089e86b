@@ -1,0 +1,7 @@
+lisa-addressed:
+- [should-fix] gitignore-coverage-glob-too-broad .gitignore — anchored to /coverage*.out and *.coverprofile (source files named coverage*.go stay tracked).
+- [nit] CORE-STYLE-001 Makefile generate — dropped the duplicate guarded go generate line.
+- [blocker] CORE-SIZE-001 — handled at PR time: size-exception label + justification (LICENSE is 661 of 1108 lines, verbatim AGPL text).
+
+lisa-selfreview:
+- pass 2: [nit] CORE-DOC-001 README build-release line didn't say it needs web/ (fixed); no other findings, verdict approve

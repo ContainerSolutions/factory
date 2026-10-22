@@ -1,0 +1,10 @@
+lisa-design:
+- catalog-sync runs on the same controller runtime (one key, one worker, RequeueAfter = interval); Resync() forces a reload.
+- Readers use CatalogProvider.Current()/Snapshot() (atomic pointer + channel closed on the next swap); first-load failure = nil + Ready() open; a later failure never clears the live catalog.
+- A rejected head isn't reloaded until it moves; source errors retry with backoff (1s, capped at the poll interval).
+- Timers live in internal/clock (NewTimer/NewTimerAt, absolute deadlines avoid a fake-clock race); controllers use clock.Clock.
+- All git goes through gitsource (Head via ls-remote, Load), which redacts URL user info in errors.
+- --catalog-dir reload polls a tree hash (no fsnotify: not on the allow-list); status is in memory (config never goes in the store).
+
+lisa-selfreview:
+Pass 1: duplication (should-fix) controllers.Clock and runGit duplicated clock/gitsource; fixed before push (timers in internal/clock, gitsource.Head + redaction). No other findings.

@@ -1,0 +1,7 @@
+lisa-addressed:
+pass 2: fixed both (bundle file caps follow the pipeline's maxPrompt/maxContext/maxSchema and Write refuses the same; envrun.Options.DownTimeout bounds Down)
+
+lisa-selfreview:
+pass 3 (strict):
+- [nit] down-budget-wording: environment.go bullet still said downGuard owns the budget after envrun got DownTimeout
+- [nit] effector-wording: "the gateway credentials pushes" in effector.md

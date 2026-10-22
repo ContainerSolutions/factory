@@ -1,0 +1,6 @@
+lisa-design:
+- Go CI = shared ci-go-service.yml @ workflows v1.7.0 (e85d35a) with make-targets `check-generated catalog`; the shared workflow already runs gofmt, vet, mod tidy, race tests, build and golangci-lint with the repo's config.
+- Web CI is a local job (ci-ui.yml assumes the repo root is the Node app); skipped until web/package.json exists.
+- Change detection uses plain `git diff --name-only` (no third-party paths-filter action); workflow edits run both sides; unknown push base runs both.
+- `required` treats skipped as success but failure/cancelled as failure, and requires `changes` to succeed; it's the one check to require (`ci / required`).
+- .golangci.yml now mirrors workflows' shared base config exactly (standard + bodyclose, errorlint, misspell, unconvert; lax generated; common-false-positives + std-error-handling; relative-path-mode gomod) plus depguard and gofmt/goimports. FND-S0-T01 wrongly said api used plain v2 defaults; api uses the shared base.
