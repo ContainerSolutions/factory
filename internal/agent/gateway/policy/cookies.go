@@ -30,15 +30,16 @@ func IsInfraCookie(name string) bool {
 // FilterCookies applies CookiesInfraOnly to a request's Cookie header values: it keeps the
 // name=value pairs whose name IsInfraCookie, in order and as they were sent, joined into one
 // value with "; ". It drops every other cookie, and any pair that isn't name=value or whose value
-// holds a control character. It returns nil when nothing is left, so the caller removes the
-// header.
+// isn't an RFC 6265 cookie-value (no space, comma, backslash or control character, quotes only
+// around it), so a lenient upstream parser can't read another cookie out of a kept one. It
+// returns nil when nothing is left, so the caller removes the header.
 func FilterCookies(values []string) []string {
 	var kept []string
 	for _, v := range values {
 		for part := range strings.SplitSeq(v, ";") {
 			part = strings.Trim(part, " \t")
 			name, value, ok := strings.Cut(part, "=")
-			if ok && IsInfraCookie(name) && !hasCTL(value) {
+			if ok && IsInfraCookie(name) && validCookieValue(value) {
 				kept = append(kept, part)
 			}
 		}
@@ -66,11 +67,16 @@ func isToken(s string) bool {
 	return true
 }
 
-func hasCTL(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] < 0x20 || s[i] == 0x7f {
-			return true
+// validCookieValue reports whether v is an RFC 6265 cookie-value: cookie-octets, optionally
+// inside one pair of double quotes.
+func validCookieValue(v string) bool {
+	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+		v = v[1 : len(v)-1]
+	}
+	for i := 0; i < len(v); i++ {
+		if c := v[i]; c < 0x21 || c > 0x7e || c == '"' || c == ',' || c == ';' || c == '\\' {
+			return false
 		}
 	}
-	return false
+	return true
 }

@@ -34,7 +34,8 @@ func TestHostClasses(t *testing.T) {
 		{"gist.github.com", Ordinary, false, false, CookiesUntouched},
 		{"objects.githubusercontent.com", Ordinary, false, false, CookiesUntouched},
 		{"github.com..", Ordinary, false, false, CookiesUntouched},
-		{"Kclaude.ai", Ordinary, false, false, CookiesUntouched}, // no Unicode folding
+		{"conſole.anthropic.com", Ordinary, false, false, CookiesUntouched}, // no Unicode folding (a long s)
+		{"diſpatcher.factory.internal", Ordinary, false, false, CookiesUntouched},
 		{"140.82.112.3", Ordinary, false, false, CookiesUntouched},
 		{"", Ordinary, false, false, CookiesUntouched},
 	}
@@ -124,6 +125,12 @@ func TestParseTarget(t *testing.T) {
 		{"user@example.com:443", false, false, "", 0, false},
 		{"Key.com:443", false, false, "", 0, false},
 		{"example.com/path:443", false, false, "", 0, false},
+		{"127.1:443", false, false, "", 0, false},
+		{"0x7f000001:80", false, false, "", 0, false},
+		{"2130706433:443", false, false, "", 0, false},
+		{"0177.0.0.1:443", false, false, "", 0, false},
+		{"host.1abc:443", false, false, "", 0, false},
+		{"localhost:8080", true, true, "localhost", 8080, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {

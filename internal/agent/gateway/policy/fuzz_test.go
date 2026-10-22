@@ -56,7 +56,7 @@ func FuzzFilterCookies(f *testing.F) {
 		}
 		for part := range strings.SplitSeq(got[0], "; ") {
 			name, value, ok := strings.Cut(part, "=")
-			if !ok || !IsInfraCookie(name) || hasCTL(value) || strings.Contains(value, ";") {
+			if !ok || !IsInfraCookie(name) || !validCookieValue(value) || strings.ContainsAny(value, " ,;\t") {
 				t.Fatalf("FilterCookies(%q) kept %q", s, part)
 			}
 		}

@@ -25,7 +25,13 @@ func TestFilterCookies(t *testing.T) {
 		{"a control character in the value", []string{"__cf_bm=a\x01b; __oailb=b"}, []string{"__oailb=b"}},
 		{"an empty value kept", []string{"__cf_bm="}, []string{"__cf_bm="}},
 		{"a quoted value kept", []string{`__cf_bm="a=b"`}, []string{`__cf_bm="a=b"`}},
-		{"a value with spaces inside kept", []string{"cf_ob_info=502:8a b:SJC"}, []string{"cf_ob_info=502:8a b:SJC"}},
+		{"an empty quoted value kept", []string{`__cf_bm=""`}, []string{`__cf_bm=""`}},
+		{"a value with a colon kept", []string{"cf_ob_info=502:8a1b:SJC"}, []string{"cf_ob_info=502:8a1b:SJC"}},
+		{"a space can't smuggle a cookie", []string{"__cf_bm=a session=s3cr3t; __oailb=b"}, []string{"__oailb=b"}},
+		{"a comma can't smuggle a cookie", []string{"__cf_bm=a, session=s3cr3t"}, nil},
+		{"a quote inside the value", []string{`__cf_bm=a"b; __oailb="`}, nil},
+		{"a backslash in the value", []string{`__cf_bm=a\b`}, nil},
+		{"a non-ASCII value", []string{"__cf_bm=caf\u00e9"}, nil},
 		{"order kept", []string{"cf_use_ob=0; __cflb=1; s=2; __cfruid=3"}, []string{"cf_use_ob=0; __cflb=1; __cfruid=3"}},
 	}
 	for _, tt := range tests {

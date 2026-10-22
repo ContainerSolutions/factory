@@ -135,8 +135,8 @@ func (c Class) Cookies() CookieRule {
 }
 
 // NormalizeHost lower-cases an ASCII host name and removes one trailing dot. Non-ASCII bytes are
-// kept as they are, so a name that only folds to a known host under Unicode rules (the Kelvin
-// sign) never matches one.
+// kept as they are, so a name that only folds to a known host under Unicode rules
+// (conſole.anthropic.com, with a long s, which strings.EqualFold matches) never matches one.
 func NormalizeHost(h string) string {
 	return strings.TrimSuffix(asciiLower(h), ".")
 }
@@ -261,9 +261,14 @@ func targetPort(s string, present bool, defaultPort uint16) (uint16, bool) {
 	return uint16(n), true
 }
 
-// validName reports whether h (normalised) is a syntactically valid host name.
+// validName reports whether h (normalised) is a syntactically valid host name. Its last label
+// must start with a letter, as v1alpha1.ValidateHost requires, so a numeric form a resolver
+// might read as an IPv4 address (127.1, 0x7f000001, 2130706433) is refused, not resolved.
 func validName(h string) bool {
 	if h == "" || len(h) > 253 {
+		return false
+	}
+	if last := h[strings.LastIndexByte(h, '.')+1:]; last == "" || last[0] < 'a' || last[0] > 'z' {
 		return false
 	}
 	for label := range strings.SplitSeq(h, ".") {
