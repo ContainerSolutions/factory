@@ -287,7 +287,9 @@ other listening services. `+"`factory-agent host init --remove-pf`"+` undoes it.
 // returns the final check (the first one with DryRun, which changes nothing), also when an
 // Apply or the sudo script fails. A failed platform check stops it before anything changes.
 // A pf step skipped (--no-pf, or the prompt declined) is recorded as an opt-out in the state
-// dir; one that's installed removes it.
+// dir; one that's installed removes it. With o.Only, the statedir step is applied too when it
+// isn't ok, since the applies need the dir. The applies hold <statedir>/host.lock: a second
+// Init fails while one runs.
 func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	if e.StageDir == "" {
 		dir, err := os.MkdirTemp("", "factory-agent-host-")
@@ -336,6 +338,13 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 		pfTodo = pfTodo || s.Name() == pfName
 		todo = append(todo, s)
 	}
+	// every apply holds the state dir's lock, and the tart, pf opt-out and VM steps write in
+	// the dir: with --only, the statedir step comes first whenever it isn't ok.
+	if only != nil && (len(todo) > 0 || optOut != "") && !slices.ContainsFunc(todo, func(s Step) bool { return s.Name() == stateDirName }) {
+		if i := slices.IndexFunc(steps, func(s Step) bool { return s.Name() == stateDirName }); i >= 0 && sts[i].State != StateOK {
+			todo = append([]Step{steps[i]}, todo...)
+		}
+	}
 	var root []string
 	lastRoot := -1 // the todo index after whose Apply the sudo script runs
 	fmt.Fprintln(e.Out, "plan:")
@@ -367,19 +376,47 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	// after a failure the statuses are checked again: some steps may have changed things.
 	// The sudo script runs as soon as its steps are staged, so the long VM builds after it
 	// don't hold back the password prompt, and a failed build doesn't skip it.
+	//
+	// The applies, all but the statedir step's (which makes the dir the lock is in), hold
+	// <statedir>/host.lock: a second host init would delete this one's .building VMs.
+	release := func() {}
+	defer func() { release() }()
+	locked := false
+	lock := func() error {
+		if locked {
+			return nil
+		}
+		r, err := lockHost(e)
+		if err != nil {
+			return err
+		}
+		release, locked = r, true
+		return nil
+	}
 	if optOut != "" && !slices.ContainsFunc(todo, func(s Step) bool { return s.Name() == stateDirName }) {
+		if err := lock(); err != nil {
+			return Check(ctx, steps), err
+		}
 		if err := writePFOptOut(e, optOut); err != nil {
 			return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
 		}
 		optOut = ""
 	}
 	for i, s := range todo {
+		if s.Name() != stateDirName {
+			if err := lock(); err != nil {
+				return Check(ctx, steps), err
+			}
+		}
 		e.Log.DebugContext(ctx, "host init: apply", "step", s.Name())
 		if err := s.Apply(ctx); err != nil {
 			return Check(ctx, steps), fmt.Errorf("%s: %w", s.Name(), err)
 		}
 		// the statedir step, just applied, made the dir the opt-out goes in.
 		if s.Name() == stateDirName && optOut != "" {
+			if err := lock(); err != nil {
+				return Check(ctx, steps), err
+			}
 			if err := writePFOptOut(e, optOut); err != nil {
 				return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
 			}
@@ -454,3 +491,9 @@ func quote(s string) string {
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// ErrHostLocked is Init's error while another host init holds the state dir's lock.
+var ErrHostLocked = errors.New("another factory-agent host init is running")
+
+// hostLockPath is the lock Init holds while it applies.
+func hostLockPath(e *Env) string { return filepath.Join(e.StateDir(), "host.lock") }

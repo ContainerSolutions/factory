@@ -6,8 +6,8 @@
 # here rebuilds the base.
 #
 # The harness CLIs (claude-code, codex) are installed and never run here, not even with
-# --version: their presence is checked with [ -x ]. host_test.go's TestProvisionScript
-# enforces it.
+# --version: their presence is checked by reading the files ([ -x ], claude's ELF magic, cmp,
+# readlink). vm_test.go's TestProvisionScript enforces it.
 #
 # Bumping a pin: set the version and the sha256 together, from the source named next to it.
 set -euo pipefail
@@ -38,8 +38,21 @@ GO_SHA256=4a97373d49fcacdcf3694fea368a500b00ee3e963974f3e7514132717632f052
 PLAYWRIGHT_VERSION=1.63.0
 
 # claude-code: the version the owner's smoke run accepted (2026-10-20,
-# internal/agent/harness/claudecode/flags.go). npm checks the package's integrity hash.
+# internal/agent/harness/claudecode/flags.go). npm checks the integrity hashes of the package
+# and of its native dependency.
+#
+# What its postinstall (`node install.cjs`) does, read from the 2.1.304 tarball (npm pack, not
+# run): it picks the platform's optional dependency, here @anthropic-ai/claude-code-linux-arm64
+# (which has no scripts), and hard-links (or else copies) that package's native `claude` over
+# the wrapper's bin/claude.exe, a 500-byte shell stub that only prints "claude native binary
+# not installed", then chmods it 0755. It runs no program on linux (it spawns sysctl only for
+# an x64 node on darwin) and never runs claude. npm 11 skips install scripts it isn't told to
+# allow, which leaves the stub as `claude`: the install allows this one package's script
+# (--allow-scripts=@anthropic-ai/claude-code), and claude_code_installed checks the native
+# binary is in place, without running it.
 CLAUDE_CODE_VERSION=2.1.304
+CLAUDE_CODE_DIR=/usr/local/lib/node_modules/@anthropic-ai/claude-code
+CLAUDE_CODE_NATIVE_DIR=/usr/local/lib/node_modules/@anthropic-ai/claude-code/node_modules/@anthropic-ai/claude-code-linux-arm64
 
 # codex: https://github.com/openai/codex/releases/tag/rust-v0.163.0, the release P1 phase 0
 # ran. The sha256 is codex-aarch64-unknown-linux-musl.tar.gz's, recorded in P1 phase 2b's spec.
@@ -57,6 +70,16 @@ GH_PR_REVIEW_SHA256=fea079f78e7224200d23de847b6210134ccec1a4d2dcff96ca8ca4ce1060
 # https://github.com/github/gh-stack/releases/tag/v0.2.0 (2026-10-02; v0.2.1, 2026-10-09, was newer).
 GH_STACK_VERSION=v0.2.0
 GH_STACK_SHA256=d29684746f337a580667605b34877e5624792bcc390e61473a050bd4839557bf
+
+# The apt signing keys of Docker's and GitHub CLI's repos, checked before apt trusts them. Each
+# sha256 is the key file fetched on 2026-10-22; bump it when the vendor rotates the key.
+# https://download.docker.com/linux/ubuntu/gpg: Docker Release (CE deb), fingerprint
+# 9DC858229FC7DD38854AE2D88D81803C0EBFCD88 (https://docs.docker.com/engine/install/ubuntu/).
+DOCKER_KEY_SHA256=1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570
+# https://cli.github.com/packages/githubcli-archive-keyring.gpg: GitHub CLI, fingerprints
+# 2C6106201985B60E6C7AC87323F3D4EA75716059 and 7F38BBB59D064DBCB3D84D725612B36462313325
+# (https://github.com/cli/cli/blob/trunk/docs/install_linux.md).
+GH_KEY_SHA256=6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b
 
 APT_PACKAGES=(ca-certificates curl gnupg git make jq openssl unzip python3 python3-venv bubblewrap)
 DOCKER_PACKAGES=(docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin)
@@ -81,6 +104,26 @@ installed() {
 	[ -f "$1" ] && [ "$(sha256sum "$1" | cut -d' ' -f1)" = "$2" ]
 }
 
+# apt_key URL SHA256 NAME installs the apt signing key at URL, with that sha256, as
+# /etc/apt/keyrings/NAME. A key already there with the sha256 is left alone; any other is
+# replaced, so a partial download is never kept.
+apt_key() {
+	installed "/etc/apt/keyrings/$3" "$2" && return
+	fetch "$1" "$2" "$TMP/$3"
+	sudo install -m 0644 "$TMP/$3" "/etc/apt/keyrings/$3"
+}
+
+# no_apt_timers stops Ubuntu's background apt runs, in this build and in every clone: they
+# take dpkg's lock under a task's own apt-get and reach for the archive through the gateway.
+no_apt_timers() {
+	echo "== apt timers off"
+	sudo systemctl disable --now apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+	sudo systemctl mask apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service unattended-upgrades.service
+	sudo systemctl stop unattended-upgrades.service 2>/dev/null || true
+	printf 'APT::Periodic::Enable "0";\nAPT::Periodic::Update-Package-Lists "0";\nAPT::Periodic::Unattended-Upgrade "0";\n' |
+		sudo tee /etc/apt/apt.conf.d/99-factory-no-periodic >/dev/null
+}
+
 section_apt() {
 	echo "== apt packages"
 	apt_get update
@@ -92,10 +135,7 @@ section_docker() {
 	echo "== docker"
 	local codename
 	codename="$(. /etc/os-release; echo "$VERSION_CODENAME")"
-	if [ ! -f /etc/apt/keyrings/docker.asc ]; then
-		sudo curl -fsSL --proto '=https' -o /etc/apt/keyrings/docker.asc https://download.docker.com/linux/ubuntu/gpg
-		sudo chmod 0644 /etc/apt/keyrings/docker.asc
-	fi
+	apt_key https://download.docker.com/linux/ubuntu/gpg "$DOCKER_KEY_SHA256" docker.asc
 	echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable" |
 		sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
 	apt_get update
@@ -124,10 +164,7 @@ section_kind() {
 
 section_gh() {
 	echo "== gh and its extensions"
-	if [ ! -f /etc/apt/keyrings/githubcli-archive-keyring.gpg ]; then
-		sudo curl -fsSL --proto '=https' -o /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg
-		sudo chmod 0644 /etc/apt/keyrings/githubcli-archive-keyring.gpg
-	fi
+	apt_key https://cli.github.com/packages/githubcli-archive-keyring.gpg "$GH_KEY_SHA256" githubcli-archive-keyring.gpg
 	echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" |
 		sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
 	apt_get update
@@ -193,14 +230,34 @@ section_playwright() {
 	sudo env DEBIAN_FRONTEND=noninteractive npx -y "playwright@$PLAYWRIGHT_VERSION" install-deps chromium
 }
 
+# version DIR is DIR/package.json's version, or "".
+version() {
+	jq -r .version "$1/package.json" 2>/dev/null || true
+}
+
+# elf PATH is true when PATH is an ELF binary (its first bytes, read without running it).
+elf() {
+	[ "$(head -c 4 "$1" | od -An -tx1 | tr -d ' \n')" = 7f454c46 ]
+}
+
+# claude_code_installed is true when the pinned claude-code is installed with its native
+# binary in place: /usr/local/bin/claude resolves to the wrapper's bin/claude.exe, which is the
+# native package's ELF binary (not the stub), executable. It reads the files, never runs them.
+claude_code_installed() {
+	[ "$(version "$CLAUDE_CODE_DIR")" = "$CLAUDE_CODE_VERSION" ] &&
+		[ "$(version "$CLAUDE_CODE_NATIVE_DIR")" = "$CLAUDE_CODE_VERSION" ] &&
+		elf "$CLAUDE_CODE_NATIVE_DIR/claude" &&
+		[ -x "$CLAUDE_CODE_DIR/bin/claude.exe" ] &&
+		cmp -s "$CLAUDE_CODE_NATIVE_DIR/claude" "$CLAUDE_CODE_DIR/bin/claude.exe" &&
+		[ "$(readlink -f /usr/local/bin/claude)" = "$CLAUDE_CODE_DIR/bin/claude.exe" ]
+}
+
 section_harnesses() {
 	echo "== harness CLIs (installed, never run)"
-	local have
-	have="$(jq -r .version /usr/local/lib/node_modules/@anthropic-ai/claude-code/package.json 2>/dev/null || true)"
-	if [ "$have" != "$CLAUDE_CODE_VERSION" ]; then
-		sudo npm install -g --prefix /usr/local --no-fund --no-audit "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+	if ! claude_code_installed; then
+		sudo npm install -g --prefix /usr/local --no-fund --no-audit --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
 	fi
-	[ -x /usr/local/bin/claude ] || { echo "claude-code's bin is missing: /usr/local/bin/claude" >&2; exit 1; }
+	claude_code_installed || { echo "claude-code's native binary isn't in place: $CLAUDE_CODE_DIR/bin/claude.exe" >&2; exit 1; }
 
 	if [ "$(cat /var/lib/factory/codex.tar.sha256 2>/dev/null || true)" != "$CODEX_SHA256" ] || [ ! -x /usr/local/bin/codex ]; then
 		fetch "https://github.com/openai/codex/releases/download/$CODEX_VERSION/codex-aarch64-unknown-linux-musl.tar.gz" "$CODEX_SHA256" "$TMP/codex.tar.gz"
@@ -225,7 +282,8 @@ section_cleanup() {
 main() {
 	TMP="$(mktemp -d)"
 	trap 'rm -rf "$TMP"' EXIT
-	# the first boot's cloud-init and apt timers may still hold apt's lock.
+	# the first boot's cloud-init may still hold apt's lock; the apt timers are stopped first.
+	no_apt_timers
 	if command -v cloud-init >/dev/null; then
 		sudo cloud-init status --wait >/dev/null || true
 	fi

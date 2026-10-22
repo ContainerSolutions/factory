@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/compliance-framework/factory/internal/agent/config"
 )
 
 // provisionScript is the base VM's provisioning script (provision/base.sh). basevm.json
@@ -47,6 +49,8 @@ const (
 	WarmBaseVM = "factory-agent-warm"
 	// buildingSuffix marks a VM being built; it is renamed into place once complete.
 	buildingSuffix = ".building"
+	// oldSuffix marks the VM a build replaces, renamed aside until the new one is in place.
+	oldSuffix = ".old"
 	// AgentLinuxName is the linux/arm64 factory-agent's default file name, next to the running
 	// binary (make tart-up builds both).
 	AgentLinuxName = "factory-agent-linux-arm64"
@@ -226,14 +230,55 @@ func (s baseVMStep) Check(ctx context.Context) (Status, error) {
 func (s baseVMStep) Plan(context.Context) (Plan, error) {
 	e, name := s.e, s.e.BaseVMName()
 	b, sz := name+buildingSuffix, e.Workspace.Size
-	return Plan{Do: []string{
+	do := []string{
 		"tart clone " + e.Pins.BaseImage + " " + b,
 		fmt.Sprintf("tart set %s --cpu %d --memory %d --disk-size %d", b, sz.CPUs, sz.MemoryGiB()*1024, sz.DiskGiB()),
 		fmt.Sprintf("tart run %s --no-graphics (in the background); wait for tart exec (%s)", b, e.VM.Boot),
 		fmt.Sprintf("tart exec -i %s bash -s < the embedded provisioning script (%s)", b, e.VM.Provision),
 		"copy " + e.AgentLinux + " to " + agentInVM + " in the VM and check its sha256",
-		fmt.Sprintf("shut it down (%s), tart rename %s %s (replacing an older %s), write %s", e.VM.Shutdown, b, name, name, s.record()),
-	}}, nil
+		fmt.Sprintf("shut it down (%s), tart rename %s %s (an older %s is renamed aside to %s%s, then deleted), write %s", e.VM.Shutdown, b, name, name, name, oldSuffix, s.record()),
+	}
+	if prev := s.previous(); prev != "" {
+		do = append(do, "tart delete "+prev+" (the previous base, named in basevm.json), unless it's running")
+	}
+	return Plan{Do: do}, nil
+}
+
+// previous is the base VM the current basevm.json names when it's an earlier one of host
+// init's (BaseVMPrefix, another name): a new version's build deletes it. "" otherwise, also
+// for an unreadable record, which names nothing to delete.
+func (s baseVMStep) previous() string {
+	var rec BaseVMRecord
+	if ok, err := readRecord(s.record(), &rec); err != nil || !ok {
+		return ""
+	}
+	if rec.Name == s.e.BaseVMName() || !strings.HasPrefix(rec.Name, BaseVMPrefix) || strings.HasSuffix(rec.Name, buildingSuffix) || strings.HasSuffix(rec.Name, oldSuffix) {
+		return ""
+	}
+	return rec.Name
+}
+
+// deletePrevious deletes the previous version's base, unless it's gone or running; a failure
+// is a warning: the new base is built.
+func (s baseVMStep) deletePrevious(ctx context.Context, prev string) {
+	tart := s.e.tartBin(ctx)
+	vms, err := s.e.vms(ctx, tart)
+	if err != nil {
+		fmt.Fprintf(s.e.Out, "warning: the previous base %s is left: %v\n", prev, err)
+		return
+	}
+	v, ok := vms[prev]
+	switch {
+	case !ok:
+		return
+	case v.State != "stopped":
+		fmt.Fprintf(s.e.Out, "warning: the previous base %s is %s: left in place (tart delete %s when it's stopped)\n", prev, v.State, prev)
+		return
+	}
+	fmt.Fprintf(s.e.Out, "deleting the previous base %s\n", prev)
+	if err := s.e.Runner.Run(ctx, s.e.Out, tart, "delete", prev); err != nil {
+		fmt.Fprintf(s.e.Out, "warning: deleting the previous base %s: %v\n", prev, err)
+	}
 }
 
 func (s baseVMStep) Apply(ctx context.Context) error {
@@ -248,6 +293,7 @@ func (s baseVMStep) Apply(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	prev := s.previous()
 	sz := s.e.Workspace.Size
 	set := []string{"--cpu", strconv.Itoa(sz.CPUs), "--memory", strconv.Itoa(sz.MemoryGiB() * 1024), "--disk-size", strconv.Itoa(sz.DiskGiB())}
 	err = s.e.buildVM(ctx, rec.Source, rec.Name, set, func(ctx context.Context, b *vmBuild) error {
@@ -263,7 +309,13 @@ func (s baseVMStep) Apply(ctx context.Context) error {
 		return err
 	}
 	rec.BuiltAt = s.e.Clock.Now().UTC().Format(time.RFC3339)
-	return writeRecord(s.record(), rec)
+	if err := writeRecord(s.record(), rec); err != nil {
+		return err
+	}
+	if prev != "" {
+		s.deletePrevious(ctx, prev)
+	}
+	return nil
 }
 
 // warmBaseStep clones the base into the warm base and fills its Docker cache with
@@ -318,22 +370,32 @@ func (s warmBaseStep) Check(ctx context.Context) (Status, error) {
 	return s.e.vmStatus(ctx, WarmBaseVM, fmt.Sprintf("%s from %s, %d images, %d kind images", WarmBaseVM, b.Name, len(w.Images), len(w.KindImages)))
 }
 
-// kindArchive is a kind image's archive in the VM: the image with [^A-Za-z0-9._-] mapped to _.
-func kindArchive(image string) string {
-	return KindImagesDir + "/" + nameUnsafeRE.ReplaceAllString(image, "_") + ".tar"
+// kindArchive is a kind image's archive in the VM: its tag (config.KindImageTag) with
+// [^A-Za-z0-9._-] mapped to _.
+func kindArchive(tag string) string {
+	return KindImagesDir + "/" + nameUnsafeRE.ReplaceAllString(tag, "_") + ".tar"
 }
 
-// archives maps each kind image to its archive; two images with one archive are an error.
-func (s warmBaseStep) archives() ([]string, error) {
+// kindSave is how a kind image is saved: pulled as ref, then saved by tag, the reference
+// kind's nodes find it by. docker save of a ref with a digest writes an archive without a
+// repo tag, so a digest-pinned ref is tagged first (docker tag ref tag).
+type kindSave struct{ ref, tag, archive string }
+
+// kindSaves maps each kind image to its save; two images with one tag or archive are an error.
+func (s warmBaseStep) kindSaves() ([]kindSave, error) {
 	seen := map[string]string{}
-	var out []string
+	var out []kindSave
 	for _, im := range s.e.Workspace.Warm.KindImages {
-		a := kindArchive(im)
+		tag, ok := config.KindImageTag(im)
+		if !ok {
+			return nil, fmt.Errorf("warm.kindImages %q has a digest but no tag", im)
+		}
+		a := kindArchive(tag)
 		if prev, ok := seen[a]; ok && prev != im {
 			return nil, fmt.Errorf("warm.kindImages %q and %q both save to %s", prev, im, a)
 		}
 		seen[a] = im
-		out = append(out, a)
+		out = append(out, kindSave{ref: im, tag: tag, archive: a})
 	}
 	return out, nil
 }
@@ -341,7 +403,8 @@ func (s warmBaseStep) archives() ([]string, error) {
 func (s warmBaseStep) Plan(context.Context) (Plan, error) {
 	e := s.e
 	b, w := WarmBaseVM+buildingSuffix, e.Workspace.Warm
-	if _, err := s.archives(); err != nil {
+	saves, err := s.kindSaves()
+	if err != nil {
 		return Plan{}, err
 	}
 	do := []string{"tart clone " + e.BaseVMName() + " " + b}
@@ -352,12 +415,16 @@ func (s warmBaseStep) Plan(context.Context) (Plan, error) {
 		for _, im := range w.Images {
 			do = append(do, "tart exec "+b+" sudo docker pull "+im)
 		}
-		for _, im := range w.KindImages {
-			do = append(do, "tart exec "+b+" sudo docker pull "+im+", then docker save -o "+kindArchive(im))
+		for _, k := range saves {
+			tag := ""
+			if k.tag != k.ref {
+				tag = " and docker tag it " + k.tag
+			}
+			do = append(do, "tart exec "+b+" sudo docker pull "+k.ref+tag+", then docker save -o "+k.archive+" "+k.tag)
 		}
 		do = append(do, fmt.Sprintf("clear its machine-id and cloud-init state, shut it down (%s)", e.VM.Shutdown))
 	}
-	do = append(do, fmt.Sprintf("tart rename %s %s (replacing an older one), write %s", b, WarmBaseVM, s.record()))
+	do = append(do, fmt.Sprintf("tart rename %s %s (an older one is renamed aside to %s%s, then deleted), write %s", b, WarmBaseVM, WarmBaseVM, oldSuffix, s.record()))
 	return Plan{Do: do}, nil
 }
 
@@ -374,7 +441,7 @@ func (s warmBaseStep) Apply(ctx context.Context) error {
 	if _, err := readRecord(s.e.baseVM().record(), &base); err != nil {
 		return err
 	}
-	archives, err := s.archives()
+	saves, err := s.kindSaves()
 	if err != nil {
 		return err
 	}
@@ -389,11 +456,16 @@ func (s warmBaseStep) Apply(ctx context.Context) error {
 					return err
 				}
 			}
-			for i, im := range w.KindImages {
-				if err := b.exec(pctx, "sudo", "docker", "pull", im); err != nil {
+			for _, k := range saves {
+				if err := b.exec(pctx, "sudo", "docker", "pull", k.ref); err != nil {
 					return err
 				}
-				if err := b.exec(pctx, "sudo", "docker", "save", "-o", archives[i], im); err != nil {
+				if k.tag != k.ref {
+					if err := b.exec(pctx, "sudo", "docker", "tag", k.ref, k.tag); err != nil {
+						return err
+					}
+				}
+				if err := b.exec(pctx, "sudo", "docker", "save", "-o", k.archive, k.tag); err != nil {
 					return err
 				}
 			}
@@ -420,6 +492,8 @@ type vmBuild struct {
 	vm, bin string
 	out     io.Writer
 	proc    Process
+	// renamed is set once vm has become the final VM: nothing is left to clean up.
+	renamed bool
 }
 
 // lockedWriter serialises writes: tart run's output arrives from another goroutine.
@@ -436,8 +510,8 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 
 // buildVM makes final from src: it clones src into final.building, runs tart set with set
 // (when given) and, when provision is set, boots the VM, runs provision, and shuts it down.
-// Then it renames final.building to final, replacing an older final. Any failure deletes
-// final.building, unless KeepFailed.
+// Then it renames final.building to final, replacing an older final (see replace). Any
+// failure before that deletes final.building, unless KeepFailed.
 func (e *Env) buildVM(ctx context.Context, src, final string, set []string, provision func(context.Context, *vmBuild) error) (err error) {
 	b := &vmBuild{e: e, vm: final + buildingSuffix, bin: e.tartBin(ctx), out: &lockedWriter{w: e.Out}}
 	vms, err := e.vms(ctx, b.bin)
@@ -465,7 +539,7 @@ func (e *Env) buildVM(ctx context.Context, src, final string, set []string, prov
 		if b.proc != nil {
 			b.proc.Stop()
 		}
-		if err == nil {
+		if err == nil || b.renamed {
 			return
 		}
 		if e.KeepFailed {
@@ -496,16 +570,57 @@ func (e *Env) buildVM(ctx context.Context, src, final string, set []string, prov
 			return err
 		}
 	}
-	if vms, err = e.vms(ctx, b.bin); err != nil {
+	return b.replace(ctx, final)
+}
+
+// replace renames the built VM to final. An older final is renamed aside to final.old first,
+// and deleted only once the new one is in place; when the rename fails, final.old is renamed
+// back, so a failed last step leaves the older VM working. A final.old left by an interrupted
+// run is the older VM when final is missing, and is deleted when final is there.
+func (b *vmBuild) replace(ctx context.Context, final string) error {
+	old := final + oldSuffix
+	vms, err := b.e.vms(ctx, b.bin)
+	if err != nil {
 		return err
 	}
-	if _, ok := vms[final]; ok {
-		fmt.Fprintf(b.out, "deleting the older %s\n", final)
-		if err := b.tart(ctx, "delete", final); err != nil {
+	_, haveFinal := vms[final]
+	_, haveOld := vms[old]
+	if haveOld && haveFinal {
+		fmt.Fprintf(b.out, "deleting the leftover %s\n", old)
+		if err := b.tart(ctx, "delete", old); err != nil {
 			return err
 		}
+		haveOld = false
 	}
-	return b.tart(ctx, "rename", b.vm, final)
+	if haveFinal {
+		fmt.Fprintf(b.out, "renaming the older %s aside to %s\n", final, old)
+		if err := b.tart(ctx, "rename", final, old); err != nil {
+			return err
+		}
+		haveOld = true
+	}
+	if err := b.tart(ctx, "rename", b.vm, final); err != nil {
+		if haveOld {
+			// cleanup runs after an interrupt too, so it gets its own context.
+			cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			defer cancel()
+			fmt.Fprintf(b.out, "putting the older %s back\n", final)
+			if rerr := b.tart(cctx, "rename", old, final); rerr != nil {
+				return errors.Join(err, fmt.Errorf("putting back %s: %w", final, rerr))
+			}
+		}
+		return err
+	}
+	b.renamed = true
+	if haveOld {
+		fmt.Fprintf(b.out, "deleting the older %s\n", old)
+		// the new VM is in place: a failed delete leaves only the older one's disk, which the
+		// next build deletes.
+		if err := b.tart(ctx, "delete", old); err != nil {
+			fmt.Fprintf(b.out, "warning: deleting %s: %v (tart delete %s)\n", old, err, old)
+		}
+	}
+	return nil
 }
 
 // tart runs tart with args, its output to the build's.
@@ -530,7 +645,7 @@ func (b *vmBuild) boot(ctx context.Context) error {
 		return err
 	}
 	b.proc = p
-	ok, exited, err := b.poll(ctx, b.e.VM.Boot, func(ctx context.Context) bool {
+	ok, exited, err := b.poll(ctx, b.e.VM.Boot, b.proc.Exited(), func(ctx context.Context) bool {
 		return b.e.Runner.Run(ctx, io.Discard, b.bin, "exec", b.vm, "true") == nil
 	})
 	switch {
@@ -548,9 +663,9 @@ func (b *vmBuild) boot(ctx context.Context) error {
 	return nil
 }
 
-// poll checks cond every VM.Poll until it's true, timeout passes (ok false) or tart run
-// exits (exited). err is set only when ctx is done.
-func (b *vmBuild) poll(ctx context.Context, timeout time.Duration, cond func(context.Context) bool) (ok, exited bool, err error) {
+// poll checks cond every VM.Poll until it's true, timeout passes (ok false) or exit is closed
+// (exited; a nil exit is never closed). err is set only when ctx is done.
+func (b *vmBuild) poll(ctx context.Context, timeout time.Duration, exit <-chan struct{}, cond func(context.Context) bool) (ok, exited bool, err error) {
 	wctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	for {
@@ -560,29 +675,37 @@ func (b *vmBuild) poll(ctx context.Context, timeout time.Duration, cond func(con
 		select {
 		case <-wctx.Done():
 			return false, false, ctx.Err()
-		case <-b.proc.Exited():
+		case <-exit:
 			return false, true, nil
 		case <-time.After(b.e.VM.Poll):
 		}
 	}
 }
 
-// shutdown shuts the VM down and waits until tart list shows it stopped (tart run exiting
-// means it has); after VM.Shutdown it runs tart stop. tart run is stopped in any case.
+// shutdown shuts the VM down and waits until tart list shows it stopped. tart run exits once
+// the guest has powered off, often before tart list says stopped: then it waits for tart list
+// alone. After VM.Shutdown it runs tart stop, which fails on a VM that has stopped meanwhile
+// ("is not running"): that is a stopped VM too. tart run is stopped in any case.
 func (b *vmBuild) shutdown(ctx context.Context) error {
 	fmt.Fprintf(b.out, "shutting %s down\n", b.vm)
 	// the VM goes away under the command, so its error says nothing.
 	_ = b.tart(ctx, "exec", b.vm, "sudo", "shutdown", "-h", "now")
-	ok, _, err := b.poll(ctx, b.e.VM.Shutdown, func(ctx context.Context) bool {
+	stopped := func(ctx context.Context) bool {
 		vms, err := b.e.vms(ctx, b.bin)
 		return err == nil && vms[b.vm].State == "stopped"
-	})
+	}
+	ok, exited, err := b.poll(ctx, b.e.VM.Shutdown, b.proc.Exited(), stopped)
+	if err == nil && exited {
+		fmt.Fprintf(b.out, "tart run exited: waiting for tart list to show %s stopped\n", b.vm)
+		ok, _, err = b.poll(ctx, b.e.VM.Shutdown, nil, stopped)
+	}
 	if err != nil {
 		return err
 	}
 	if !ok {
 		fmt.Fprintf(b.out, "%s didn't stop within %s: tart stop\n", b.vm, b.e.VM.Shutdown)
-		if err := b.tart(ctx, "stop", b.vm); err != nil {
+		var msg bytes.Buffer
+		if err := b.e.Runner.Run(ctx, io.MultiWriter(b.out, &msg), b.bin, "stop", b.vm); err != nil && !strings.Contains(msg.String(), "is not running") {
 			return err
 		}
 	}

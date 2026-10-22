@@ -127,7 +127,8 @@ func TestHostCheckAndDryRun(t *testing.T) {
 		t.Error("--dry-run made the state dir")
 	}
 
-	// --only basevm,warmbase with --agent-linux: only their plan, no sudo script.
+	// --only basevm,warmbase with --agent-linux: their plan, and the missing state dir's (they
+	// write there), no sudo script.
 	agent := filepath.Join(t.TempDir(), "agent-linux")
 	if err := os.WriteFile(agent, []byte("linux"), 0o755); err != nil {
 		t.Fatal(err)
@@ -136,7 +137,7 @@ func TestHostCheckAndDryRun(t *testing.T) {
 	if code := runHost(context.Background(), []string{"init", "--dry-run", "--only", "basevm, warmbase", "--agent-linux", agent}, &out, &errOut, d); code != 0 {
 		t.Fatalf("init --dry-run --only: code %d, %s", code, errOut.String())
 	}
-	for w, want := range map[string]bool{"basevm    tart clone ghcr.io/cirruslabs/ubuntu@sha256:": true, "copy " + agent: true, "warmbase  tart clone factory-agent-base-dev": true, "statedir  create": false, "sudo script": false} {
+	for w, want := range map[string]bool{"basevm    tart clone ghcr.io/cirruslabs/ubuntu@sha256:": true, "copy " + agent: true, "warmbase  tart clone factory-agent-base-dev": true, "statedir  create": true, "\n  softnet   ": false, "sudo script": false} {
 		if strings.Contains(out.String(), w) != want {
 			t.Errorf("--only dry run: %q in the output is %v, want %v:\n%s", w, !want, want, out.String())
 		}

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -33,10 +34,16 @@ type fakeTart struct {
 	script    []byte // what bash -s read
 	files     map[string][]byte
 	badSum    bool // sha256sum answers another sum
+	// listLag: after shutdown -h, tart list still shows the VM running this many times,
+	// though tart run has exited (a real Mac's order).
+	listLag int
+	lag     map[string]int
+	// stopStrict: tart stop on a VM that isn't running fails, as tart 2.41 does.
+	stopStrict bool
 }
 
 func (f *fakeTart) init() {
-	f.vms, f.procs, f.files = map[string]string{}, map[string]*fakeProc{}, map[string][]byte{}
+	f.vms, f.procs, f.files, f.lag = map[string]string{}, map[string]*fakeProc{}, map[string][]byte{}, map[string]int{}
 }
 
 type fakeProc struct {
@@ -115,7 +122,12 @@ func (f *fakeTart) run(call string, out io.Writer, in io.Reader, args []string) 
 				}
 			}
 		}) {
-			list = append(list, vm{n, f.vms[n], "local"})
+			st := f.vms[n]
+			if f.lag[n] > 0 {
+				f.lag[n]--
+				st = "running"
+			}
+			list = append(list, vm{n, st, "local"})
 		}
 		return json.NewEncoder(out).Encode(list)
 	case "clone":
@@ -138,6 +150,7 @@ func (f *fakeTart) run(call string, out io.Writer, in io.Reader, args []string) 
 			return fmt.Errorf("the VM %q is running", args[1])
 		}
 		delete(f.vms, args[1])
+		f.moveFiles(args[1], "")
 	case "rename":
 		if err := need(args[1]); err != nil {
 			return err
@@ -147,7 +160,12 @@ func (f *fakeTart) run(call string, out io.Writer, in io.Reader, args []string) 
 		}
 		f.vms[args[2]] = f.vms[args[1]]
 		delete(f.vms, args[1])
+		f.moveFiles(args[1], args[2])
 	case "stop":
+		if f.stopStrict && f.vms[args[1]] != "running" {
+			_, _ = fmt.Fprintf(out, "VM %q is not running\n", args[1])
+			return errors.New("exit status 2")
+		}
 		f.stop(args[1])
 	case "exec":
 		args = args[1:]
@@ -194,6 +212,7 @@ func (f *fakeTart) run(call string, out io.Writer, in io.Reader, args []string) 
 		case cmd == "sudo shutdown -h now":
 			if !f.noStop {
 				f.stop(vm)
+				f.lag[vm] = f.listLag
 			}
 			return errors.New("connection lost")
 		}
@@ -201,6 +220,18 @@ func (f *fakeTart) run(call string, out io.Writer, in io.Reader, args []string) 
 		return fmt.Errorf("unexpected tart %s", call)
 	}
 	return nil
+}
+
+// moveFiles moves vm's files to to (deletes them when to is ""): a VM's disk goes with it.
+func (f *fakeTart) moveFiles(vm, to string) {
+	for k, b := range f.files {
+		if p, ok := strings.CutPrefix(k, vm+":"); ok {
+			delete(f.files, k)
+			if to != "" {
+				f.files[to+":"+p] = b
+			}
+		}
+	}
 }
 
 // tartCalls are the recorded tart calls.
@@ -270,7 +301,7 @@ func TestBaseVMApply(t *testing.T) {
 	if !bytes.Equal(r.tart.script, provisionScript) {
 		t.Error("bash -s didn't get the provisioning script")
 	}
-	if got := string(r.tart.files["factory-agent-base-0.1.0.building:/usr/local/bin/factory-agent"]); got != "factory-agent linux/arm64" {
+	if got := string(r.tart.files["factory-agent-base-0.1.0:/usr/local/bin/factory-agent"]); got != "factory-agent linux/arm64" {
 		t.Errorf("the VM's factory-agent is %q", got)
 	}
 	if r.vmState("factory-agent-base-0.1.0") != "stopped" || r.vmState("factory-agent-base-0.1.0.building") != "" || r.vmState("factory-ws-base") != "stopped" {
@@ -459,6 +490,138 @@ func TestBaseVMShutdownTimeout(t *testing.T) {
 	}
 }
 
+// TestBaseVMShutdown: tart run exits when the guest powers off, often before tart list says
+// stopped; and tart stop fails on a VM that has stopped. Neither fails the build.
+func TestBaseVMShutdown(t *testing.T) {
+	tests := []struct {
+		name     string
+		set      func(*Env, *fakeRunner)
+		wantStop int
+		wantOut  string
+		wantErr  string
+	}{
+		{"tart run exits before tart list says stopped", func(_ *Env, r *fakeRunner) { r.tart.listLag, r.tart.stopStrict = 3, true }, 0, "tart run exited: waiting for tart list", ""},
+		{"tart stop on a VM that stopped meanwhile", func(e *Env, r *fakeRunner) {
+			r.tart.listLag, r.tart.stopStrict, e.VM.Shutdown = 1<<30, true, 20*time.Millisecond
+		}, 1, `VM "factory-agent-base-0.1.0.building" is not running`, ""},
+		{"tart stop fails", func(e *Env, r *fakeRunner) { r.tart.noStop, r.tart.fail, e.VM.Shutdown = true, "tart stop", 20*time.Millisecond }, 1, "didn't stop within 20ms", "injected failure"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, r := testEnv(t)
+			mkStateDir(t, e)
+			var out bytes.Buffer
+			e.Out = &out
+			tt.set(e, r)
+			err := baseVMStep{e}.Apply(context.Background())
+			switch {
+			case tt.wantErr == "" && err != nil:
+				t.Fatalf("%v\n%s", err, out.String())
+			case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)):
+				t.Fatalf("err = %v, want %q", err, tt.wantErr)
+			}
+			if n := r.ran("tart stop"); n != tt.wantStop || !strings.Contains(out.String(), tt.wantOut) {
+				t.Errorf("tart stop ran %d times, want %d; output:\n%s", n, tt.wantStop, out.String())
+			}
+			if tt.wantErr == "" && r.vmState("factory-agent-base-0.1.0") != "stopped" {
+				t.Errorf("VMs %v", r.tart.vms)
+			}
+		})
+	}
+}
+
+// TestBaseVMReplace: an older VM is renamed aside and deleted only once the new one is in
+// place; a failed rename puts it back.
+func TestBaseVMReplace(t *testing.T) {
+	const final, old, building = "factory-agent-base-0.1.0", "factory-agent-base-0.1.0.old", "factory-agent-base-0.1.0.building"
+	tests := []struct {
+		name    string
+		vms     []string // the VMs before the build, each marked as the older one
+		fail    string
+		wantErr string
+		want    string // what final is after: "new", "older"
+	}{
+		{"replaces the older", []string{final}, "", "", "new"},
+		{"rename fails: the older stays", []string{final}, "tart rename " + building, "injected failure", "older"},
+		{"rename aside fails", []string{final}, "tart rename " + final + " ", "injected failure", "older"},
+		{"an interrupted run's .old is the older", []string{old}, "tart rename " + building, "injected failure", "older"},
+		{"an interrupted run's .old, replaced", []string{old}, "", "", "new"},
+		{"a leftover .old beside the older", []string{final, old}, "", "", "new"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, r := testEnv(t)
+			mkStateDir(t, e)
+			for _, v := range tt.vms {
+				r.tart.vms[v] = "stopped"
+				r.tart.files[v+":id"] = []byte("older")
+			}
+			r.tart.fail = tt.fail
+			if err := (baseVMStep{e}).Apply(context.Background()); (tt.wantErr == "" && err != nil) || (tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr))) {
+				t.Fatalf("err = %v, want %q", err, tt.wantErr)
+			}
+			got := "missing"
+			switch {
+			case r.vmState(final) == "":
+			case string(r.tart.files[final+":id"]) == "older":
+				got = "older"
+			case r.tart.files[final+":/usr/local/bin/factory-agent"] != nil:
+				got = "new"
+			}
+			if got != tt.want || r.vmState(old) != "" || r.vmState(building) != "" {
+				t.Errorf("%s is %s, want %s; VMs %v; calls:\n%s", final, got, tt.want, r.tart.vms, r.tartCalls())
+			}
+		})
+	}
+}
+
+// TestBaseVMPreviousVersion: a new version's base deletes the previous one basevm.json named,
+// unless it's running or not one of host init's.
+func TestBaseVMPreviousVersion(t *testing.T) {
+	tests := []struct {
+		name, prev, state string
+		gone              bool
+		wantOut           string
+	}{
+		{"deleted", "factory-agent-base-0.1.0", "stopped", true, "deleting the previous base factory-agent-base-0.1.0"},
+		{"running", "factory-agent-base-0.1.0", "running", false, "warning: the previous base factory-agent-base-0.1.0 is running"},
+		{"not host init's", "factory-ws-base", "stopped", false, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, r := testEnv(t)
+			mkStateDir(t, e)
+			r.tart.vms[tt.prev] = tt.state
+			if err := writeRecord(baseVMStep{e}.record(), BaseVMRecord{Name: tt.prev}); err != nil {
+				t.Fatal(err)
+			}
+			e.AgentVersion = "v0.2.0"
+			var out bytes.Buffer
+			e.Out = &out
+			p, err := baseVMStep{e}.Plan(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			planned := slices.Contains(p.Do, "tart delete "+tt.prev+" (the previous base, named in basevm.json), unless it's running")
+			if planned != (tt.prev != "factory-ws-base") {
+				t.Errorf("plan %q", p.Do)
+			}
+			if err := (baseVMStep{e}).Apply(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if gone := r.vmState(tt.prev) == ""; gone != tt.gone || r.vmState("factory-agent-base-0.2.0") != "stopped" {
+				t.Errorf("VMs %v", r.tart.vms)
+			}
+			if !strings.Contains(out.String(), tt.wantOut) {
+				t.Errorf("output:\n%s", out.String())
+			}
+			if rec := readBaseRecord(t, e); rec.Name != "factory-agent-base-0.2.0" {
+				t.Errorf("record %+v", rec)
+			}
+		})
+	}
+}
+
 // TestBaseVMInterrupted: an interrupt during provisioning still stops and deletes the VM.
 func TestBaseVMInterrupted(t *testing.T) {
 	e, r := testEnv(t)
@@ -615,12 +778,31 @@ func TestWarmBaseApplyFails(t *testing.T) {
 	})
 }
 
+// planLines are a step's lines in Init's plan ("  <step>  ...", as Init prints them).
+func planLines(out, step string) []string {
+	var ls []string
+	for l := range strings.Lines(out) {
+		if strings.HasPrefix(l, fmt.Sprintf("  %-9s ", step)) {
+			ls = append(ls, l)
+		}
+	}
+	return ls
+}
+
 // TestInitOnly: --only applies only the named steps; the check still covers every step.
 func TestInitOnly(t *testing.T) {
 	e, r := testEnv(t)
 	mkStateDir(t, e)
 	var out bytes.Buffer
 	e.Out = &out
+	// the control: without --only, the plan has softnet's and pf's lines.
+	if _, err := Init(context.Background(), e, InitOptions{DryRun: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(planLines(out.String(), "softnet")) == 0 || len(planLines(out.String(), "pf")) == 0 {
+		t.Fatalf("the dry run's plan has no softnet or pf lines:\n%s", out.String())
+	}
+	out.Reset()
 	sts, err := Init(context.Background(), e, InitOptions{Only: []string{"basevm", "warmbase"}})
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out.String())
@@ -628,12 +810,93 @@ func TestInitOnly(t *testing.T) {
 	if len(sts) != 7 || sts[5].State != StateOK || sts[6].State != StateOK || sts[3].State != StateMissing {
 		t.Errorf("statuses %+v", sts)
 	}
-	if r.ran("sudo") != 0 || strings.Contains(out.String(), "softnet ") || strings.Contains(out.String(), "pf anchor") {
+	if r.ran("sudo") != 0 || len(planLines(out.String(), "softnet")) > 0 || len(planLines(out.String(), "pf")) > 0 || len(planLines(out.String(), "tart")) > 0 {
 		t.Errorf("--only ran other steps: calls %v\n%s", r.calls, out.String())
 	}
 	if _, err := Init(context.Background(), e, InitOptions{Only: []string{"basevm", "nope"}}); err == nil || !strings.Contains(err.Error(), `no step "nope"`) {
 		t.Errorf("unknown step: %v", err)
 	}
+}
+
+// TestInitOnlyStateDir: on a host without the state dir, --only applies the statedir step
+// first, since the steps it names write there (and the host lock is there).
+func TestInitOnlyStateDir(t *testing.T) {
+	tests := []struct {
+		name string
+		o    InitOptions
+		set  func(*testing.T, *Env, *fakeRunner)
+		ok   func(*testing.T, *Env, []Status)
+	}{
+		{"tart", InitOptions{Only: []string{"tart"}}, func(t *testing.T, e *Env, _ *fakeRunner) {
+			good := tgz(t, tartApp("ok")...)
+			e.Pins.TartSHA256 = sum(good)
+			e.Fetcher = newReleases(t, map[string][]byte{"tart.tar.gz": good})
+		}, func(t *testing.T, e *Env, _ []Status) {
+			if b, err := os.ReadFile(tartStep{e}.bin()); err != nil || string(b) != "tart binary" {
+				t.Errorf("installed tart: %q %v", b, err)
+			}
+		}},
+		{"pf with --no-pf", InitOptions{Only: []string{"pf"}, NoPF: true}, func(*testing.T, *Env, *fakeRunner) {}, func(t *testing.T, e *Env, sts []Status) {
+			wantState(t, sts[4], StateSkipped, "--no-pf")
+		}},
+		{"pf, declined", InitOptions{Only: []string{"pf"}}, func(_ *testing.T, e *Env, _ *fakeRunner) {
+			e.Prompt = func(string) (bool, error) { return false, nil }
+		}, func(t *testing.T, e *Env, sts []Status) {
+			wantState(t, sts[4], StateSkipped, "declined")
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, r := testEnv(t)
+			var out bytes.Buffer
+			e.Out = &out
+			tt.set(t, e, r)
+			sts, err := Init(context.Background(), e, tt.o)
+			if err != nil {
+				t.Fatalf("%v\n%s", err, out.String())
+			}
+			if len(planLines(out.String(), "statedir")) != 1 || sts[1].State != StateOK {
+				t.Errorf("statedir: %+v\n%s", sts[1], out.String())
+			}
+			tt.ok(t, e, sts)
+			if r.ran("tart clone") != 0 || r.ran("sudo") != 0 {
+				t.Errorf("--only ran other steps: %v", r.calls)
+			}
+		})
+	}
+}
+
+// TestInitLock: a second init fails while one holds the host lock; a dry run doesn't take it.
+func TestInitLock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no flock")
+	}
+	e, r := testEnv(t)
+	mkStateDir(t, e)
+	release, err := lockHost(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := InitOptions{Only: []string{"basevm"}}
+	if _, err := Init(context.Background(), e, o); !errors.Is(err, ErrHostLocked) || !strings.Contains(err.Error(), "host.lock is held") {
+		t.Fatalf("err = %v, want ErrHostLocked", err)
+	}
+	if r.ran("tart clone") != 0 {
+		t.Errorf("a locked init built: %v", r.calls)
+	}
+	if _, err := Init(context.Background(), e, InitOptions{DryRun: true, Only: o.Only}); err != nil {
+		t.Errorf("dry run: %v", err)
+	}
+	release()
+	if _, err := Init(context.Background(), e, o); err != nil {
+		t.Fatalf("after release: %v", err)
+	}
+	// Init released its lock.
+	release, err = lockHost(e)
+	if err != nil {
+		t.Fatalf("Init kept the lock: %v", err)
+	}
+	release()
 }
 
 // TestInitRootBeforeVMs: the sudo script runs right after the last step with root lines, so
@@ -660,10 +923,19 @@ var harnessLineREs = []*regexp.Regexp{
 	regexp.MustCompile(`^#`),
 	regexp.MustCompile(`^(CLAUDE_CODE|CODEX)_(VERSION|SHA256)=[A-Za-z0-9.-]+$`),
 	regexp.MustCompile(`^echo "== harness CLIs \(installed, never run\)"$`),
-	regexp.MustCompile(`^have="\$\(jq -r \.version /usr/local/lib/node_modules/@anthropic-ai/claude-code/package\.json 2>/dev/null \|\| true\)"$`),
-	regexp.MustCompile(`^if \[ "\$have" != "\$CLAUDE_CODE_VERSION" \]; then$`),
-	regexp.MustCompile(`^sudo npm install -g --prefix /usr/local --no-fund --no-audit "@anthropic-ai/claude-code@\$CLAUDE_CODE_VERSION"$`),
-	regexp.MustCompile(`^\[ -x /usr/local/bin/(claude|codex) \] \|\| \{ echo "[^"$` + "`" + `]*" >&2; exit 1; \}$`),
+	regexp.MustCompile(`^CLAUDE_CODE_DIR=/usr/local/lib/node_modules/@anthropic-ai/claude-code$`),
+	regexp.MustCompile(`^CLAUDE_CODE_NATIVE_DIR=/usr/local/lib/node_modules/@anthropic-ai/claude-code/node_modules/@anthropic-ai/claude-code-linux-arm64$`),
+	// claude_code_installed reads the files: versions, ELF magic, -x, cmp and readlink.
+	regexp.MustCompile(`^claude_code_installed\(\) \{$`),
+	regexp.MustCompile(`^\[ "\$\(version "\$CLAUDE_CODE_(NATIVE_)?DIR"\)" = "\$CLAUDE_CODE_VERSION" \] &&$`),
+	regexp.MustCompile(`^elf "\$CLAUDE_CODE_NATIVE_DIR/claude" &&$`),
+	regexp.MustCompile(`^\[ -x "\$CLAUDE_CODE_DIR/bin/claude\.exe" \] &&$`),
+	regexp.MustCompile(`^cmp -s "\$CLAUDE_CODE_NATIVE_DIR/claude" "\$CLAUDE_CODE_DIR/bin/claude\.exe" &&$`),
+	regexp.MustCompile(`^\[ "\$\(readlink -f /usr/local/bin/claude\)" = "\$CLAUDE_CODE_DIR/bin/claude\.exe" \]$`),
+	regexp.MustCompile(`^if ! claude_code_installed; then$`),
+	regexp.MustCompile(`^sudo npm install -g --prefix /usr/local --no-fund --no-audit --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@\$CLAUDE_CODE_VERSION"$`),
+	regexp.MustCompile(`^claude_code_installed \|\| \{ echo "claude-code's native binary isn't in place: \$CLAUDE_CODE_DIR/bin/claude\.exe" >&2; exit 1; \}$`),
+	regexp.MustCompile(`^\[ -x /usr/local/bin/codex \] \|\| \{ echo "[^"$` + "`" + `]*" >&2; exit 1; \}$`),
 	regexp.MustCompile(`^if \[ "\$\(cat /var/lib/factory/codex\.tar\.sha256 2>/dev/null \|\| true\)" != "\$CODEX_SHA256" \] \|\| \[ ! -x /usr/local/bin/codex \]; then$`),
 	regexp.MustCompile(`^fetch "https://github\.com/openai/codex/releases/download/\$CODEX_VERSION/codex-aarch64-unknown-linux-musl\.tar\.gz" "\$CODEX_SHA256" "\$TMP/codex\.tar\.gz"$`),
 	regexp.MustCompile(`^mkdir "\$TMP/codex"$`),
@@ -712,7 +984,7 @@ func TestProvisionScript(t *testing.T) {
 	if bad := harnessLines(string(provisionScript)); len(bad) > 0 {
 		t.Errorf("provision/base.sh names claude or codex outside the install lines and existence checks:\n%s", strings.Join(bad, "\n"))
 	}
-	for _, l := range []string{"claude --version", "/usr/local/bin/codex --help", `[ -x /usr/local/bin/codex ] && codex login`, `"$(command -v claude)" -p hi`, "x=claude; $x"} {
+	for _, l := range []string{"claude --version", "/usr/local/bin/codex --help", `[ -x /usr/local/bin/codex ] && codex login`, `"$(command -v claude)" -p hi`, "x=claude; $x", `"$CLAUDE_CODE_DIR/bin/claude.exe" --version`, `claude_code_installed && "$CLAUDE_CODE_NATIVE_DIR/claude" -p hi`} {
 		if bad := harnessLines(string(provisionScript) + l + "\n"); len(bad) != 1 {
 			t.Errorf("the check misses %q", l)
 		}
@@ -720,10 +992,25 @@ func TestProvisionScript(t *testing.T) {
 	for _, w := range []string{"set -euo pipefail", "KIND_VERSION=v0.33.0", "KUBECTL_VERSION=v1.37.1", "CODEX_SHA256=a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4", `main "$@" </dev/null`,
 		"GH_PR_REVIEW_VERSION=v1.6.2", "GH_PR_REVIEW_SHA256=fea079f78e7224200d23de847b6210134ccec1a4d2dcff96ca8ca4ce1060fdde",
 		"GH_STACK_VERSION=v0.2.0", "GH_STACK_SHA256=d29684746f337a580667605b34877e5624792bcc390e61473a050bd4839557bf",
-		"ispinned: true"} {
+		"ispinned: true",
+		// claude-code's postinstall only places the native binary (see the script's comment).
+		"--allow-scripts=@anthropic-ai/claude-code",
+		"DOCKER_KEY_SHA256=1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570",
+		"GH_KEY_SHA256=6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b",
+		"sudo systemctl mask apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service unattended-upgrades.service"} {
 		if !bytes.Contains(provisionScript, []byte(w)) {
 			t.Errorf("the script lacks %q", w)
 		}
+	}
+	// every download goes through fetch's sha256 check, the apt keys included.
+	for l := range strings.Lines(string(provisionScript)) {
+		if strings.Contains(l, "sudo curl") {
+			t.Errorf("an unchecked download: %s", l)
+		}
+	}
+	// the apt timers are off before the first apt-get.
+	if i, j := bytes.Index(provisionScript, []byte("\tno_apt_timers\n")), bytes.Index(provisionScript, []byte("\tsection_apt\n")); i < 0 || j < i {
+		t.Error("main doesn't run no_apt_timers before section_apt")
 	}
 	// the base build has no gh login: the script never runs gh, only installs it.
 	if bad := ghLines(string(provisionScript)); len(bad) > 0 {

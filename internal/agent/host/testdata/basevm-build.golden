@@ -11,5 +11,6 @@ tart exec factory-agent-base-0.1.0.building sha256sum /usr/local/bin/factory-age
 tart exec factory-agent-base-0.1.0.building sudo shutdown -h now
 tart list --format json
 tart list --format json
-tart delete factory-agent-base-0.1.0
+tart rename factory-agent-base-0.1.0 factory-agent-base-0.1.0.old
 tart rename factory-agent-base-0.1.0.building factory-agent-base-0.1.0
+tart delete factory-agent-base-0.1.0.old

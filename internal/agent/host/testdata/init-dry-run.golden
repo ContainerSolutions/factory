@@ -12,10 +12,10 @@ plan:
   basevm    tart run factory-agent-base-0.1.0.building --no-graphics (in the background); wait for tart exec (5s)
   basevm    tart exec -i factory-agent-base-0.1.0.building bash -s < the embedded provisioning script (5s)
   basevm    copy $HOME/bin/factory-agent-linux-arm64 to /usr/local/bin/factory-agent in the VM and check its sha256
-  basevm    shut it down (5s), tart rename factory-agent-base-0.1.0.building factory-agent-base-0.1.0 (replacing an older factory-agent-base-0.1.0), write $HOME/Library/Application Support/factory-agent/basevm.json
+  basevm    shut it down (5s), tart rename factory-agent-base-0.1.0.building factory-agent-base-0.1.0 (an older factory-agent-base-0.1.0 is renamed aside to factory-agent-base-0.1.0.old, then deleted), write $HOME/Library/Application Support/factory-agent/basevm.json
   warmbase  tart clone factory-agent-base-0.1.0 factory-agent-warm.building
   warmbase  no warm images: the warm base is a plain clone of the base
-  warmbase  tart rename factory-agent-warm.building factory-agent-warm (replacing an older one), write $HOME/Library/Application Support/factory-agent/warmbase.json
+  warmbase  tart rename factory-agent-warm.building factory-agent-warm (an older one is renamed aside to factory-agent-warm.old, then deleted), write $HOME/Library/Application Support/factory-agent/warmbase.json
 sudo script (one sudo prompt):
 #!/bin/sh
 # factory-agent host init: the root actions, run once with sudo.

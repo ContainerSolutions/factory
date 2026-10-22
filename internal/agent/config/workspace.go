@@ -31,7 +31,9 @@ type WorkspaceSize struct {
 }
 
 // WarmImages are the images the warm base's Docker cache holds; KindImages are also loaded
-// into kind.
+// into kind. A kind image is name:tag, or name:tag@sha256:... to pin it: the warm base pulls it
+// by digest and saves it tagged name:tag, the reference kind's nodes find it by. A digest
+// without a tag (name@sha256:...) is refused, since kind's nodes would have no name for it.
 type WarmImages struct {
 	Images     []string `json:"images,omitzero"`
 	KindImages []string `json:"kindImages,omitzero"`
@@ -115,7 +117,24 @@ func (w Workspace) validate() []string {
 			if im == "" || len(im) > maxImageLen || strings.ContainsFunc(im, unicode.IsSpace) || strings.HasPrefix(im, "-") {
 				add("warm.%s[%d]: %q must be non-empty, at most %d bytes, without whitespace or a leading -", l.key, i, im, maxImageLen)
 			}
+			if _, ok := KindImageTag(im); l.key == "kindImages" && !ok {
+				add("warm.%s[%d]: %q has a digest but no tag: use name:tag or name:tag@sha256:...", l.key, i, im)
+			}
 		}
 	}
 	return probs
+}
+
+// KindImageTag is the reference the warm base saves a kind image as: ref without its
+// @digest, if any. ok is false for a digest without a tag (name@sha256:...).
+func KindImageTag(ref string) (tagged string, ok bool) {
+	name, _, digest := strings.Cut(ref, "@")
+	if !digest {
+		return ref, true
+	}
+	// the tag is after the last path component's colon; a colon before a / is a registry port.
+	if !strings.Contains(name[strings.LastIndex(name, "/")+1:], ":") {
+		return "", false
+	}
+	return name, true
 }
