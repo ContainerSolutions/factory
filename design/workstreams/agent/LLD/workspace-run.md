@@ -124,7 +124,7 @@ One `runbundle.Event` per line on stdout:
 
 ### The run's user
 
-The run runs as the base image's `admin` user (`WS_USER` in `internal/agent/host/provision/base.sh`; [workspace-host.md](workspace-host.md#the-vm-steps-p1-2)), as `tart exec` gives it. It's root whenever it needs to be: `admin` has passwordless sudo, so the LLM can `sudo apt-get install` (Decision 5), and system setup uses `sudo -n`. `admin` is in the `docker` group, and gh's pinned extensions are installed for it. It also avoids running claude as root ([risk 2](#risks-and-open-questions)), with a user the base already has rather than a new one. A run as root (a plain-container test) still works: it then sets `IS_SANDBOX=1` for claude, and doesn't use `sudo`.
+The run runs as the base image's `admin` user (decided 2026-10-22) (`WS_USER` in `internal/agent/host/provision/base.sh`; [workspace-host.md](workspace-host.md#the-vm-steps-p1-2)), as `tart exec` gives it. It's root whenever it needs to be: `admin` has passwordless sudo, so the LLM can `sudo apt-get install` (Decision 5), and system setup uses `sudo -n`. `admin` is in the `docker` group, and gh's pinned extensions are installed for it. It also avoids running claude as root ([risk 2](#risks-and-open-questions)), with a user the base already has rather than a new one. A run as root (a plain-container test) still works: it then sets `IS_SANDBOX=1` for claude, and doesn't use `sudo`.
 
 ## Pipeline changes (`internal/agent/pipeline`)
 
@@ -223,7 +223,7 @@ const ReasonEnvironmentError = "environment-error" // in internal/agent/runner, 
 | `NODE_EXTRA_CA_CERTS` | the bundle's `gateway/ca.pem` (Node adds it to its own roots; Phase 0 Q4) |
 | `GH_TOKEN` | `harness.Placeholder`: gh refuses to start without a token, and the gateway replaces it on api.github.com GETs |
 | `FACTORY_RUNTIME` | `workspace` |
-| `DOCKER_CONFIG` | `<state>/docker`, whose `config.json` holds `proxies.default.{httpProxy, httpsProxy, noProxy}`: the docker client passes them to builds and containers |
+| `DOCKER_CONFIG` | `<state>/docker`, with a `config.json` that has **no** `proxies` key (decided 2026-10-22, risk 13): containers get no proxy variables, so calls between compose services by name stay direct. Containers therefore have no internet egress; image pulls still work through dockerd's own proxy below |
 | `XDG_DATA_HOME` | the run user's own `~/.local/share` (from the passwd entry): the pipeline's scratch `HOME` would hide the gh extensions the base installed for `admin` |
 
 `config.json` and the CA bundle are written before the environment's `setup` runs. With `--system-setup on`, in order and each with `sudo -n`:
@@ -355,8 +355,8 @@ A gh stack on phase 2's (about the line counts, without generated code):
 6. **`environment.log` stays out of the transcript;** whether phase 5 uploads it is open.
 7. **`NO_PROXY` CIDRs** need curl ≥ 7.86 (the base has 8.5), and the docker proxy config must exist before `setup` (it does: system setup runs first).
 8. **The scripts run under bash `-eo pipefail`,** with the scratch `HOME` rather than `/home/admin`. Check that against local-dev's scripts in phase 7.
-9. **A host runtime with an environment** skips it with a warning. Should the agent advertise a `vm-workspace` label so the scheduler sends such tasks only to workspace agents?
+9. **A host runtime with an environment** skips it with a warning. **Decided (2026-10-22):** a supervisor advertises the capability label `vm-workspace`, and a TaskSpec with `workspace.environment` requires it (phase 6 adds the label; phase 7's catalog TaskSpecs require it), so such tasks are only scheduled to VM workspaces.
 10. **The codex `auth.json` shape is from Phase 0,** pinned as constants and re-checked by `make smoke-codex`.
 11. **Clocks:** `--remaining` avoids skew, and the supervisor enforces the hard deadline from outside.
 12. **`ReservedEnvNames`** should add `FACTORY_RUNTIME` and `FACTORY_KIND_IMAGES`, so `exposes` can't set them: a small contract PR.
-13. **Containers and the proxy.** The docker client's `proxies` reach every container, so a call between compose services by name (`http://api:8080`) goes to the gateway, which can't resolve it; `NO_PROXY` can't list names it doesn't know. Containers also get the proxies but not the gateway CA. Check with local-dev's showcase in phase 7; the fallback is no client `proxies` (the daemon's cover pulls) and build args in the TaskSpec's `setup`.
+13. **Containers and the proxy. Decided (2026-10-22):** the docker client gets no `proxies` (see `DOCKER_CONFIG` above), because they'd send calls between compose services by name (`http://api:8080`) to the gateway, which refuses private addresses. dockerd keeps its proxy for image pulls. Containers that need the internet aren't supported for the PoC; revisit in phase 7 if local-dev's showcase needs it (per-service `HTTPS_PROXY` set by the TaskSpec's `up`).
