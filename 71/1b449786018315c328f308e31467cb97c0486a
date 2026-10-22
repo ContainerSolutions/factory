@@ -1,0 +1,2 @@
+lisa-addressed:
+Pass 2: TestIsolationString moved to internal/agent/harness/harness_test.go.
