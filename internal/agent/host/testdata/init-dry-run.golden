@@ -24,5 +24,7 @@ if ! /usr/bin/grep -qxF 'anchor "com.compliance-framework.factory"' $ROOT/etc/pf
   [ -z "$(/usr/bin/tail -c 1 $ROOT/etc/pf.conf)" ] || echo >> $ROOT/etc/pf.conf
   echo 'anchor "com.compliance-framework.factory"' >> $ROOT/etc/pf.conf
 fi
+/sbin/pfctl -E -f $ROOT/etc/pf.conf
+/sbin/pfctl -a com.compliance-framework.factory -f $ROOT/etc/pf.anchors/com.compliance-framework.factory
 /bin/launchctl bootout system/com.compliance-framework.factory.pf 2>/dev/null || true
 /bin/launchctl bootstrap system $ROOT/Library/LaunchDaemons/com.compliance-framework.factory.pf.plist

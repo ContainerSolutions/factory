@@ -165,3 +165,35 @@ func TestHostCheckOK(t *testing.T) {
 		t.Fatalf("init: code %d\n%s%s", code, out.String(), errOut.String())
 	}
 }
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errors.New("read failed") }
+
+func TestLinePrompt(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      io.Reader
+		yes     bool
+		wantErr bool
+	}{
+		{"y", strings.NewReader("y\n"), true, false},
+		{"YES", strings.NewReader("YES\n"), true, false},
+		{"spaces", strings.NewReader("  yes \n"), true, false},
+		{"no", strings.NewReader("n\n"), false, false},
+		{"other", strings.NewReader("sure\n"), false, false},
+		{"empty line", strings.NewReader("\n"), false, false},
+		{"EOF without a newline", strings.NewReader("y"), true, false},
+		{"nothing", strings.NewReader(""), false, false},
+		{"read error", errReader{}, false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			yes, err := linePrompt(tt.in, &out)("Install? [y/N] ")
+			if yes != tt.yes || (err != nil) != tt.wantErr || out.String() != "Install? [y/N] " {
+				t.Errorf("yes %v err %v out %q; want yes %v, error %v", yes, err, out.String(), tt.yes, tt.wantErr)
+			}
+		})
+	}
+}

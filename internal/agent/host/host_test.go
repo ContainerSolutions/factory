@@ -33,6 +33,7 @@ type fakeRunner struct {
 	versions map[string]string // tart binary -> its --version
 	team     string            // codesign -dv's TeamIdentifier
 	loaded   bool              // launchctl print succeeds
+	launchd  string            // launchctl print's output
 	macOS    string
 	memory   string
 	freeKB   string
@@ -62,6 +63,7 @@ func (r *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...
 	case name == "launchctl" && !r.loaded:
 		return errors.New("exit status 113")
 	case name == "launchctl":
+		_, _ = io.WriteString(out, r.launchd)
 	case name == "sudo":
 		b, err := os.ReadFile(args[1])
 		r.script = string(b)
@@ -437,6 +439,18 @@ func TestPFCheck(t *testing.T) {
 			_ = os.WriteFile(e.sys(PFConfPath), []byte("anchor \"com.apple/*\"\n"), 0o644)
 		}, StateMissing, "has no " + pfConfLine},
 		{"not loaded", func(t *testing.T, e *Env, _ *fakeRunner) { installPF(t, e) }, StateMissing, "isn't loaded"},
+		{"loaded, not exited yet", func(t *testing.T, e *Env, r *fakeRunner) {
+			installPF(t, e)
+			r.loaded, r.launchd = true, "\tstate = running\n\tlast exit code = (never exited)\n"
+		}, StateOK, "only port 3128"},
+		{"loaded, exited 0", func(t *testing.T, e *Env, r *fakeRunner) {
+			installPF(t, e)
+			r.loaded, r.launchd = true, "\truns = 1\n\tlast exit code = 0\n"
+		}, StateOK, "only port 3128"},
+		{"pfctl failed", func(t *testing.T, e *Env, r *fakeRunner) {
+			installPF(t, e)
+			r.loaded, r.launchd = true, "\truns = 1\n\tlast exit code = 1\n"
+		}, StateWrong, "last exited with 1: pfctl didn't load the anchor"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

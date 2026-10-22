@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -32,9 +33,16 @@ block drop in quick on bridge proto { tcp, udp } from any to (self)
 `, PFAnchorName, gatewayPort)
 }
 
+// pfLoad are the commands that enable pf and load the anchor: the LaunchDaemon runs them at
+// boot, and host init's root script runs them itself before bootstrapping the daemon (whose
+// run launchd starts asynchronously), so a failure stops the script.
+func pfLoad(anchor, conf string) []string {
+	return []string{"/sbin/pfctl -E -f " + quote(conf), "/sbin/pfctl -a " + PFAnchorName + " -f " + quote(anchor)}
+}
+
 // PFPlist is the LaunchDaemon that enables pf and loads the anchor at boot.
 func PFPlist(anchor, conf string) string {
-	cmd := "/sbin/pfctl -E -f " + quote(conf) + " && /sbin/pfctl -a " + PFAnchorName + " -f " + quote(anchor)
+	cmd := strings.Join(pfLoad(anchor, conf), " && ")
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -92,16 +100,33 @@ func (s pfStep) Check(ctx context.Context) (Status, error) {
 	if !hasLine(string(conf), pfConfLine) {
 		return Status{State: StateMissing, Detail: s.e.sys(PFConfPath) + " has no " + pfConfLine}, nil
 	}
-	if _, err := s.e.output(ctx, "launchctl", "print", "system/"+PFLabel); err != nil {
+	out, err := s.e.output(ctx, "launchctl", "print", "system/"+PFLabel)
+	if err != nil {
 		return Status{State: StateMissing, Detail: "the LaunchDaemon " + PFLabel + " isn't loaded"}, nil
 	}
+	if code := lastExitCode(out); code != 0 {
+		return Status{State: StateWrong, Detail: fmt.Sprintf("the LaunchDaemon %s last exited with %d: pfctl didn't load the anchor", PFLabel, code)}, nil
+	}
 	return Status{State: StateOK, Detail: fmt.Sprintf("bridges reach only port %d (and DNS, DHCP) on this Mac", s.e.Workspace.GatewayPort)}, nil
+}
+
+// lastExitCode is the "last exit code = N" of launchctl print's output; 0 when it has none
+// (the job hasn't exited yet) or it isn't a number.
+func lastExitCode(out string) int {
+	for l := range strings.Lines(out) {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(l), "last exit code = "); ok {
+			if n, err := strconv.Atoi(v); err == nil {
+				return n
+			}
+		}
+	}
+	return 0
 }
 
 func (s pfStep) Plan(context.Context) (Plan, error) {
 	a, p, conf := quote(s.e.sys(PFAnchorPath)), quote(s.e.sys(PFPlistPath)), quote(s.e.sys(PFConfPath))
 	sa, sp := quote(filepath.Join(s.e.StageDir, "pf.anchor")), quote(filepath.Join(s.e.StageDir, "pf.plist"))
-	return Plan{
+	plan := Plan{
 		Do: []string{
 			fmt.Sprintf("render the anchor (gateway port %d) and the LaunchDaemon", s.e.Workspace.GatewayPort),
 			"install them, append " + pfConfLine + " to " + PFConfPath + " (backup " + PFConfBackup + ") and load the LaunchDaemon (sudo)",
@@ -117,10 +142,14 @@ func (s pfStep) Plan(context.Context) (Plan, error) {
 			"  [ -z \"$(/usr/bin/tail -c 1 " + conf + ")\" ] || echo >> " + conf,
 			"  echo '" + pfConfLine + "' >> " + conf,
 			"fi",
-			"/bin/launchctl bootout system/" + PFLabel + " 2>/dev/null || true",
-			"/bin/launchctl bootstrap system " + p,
 		},
-	}, nil
+	}
+	plan.Root = append(plan.Root, pfLoad(s.e.sys(PFAnchorPath), s.e.sys(PFConfPath))...)
+	plan.Root = append(plan.Root,
+		"/bin/launchctl bootout system/"+PFLabel+" 2>/dev/null || true",
+		"/bin/launchctl bootstrap system "+p,
+	)
+	return plan, nil
 }
 
 func (s pfStep) Apply(context.Context) error {
