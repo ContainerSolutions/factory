@@ -1,0 +1,2 @@
+lisa-design:
+P1 revision (Gustavo, 2026-10-22): the workspace base image is agent-host config and never named by the catalog; TaskSpec workspace.environment has no image field and always runs inside a workspace on a registered agent. The Mac uses one Tart VM per task (no nesting); Kata stays for Linux. Phases put the Mac track first.
