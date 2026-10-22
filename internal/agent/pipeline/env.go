@@ -56,37 +56,61 @@ func ownerEnv(environ []string) map[string]string {
 	return out
 }
 
-// reservedEnv are the variables the pipeline sets itself (commonEnv, and buildEnv with the
-// stack's URLs), which Options.Env may not set; so are the GIT_CONFIG_KEY_<n> and
-// GIT_CONFIG_VALUE_<n> entries (reservedEnvPrefixes). A collision is New's error, not a
-// silently lost value. GH_TOKEN isn't one: Options.Env may set its placeholder, which a job's
-// real token replaces.
-var reservedEnv = append([]string{
+// reservedEnv are the variables the pipeline sets itself (commonEnv, and buildEnv), which
+// Options.Env may not set; so are the GIT_CONFIG_KEY_<n> and GIT_CONFIG_VALUE_<n> entries and
+// every FACTORY_STACK_* name the stack's Up returns (reservedEnvPrefixes). A collision is New's
+// error, not a silently lost value. GH_TOKEN isn't one: Options.Env may set its placeholder,
+// which a job's real token replaces.
+var reservedEnv = []string{
 	"HOME", "TMPDIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "PATH",
 	"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT", "GIT_ALLOW_PROTOCOL", "GIT_CONFIG_COUNT",
 	"GCM_INTERACTIVE", gitcred.EnvSocket,
 	EnvHeadless, EnvHarness, EnvTaskID, EnvAPI, EnvToken, EnvOut, EnvResult, EnvEffector,
-}, stackURLVars...)
+}
 
-// reservedEnvPrefixes are the reserved name prefixes: the helper's process-scoped git config.
-var reservedEnvPrefixes = []string{"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"}
+// reservedEnvPrefixes are the reserved name prefixes: the helper's process-scoped git config,
+// and the stack's variables (stack.State.Env: FACTORY_STACK_URL, _API, _PROJECT, _VERSIONS,
+// _DIR), which buildEnv copies over the environment.
+var reservedEnvPrefixes = []string{"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "FACTORY_STACK_"}
 
-// checkEnv refuses an Options.Env that sets a reserved variable or has a name that isn't one
-// (empty, or holding "=" or NUL), naming the variable but never its value.
+// Options.Env may not set a variable that can change what git or the shell runs, or which
+// credential helper answers: every GIT_* name but the CA ones the gateway needs
+// (GIT_CONFIG_PARAMETERS, GIT_ASKPASS, GIT_SSH_COMMAND, GIT_PROXY_COMMAND, GIT_DIR,
+// GIT_EXEC_PATH, …), SSH_ASKPASS, the dynamic loader's LD_* and DYLD_*, and bash's BASH_ENV
+// and sh's ENV. Gateway mode's "no helper at all" and helper mode's "only the in-memory
+// helper" rest on it.
+var (
+	controlEnvPrefixes = []string{"GIT_", "LD_", "DYLD_"}
+	controlEnv         = []string{"SSH_ASKPASS", "BASH_ENV", "ENV"}
+	controlEnvAllowed  = []string{"GIT_SSL_CAINFO", "GIT_SSL_CAPATH"}
+)
+
+// isControlEnv reports whether k is one of git's, the loader's or the shell's control
+// variables, which Options.Env may not set.
+func isControlEnv(k string) bool {
+	if slices.Contains(controlEnvAllowed, k) {
+		return false
+	}
+	if slices.Contains(controlEnv, k) {
+		return true
+	}
+	return slices.ContainsFunc(controlEnvPrefixes, func(p string) bool { return strings.HasPrefix(k, p) })
+}
+
+// checkEnv refuses an Options.Env that sets a reserved variable or a control variable
+// (isControlEnv), or has a name that isn't one (empty, or holding "=" or NUL), naming the
+// variable but never its value.
 func checkEnv(env map[string]string) error {
 	for _, k := range slices.Sorted(maps.Keys(env)) {
 		switch {
 		case k == "" || strings.ContainsAny(k, "=\x00"):
 			return fmt.Errorf("%q is not a variable name", k)
-		case slices.Contains(reservedEnv, k):
+		case slices.Contains(reservedEnv, k),
+			slices.ContainsFunc(reservedEnvPrefixes, func(p string) bool { return strings.HasPrefix(k, p) }):
 			return fmt.Errorf("%s is set by the pipeline", k)
-		}
-		for _, p := range reservedEnvPrefixes {
-			if strings.HasPrefix(k, p) {
-				return fmt.Errorf("%s is set by the pipeline", k)
-			}
-		}
-		if strings.ContainsRune(env[k], 0) {
+		case isControlEnv(k):
+			return fmt.Errorf("%s controls git, the loader or the shell: Env may not set it", k)
+		case strings.ContainsRune(env[k], 0):
 			return fmt.Errorf("%s: the value holds a NUL byte", k)
 		}
 	}

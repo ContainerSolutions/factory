@@ -88,16 +88,19 @@ func useRoot(dir string) error {
 	if !errors.Is(err, fs.ErrExist) {
 		return fmt.Errorf("workspace root: %w", err)
 	}
-	st, err := os.Lstat(dir)
-	if err != nil {
-		return fmt.Errorf("workspace root: %w", err)
-	}
-	if !st.IsDir() {
+	f, err := openRootDir(dir)
+	if errors.Is(err, errRootNotDir) {
 		return fmt.Errorf("workspace root %s is not a directory", dir)
 	}
-	f, err := os.Open(dir)
 	if err != nil {
 		return fmt.Errorf("workspace root: %w", err)
+	}
+	if st, err := f.Stat(); err != nil || !st.IsDir() {
+		_ = f.Close()
+		if err != nil {
+			return fmt.Errorf("workspace root: %w", err)
+		}
+		return fmt.Errorf("workspace root %s is not a directory", dir)
 	}
 	names, err := f.Readdirnames(1)
 	if cerr := f.Close(); cerr != nil && err == nil {
@@ -111,6 +114,9 @@ func useRoot(dir string) error {
 	}
 	return nil
 }
+
+// errRootNotDir is openRootDir's error for a Root that is a symlink or not a directory.
+var errRootNotDir = errors.New("not a directory")
 
 // removeAll removes dir, first making read-only directories inside it writable (a Go module
 // cache, read-only git objects), so a harness can't make cleanup fail.

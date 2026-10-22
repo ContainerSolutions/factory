@@ -75,7 +75,8 @@ const (
 	GitAuthHelper GitAuth = iota
 	// GitAuthGateway (the VM workspace) has no credential helper: no socket and no helper
 	// config. git reaches the git host through the gateway (HTTPS_PROXY in Options.Env), which
-	// adds the credential for the repo in the path; the job's credentials carry no token.
+	// adds the credential for the repo in the path. The job carries no credential: Run refuses
+	// one that does (GatewayCredentialError) before any step.
 	GitAuthGateway
 )
 
@@ -104,10 +105,14 @@ type Options struct {
 	GitAuth GitAuth
 	// Env is added to the environment that the pipeline's own git and the harness share,
 	// after the owner's allow-list (so it wins over Environ) and before the pipeline's own
-	// variables: the gateway's proxies and CA, a GH_TOKEN placeholder, DOCKER_CONFIG. New
-	// refuses a variable the pipeline sets itself (HOME, TMPDIR, the XDG and PATH ones, the
-	// GIT_* and GCM_* ones of the git setup, the credential socket and the FACTORY_* ones of
-	// the harness's environment, the stack's URLs). On the host it is usually empty.
+	// variables: the gateway's proxies (HTTP_PROXY, HTTPS_PROXY, NO_PROXY, either case) and CA
+	// (SSL_CERT_FILE, GIT_SSL_CAINFO, NODE_EXTRA_CA_CERTS, …), a GH_TOKEN placeholder,
+	// DOCKER_CONFIG. New refuses a variable the pipeline sets itself (HOME, TMPDIR, the XDG
+	// and PATH ones, the GIT_* and GCM_* ones of the git setup, the credential socket and the
+	// FACTORY_* ones of the harness's environment, every FACTORY_STACK_* one), and one that
+	// could add a credential helper or change what git or the shell runs: every GIT_* name
+	// but GIT_SSL_CAINFO and GIT_SSL_CAPATH, SSH_ASKPASS, LD_*, DYLD_*, BASH_ENV and ENV. On
+	// the host it is usually empty.
 	Env map[string]string
 	// Adapters are the harness adapters by harness name (task.harness.resolved.name).
 	Adapters map[string]harness.Adapter
@@ -350,8 +355,54 @@ func failed(reason string, err error) stepResult {
 	return stepResult{status: runner.StatusFailed, reason: reason, err: err}
 }
 
+// GatewayCredentialError is a gateway-mode run's refusal of a job that carries a credential:
+// in a VM workspace every credential lives in the gateway, never in the job. Field names the
+// field (Lease.GitCredential.Token, Git.Reads[0].Token, AgentToken, …), never its value.
+type GatewayCredentialError struct{ Field string }
+
+func (e *GatewayCredentialError) Error() string {
+	return "gateway mode: the job carries a credential in " + e.Field
+}
+
+// jobCredential is the first credential field the job sets, or "" when it carries none: the
+// lease's git and read tokens, the current ones in Git, the agent token and the dispatcher
+// client (authenticated as the agent).
+func jobCredential(job *runner.Job) string {
+	if job.Lease.GitCredential.Token != "" {
+		return "Lease.GitCredential.Token"
+	}
+	for i, c := range job.Lease.ReadCredentials {
+		if c.Token != "" {
+			return fmt.Sprintf("Lease.ReadCredentials[%d].Token", i)
+		}
+	}
+	if job.Git != nil {
+		if job.Git.Get().Token != "" {
+			return "Git.Token"
+		}
+		for i, c := range job.Git.Reads() {
+			if c.Token != "" {
+				return fmt.Sprintf("Git.Reads[%d].Token", i)
+			}
+		}
+	}
+	if job.AgentToken != nil {
+		return "AgentToken"
+	}
+	if job.API != nil {
+		return "API"
+	}
+	return ""
+}
+
 // execute runs the steps up to the validated Result.
 func (r *run) execute(ctx context.Context) stepResult {
+	// Before any step: a gateway-mode job holds no credential (workspace-run.md §Gateway mode).
+	if r.p.o.GitAuth == GitAuthGateway {
+		if f := jobCredential(r.job); f != "" {
+			return failed(runner.ReasonHarnessError, &GatewayCredentialError{Field: f})
+		}
+	}
 	h := r.task.Spec.Harness
 	if h == nil || h.Resolved == nil || h.Resolved.Name == "" {
 		return failed(runner.ReasonHarnessError, errors.New("the task has no resolved harness"))

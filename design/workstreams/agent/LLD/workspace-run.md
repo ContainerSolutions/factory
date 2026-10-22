@@ -145,7 +145,7 @@ Finished    func(runner.Outcome)                         // at the end of finish
 OnStep      func(name string, d time.Duration, err error) // after each step
 ```
 
-`New` refuses `Root` together with `WorkRoot` (exactly one is required), a relative `Root`, and an `Env` key the pipeline sets itself (`HOME`, `TMPDIR`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `PATH`, the `GIT_*` and `GCM_*` names `commonEnv` sets, and every `FACTORY_*` name `buildEnv` sets), so a collision is an error instead of a silently lost value. A run whose `Job.API` is nil refuses to start while any source is an API one, naming it, instead of failing on a nil client mid-run.
+`New` refuses `Root` together with `WorkRoot` (exactly one is required), a relative `Root`, and an `Env` key the pipeline sets itself (`HOME`, `TMPDIR`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `PATH`, the `GIT_*` and `GCM_*` names `commonEnv` sets, and every `FACTORY_*` name `buildEnv` sets, among them every `FACTORY_STACK_*` one), so a collision is an error instead of a silently lost value. It also refuses an `Env` key that could add a credential helper or change what git, the loader or the shell runs: every `GIT_*` name but `GIT_SSL_CAINFO` and `GIT_SSL_CAPATH` (so `GIT_CONFIG_PARAMETERS`, `GIT_ASKPASS`, `GIT_SSH_COMMAND`, `GIT_PROXY_COMMAND`, `GIT_DIR`, `GIT_WORK_TREE`, `GIT_EXEC_PATH`, …), `SSH_ASKPASS`, `LD_*`, `DYLD_*`, `BASH_ENV` and `ENV`: gateway mode's "no helper at all" and the host's "only the in-memory helper" rest on it. The error names the variable, never its value. Every name of [system setup](#system-setup-vmrunsystemgo)'s table is accepted. A run whose `Job.API` is nil refuses to start while any source is an API one, naming it, instead of failing on a nil client mid-run.
 
 ### Sources (`sources.go`)
 
@@ -173,6 +173,7 @@ With `GitAuth: GitAuthGateway`:
 - `startCredentials` doesn't call `gitcred.Listen`, and `commonEnv` sets neither `FACTORY_GIT_CREDENTIAL_SOCKET` nor the helper's `GIT_CONFIG_*` entries. No other helper can answer: `GIT_CONFIG_NOSYSTEM=1` and the scratch `GIT_CONFIG_GLOBAL` stay. git reaches GitHub through `HTTPS_PROXY`, and the gateway adds the credential for the repo in the path.
 - `planMounts` is unchanged: it reads the credential's `Repo` and `Permissions.contents`, never its token, and the job's credential has an empty one.
 - `buildEnv` already sets `FACTORY_TOKEN` only when `AgentToken != nil` and `GH_TOKEN` only from a non-empty token, so the VM's harness gets neither; `Options.Env`'s `GH_TOKEN` placeholder is what gh sees.
+- **A job that carries a credential is refused (decided 2026-10-22).** Before any step, `Run` checks the job: a non-empty token in `Lease.GitCredential`, `Lease.ReadCredentials`, or `Git` (the current task and read tokens), a non-nil `AgentToken`, or a non-nil `API` (the client authenticated as the agent) ends the run `failed{harness-error}` with a `*pipeline.GatewayCredentialError{Field}` that names the field, never the value. The VM is untrusted and the bundle has no token field, so such a job is a supervisor bug that would otherwise hand the agent a token through `GH_TOKEN` or `FACTORY_TOKEN`. The host (`GitAuthHelper`) is unchanged.
 
 `Options.Env` is applied in `commonEnv` after the owner's allow-list, so the pipeline's own git (the clones) gets the proxies and the CA bundle too.
 

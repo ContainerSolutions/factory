@@ -51,6 +51,11 @@ func TestNewWorkspaceOptions(t *testing.T) {
 		{"Env sets FACTORY_API", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{pipeline.EnvAPI: "x"}}, "FACTORY_API is set"},
 		{"Env sets FACTORY_STACK_URL", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{"FACTORY_STACK_URL": "x"}}, "FACTORY_STACK_URL is set"},
 		{"Env sets FACTORY_EFFECTOR", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{pipeline.EnvEffector: "x"}}, "FACTORY_EFFECTOR is set"},
+		{"Env sets FACTORY_STACK_API", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{"FACTORY_STACK_API": "x"}}, "FACTORY_STACK_API is set"},
+		{"Env sets FACTORY_STACK_PROJECT", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{"FACTORY_STACK_PROJECT": "x"}}, "FACTORY_STACK_PROJECT is set"},
+		{"Env sets FACTORY_STACK_VERSIONS", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{"FACTORY_STACK_VERSIONS": "x"}}, "FACTORY_STACK_VERSIONS is set"},
+		{"Env sets FACTORY_STACK_DIR", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{"FACTORY_STACK_DIR": "x"}}, "FACTORY_STACK_DIR is set"},
+		{"Env sets a helper config value", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{"GIT_CONFIG_VALUE_0": envSecret}}, "GIT_CONFIG_VALUE_0 is set"},
 		{"an empty name", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{"": "x"}}, `"" is not a variable name`},
 		{"a name with =", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{"A=B": "x"}}, `"A=B" is not a variable name`},
 		{"a NUL in a value", pipeline.Options{Root: "/work", Adapters: ad, Env: map[string]string{"A": "x\x00y"}}, "A: the value holds a NUL byte"},
@@ -62,10 +67,52 @@ func TestNewWorkspaceOptions(t *testing.T) {
 				t.Fatalf("refused: %v", err)
 			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
 				t.Fatalf("err %v, want %q", err, tt.want)
-			case err != nil && strings.Contains(err.Error(), "x\x00y"):
+			case err != nil && (strings.Contains(err.Error(), "x\x00y") || strings.Contains(err.Error(), envSecret)):
 				t.Errorf("the error holds the value: %v", err)
 			}
 		})
+	}
+}
+
+// envSecret is a value Options.Env's refusals must never quote.
+const envSecret = "env-value-never-quoted"
+
+// Options.Env may not set a variable that adds a credential helper or changes what git, the
+// loader or the shell runs (the gateway's "no helper at all", the host's "only the in-memory
+// helper"); it may set every proxy and CA variable vmrun's system setup sets.
+func TestNewEnvControlVariables(t *testing.T) {
+	t.Parallel()
+	ad := map[string]harness.Adapter{fake.Name: &fake.Adapter{}}
+	for _, k := range []string{
+		"GIT_CONFIG_PARAMETERS", "GIT_ASKPASS", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_PROXY_COMMAND",
+		"GIT_DIR", "GIT_WORK_TREE", "GIT_EXEC_PATH", "GIT_TEMPLATE_DIR", "GIT_SSL_NO_VERIFY",
+		"SSH_ASKPASS", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "BASH_ENV", "ENV",
+	} {
+		for _, mode := range []pipeline.GitAuth{pipeline.GitAuthHelper, pipeline.GitAuthGateway} {
+			t.Run(k+"/"+mode.String(), func(t *testing.T) {
+				_, err := pipeline.New(pipeline.Options{Root: "/work", Adapters: ad, GitAuth: mode, Env: map[string]string{k: envSecret}})
+				if want := k + " controls git, the loader or the shell"; err == nil || !strings.Contains(err.Error(), want) {
+					t.Fatalf("err %v, want %q", err, want)
+				}
+				if strings.Contains(err.Error(), envSecret) {
+					t.Errorf("the error holds the value: %v", err)
+				}
+			})
+		}
+	}
+	// vmrun's system setup (workspace-run.md §System setup), and names that only look close.
+	accepted := map[string]string{
+		"HTTPS_PROXY": "http://10.0.0.1:3128", "HTTP_PROXY": "http://10.0.0.1:3128", "https_proxy": "http://10.0.0.1:3128", "http_proxy": "http://10.0.0.1:3128",
+		"NO_PROXY": "localhost,10.0.0.0/8", "no_proxy": "localhost,10.0.0.0/8",
+		"SSL_CERT_FILE": "/s/ca-bundle.pem", "GIT_SSL_CAINFO": "/s/ca-bundle.pem", "GIT_SSL_CAPATH": "/s/certs", "CURL_CA_BUNDLE": "/s/ca-bundle.pem",
+		"REQUESTS_CA_BUNDLE": "/s/ca-bundle.pem", "NODE_EXTRA_CA_CERTS": "/b/gateway/ca.pem",
+		pipeline.EnvGHToken: fakegateway.DefaultPlaceholder, "FACTORY_RUNTIME": "workspace", "DOCKER_CONFIG": "/s/docker", "XDG_DATA_HOME": "/home/admin/.local/share",
+		"ENVIRONMENT": "ci", "GITHUB_ACTIONS": "true", "LDFLAGS": "-s",
+	}
+	for _, mode := range []pipeline.GitAuth{pipeline.GitAuthHelper, pipeline.GitAuthGateway} {
+		if _, err := pipeline.New(pipeline.Options{Root: "/work", Adapters: ad, GitAuth: mode, Env: accepted}); err != nil {
+			t.Errorf("%v: the system setup's Env refused: %v", mode, err)
+		}
 	}
 }
 
@@ -340,6 +387,64 @@ func TestRunGatewayMode(t *testing.T) {
 	}
 	if _, _, sent := f.git.counts("acme/local-dev"); sent != 0 {
 		t.Errorf("the public repo got %d requests with credentials", sent)
+	}
+}
+
+// A gateway-mode run refuses, before any step, a job that carries a credential (the VM holds
+// none: the gateway injects them), naming the field and never its value.
+func TestRunGatewayModeRefusesJobCredentials(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		field string
+		set   func(f *fixture, job *runner.Job)
+	}{
+		{"Lease.GitCredential.Token", func(_ *fixture, job *runner.Job) { job.Lease.GitCredential.Token = gitSecret }},
+		{"Lease.ReadCredentials[0].Token", func(_ *fixture, job *runner.Job) { job.Lease.ReadCredentials[0].Token = readSecret }},
+		{"Git.Token", func(_ *fixture, job *runner.Job) {
+			cred := job.Git.Get()
+			cred.Token = gitSecret
+			job.Git = runner.NewCredentials(cred, job.Git.Reads()...)
+		}},
+		{"Git.Reads[0].Token", func(_ *fixture, job *runner.Job) {
+			reads := job.Git.Reads()
+			reads[0].Token = readSecret
+			job.Git = runner.NewCredentials(job.Git.Get(), reads...)
+		}},
+		{"AgentToken", func(_ *fixture, job *runner.Job) { job.AgentToken = func() string { return agentSecret } }},
+		{"API", func(f *fixture, job *runner.Job) { job.API = f.disp.client(f.t) }},
+	} {
+		t.Run(tt.field, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			root := filepath.Join(t.TempDir(), "work")
+			f.opts.WorkRoot, f.opts.Root, f.opts.GitAuth = "", root, pipeline.GitAuthGateway
+			f.opts.SocketDir = t.TempDir()
+			var steps []string
+			f.opts.OnStep = func(name string, _ time.Duration, _ error) { steps = append(steps, name) }
+			f.adapter.Script = fake.Script{Turn: fake.Turn{Result: []byte(validResult)}}
+			job := f.gatewayJob()
+			tt.set(f, job)
+			out, err := f.pipeline().Run(context.Background(), job, &sink{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "gateway mode: the job carries a credential in " + tt.field
+			if out.Status != runner.StatusFailed || out.Reason != runner.ReasonHarnessError || out.Result == nil || !strings.Contains(out.Result.Summary, want) {
+				t.Fatalf("outcome %+v %+v, want %q", out, out.Result, want)
+			}
+			for _, s := range []string{gitSecret, readSecret, agentSecret} {
+				if strings.Contains(out.Result.Summary, s) || strings.Contains(f.logs.String(), s) {
+					t.Errorf("the refusal quotes a credential: %q", out.Result.Summary)
+				}
+			}
+			// Only finish, which every run ends with, reports.
+			if !slices.Equal(steps, []string{"finish"}) || len(f.adapter.Prepared()) != 0 || listTree(t, root) != nil {
+				t.Errorf("a step ran: steps %v, prepared %d, root %v", steps, len(f.adapter.Prepared()), listTree(t, root))
+			}
+			if calls := f.disp.callList(); len(calls) != 0 {
+				t.Errorf("the refused run called the dispatcher: %v", calls)
+			}
+		})
 	}
 }
 
