@@ -89,6 +89,18 @@ const (
 	ReasonCancelled     = "cancelled"
 )
 
+// Statuses are every Outcome status. A new status constant goes here too: the run bundle's
+// outcome (runbundle) accepts only these.
+func Statuses() []string {
+	return []string{StatusDone, StatusFailed, StatusNeedsInput, StatusNoop, StatusThrottled}
+}
+
+// Reasons are every Outcome reason, without "" (no reason). A new reason constant goes here
+// too: the run bundle's outcome (runbundle) accepts only these.
+func Reasons() []string {
+	return []string{ReasonLimit, ReasonInvalidResult, ReasonHarnessError, ReasonStackError, ReasonCancelled}
+}
+
 // Outcome is what a run ended with (run-pipeline.md).
 type Outcome struct {
 	// Result is the run's Result; nil when the run failed before producing one.

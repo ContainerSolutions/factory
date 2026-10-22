@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apiclient"
@@ -73,13 +75,32 @@ func OutcomeEvent(o Outcome) Event {
 	return Event{Type: EventOutcome, Outcome: &o}
 }
 
-// StepOf is the Step for an OnStep call.
+// MaxStepError bounds a step event's Error (envrun's tail size), so a long error still fits
+// its event line.
+const MaxStepError = 8 << 10
+
+// truncatedMark ends an Error that StepOf cut.
+const truncatedMark = "…(truncated)"
+
+// StepOf is the Step for an OnStep call. An error over MaxStepError bytes is cut there, on a
+// UTF-8 boundary, and ends with "…(truncated)".
 func StepOf(name string, d time.Duration, err error) *Step {
 	s := &Step{Name: name, State: StepOK, MS: d.Milliseconds()}
 	if err != nil {
-		s.State, s.Error = StepError, err.Error()
+		s.State, s.Error = StepError, truncate(err.Error(), MaxStepError)
 	}
 	return s
+}
+
+// truncate cuts s to at most n bytes on a rune boundary, marking the cut.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + truncatedMark
 }
 
 // UsageOf is u in apiclient.UsageDelta's wire shape.
@@ -135,6 +156,20 @@ func (e Event) validate() error {
 		return invalid("event.step.state", "is not ok or error")
 	case e.Outcome != nil:
 		return e.Outcome.Validate()
+	case e.Usage != nil:
+		return validateUsage(*e.Usage)
+	}
+	return nil
+}
+
+// validateUsage refuses what the dispatcher would (UsageDelta's minimum: 0): negative tokens,
+// and a negative or non-finite cost.
+func validateUsage(u apiclient.UsageDelta) error {
+	switch {
+	case u.InputTokens != nil && *u.InputTokens < 0, u.OutputTokens != nil && *u.OutputTokens < 0:
+		return invalid("event.usage", "has negative tokens")
+	case u.CostUSD != nil && (*u.CostUSD < 0 || math.IsNaN(float64(*u.CostUSD)) || math.IsInf(float64(*u.CostUSD), 0)):
+		return invalid("event.usage", "has a negative or non-finite cost")
 	}
 	return nil
 }

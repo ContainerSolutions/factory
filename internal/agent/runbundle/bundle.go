@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
@@ -174,16 +175,48 @@ func invalid(field, format string, args ...any) error {
 	return &ValidationError{Field: field, Message: fmt.Sprintf(format, args...)}
 }
 
-// tokenPatterns are the credential shapes no bundle field may hold: GitHub tokens, API keys
-// (sk-…, sk-ant-… included), the run token (rtk_), an agent token (agt_<id>.<secret>) and
-// private key blocks. They mirror the pipeline's redactor, plus the factory's own tokens.
+// tokenPatterns are the credential shapes no bundle string may hold. A match refuses the
+// bundle, so unlike the pipeline's redactor (pipeline/transcript.go: free text, where a false
+// positive costs nothing) each is the token's real shape, between non-identifier boundaries
+// (a repo acme/sk-platform or a host ghp-mirror.example.com is no token):
+//   - GitHub's: gh[opsur]_ and at least 36 alphanumerics, github_pat_ and at least 82;
+//   - API keys: Anthropic's sk-ant-… (80 or more), OpenAI's sk-proj-, sk-svcacct- and
+//     sk-admin-… (80 or more) and its legacy sk- and 48 alphanumerics;
+//   - the factory's: the run token rtk_, the enrollment token enr_ and the refresh token arf_,
+//     each with exactly 43 base64url characters (the API's patterns), and the agent token
+//     agt_<id>.<43>;
+//   - a JWT (eyJ… and two more base64url segments) and a private key block.
+//
+// bearerRE adds a Bearer or Basic credential, as the redactor's authHeaderRE has.
 var tokenPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`\bgh[opsur]_[A-Za-z0-9_]{16,}`),
-	regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{16,}`),
-	regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{16,}`),
-	regexp.MustCompile(`\brtk_[A-Za-z0-9_.-]+`),
-	regexp.MustCompile(`\bagt_[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}`),
+	tokenRE(`gh[opsur]_[A-Za-z0-9]{36,}`),
+	tokenRE(`github_pat_[A-Za-z0-9_]{82,}`),
+	tokenRE(`sk-ant-[A-Za-z0-9_-]{80,}`),
+	tokenRE(`sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{80,}`),
+	tokenRE(`sk-[A-Za-z0-9]{48}`),
+	tokenRE(`(?:rtk|enr|arf)_[A-Za-z0-9_-]{43}`),
+	tokenRE(`agt_[A-Za-z0-9-]+\.[A-Za-z0-9_-]{43}`),
+	tokenRE(`eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*`),
 	regexp.MustCompile(`-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`),
+}
+
+// tokenRE matches shape with no identifier character ([A-Za-z0-9_-]) on either side.
+func tokenRE(shape string) *regexp.Regexp {
+	return regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])` + shape + `(?:$|[^A-Za-z0-9_-])`)
+}
+
+// bearerRE is a Bearer or Basic credential: the scheme, then at least 16 token characters.
+// bearerCredential also wants a letter and a digit in it, so prose ("Basic authentication")
+// isn't one.
+var bearerRE = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_-])(?:bearer|basic)\s+([A-Za-z0-9._~+/=-]{16,})`)
+
+func bearerCredential(s string) bool {
+	for _, m := range bearerRE.FindAllStringSubmatch(s, -1) {
+		if strings.ContainsAny(m[1], "0123456789") && strings.IndexFunc(m[1], unicode.IsLetter) >= 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // LooksLikeToken reports whether s holds something shaped like a credential.
@@ -193,7 +226,7 @@ func LooksLikeToken(s string) bool {
 			return true
 		}
 	}
-	return false
+	return bearerCredential(s)
 }
 
 // scanTokens refuses any string in v (struct fields, slices, map keys and values) shaped
@@ -251,7 +284,8 @@ var nameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]*$`)
 
 // Validate checks the rules that need only the manifest: the version, the ids, the
 // dispatcher URL, every path, the skills, NoProxy and that no field is shaped like a token.
-// Read and Write also check it against task.json.
+// Read and Write also check it against task.json, and scan task.json and every context file
+// for tokens too.
 func (m Manifest) Validate() error {
 	if m.Version != Version {
 		return invalid("version", "%d is not a known version (want %d)", m.Version, Version)
@@ -433,6 +467,9 @@ func Write(dir string, m Manifest, f Files) (err error) {
 	if err := m.validateTask(f.Task); err != nil {
 		return err
 	}
+	if err := scanTokens(reflect.ValueOf(f.Task), TaskFile); err != nil {
+		return err
+	}
 	if len(m.Skills) > 0 && f.SkillsDir == "" {
 		return invalid("skills", "listed without a skills dir")
 	}
@@ -496,7 +533,8 @@ func Write(dir string, m Manifest, f Files) (err error) {
 }
 
 // jsonError describes a decoding error without the input it quotes (a time's parse error
-// repeats the string, which a VM controls): where it is and what was wrong, never the value.
+// repeats the string, and a type error a number's literal, which a VM controls): where it is
+// and what was wrong, never the value.
 func jsonError(err error) string {
 	var syn *json.SyntaxError
 	var typ *json.UnmarshalTypeError
@@ -504,7 +542,10 @@ func jsonError(err error) string {
 	case errors.As(err, &syn):
 		return fmt.Sprintf("not JSON at offset %d", syn.Offset)
 	case errors.As(err, &typ):
-		return fmt.Sprintf("%s: a JSON %s where %s goes", typ.Field, typ.Value, typ.Type)
+		// Value is the kind and, for a number (or an integer map key), the literal: name the
+		// kind only.
+		kind, _, _ := strings.Cut(typ.Value, " ")
+		return fmt.Sprintf("%s: a JSON %s where %s goes", typ.Field, kind, typ.Type)
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		return "truncated JSON"
 	}
@@ -538,7 +579,8 @@ func checkSizes(files map[string][]byte) error {
 	return nil
 }
 
-// parseContext decodes a context file and checks its index and its content's cap.
+// parseContext decodes a context file and checks its index, its content's cap and that no
+// string in it is shaped like a token.
 func parseContext(name string, data []byte) (apiclient.TaskContext, error) {
 	var tc apiclient.TaskContext
 	if err := json.Unmarshal(data, &tc); err != nil {
@@ -549,6 +591,9 @@ func parseContext(name string, data []byte) (apiclient.TaskContext, error) {
 	}
 	if len(tc.Content) > MaxContextBytes {
 		return tc, invalid(name, "its content is over %d bytes", MaxContextBytes)
+	}
+	if err := scanTokens(reflect.ValueOf(tc), name); err != nil {
+		return tc, err
 	}
 	return tc, nil
 }
@@ -643,6 +688,9 @@ func Read(dir string) (*Bundle, error) {
 		return nil, invalid(TaskFile, "%s", jsonError(err))
 	}
 	if err := m.validateTask(b.Task); err != nil {
+		return nil, err
+	}
+	if err := scanTokens(reflect.ValueOf(b.Task), TaskFile); err != nil {
 		return nil, err
 	}
 	if b.Prompt, err = readFile(root, m.Prompt, MaxPromptBytes); err != nil {

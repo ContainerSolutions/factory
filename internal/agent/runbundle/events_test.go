@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
@@ -166,6 +167,13 @@ func TestDecoder(t *testing.T) {
 		{"a token for a time", `{"v":1,"type":"step","at":"` + ghsToken + `","step":{"name":"x","state":"ok","ms":1}}` + "\n", []result{{field: "event"}}},
 		{"a token for a state", `{"v":1,"type":"step","at":"2026-10-22T12:00:00Z","step":{"name":"x","state":"` + ghsToken + `","ms":1}}` + "\n", []result{{field: "event.step.state"}}},
 		{"a bad outcome", `{"v":1,"type":"outcome","at":"2026-10-22T12:00:00Z","outcome":{"status":"done","transcript":"/etc/passwd"}}` + "\n", []result{{field: "outcome.transcript"}}},
+		{"a throttle time on a failure", `{"v":1,"type":"outcome","at":"2026-10-22T12:00:00Z","outcome":{"status":"failed","throttledUntil":"9999-12-31T23:59:59Z"}}` + "\n", []result{{field: "outcome.throttledUntil"}}},
+		{"negative input tokens", `{"v":1,"type":"usage","at":"2026-10-22T12:00:00Z","usage":{"inputTokens":-9000000000000000000}}` + "\n" + ok, []result{{field: "event.usage"}, {typ: EventStart}}},
+		{"negative output tokens", `{"v":1,"type":"usage","at":"2026-10-22T12:00:00Z","usage":{"inputTokens":1,"outputTokens":-1}}` + "\n", []result{{field: "event.usage"}}},
+		{"a negative cost", `{"v":1,"type":"usage","at":"2026-10-22T12:00:00Z","usage":{"costUSD":-5}}` + "\n", []result{{field: "event.usage"}}},
+		{"a cost over float32", `{"v":1,"type":"usage","at":"2026-10-22T12:00:00Z","usage":{"costUSD":1e999}}` + "\n", []result{{field: "event"}}},
+		{"zero usage", `{"v":1,"type":"usage","at":"2026-10-22T12:00:00Z","usage":{"inputTokens":0,"outputTokens":0,"costUSD":0}}` + "\n", []result{{typ: EventUsage}}},
+		{"a 200-digit number", `{"v":1,"type":"step","at":"2026-10-22T12:00:00Z","step":{"name":"x","state":"ok","ms":` + strings.Repeat("9", 200) + `}}` + "\n", []result{{field: "event"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -174,6 +182,9 @@ func TestDecoder(t *testing.T) {
 				e, err := dec.Next()
 				if w.field != "" {
 					wantInvalid(t, err, w.field)
+					if strings.Contains(err.Error(), "9999") {
+						t.Errorf("the error quotes the number: %.80s…", err)
+					}
 					continue
 				}
 				if err != nil || e.Type != w.typ {
@@ -184,5 +195,25 @@ func TestDecoder(t *testing.T) {
 				t.Errorf("at the end: %v, want io.EOF", err)
 			}
 		})
+	}
+}
+
+func TestStepOfTruncates(t *testing.T) {
+	long := "x" + strings.Repeat("é", 50<<10) // 100 KiB, a rune boundary off MaxStepError
+	s := StepOf("harness", time.Second, errors.New(long))
+	if s.State != StepError || !strings.HasSuffix(s.Error, truncatedMark) {
+		t.Fatalf("Step = %.40q…, want a truncated error", s.Error)
+	}
+	body := strings.TrimSuffix(s.Error, truncatedMark)
+	if len(body) > MaxStepError || len(body) < MaxStepError-utf8.UTFMax || !utf8.ValidString(s.Error) || !strings.HasPrefix(long, body) {
+		t.Errorf("the error is %d bytes before its mark (valid UTF-8 %v), want at most %d", len(body), utf8.ValidString(s.Error), MaxStepError)
+	}
+	var buf bytes.Buffer
+	if err := NewEncoder(&buf, fixedClock()).Encode(Event{Type: EventStep, Step: s}); err != nil {
+		t.Errorf("Encode: %v", err)
+	}
+	exact := strings.Repeat("a", MaxStepError)
+	if got := StepOf("x", 0, errors.New(exact)).Error; got != exact {
+		t.Errorf("an error of exactly MaxStepError was cut to %d bytes", len(got))
 	}
 }

@@ -31,7 +31,9 @@ var t0 = time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 // fake token shapes, built so no literal token sits in the source.
 var (
 	ghsToken = "ghs" + "_" + strings.Repeat("A", 36)
-	rtkToken = "rtk" + "_" + strings.Repeat("b", 32)
+	rtkToken = "rtk" + "_" + strings.Repeat("b", 43)
+	// jwt is three base64url segments, the first two JSON objects.
+	jwt = "eyJ" + "hbGciOiJSUzI1NiJ9" + "." + "eyJ" + "zdWIiOiJ1c2VyLTEifQ" + "." + strings.Repeat("c", 40)
 )
 
 func testTask(harness string) v1alpha1.Task {
@@ -258,6 +260,10 @@ func TestWriteRefuses(t *testing.T) {
 		{"a repo item's context", func(_ *Manifest, f *Files) { f.Context[1] = contextJSON(t, 1, "x") }, "context"},
 		{"an item the task hasn't", func(_ *Manifest, f *Files) { f.Context[7] = contextJSON(t, 7, "x") }, "context"},
 		{"a token in the git access", func(m *Manifest, _ *Files) { m.Git.Permissions["contents"] = ghsToken }, "git.permissions"},
+		{"a token in task.json", func(_ *Manifest, f *Files) { f.Task.Spec.Inputs = map[string]any{"x": []any{"a", ghsToken}} }, TaskFile + ".spec.inputs"},
+		{"a token in a context item", func(_ *Manifest, f *Files) {
+			f.Context[0] = contextJSON(t, 0, "curl -H 'Authorization: Bearer "+jwt+"'")
+		}, "context/0.json.content"},
 		{"codex for claude", func(_ *Manifest, f *Files) { f.Task = testTask("claude-code") }, "codex"},
 		{"no codex account for codex", func(_ *Manifest, f *Files) { f.Codex = nil }, "codex"},
 		{"skills without a dir", func(_ *Manifest, f *Files) { f.SkillsDir = "" }, "skills"},
@@ -325,8 +331,9 @@ func TestValidate(t *testing.T) {
 		{"a GitHub token", func(m *Manifest) { m.Git.Repo = ghsToken }, "git.repo"},
 		{"a token in a read scope", func(m *Manifest) { m.Git.Reads[0].ReadRepos = []string{ghsToken} }, "git.reads[0].readRepos[0]"},
 		{"a token as a permission's name", func(m *Manifest) { m.Git.Permissions[ghsToken] = "read" }, "git.permissions"},
-		{"an API key", func(m *Manifest) { m.Codex = &CodexAccount{"sk-ant-" + strings.Repeat("x", 20), "u", "p"} }, "codex.accountId"},
-		{"an agent token", func(m *Manifest) { m.Git.Host = "agt_me-host." + strings.Repeat("s", 32) }, "git.host"},
+		{"an API key", func(m *Manifest) { m.Codex = &CodexAccount{"sk-ant-api03-" + strings.Repeat("x", 95), "u", "p"} }, "codex.accountId"},
+		{"an agent token", func(m *Manifest) { m.Git.Host = "agt_me-host." + strings.Repeat("s", 43) }, "git.host"},
+		{"a JWT for the codex account", func(m *Manifest) { m.Codex = &CodexAccount{"acct-1", jwt, "pro"} }, "codex.userId"},
 		{"a ftp dispatcher", func(m *Manifest) { m.Dispatcher = "ftp://dispatcher" }, "dispatcher"},
 		{"a relative dispatcher", func(m *Manifest) { m.Dispatcher = "/dispatcher" }, "dispatcher"},
 		{"a dispatcher with user info", func(m *Manifest) { m.Dispatcher = "http://u:" + rtkToken[4:] + "@dispatcher" }, "dispatcher"},
@@ -355,6 +362,18 @@ func TestValidate(t *testing.T) {
 			wantInvalid(t, m.Validate(), tt.field)
 		})
 	}
+
+	// Legal names that start like a token aren't refused.
+	t.Run("lookalike names", func(t *testing.T) {
+		m := valid()
+		m.Git.Repo = "acme/sk-platform-infrastructure"
+		m.Git.Reads = []GitRead{{Repo: "acme/ghs_tools", ReadRepos: []string{"acme/github_pat_scanner", "acme/rtk_runtime-kit"}}}
+		m.Gateway.NoProxy = []string{"sk-registry-internal.example.com", "ghp-mirror.internal.example.com", "agt-cache.example.com"}
+		m.Skills = []Skill{{Name: "sk-ant-reviewer", Plugin: "ghs_helpers", Dir: "skills/ghs_helpers/skills/sk-ant-reviewer"}}
+		if err := m.Validate(); err != nil {
+			t.Errorf("Validate: %v", err)
+		}
+	})
 }
 
 func TestReadRefuses(t *testing.T) {
@@ -407,6 +426,18 @@ func TestReadRefuses(t *testing.T) {
 		{"a path out of the bundle", editManifest(func(m *Manifest) { m.Prompt = "../../etc/passwd" }), "prompt"},
 		{"an oversize task.json", rewrite(TaskFile, big(MaxTaskBytes+1)), TaskFile},
 		{"another task", rewrite(TaskFile, []byte(`{"metadata":{"id":"tsk_2"}}`)), "taskId"},
+		{"a token in task.json", func(t *testing.T, dir string) {
+			task := testTask("codex")
+			task.Spec.Inputs = map[string]any{"x": rtkToken}
+			raw, err := json.Marshal(task)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rewrite(TaskFile, raw)(t, dir)
+		}, TaskFile + ".spec.inputs"},
+		{"a token in a context item", func(t *testing.T, dir string) {
+			rewrite("context/0.json", contextJSON(t, 0, "token: "+ghsToken))(t, dir)
+		}, "context/0.json.content"},
 		{"an oversize prompt", rewrite(PromptFile, big(MaxPromptBytes+1)), PromptFile},
 		{"an oversize schema", rewrite(SchemaFile, big(MaxSchemaBytes+1)), SchemaFile},
 		{"an oversize CA", rewrite(CAFile, big(MaxCABytes+1)), CAFile},
@@ -464,7 +495,10 @@ func TestReadRefuses(t *testing.T) {
 var secretName = regexp.MustCompile(`(?i)token|secret|key|password|credential`)
 
 // TestNoSecretFields walks every exported struct type of the package and fails on a field
-// (or a JSON name) named like a credential (workspace-run.md §Rules).
+// (or a JSON name) named like a credential (workspace-run.md §Rules). It stops at the
+// package's boundary: the external types the bundle serialises (task.json's v1alpha1.Task and
+// a context file's apiclient.TaskContext) are covered at run time instead, by the token scan
+// Write and Read run over every string in them (TestWriteRefuses, TestReadRefuses).
 func TestNoSecretFields(t *testing.T) {
 	roots := []reflect.Type{
 		reflect.TypeFor[Manifest](), reflect.TypeFor[Files](), reflect.TypeFor[Bundle](),
@@ -545,14 +579,33 @@ func TestImports(t *testing.T) {
 }
 
 func TestLooksLikeToken(t *testing.T) {
+	b64 := func(n int) string { return strings.Repeat("aB3_-", n)[:n] }
 	for s, want := range map[string]bool{
-		ghsToken: true, "gho_" + strings.Repeat("a", 20): true, "github_pat_" + strings.Repeat("a", 20): true,
-		"sk-ant-api03-" + strings.Repeat("a", 20): true, rtkToken: true, "agt_me-host." + strings.Repeat("a", 32): true,
+		// The real shapes, alone and in text.
+		ghsToken: true, "gho_" + strings.Repeat("a1", 18): true, "ghp_" + strings.Repeat("Z", 40): true,
+		"github_pat_" + strings.Repeat("A", 22) + "_" + strings.Repeat("b", 59): true,
+		"sk-ant-api03-" + b64(95): true, "sk-ant-oat01-" + b64(95): true,
+		"sk-proj-" + b64(120): true, "sk-" + strings.Repeat("T3Bl", 12): true,
+		rtkToken: true, "enr_" + b64(43): true, "arf_" + b64(43): true,
+		"agt_ana-box." + b64(43): true, "token=" + ghsToken + ";": true,
+		jwt: true, "id_token: " + jwt: true,
+		"Authorization: Bearer " + b64(40): true, "authorization: basic dXNlcjpwYXNzd29yZDEyMw==": true,
 		"-----BEGIN RSA PRIVATE KEY-----": true,
-		"agt_me-host":                     false, "run_1-1": false, "lse_0123": false, "ghs_short": false, "acme/app": false,
+
+		// Lookalikes: repos, hosts, skills and ids.
+		"acme/sk-platform-infrastructure": false, "sk-registry-internal.example.com": false,
+		"sk-ant-reviewer": false, "acme/sk-" + strings.Repeat("a", 30) + "-infra": false,
+		"ghs_short": false, "acme/ghs_tools": false, "ghp-mirror.internal.example.com": false,
+		"gho_" + strings.Repeat("a", 35): false, "github_pat_scanner": false,
+		"rtk_x": false, "rtk_" + b64(42): false, "rtk_" + b64(44): false, "acme/rtk_runtime-kit": false,
+		"enr_docs": false, "arf_" + b64(20): false,
+		"agt_me-host": false, "agt_ana-box": false, "agt_ana-box." + b64(20): false,
+		"eyJ-not-a-jwt": false, "eyJhbGciOiJ.short": false,
+		"Basic authentication for the API": false, "use a Bearer token": false, "bearer tokenmanagementsystem": false,
+		"run_1-1": false, "lse_0123": false, "acme/app": false,
 	} {
 		if got := LooksLikeToken(s); got != want {
-			t.Errorf("LooksLikeToken(%.12q…) = %v, want %v", s, got, want)
+			t.Errorf("LooksLikeToken(%.24q…) = %v, want %v", s, got, want)
 		}
 	}
 }

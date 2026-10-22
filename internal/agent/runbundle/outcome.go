@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/runner"
@@ -34,29 +36,49 @@ type Outcome struct {
 	Transcript     string           `json:"transcript,omitempty"`
 }
 
-var (
-	statuses = map[string]bool{
-		runner.StatusDone: true, runner.StatusFailed: true, runner.StatusNeedsInput: true,
-		runner.StatusNoop: true, runner.StatusThrottled: true,
-	}
-	reasons = map[string]bool{
-		"": true, runner.ReasonLimit: true, runner.ReasonInvalidResult: true,
-		runner.ReasonHarnessError: true, runner.ReasonStackError: true, runner.ReasonCancelled: true,
-	}
-)
+// MaxThrottle bounds a VM's throttle: ReadOutcome and ClampThrottle move a later
+// ThrottledUntil to now + MaxThrottle, so one VM can't park the agent host. A longer real
+// limit (codex's weekly cap) throttles again each window.
+const MaxThrottle = 6 * time.Hour
 
-// Validate checks Status and Reason against the runner's, and Transcript. Its errors never
-// quote a value: an outcome comes from the untrusted VM.
+// MinThrottle is the throttle ClampThrottle gives a throttled outcome whose time is zero or
+// not after now.
+const MinThrottle = time.Minute
+
+// Validate checks Status and Reason against runner.Statuses and runner.Reasons, that
+// ThrottledUntil is set only for a throttled outcome, and Transcript. Its errors never quote a
+// value: an outcome comes from the untrusted VM.
 func (o Outcome) Validate() error {
 	switch {
-	case !statuses[o.Status]:
+	case !slices.Contains(runner.Statuses(), o.Status):
 		return invalid("outcome.status", "is not a run status")
-	case !reasons[o.Reason]:
+	case o.Reason != "" && !slices.Contains(runner.Reasons(), o.Reason):
 		return invalid("outcome.reason", "is not a run reason")
+	case o.ThrottledUntil != nil && o.Status != runner.StatusThrottled:
+		return invalid("outcome.throttledUntil", "is set only when the status is throttled")
 	case o.Transcript != "" && o.Transcript != TranscriptFile:
 		return invalid("outcome.transcript", "is not %q", TranscriptFile)
 	}
 	return nil
+}
+
+// ClampThrottle bounds a throttled outcome's ThrottledUntil by the reader's now: a time after
+// now + MaxThrottle becomes that, and a zero time or one not after now becomes
+// now + MinThrottle. A nil ThrottledUntil (unknown) stays nil: the worker applies its
+// default. ReadOutcome applies it; the supervisor applies it to an outcome event too.
+func (o Outcome) ClampThrottle(now time.Time) Outcome {
+	if o.Status != runner.StatusThrottled || o.ThrottledUntil == nil {
+		return o
+	}
+	until := *o.ThrottledUntil
+	switch limit := now.Add(MaxThrottle); {
+	case until.IsZero() || !until.After(now):
+		until = now.Add(MinThrottle)
+	case until.After(limit):
+		until = limit
+	}
+	o.ThrottledUntil = &until
+	return o
 }
 
 // OutcomeOf is the wire form of o; transcript is the transcript's file name, or "".
@@ -108,15 +130,26 @@ func WriteOutcome(outDir string, o Outcome) error {
 	return nil
 }
 
-// ReadOutcome reads outDir/OutcomeFile, written by the untrusted VM: through an os.Root on
-// outDir, a regular file only (no symlink, FIFO or device, checked before and after opening
-// it), at most MaxOutcomeBytes, and validated.
-func ReadOutcome(outDir string) (Outcome, error) {
+// ReadOutcome reads outDir/OutcomeFile, written by the untrusted VM: outDir must be a real
+// directory (not a symlink), and the file a regular file with one link (no symlink, FIFO,
+// device or second link, checked before and after opening it, and opened non-blocking), at most
+// MaxOutcomeBytes and valid. Its ThrottledUntil is clamped by now (ClampThrottle).
+func ReadOutcome(outDir string, now time.Time) (Outcome, error) {
+	dirInfo, err := os.Lstat(outDir)
+	if err != nil {
+		return Outcome{}, fmt.Errorf("outcome: %w", err)
+	}
+	if !dirInfo.IsDir() {
+		return Outcome{}, invalid(OutDir, "is not a directory")
+	}
 	root, err := os.OpenRoot(outDir)
 	if err != nil {
 		return Outcome{}, fmt.Errorf("outcome: %w", err)
 	}
 	defer func() { _ = root.Close() }()
+	if opened, err := root.Stat("."); err != nil || !os.SameFile(dirInfo, opened) {
+		return Outcome{}, invalid(OutDir, "changed while it was opened")
+	}
 	before, err := root.Lstat(OutcomeFile)
 	if err != nil {
 		return Outcome{}, fmt.Errorf("outcome: %w", err)
@@ -124,12 +157,12 @@ func ReadOutcome(outDir string) (Outcome, error) {
 	if !before.Mode().IsRegular() {
 		return Outcome{}, invalid(OutcomeFile, "is not a regular file")
 	}
-	f, err := root.Open(OutcomeFile)
+	f, after, err := openRegular(root, OutcomeFile)
 	if err != nil {
-		return Outcome{}, fmt.Errorf("outcome: %w", err)
+		return Outcome{}, err
 	}
 	defer func() { _ = f.Close() }()
-	if after, err := f.Stat(); err != nil || !after.Mode().IsRegular() || !os.SameFile(before, after) {
+	if !os.SameFile(before, after) {
 		return Outcome{}, invalid(OutcomeFile, "changed while it was opened")
 	}
 	data, err := io.ReadAll(io.LimitReader(f, MaxOutcomeBytes+1))
@@ -146,5 +179,27 @@ func ReadOutcome(outDir string) (Outcome, error) {
 	if err := o.Validate(); err != nil {
 		return Outcome{}, err
 	}
-	return o, nil
+	return o.ClampThrottle(now), nil
+}
+
+// openRegular opens name in root without blocking (a FIFO opens at once) and returns it only
+// when the opened file is a regular file with a single link.
+func openRegular(root *os.Root, name string) (*os.File, fs.FileInfo, error) {
+	f, err := root.OpenFile(name, os.O_RDONLY|openNonBlock, 0)
+	if err != nil {
+		return nil, nil, fmt.Errorf("outcome: %w", err)
+	}
+	fi, err := f.Stat()
+	switch {
+	case err != nil:
+		_ = f.Close()
+		return nil, nil, fmt.Errorf("outcome: %w", err)
+	case !fi.Mode().IsRegular():
+		_ = f.Close()
+		return nil, nil, invalid(name, "is not a regular file")
+	case links(fi) > 1:
+		_ = f.Close()
+		return nil, nil, invalid(name, "has more than one link")
+	}
+	return f, fi, nil
 }
