@@ -1,2 +1,10 @@
 lisa-addressed:
 Pass 1: e84acb812bde FACTORY_STACK_URL/API reserved (stackURLVars appended to reservedEnv); 608f6264b503 reserved lists unexported, Options.Env doc names them in words; c5b00bcafa18 TestRunGatewayMode checks Env by presence; 5172a6a8e501 TestRunRootWorkspace "its parent is missing" case.
+
+lisa-design:
+- The nil-API refusal (workspace-run.md §New options: "a run whose Job.API is nil refuses to start while any source is an API one") is deferred to PR 12 (vmrun): adding it here breaks the stack's TestBundleRunMatchesAPIRun (#108), which runs bundle sources with the default APITranscripts and a nil API, and APITranscripts' documented "no client stores nothing".
+- The env->environment step rename (buildEnv's step becomes "env") stays with PR 7, which adds the environment step that takes the name.
+- skills/ is created only for FetchSkills in both modes (the LLD said it under Root); the host's default source is FetchSkills, so the host is unchanged. SkillSource's doc says another source that fills dst creates it.
+- An existing Root keeps its mode (whoever made it chose it); only a Root the run creates is chmod 0700. A symlinked Root is refused.
+- PrepareBundle refuses a pipeline with Root or GitAuthGateway: it is the host side and needs WorkRoot and the helper.
+- Gateway mode doesn't refuse a job that carries tokens; buildEnv's GH_TOKEN-from-a-non-empty-token rule is the LLD's.
