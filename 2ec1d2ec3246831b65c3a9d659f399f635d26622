@@ -4,3 +4,11 @@ Pass 3 fixed: OutcomeEvent (no Result in the event, validate refuses one); jsonE
 lisa-selfreview:
 Pass 4 (final, lenient): approve. Re-read the pass-3 changes (jsonError, OutcomeEvent, ReadOutcome via os.Root): no blocker or must-fix left.
 Deferred / noted for reviewers: Manifest.Validate's errors still quote manifest values (host-written, trusted; the token scan runs first); a FIFO swapped in between ReadOutcome's Lstat and Open could still block Open (only if the VM can write the host's copy of out/ while it's read).
+
+lisa-design:
+- runbundle imports internal/agent/runner (types and constants only; runner imports just v1alpha1 and apiclient) because the LLD has ReadOutcome check Status/Reason against the runner constants; TestImports pins the allow-list.
+- Write/Read keep the LLD's signatures (no context.Context), as the pipeline's materialise/copyTree do for local files.
+- Write derives the manifest's file names, Context (from the task's non-repo items: missing from Files.Context = Gone), Codex and the default Dispatcher, so the manifest can't disagree with the files.
+- Context files: content capped at 4 MiB (maxContext), the JSON file at 8 MiB for its envelope.
+- Event has "v" (EventVersion); the Decoder refuses an unknown version and skips unknown types. The outcome event carries the Outcome without its Result (outcome.json has it), so it always fits 64 KiB.
+- Validate also requires every non-repo context item listed, and refuses any token-shaped string in any manifest field (ghs_/gho_/ghp_/ghu_/ghr_, github_pat_, sk-, rtk_, agt_<id>.<secret>, private keys); the pipeline's redactor patterns are unexported, so the list lives here (LooksLikeToken).
