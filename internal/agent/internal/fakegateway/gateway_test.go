@@ -107,7 +107,7 @@ func TestRoutes(t *testing.T) {
 		{"api PATCH is refused", "PATCH", "https://api.github.com/repos/acme/docs/pulls/1", "", 403, "-", APIWriteRefused, InjectedNone, ClientAuthNone},
 		{"api PUT is refused", "PUT", "https://api.github.com/repos/acme/docs/pulls/1/merge", "", 403, "-", APIWriteRefused, InjectedNone, ClientAuthNone},
 		{"api DELETE is refused", "DELETE", "https://api.github.com/repos/acme/docs/git/refs/heads/x", "", 403, "-", APIWriteRefused, InjectedNone, ClientAuthNone},
-		{"plain HTTP to github.com is refused", "GET", "http://github.com/acme/docs.git/info/refs", "", 403, "-", PlainRefused, InjectedNone, ClientAuthNone},
+		{"plain HTTP to github.com is refused", "GET", "http://GitHub.com/acme/docs.git/info/refs", "", 403, "-", PlainRefused, InjectedNone, ClientAuthNone},
 		{"plain HTTP elsewhere is refused without AllowTunnel", "GET", "http://example.invalid/", "", 403, "-", TunnelRefused, InjectedNone, ClientAuthNone},
 	} {
 		t.Run(c.name, func(t *testing.T) {

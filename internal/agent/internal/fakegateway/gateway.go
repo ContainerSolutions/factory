@@ -106,7 +106,7 @@ type Config struct {
 // Record is one request the gateway saw. It holds no credential values.
 type Record struct {
 	Method string
-	// Host is the request's host name, without the port.
+	// Host is the request's host name, lower-cased and without the port.
 	Host string
 	// Path is the URL path, without the query; empty for a CONNECT.
 	Path string
@@ -319,9 +319,10 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sw := &statusWriter{ResponseWriter: w}
-	rec := Record{Method: r.Method, Host: r.URL.Hostname(), Path: r.URL.Path, ClientAuth: g.classify(r.Header.Get("Authorization"))}
+	host := strings.ToLower(r.URL.Hostname())
+	rec := Record{Method: r.Method, Host: host, Path: r.URL.Path, ClientAuth: g.classify(r.Header.Get("Authorization"))}
 	defer func() { rec.Status = sw.status(); g.record(rec) }()
-	switch host := strings.ToLower(r.URL.Hostname()); {
+	switch {
 	case !r.URL.IsAbs():
 		rec.Host = r.Host
 		http.Error(sw, NotProxyRequest, http.StatusBadRequest)
