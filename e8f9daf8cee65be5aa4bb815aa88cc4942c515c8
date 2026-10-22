@@ -1,2 +1,6 @@
 lisa-addressed:
 Pass 1 fixed: 92b6e4819315 (checkURL prints no URL), 722f67ec997d (Read uses filepath.Abs), 0375219e88d7 (oversize CA test), 750cbee070b2 (ReadOutcome Lstat, regular only), 87790b6284a5 (explicit files map).
+
+lisa-selfreview:
+Pass 2 (strict):
+- must-fix CORE-INPUT-001 Write didn't apply Read's 1 MiB cap to the bundle.json it writes (the LLD: "Write refuses the same sizes"); task.json's cap untested -> fix
