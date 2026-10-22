@@ -504,7 +504,9 @@ func TestBaseVMShutdown(t *testing.T) {
 		{"tart stop on a VM that stopped meanwhile", func(e *Env, r *fakeRunner) {
 			r.tart.listLag, r.tart.stopStrict, e.VM.Shutdown = 1<<30, true, 20*time.Millisecond
 		}, 1, `VM "factory-agent-base-0.1.0.building" is not running`, ""},
-		{"tart stop fails", func(e *Env, r *fakeRunner) { r.tart.noStop, r.tart.fail, e.VM.Shutdown = true, "tart stop", 20*time.Millisecond }, 1, "didn't stop within 20ms", "injected failure"},
+		{"tart stop fails", func(e *Env, r *fakeRunner) {
+			r.tart.noStop, r.tart.fail, e.VM.Shutdown = true, "tart stop", 20*time.Millisecond
+		}, 1, "didn't stop within 20ms", "injected failure"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
