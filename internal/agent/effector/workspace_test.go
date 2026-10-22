@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/compliance-framework/factory/internal/agent/effector"
+	"github.com/compliance-framework/factory/internal/agent/gitcred"
 	"github.com/compliance-framework/factory/internal/agent/internal/fakegateway"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
@@ -85,7 +86,7 @@ func newVMWorkspace(t *testing.T) *vmWorkspace {
 	}
 	// A gh that would run gh stack: logged, so the test sees it's never called.
 	w := &vmWorkspace{t: t, gw: gw, d: d, root: root, ghLog: filepath.Join(t.TempDir(), "gh.log")}
-	writeFile(t, filepath.Join(bin, "gh"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '"+w.ghLog+"'\nexit 0\n")
+	writeFile(t, filepath.Join(bin, "gh"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+gitcred.ShellQuote(w.ghLog)+"\nexit 0\n")
 	if err := os.Chmod(filepath.Join(bin, "gh"), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -129,8 +129,8 @@ type Options struct {
 	// Git and GH are the git and gh executables (default "git" and "gh", from PATH).
 	Git, GH string
 	// Env is git's and gh's environment (default os.Environ()): the run's, with the
-	// credential helper's GIT_CONFIG_* variables and GH_TOKEN (in a VM workspace, the
-	// gateway's proxy and CA variables instead).
+	// credential helper's GIT_CONFIG_* variables and GH_TOKEN (in a VM workspace: no helper,
+	// a placeholder GH_TOKEN, and the gateway's proxy and CA variables).
 	Env []string
 	// Runtime is $FACTORY_RUNTIME: "" on the host; pipeline.RuntimeWorkspace makes
 	// `stack push|rebase` always take the git fallback.
