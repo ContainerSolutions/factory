@@ -3,3 +3,9 @@ lisa-design:
 - authenticate refuses any bearer with the `run_` prefix on the run-token routes with 401 "run tokens are not issued yet", before the agent/user checks; everything else follows the route's previous path unchanged. P1 phase 6 replaces refuseRunToken with the hash lookup.
 - Run IDs are also `run_…` (ULIDs, 26 chars) but only ever in paths, never as bearers; the token's format (43 base64url chars) keeps them distinguishable if ever needed.
 - Lease.runToken is optional so older dispatchers stay compatible; the example uses run_ + 43 'x' (clearly fake).
+
+lisa-selfreview:
+pass 1:
+- [must-fix] FACTORY-CONTRACT-001 internal/server/middleware.go operations (5a368d4dc4ca): contract PR also changes internal/server. -> dismiss: TestOperationsCovered ties each operation's access to the spec's security list, so the spec can't change without the access table; the task spec mandates exactly this minimal change (access levels + run_ refusal).
+- [should-fix] CORE-DOC-001 design/workstreams/dispatcher-runtime/LLD/api-server.md:159 (c6b1f468ea6a): AGT-S1-T02b paragraph still says getTaskOutputSchema is readerOrAgent and getTaskPrompt agent-only. -> fix.
+- [question] docs/run-token-name-collision design/proposals/P1-agent-workspaces.md:198 (4ef1728076da): §2's in-VM "run token" (opaque identifier, not a credential) vs §5's runToken credential. -> open question for reviewers.
