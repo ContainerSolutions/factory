@@ -6,9 +6,11 @@
 //
 // A CONNECT to an intercepted host is TLS-terminated with the agent host's CA (package ca), and
 // each request inside it is forwarded to that host over TLS with every credential carrier
-// stripped; a WebSocket upgrade passes through. The GitHub and dispatcher routes and the model
-// credentials are later phase 4 PRs': until then nothing injects a credential and the
-// dispatcher's route is closed (dispatcher-route).
+// stripped; a WebSocket upgrade passes through. github.com gets the git credentials by repo
+// (Basic), with every repo that isn't rw fail-closed to the two fetch forms, and api.github.com
+// the task token on reads (GET, HEAD, and POST /graphql when the document only queries). The
+// dispatcher's name serves only POST effects, over its own transport, with
+// Config.DispatcherToken. The model credentials are a later phase 4 PR's.
 package gateway
 
 import (
@@ -22,16 +24,17 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/gateway/ca"
 	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
+	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
-// Config configures a Gateway. Later phase 4 PRs add the git credentials, the run token and the
-// dispatcher, and the model logins (gateway.md, API).
+// Config configures a Gateway. A later phase 4 PR adds the model logins (gateway.md, API).
 type Config struct {
 	// TaskID and RunID identify the workspace; both required.
 	TaskID, RunID string
@@ -40,7 +43,18 @@ type Config struct {
 	Clients []netip.Addr
 	// CA signs the leaves of the intercepted hosts; required.
 	CA *ca.CA
-	// UpstreamRoots verifies the intercepted hosts' upstreams; default the system roots.
+	// Git is the job's git credentials; nil: none. It is read on every request, so a
+	// heartbeat's Set and SetReads apply at once. Only github.com credentials are used.
+	Git *runner.Credentials
+	// Dispatcher is the supervisor's dispatcher base URL (absolute http or https, without user
+	// info, query or fragment); required. The VM reaches it as dispatcher.factory.internal.
+	Dispatcher *url.URL
+	// DispatcherToken returns the bearer token for the dispatcher route, read on every request;
+	// required. For the PoC it is the worker's agent token (worker.Token); the lease's run token
+	// (#101) when that lands. "" sends the request without one.
+	DispatcherToken func() string
+	// UpstreamRoots verifies the intercepted hosts' upstreams, and an https dispatcher; default
+	// the system roots.
 	UpstreamRoots *x509.CertPool
 	// Egress is the task's mode and allow list, extra denied prefixes and open addresses.
 	Egress policy.Egress
@@ -114,6 +128,7 @@ type Gateway struct {
 	dialer       *net.Dialer
 	forward      *http.Transport // plain HTTP to ordinary hosts
 	upstream     *http.Transport // TLS to the intercepted hosts
+	dispatcher   *http.Transport // Config.Dispatcher only, without the egress check
 	srv          *http.Server
 	inner        *http.Server // the requests inside intercepted tunnels
 	queue        *connQueue   // inner's listener
@@ -145,6 +160,10 @@ func New(cfg Config) (*Gateway, error) {
 		return nil, &ConfigError{Field: "Sink"}
 	case cfg.CA == nil:
 		return nil, &ConfigError{Field: "CA"}
+	case !validDispatcher(cfg.Dispatcher):
+		return nil, &ConfigError{Field: "Dispatcher"}
+	case cfg.DispatcherToken == nil:
+		return nil, &ConfigError{Field: "DispatcherToken"}
 	}
 	clients := map[netip.Addr]bool{}
 	for i, a := range cfg.Clients {
@@ -190,6 +209,7 @@ func New(cfg Config) (*Gateway, error) {
 		TLSHandshakeTimeout: tlsHandshakeTimeout, ResponseHeaderTimeout: responseHeaderTimeout,
 		IdleConnTimeout: idleTimeout, MaxIdleConnsPerHost: 16,
 	}
+	g.dispatcher = g.newDispatcherTransport()
 	g.srv = &http.Server{
 		Handler: http.HandlerFunc(g.handle), ReadHeaderTimeout: readHeaderTimeout,
 		MaxHeaderBytes: maxHeaderBytes, IdleTimeout: idleTimeout,
@@ -210,6 +230,13 @@ func New(cfg Config) (*Gateway, error) {
 		ErrorLog:                     log.New(discard{}, "", 0),
 	}
 	return g, nil
+}
+
+// validDispatcher: an absolute http or https URL with a host and without user info, query or
+// fragment.
+func validDispatcher(u *url.URL) bool {
+	return u != nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" &&
+		u.User == nil && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && u.Opaque == ""
 }
 
 type discard struct{}
@@ -295,6 +322,7 @@ func (g *Gateway) Close() error {
 		g.wg.Wait()
 		g.forward.CloseIdleConnections()
 		g.upstream.CloseIdleConnections()
+		g.dispatcher.CloseIdleConnections()
 
 		g.mu.Lock()
 		g.done = true

@@ -67,11 +67,9 @@ type decisionKey struct{}
 
 // interceptRequest serves one request inside an intercepted tunnel: origin form only
 // (not-proxy), its Host normalised and checked against the CONNECT (host-mismatch), every
-// credential carrier stripped and the class's cookie rule applied, then forwarded to the
-// CONNECT's host over TLS through the egress dialer. A WebSocket upgrade passes through.
-//
-// The per-host routes (git, api.github.com, the dispatcher) and the credentials are later PRs':
-// forward is where they set the credential, after the carriers are stripped.
+// credential carrier stripped and the class's cookie rule applied, the class's route rule and
+// credential (routeIntercepted), then forwarded to the CONNECT's host over TLS through the
+// egress dialer. A WebSocket upgrade passes through.
 func (g *Gateway) interceptRequest(w http.ResponseWriter, r *http.Request) {
 	if !g.hold() {
 		writeRefusal(w, policy.CodeClosing, "")
@@ -92,27 +90,39 @@ func (g *Gateway) interceptRequest(w http.ResponseWriter, r *http.Request) {
 	case policy.CheckHost(r.Host, d.Target.Host) != "":
 		rec.Status, rec.Refusal = writeRefusal(w, policy.CodeHostMismatch, "")
 	default:
-		g.forwardIntercepted(w, r, d, &rec)
+		if auth, ok := g.routeIntercepted(w, r, d, &rec); ok {
+			g.forwardIntercepted(w, r, d, &rec, auth)
+		}
 	}
 }
 
-// forwardIntercepted sends r to https://<the CONNECT's host> through g.upstream.
-func (g *Gateway) forwardIntercepted(w http.ResponseWriter, r *http.Request, d policy.Decision, rec *Record) {
+// forwardIntercepted sends r to https://<the CONNECT's host> through g.upstream, with every
+// carrier stripped, the class's cookie rule applied and auth, when set, as its Authorization.
+func (g *Gateway) forwardIntercepted(w http.ResponseWriter, r *http.Request, d policy.Decision, rec *Record, auth string) {
+	host := net.JoinHostPort(d.Target.Host, strconv.Itoa(int(g.upstreamPort)))
+	g.proxy(w, r, rec, g.upstream, func(out *http.Request) {
+		out.URL = &url.URL{Scheme: "https", Host: host, Path: r.URL.Path, RawPath: r.URL.RawPath, RawQuery: r.URL.RawQuery}
+		out.Host = d.Target.Host
+		stripCarriers(out, d.Class)
+		if auth != "" {
+			out.Header.Set("Authorization", auth)
+		}
+	})
+}
+
+// proxy sends r through tr after rewrite sets its outbound URL and headers. A WebSocket
+// upgrade passes through. rec gets the status and byte counts on every exit, the ReverseProxy's
+// http.ErrAbortHandler panic included, and the refusal of an upstream error.
+func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request, rec *Record, tr http.RoundTripper, rewrite func(out *http.Request)) {
 	up := &countReader{r: r.Body}
 	if r.Body != nil && r.Body != http.NoBody {
 		r.Body = up
 	}
 	cw := &countWriter{ResponseWriter: w}
 	status := 0
-	host := net.JoinHostPort(d.Target.Host, strconv.Itoa(int(g.upstreamPort)))
 	rp := &httputil.ReverseProxy{
-		Transport: g.upstream,
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.Out.URL = &url.URL{Scheme: "https", Host: host, Path: pr.In.URL.Path,
-				RawPath: pr.In.URL.RawPath, RawQuery: pr.In.URL.RawQuery}
-			pr.Out.Host = d.Target.Host
-			stripCarriers(pr.Out, d.Class)
-		},
+		Transport: tr,
+		Rewrite:   func(pr *httputil.ProxyRequest) { rewrite(pr.Out) },
 		ModifyResponse: func(res *http.Response) error {
 			status = res.StatusCode // a 101's header is written past cw, on the hijacked conn
 			return nil
