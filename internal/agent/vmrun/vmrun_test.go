@@ -34,9 +34,14 @@ import (
 )
 
 // TestMain doubles as the workspace's `factory` CLI: the pipeline's bin/factory shim runs
-// `<test binary> fx <op>`, as it runs `factory-agent fx <op>` in a VM.
+// `<test binary> fx <op>`, as it runs `factory-agent fx <op>` in a VM. An `fx` call that isn't
+// an op is a usage error: it never falls through to the suite.
 func TestMain(m *testing.M) {
-	if len(os.Args) > 2 && os.Args[1] == "fx" && effector.IsOp(os.Args[2:]) {
+	if len(os.Args) > 1 && os.Args[1] == "fx" {
+		if !effector.IsOp(os.Args[2:]) {
+			fmt.Fprintln(os.Stderr, "factory: unsupported fx call", os.Args[2:])
+			os.Exit(effector.ExitUsage)
+		}
 		e, err := effector.FromEnv(os.Getenv, nil)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "factory:", err)
@@ -54,6 +59,35 @@ const (
 	goodResult = `{"status": "done", "outcome": "pr-opened", "summary": "pushed the intro"}`
 	badResult  = `{"status": "done", "outcome": "shipped", "summary": "x"}`
 )
+
+// fxChildEnv marks the test binary run as the workspace's `factory` CLI by TestFXNotAnOp.
+const fxChildEnv = "VMRUN_TEST_FX_CHILD"
+
+// The `factory` shim's test binary refuses an `fx` call that isn't an op (exit 2) instead of
+// running the suite.
+func TestFXNotAnOp(t *testing.T) {
+	t.Parallel()
+	if os.Getenv(fxChildEnv) != "" {
+		t.Skip("in the fx child")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, argv := range [][]string{{"fx"}, {"fx", "help"}, {"fx", "mcp"}, {"fx", "pussh"}} {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		cmd := exec.CommandContext(ctx, exe, argv...)
+		cmd.Env = append(os.Environ(), fxChildEnv+"=1")
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		err := cmd.Run()
+		cancel()
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != effector.ExitUsage || !strings.Contains(stderr.String(), "unsupported fx call") {
+			t.Errorf("%v: %v, stderr %q, stdout %d bytes", argv, err, stderr.String(), stdout.Len())
+		}
+	}
+}
 
 // shapedToken is shaped like an API key: what vmrun reports of an error never holds it.
 const shapedToken = "sk-vmrunErrorKeyShapeNeverReported0123"
@@ -293,6 +327,7 @@ func TestRunEndToEnd(t *testing.T) {
 	for _, dir := range []string{r.work, r.state, r.bundle} {
 		scanNoCredential(t, dir)
 	}
+	scanOutputs(t, r)
 
 	// The event stream, pinned.
 	evs := r.events()
@@ -362,6 +397,17 @@ func scanNoCredential(t *testing.T, dir string) {
 	})
 	if err != nil {
 		t.Errorf("walking %s: %v", dir, err)
+	}
+}
+
+// scanOutputs checks the run's other two outputs for credentials: the event stream (stdout, which
+// the supervisor relays) and the log (stderr, at the rig's debug level).
+func scanOutputs(t *testing.T, r *vmRig) {
+	t.Helper()
+	for name, out := range map[string]string{"the event stream": r.stdout.String(), "the log": r.stderr.String()} {
+		if hit := credential(out); hit != "" {
+			t.Errorf("%s holds %s", name, hit)
+		}
 	}
 }
 
@@ -503,6 +549,7 @@ func TestRunOutcomes(t *testing.T) {
 			for _, dir := range []string{r.work, r.bundle} {
 				scanNoCredential(t, dir)
 			}
+			scanOutputs(t, r)
 		})
 	}
 }
@@ -571,7 +618,14 @@ func TestRunUsage(t *testing.T) {
 		{"the state dir in the work dir", append(slices.Clone(ok), "--state-dir", "/work/state"), "must not overlap"},
 		{"the work dir in the state dir", append(slices.Clone(ok), "--work", "/var/lib/factory-agent/run/w"), "must not overlap"},
 		{"the bundle in the work dir", append(slices.Clone(ok), "--bundle", "/work/b"), "--bundle must not be in --work"},
-		{"a negative remaining", append(slices.Clone(ok), "--remaining", "-1s"), "must not be negative"},
+		{"the work dir in the bundle", append(slices.Clone(ok), "--work", "/run/factory/w"), "--work must not be in --bundle"},
+		{"the work dir is the bundle", append(slices.Clone(ok), "--work", "/run/factory"), "--bundle must not be in --work"},
+		{"the state dir in the bundle", append(slices.Clone(ok), "--state-dir", "/run/factory/s"), "--bundle and --state-dir must not overlap"},
+		{"the state dir contains the bundle", append(slices.Clone(ok), "--state-dir", "/run"), "--bundle and --state-dir must not overlap"},
+		{"the state dir is the bundle", append(slices.Clone(ok), "--state-dir", "/run/factory/"), "--bundle and --state-dir must not overlap"},
+		{"a zero remaining", append(slices.Clone(ok), "--remaining", "0s"), "--remaining 0s must be positive"},
+		{"a negative remaining", append(slices.Clone(ok), "--remaining", "-1s"), "--remaining -1s must be positive"},
+		{"a remaining that isn't a duration", append(slices.Clone(ok), "--remaining", "soon"), "-remaining"},
 		{"a zero down timeout", append(slices.Clone(ok), "--down-timeout", "0s"), "must be positive"},
 		{"an unknown setup mode", append(slices.Clone(ok), "--system-setup", "maybe"), "--system-setup"},
 		{"the removed auto mode", append(slices.Clone(ok), "--system-setup", "auto"), "there is no automatic mode"},

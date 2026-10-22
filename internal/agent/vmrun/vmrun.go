@@ -19,7 +19,6 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
@@ -45,9 +44,6 @@ const (
 // setupFailReason is the reason of a run whose system setup failed. Seam (P1 phase 3, PR 7):
 // the environment runner adds runner.ReasonEnvironmentError, which this becomes.
 const setupFailReason = runner.ReasonHarnessError
-
-// maxSummary bounds the Result summary of a failure vmrun reports itself (the pipeline's).
-const maxSummary = 500
 
 // deps are mainWith's injectable dependencies; the zero value is production (Main).
 type deps struct {
@@ -76,7 +72,8 @@ type options struct {
 	proxy             *url.URL
 	bundle, work      string
 	state             string
-	remaining         time.Duration
+	remaining         time.Duration // zero when --remaining is absent: the whole wall clock
+	remainingSet      bool
 	downTimeout       time.Duration
 	setup             SystemSetup
 	logLevel, logForm string
@@ -189,10 +186,10 @@ func (r *vm) onFinished(o runner.Outcome) {
 	r.report(runbundle.OutcomeOf(o, transcript))
 }
 
-// fail reports a run that ended outside the pipeline: failed with reason and a failed Result
-// whose summary is err redacted (the shape the pipeline gives its own failures; decided
-// 2026-10-22), or cancelled, with no Result, when a signal cancelled ctx. The VM holds no
-// token, so the redaction is by the token shapes alone.
+// fail reports a run that ended outside the pipeline: failed with reason and the pipeline's
+// failed Result (pipeline.FailedResult; decided 2026-10-22), or cancelled, with no Result,
+// when a signal cancelled ctx. The VM holds no token, so the redaction is by the token
+// shapes alone.
 func (r *vm) fail(ctx context.Context, reason string, err error) int {
 	if ctx.Err() != nil {
 		reason = runner.ReasonCancelled
@@ -201,7 +198,8 @@ func (r *vm) fail(ctx context.Context, reason string, err error) int {
 	r.log.Error("the run failed", "reason", reason, "err", msg)
 	o := runbundle.Outcome{Status: runner.StatusFailed, Reason: reason}
 	if reason != runner.ReasonCancelled {
-		o.Result = &v1alpha1.Result{Task: r.b.TaskID(), Status: v1alpha1.ResultFailed, Summary: truncate(reason+": "+msg, maxSummary)}
+		res := pipeline.FailedResult(r.b.TaskID(), reason, err, pipeline.RedactShapes)
+		o.Result = &res
 	}
 	r.report(o)
 	return r.code
@@ -272,7 +270,14 @@ func parseFlags(args []string, stderr io.Writer) (*options, int) {
 	fs.StringVar(&o.bundle, "bundle", DefaultBundle, "the run bundle")
 	fs.StringVar(&o.work, "work", DefaultWork, "the workspace root: empty or absent")
 	fs.StringVar(&o.state, "state-dir", DefaultStateDir, "what the runtime writes outside the workspace")
-	fs.DurationVar(&o.remaining, "remaining", 0, "what is left of the task's wall clock (0: all of limits.maxWallClock)")
+	fs.Func("remaining", "what is left of the task's wall clock, positive (absent: all of limits.maxWallClock)", func(v string) error {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return err
+		}
+		o.remaining, o.remainingSet = d, true
+		return nil
+	})
 	setup := fs.String("system-setup", string(DefaultSystemSetup), "on (a VM: the supervisor passes it) or off: the privileged system setup")
 	fs.DurationVar(&o.downTimeout, "down-timeout", pipeline.StackDownTimeout, "bounds the environment's down")
 	fs.StringVar(&o.logLevel, "log-level", "info", "debug, info, warn or error")
@@ -318,8 +323,13 @@ func (o *options) check(fs *flag.FlagSet, proxy, setup string) error {
 		return errors.New("--work and --state-dir must not overlap: the workspace starts empty")
 	case within(o.work, o.bundle):
 		return errors.New("--bundle must not be in --work")
-	case o.remaining < 0:
-		return fmt.Errorf("--remaining %s must not be negative", o.remaining)
+	case within(o.bundle, o.work):
+		return errors.New("--work must not be in --bundle")
+	case within(o.bundle, o.state) || within(o.state, o.bundle):
+		return errors.New("--bundle and --state-dir must not overlap: the run reads the bundle")
+	case o.remainingSet && o.remaining <= 0:
+		// A supervisor with no time left doesn't launch: a computed 0 is never a whole wall clock.
+		return fmt.Errorf("--remaining %s must be positive (absent: the whole limits.maxWallClock)", o.remaining)
 	case o.downTimeout <= 0:
 		return fmt.Errorf("--down-timeout %s must be positive", o.downTimeout)
 	}
@@ -331,12 +341,16 @@ func within(dir, p string) bool {
 	return p == dir || strings.HasPrefix(p, strings.TrimSuffix(dir, string(filepath.Separator))+string(filepath.Separator))
 }
 
-// usage prints the flags but the hidden --harness-bin.
+// usage prints the flags but the hidden --harness-bin, with their defaults when they have one.
 func usage(fs *flag.FlagSet) {
 	w := fs.Output()
 	fmt.Fprintln(w, "usage: factory-agent run --proxy http://<gateway>:<port> [flags]")
 	fs.VisitAll(func(f *flag.Flag) {
 		if f.Name == "harness-bin" {
+			return
+		}
+		if f.DefValue == "" {
+			fmt.Fprintf(w, "  --%s\n    \t%s\n", f.Name, f.Usage)
 			return
 		}
 		fmt.Fprintf(w, "  --%s\n    \t%s (default %q)\n", f.Name, f.Usage, f.DefValue)
@@ -356,15 +370,4 @@ func newLogger(w io.Writer, level, format string) (*slog.Logger, error) {
 		return slog.New(slog.NewTextHandler(w, opts)), nil
 	}
 	return nil, fmt.Errorf("--log-format %q must be json or text", format)
-}
-
-// truncate cuts s to n bytes on a rune boundary.
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && s[n]&0xC0 == 0x80 {
-		n--
-	}
-	return s[:n]
 }
