@@ -4,7 +4,8 @@
 // retention and the transcript blobs.
 //
 // Config kinds live in the catalog snapshot, never here. The in-memory implementation is in
-// store/memory; store/storetest is the conformance suite every implementation must pass.
+// store/memory, the file-backed one (memory plus a snapshot and journal) in store/filestore;
+// store/storetest is the conformance suite every implementation must pass.
 //
 // Design: design/workstreams/dispatcher-runtime/LLD/store.md.
 package store
