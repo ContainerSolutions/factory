@@ -8,7 +8,7 @@ The gateway is the workspace's only route out and the only holder of its credent
 ## Refinements of P1
 
 - **The dispatcher route is narrower than the run token.** The run token (#101) authorises the task's prompt, context, output schema, effects and transcript upload. Through the gateway the VM gets **only `POST` effects** ([the dispatcher](#the-dispatcher)): the bundle already holds the rest, and the supervisor uploads the transcript after it has re-redacted it and added the `factory.egress` lines, so a VM upload could replace that audit.
-- **Clients are pinned to their workspace.** On the Mac, pf lets every Softnet bridge reach the gateway port on *any* of the Mac's addresses, so VM A could reach workspace B's gateway on B's bridge. Each gateway therefore accepts connections only from its own VM's address (`Config.Clients`).
+- **Clients are pinned to their workspace.** On the Mac, pf lets every Softnet bridge reach the gateway port on *any* of the Mac's addresses, so VM A could reach workspace B's gateway on B's bridge. Each gateway therefore accepts connections only from its own VM's addresses (`Config.Clients`: on tart the VM's Softnet /29, read from its bridge after `Start`; on kata the workspace's CNI address). The pin is the gateway's only client authentication: there is no proxy password, since the VM holds no secret to present, and `Proxy-Authorization` is dropped.
 - **The CA is name-constrained** to the intercepted hosts, so a leaked CA key can mint certificates only for them, not for any site the VM visits ([the CA](#the-ca)).
 - **`auth.openai.com` is refused at CONNECT** and never intercepted: the gateway owns ChatGPT refresh, and nothing the VM sends there is forwarded.
 - **github.com web paths stay usable.** The fake fails closed for every path of a repo that isn't rw. The gateway keeps that for git's paths, and forwards other `GET`/`HEAD` requests (release downloads, archives) anonymously, since `setup` scripts install tools from GitHub releases.
@@ -38,8 +38,7 @@ type Config struct {
     TaskID, RunID string           // required; TaskID binds the dispatcher route
     Clients       []netip.Prefix   // the VM's addresses; any other peer is closed. Required
     CA            *ca.CA           // required
-    Git           *runner.Credentials // the job's: read on every request, so heartbeats' Set/SetReads apply at once
-    GitHost       string           // default "github.com"; the lease's gitCredential.host
+    Git           *runner.Credentials // the job's; nil: none. Read on every request, so heartbeats' Set/SetReads apply at once
     RunToken      string           // the lease's runToken (#101); required
     Dispatcher    *url.URL         // the supervisor's dispatcher base URL (http or https), required
     Anthropic     *AnthropicAuth   // nil: none. Only for a claude task
@@ -67,6 +66,7 @@ func (g *Gateway) Close() error                     // idempotent; see [Close](#
 
 - **The supervisor (phase 5)**, per lease: loads the CA (`ca.Load`, so a rotated CA applies to the next workspace without a restart), builds the `Config` from the job, `net.Listen("tcp", <gateway address>:<workspace.gatewayPort>)` after the driver's `Start`, runs `Serve` in a goroutine, and closes the gateway after `Destroy`. It gives a gateway only its task's model credential: a claude task's gateway has no ChatGPT login, and a codex task's has no Claude token.
 - **Lease refresh needs no new call.** The worker's heartbeat already swaps refreshed git tokens into `job.Git` (`Set`, `SetReads`), and the gateway reads it on every request, as `gitcred` does. The run token isn't refreshed: it lives exactly as long as the lease (#101).
+- **The git host is `github.com`** (`policy.GitHost`), not a knob: the CA's name constraints list it ([the CA](#the-ca)), so another host (GitHub Enterprise) would need a new CA and a contract for it. Credentials whose `host` isn't `github.com` are never used.
 - `New` refuses: an empty `TaskID`, `RunID`, `RunToken`, `Clients` or `Sink`; a `Dispatcher` that isn't an absolute http(s) URL without user info, query or fragment; an `AnthropicAuth` with neither or both fields; `RunToken` equal to `harness.Placeholder`. Errors are `*ConfigError{Field}` and never carry a value.
 
 ## The host table
@@ -78,20 +78,46 @@ Host names are compared lower-cased and without a trailing dot, exactly (no suff
 | `api.anthropic.com`, `claude.ai`, `console.anthropic.com`, `platform.claude.com` | all | the request carried `Authorization` or `X-Api-Key` (present, whatever its value): every carrier is stripped, then `Authorization: Bearer <OAuthToken>` or `X-Api-Key: <APIKey>`, per the gateway's `AnthropicAuth`, not per the carrier the VM used. No carrier: stripped and forwarded without one (Phase 0: event logging and the MCP registry are called that way) | — |
 | `chatgpt.com` | all, the WebSocket upgrade included | with `Authorization` present: carriers stripped, `Authorization: Bearer <access>` and `ChatGPT-Account-Id: <account>` set from `ChatGPT.Current`. A 401 is retried once ([refresh](#chatgpt-refresh)). Without it: stripped, no credential | — |
 | `auth.openai.com` | none | — | every CONNECT and plain request: 403 `auth-host` |
-| the git host (`github.com`) | see [github.com](#githubcom) | `Basic x-access-token:<token>` by the repo in the path | receive-pack for a repo that isn't rw, malformed git requests, non-`GET`/`HEAD` web requests |
+| `github.com` | see [github.com](#githubcom) | `Basic x-access-token:<token>` by the repo in the path | receive-pack for a repo that isn't rw, malformed git requests, non-`GET`/`HEAD` web requests |
 | `api.github.com` | `GET`, `HEAD`, any path | `Authorization: Bearer <task token>` (the lease's `gitCredential`); none when it's empty | every other method: 403 `api-write` |
 | `dispatcher.factory.internal` (`runbundle.DefaultDispatcherURL`) | absolute-form `http` only, port 80; see [the dispatcher](#the-dispatcher) | `Authorization: Bearer <RunToken>` | every other route: 403 `dispatcher-route`; CONNECT: 403 `plain-only` |
 | everything else | CONNECT: a tunnel; absolute-form `http`: forwarded | none; only `Proxy-Authorization` is dropped | the [egress check](#egress) |
 
 **Carriers** are `Authorization`, `Proxy-Authorization`, `X-Api-Key`, `Cookie` and URL user info. On every injected route all of them are stripped before the credential is set, so the VM's placeholder is replaced and never compared (workspace-run.md: "always replace, never match placeholders"). For the audit, each record says what the VM sent (`client`: `none`, `placeholder` when every carrier is `harness.Placeholder` in the forms the fake's `classify` accepts, else `other`). An `other` is logged as a warning, without its value: a credential reached the VM.
 
-**Inside an intercepted tunnel** each request's `Host` must be the CONNECT's host (else 400 `host-mismatch`), and its upstream is always that host on 443, never a name taken from the request. The TLS handshake's SNI must be empty or that host (else the handshake fails). The canonical-path check (`RawPath == ""` and `path.Clean(Path) == Path`, else 400 `bad-path`) runs only where a path is matched (the git host and the dispatcher): api.github.com takes encoded branch names (`feature%2Fx`), and its rule is the method alone.
+**Inside an intercepted tunnel** each request's `Host` must be the CONNECT's host (else 400 `host-mismatch`), and its upstream is always that host on 443, never a name taken from the request. The TLS handshake's SNI must be empty or that host (else the handshake fails). The canonical-path check (`RawPath == ""` and `path.Clean(Path) == Path`, else 400 `bad-path`) runs only where a path is matched (github.com and the dispatcher): api.github.com takes encoded branch names (`feature%2Fx`), and its rule is the method alone.
+
+### Refusals and errors
+
+Every answer the gateway makes itself is `text/plain; charset=utf-8`, with `X-Factory-Gateway-Refusal: <code>` and the body below plus a newline. A refused CONNECT gets the status line, the header and the body, and the connection is closed. The bodies are `policy` constants and never name a credential, an address or a VM-chosen value; the egress class is one of a fixed set.
+
+| Code | Status | Body (`factory gateway: …`) |
+|---|---|---|
+| `not-proxy` | 400 | `not a proxy request` |
+| `bad-path` | 400 | `refused: the path is not canonical` |
+| `host-mismatch` | 400 | `refused: the Host header does not match the CONNECT` |
+| `bad-target` | 400 | `refused: the CONNECT target is not host:port` |
+| `port` | 403 | `refused: this host is served on port 443 only` |
+| `plain-http` | 403 | `refused: plain HTTP to an intercepted host` |
+| `plain-only` | 403 | `refused: the dispatcher is served over plain HTTP through the proxy` |
+| `auth-host` | 403 | `refused: auth.openai.com is not reachable from workspaces (the gateway refreshes the login)` |
+| `push-refused` | 403 | `push refused: the repository is not writable for this task` |
+| `web-write` | 403 | `refused: github.com takes only GET and HEAD outside git` |
+| `api-write` | 403 | `refused: api.github.com is read-only for workspaces` |
+| `dispatcher-route` | 403 | `refused: the dispatcher route is not open to workspaces` |
+| `egress-not-allowed` | 403 | `refused: the task's egress policy does not allow this host` |
+| `egress-denied` | 403 | `refused: the destination is a denied address (<class>)`, class one of `unspecified`, `loopback`, `private`, `cgnat`, `link-local`, `ula`, `multicast`, `reserved`, `documentation`, `agent-host`, `extra` |
+| `resolve` | 502 | `the destination's name does not resolve` |
+| `upstream` | 502 | `the upstream is unreachable` (dial or TLS failure; the error is logged at debug, never sent: it can hold addresses) |
+| `timeout` | 504 | `the upstream timed out` |
+| `closing` | 503 | `the gateway is closing` |
+| `peer` | — | none: a peer outside `Clients` is closed at accept |
 
 ### github.com
 
 A path is `/<owner>/<repo>[.git]/<rest>`, the repo lower-cased without `.git`. **A git request** is one whose repo segment ends in `.git` (any case), or whose `rest`, lower-cased, is `info/refs`, `git-upload-pack` or `git-receive-pack`. Every other request is **a web request**.
 
-The repo's access comes from `Config.Git` at the time of the request, only from credentials whose `host` is the git host: the task credential's `repo` is **rw** when its `permissions.contents` is `write`, else **read**; each read credential's `repo` and `readRepos` are **read**, with that credential's token. The task token wins for its repo, as in `gitcred`. Any other repo is **unknown**.
+The repo's access comes from `Config.Git` at the time of the request, only from credentials whose `host` is `github.com`: the task credential's `repo` is **rw** when its `permissions.contents` is `write`, else **read**; each read credential's `repo` and `readRepos` are **read**, with that credential's token. The task token wins for its repo, as in `gitcred`. Any other repo is **unknown**.
 
 | Request | rw | read | unknown |
 |---|---|---|---|
@@ -128,7 +154,7 @@ Every destination the VM names (a CONNECT that isn't intercepted, an absolute-fo
 
 - IPv4: `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10` (CGNAT, Tailscale), `127.0.0.0/8`, `169.254.0.0/16` (link-local, metadata), `172.16.0.0/12`, `192.0.0.0/24`, `192.168.0.0/16`, `198.18.0.0/15`, `224.0.0.0/4`, `240.0.0.0/4` (with `255.255.255.255`);
 - IPv6: `::/128`, `::1/128`, `100::/64`, `2001:db8::/32`, `fc00::/7` (ULA), `fe80::/10`, `ff00::/8`; and `64:ff9b::/96` (NAT64) or `2002::/16` (6to4) when the embedded IPv4 address is denied;
-- **the agent host's own addresses and their on-link prefixes**, from `net.InterfaceAddrs`, re-read when older than 30 s (a new VM bridge appears with each workspace). This covers a public IPv6 address on the host, and the LAN's public IPv6 neighbours;
+- **the agent host's own addresses and their on-link prefixes**, which the `gateway` package reads from `net.InterfaceAddrs` (re-read when older than 30 s) and passes to `policy`, which stays pure (a new VM bridge appears with each workspace). This covers a public IPv6 address on the host, and the LAN's public IPv6 neighbours;
 - `Egress.Deny`: extra prefixes from the supervisor (other workspaces' subnets, if a driver ever uses public ones).
 
 **Exceptions** are exact `netip.AddrPort`s in `Egress.Allow`: the Linux registry mirror (phase 9) and the tests' upstreams. Nothing else opens a denied address. Other workspaces are covered by the private ranges (Softnet's /29s and the kata CNI subnets are private), and by `Clients` on the way in.
@@ -142,9 +168,9 @@ After `200 Connection Established` for an intercepted host, the gateway runs a T
 ## The CA
 
 - **Source:** the agent host's state dir, `gateway-ca/` (0700): `ca.pem` (0644) and `ca.key` (0600, PKCS #8, ECDSA P-256). #103's `host init` doesn't create them. **Phase 4 adds the `gatewayca` step** (PR 4), driver-agnostic, after `statedir`: it's `missing` without the pair, `wrong` for a bad mode or owner, a key that doesn't match the certificate, or a certificate that isn't a CA, and `outdated` within 30 days of `NotAfter` or when the name constraints differ from this binary's host list. Its `Apply` is `ca.Generate`. The kata host init (phase 9) reuses the step.
-- **The certificate:** CN `factory-agent gateway CA`, valid for 1 year from `Generate`, `IsCA`, `MaxPathLenZero`, key usage cert-sign only, and **critical name constraints** permitting exactly the intercepted hosts (the Anthropic set, `chatgpt.com`, `github.com`, `api.github.com`). Go's, OpenSSL's and Node's verifiers enforce them. A new intercepted host, or another git host, means rotating the CA.
+- **The certificate:** CN `factory-agent gateway CA`, valid for 1 year from `Generate`, `IsCA`, `MaxPathLenZero`, key usage cert-sign only, and **critical name constraints** permitting exactly the intercepted hosts (the Anthropic set, `chatgpt.com`, `github.com`, `api.github.com`). Go's, OpenSSL's and Node's verifiers enforce them. A dNSName constraint also permits the name's subdomains (`api.github.com` under `github.com`); the gateway mints leaves only for the exact hosts. A new intercepted host means rotating the CA.
 - **`ca.Load(dir)`:** refuses a key file that isn't a regular file of the user's with mode 0600, a certificate that isn't a CA, a key that doesn't match it, and an expired or not-yet-valid certificate (on the injected clock). The public half is what the supervisor puts in the bundle (`BundleExtras.CA`).
-- **Leaves:** P-256, one per host, minted on first use, valid from 1 h ago for 7 days (capped at the CA's `NotAfter`), and re-minted when less than 1 h is left. The cache is an LRU of 64 entries per `CA`, behind a mutex; the intercepted host list bounds it anyway. Leaves exist only in memory.
+- **Leaves:** P-256, one per host, minted on first use, valid from 1 h ago for 7 days (capped at the CA's `NotAfter`), and re-minted when less than 1 h is left. `ca` takes a clock for this; the gateway's tests give it the real one, because git and Go's TLS verify leaves on the real clock (as the fake's CA notes), and only `ca`'s own tests use a fake one. The cache is an LRU of 64 entries per `CA`, behind a mutex; the intercepted host list bounds it anyway. Leaves exist only in memory.
 - **`host init --rotate-ca`** generates a new pair into `gateway-ca.new/`, then renames the old directory to `gateway-ca.old/` and the new one into place. Running gateways keep the CA they loaded; each new workspace loads the new one. `gateway-ca.old/` is removed by the next `init`. Without `--rotate-ca`, `init` never replaces a valid pair.
 
 ## ChatGPT refresh
@@ -184,7 +210,7 @@ Every request, refusals included, is one `Record`. The supervisor (phase 5) writ
 {"type":"factory.egress","at":"2026-10-22T10:00:00.123Z","mode":"intercept","method":"POST","host":"api.anthropic.com","port":443,"path":"/v1/messages","status":200,"injected":"anthropic-oauth","client":"placeholder","refusal":"","up":1834,"down":20511,"ms":5120}
 ```
 
-- **`mode`:** `connect` (an intercepted host's CONNECT itself), `intercept` (a request inside one), `tunnel` (one line per tunnel, written when it closes, with its bytes), `forward` (plain HTTP), `dispatcher` or `refused`.
+- **`mode`** says where the request was handled: `connect` (an intercepted host's CONNECT itself), `intercept` (a request inside one), `tunnel` (any other CONNECT: one line per tunnel, written when it closes, with its bytes), `forward` (plain HTTP), `dispatcher` or `accept` (a peer outside `Clients`). A non-empty `refusal` marks a refusal, whatever the mode.
 - **`injected`:** `""`, `anthropic-oauth`, `anthropic-key`, `chatgpt`, `git:<owner>/<repo>`, `github-api` or `run-token`. **`refusal`:** one of the codes in the tables above.
 - **`path`:** the URL path only, never the query, cut at 512 bytes on a UTF-8 boundary; empty for CONNECT and tunnels.
 - **What is never logged:** header values, bodies, queries, or the resolved addresses.
@@ -199,7 +225,7 @@ Every request, refusals included, is one `Record`. The supervisor (phase 5) writ
 |---|---|
 | request headers (both servers) | 10 s to read (`ReadHeaderTimeout`), 64 KiB (`MaxHeaderBytes`); idle keep-alive 90 s |
 | connections per gateway | 512 at once; more are closed at accept |
-| a peer outside `Clients` | closed at accept, with one `refused` record (`client`) |
+| a peer outside `Clients` | closed at accept, with one record (`mode: accept`, `refusal: peer`) |
 | DNS / dial / TLS handshake (each side) | 5 s / 10 s / 10 s |
 | upstream response headers | 5 minutes (git packs, model calls) |
 | tunnels and upgraded connections | no idle or total timeout: TCP keepalive (30 s), and `Close` ends them with the workspace |
@@ -211,7 +237,7 @@ Every request, refusals included, is one `Record`. The supervisor (phase 5) writ
 
 1. mark the gateway closed and close the listener, so no new connection is accepted;
 2. close **every tracked connection**. Each accepted connection is wrapped, and tracked from accept until it closes, so a hijacked one (CONNECT, mid-handshake, intercepted, upgraded) is covered. Tunnels' upstream sides are tracked too. A `ReverseProxy` upgrade ends when its client side closes and then closes its backend; an in-flight request is cancelled through its context;
-3. close the inner server and wait for every handler and copy goroutine (one `WaitGroup`), so no `Sink.Egress` happens after `Close` returns;
+3. close the inner server and wait for every handler and copy goroutine (one `WaitGroup`); the tunnels and upgrades this ends write their records then, so no `Sink.Egress` happens after `Close` returns;
 4. close the upstream transports' idle connections, write the truncation record, and return `nil` (later calls also return `nil`).
 
 The supervisor calls it after the VM is destroyed, then adds the records to the transcript.
