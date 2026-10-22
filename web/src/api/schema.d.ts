@@ -19,11 +19,23 @@ export interface paths {
         put?: never;
         /**
          * Register an agent
-         * @description Registers (or re-registers) an agent in a pool. The caller presents the pool's join token
-         *     and a short-lived GitHub user token of the owner from the device flow; the owner token is
-         *     exchanged for a login and discarded, never stored or logged. The owner must be a member of
-         *     the pool's `admission.owners` Group and the capabilities must meet `Pool.spec.require`.
-         *     The agent is named `agt_<owner>-<host>`; registering again replaces it.
+         * @description Registers (or re-registers) an agent in a pool, with one of three credentials:
+         *
+         *     - **Join and owner tokens** (the device flow, until P1's removal phase): the pool's join
+         *       token and a short-lived GitHub user token of the owner; the owner token is exchanged
+         *       for a login and discarded, never stored or logged. The owner must be a member of the
+         *       pool's `admission.owners` Group.
+         *     - **An enrollment token** (`createEnrollment`), once: an admin minted it for a pool, an
+         *       owner and a name. The response adds the agent's long-lived `refreshToken`, and the
+         *       enrollment token is spent.
+         *     - **The agent's refresh token**, on every restart or after a `401`: the response carries
+         *       a fresh agent token and a new refresh token, which replaces the one presented.
+         *
+         *     With an enrollment or refresh token the pool, owner and name come from the enrollment:
+         *     the request's `pool` and `host` must match them, or the response is `400`. In every case
+         *     the capabilities must meet `Pool.spec.require`, and the agent is named
+         *     `agt_<owner>-<host>`; registering again replaces it. Enrollment and refresh tokens are
+         *     issued from P1 phase 6; until then a request with either is a `401`.
          */
         post: operations["registerAgent"];
         delete?: never;
@@ -47,7 +59,10 @@ export interface paths {
         post?: never;
         /**
          * Deregister an agent
-         * @description Revokes the agent token and marks the agent `Offline`. Running leases are abandoned.
+         * @description Revokes the agent token and marks the agent `Offline`. Running leases are abandoned. The
+         *     agent itself, an admin UI session (the `maintainers` Group) or the CLI token may call it.
+         *     An admin's delete also revokes the agent's refresh token. Until P1 phase 6 an admin's
+         *     delete is a `501`.
          */
         delete: operations["deregisterAgent"];
         options?: never;
@@ -58,6 +73,63 @@ export interface paths {
          *     and re-sends its lending after a local config reload. Only the agent itself may call it.
          */
         patch: operations["updateAgent"];
+        trace?: never;
+    };
+    "/enrollments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List enrollments
+         * @description The enrollments, used and unused, without their tokens. Admins only, as for
+         *     `createEnrollment`. Until P1 phase 6 the response is a `501`.
+         */
+        get: operations["listEnrollments"];
+        put?: never;
+        /**
+         * Mint an enrollment
+         * @description Mints a one-time enrollment for an agent host: the pool it joins, the owner who lends it
+         *     and its name (the agent is `agt_<owner>-<name>`). The admin vouches for the owner; no
+         *     GitHub login happens on the agent side. The response holds the enrollment token, shown
+         *     only here and stored hashed. The host's supervisor registers once with it
+         *     (`registerAgent` with `X-Factory-Enrollment-Token`) before `expiresAt`. A UI session
+         *     must belong to the `maintainers` Group; the CLI token is a full admin (`factory agent
+         *     enroll`). Issued from P1 phase 6; until then the response is a `501`.
+         */
+        post: operations["createEnrollment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/enrollments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The enrollment's id (`enl_…`). */
+                id: components["parameters"]["EnrollmentID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an enrollment
+         * @description Revokes an unused enrollment: its token can no longer register an agent. A used
+         *     enrollment's token is already spent, so deleting it only removes the record; the agent
+         *     it registered stays (revoke that with `deregisterAgent`). Admins only, as for
+         *     `createEnrollment`. Until P1 phase 6 the response is a `501`.
+         */
+        delete: operations["deleteEnrollment"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/agents/{id}/lease": {
@@ -831,6 +903,12 @@ export interface components {
             agentToken: string;
             /** Format: date-time */
             expiresAt: string;
+            /**
+             * @description The agent's new refresh token (the `agentRefreshToken` scheme). Present only when
+             *     registering with an enrollment token or a refresh token. Keep it 0600 on the agent
+             *     host; it replaces the previous one, which is now spent.
+             */
+            refreshToken?: string;
         };
         /** @description A status report and/or a lending update. At least one field. */
         AgentUpdate: {
@@ -980,6 +1058,62 @@ export interface components {
         EffectResponse: {
             effectId: string;
             url?: string;
+        };
+        /** @description The enrollment to mint. The pool, owner and name are fixed by the admin. */
+        EnrollmentRequest: {
+            /** @description The Pool the agent joins. */
+            pool: string;
+            /** @description The GitHub login of the owner who lends the agent (its lending rules apply). */
+            owner: string;
+            /** @description The agent host's name, its `RegisterAgentRequest.host`; the agent is named `agt_<owner>-<name>`. */
+            name: string;
+            /**
+             * @description How long the enrollment token may be used, a Duration (`7d`, `36h`). At most `30d`.
+             * @default 7d
+             */
+            ttl: string;
+        };
+        /** @description The minted enrollment and its one-time token. */
+        EnrollmentCreated: {
+            enrollment: components["schemas"]["Enrollment"];
+            /**
+             * @description The enrollment token (the `enrollmentToken` scheme), returned only here; the
+             *     dispatcher keeps its hash. Hand it to the agent host's supervisor out of band.
+             */
+            token: string;
+        };
+        /** @description An enrollment, without its token or the token's hash. */
+        Enrollment: {
+            /** @description The enrollment's id, `enl_` and a lowercase ULID. */
+            id: string;
+            /** @description The Pool the agent joins. */
+            pool: string;
+            /** @description The GitHub login of the agent's owner. */
+            owner: string;
+            /** @description The agent host's name. */
+            name: string;
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description After this the token no longer registers an agent.
+             */
+            expiresAt: string;
+            /** @description The admin who minted it, as an actor id (`<provider>:<login>`, or `factory:cli` for the CLI token). */
+            createdBy: string;
+            /**
+             * Format: date-time
+             * @description When the token registered the agent; null while unused.
+             */
+            usedAt: string | null;
+            /** @description The agent the token registered (`agt_<owner>-<name>`); null while unused. */
+            agent: string | null;
+        };
+        /** @description A page of enrollments. */
+        EnrollmentList: {
+            items: components["schemas"]["Enrollment"][];
+            /** @description Absent on the last page. */
+            nextCursor?: string;
         };
         /** @description A page of work items. */
         WorkItemList: {
@@ -2295,6 +2429,8 @@ export interface components {
     parameters: {
         /** @description The agent's name (`agt_<owner>-<host>`). */
         AgentID: string;
+        /** @description The enrollment's id (`enl_…`). */
+        EnrollmentID: string;
         /** @description The lease id from `leaseTask`. */
         LeaseID: string;
         /** @description The task id (`tsk_…`). */
@@ -2360,7 +2496,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Registered. The agent token is returned only here. */
+            /** @description Registered. The agent token, and the refresh token when there is one, are returned only here. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -2427,6 +2563,89 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listEnrollments: {
+        parameters: {
+            query?: {
+                /** @description The `nextCursor` of the previous page. Opaque. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description The page size. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of enrollments. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            default: components["responses"]["Error"];
+        };
+    };
+    createEnrollment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The enrollment's pool, owner, name and lifetime. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Minted. The enrollment token is returned only here. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentCreated"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteEnrollment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The enrollment's id (`enl_…`). */
+                id: components["parameters"]["EnrollmentID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];

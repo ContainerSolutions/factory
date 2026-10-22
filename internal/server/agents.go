@@ -84,8 +84,13 @@ func (s *Server) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObje
 	return gen.UpdateAgent200JSONResponse(*a), nil
 }
 
-// DeregisterAgent implements gen.StrictServerInterface.
+// DeregisterAgent implements gen.StrictServerInterface. The agent deregisters itself; an
+// admin's delete (a UI admin or the CLI token, agentOrAdmin) also revokes the agent's refresh
+// token, which arrives with P1 phase 6, so until then it is a 501.
 func (s *Server) DeregisterAgent(ctx context.Context, req gen.DeregisterAgentRequestObject) (gen.DeregisterAgentResponseObject, error) {
+	if k := principal(ctx).Kind; k == auth.KindUser || k == auth.KindCLI {
+		return nil, errEnrollmentNotImplemented("an admin's deregistration")
+	}
 	id, err := ownAgent(ctx, req.Id)
 	if err != nil {
 		return nil, err

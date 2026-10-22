@@ -1,0 +1,26 @@
+{
+  "items": [
+    {
+      "id": "enl_01jab3q8r9s0t1v2w3x4y5z6a7",
+      "pool": "maintainer-agents",
+      "owner": "gusfcarvalho",
+      "name": "mac",
+      "createdAt": "2026-10-16T08:00:00Z",
+      "expiresAt": "2026-10-23T08:00:00Z",
+      "createdBy": "github-public:gusfcarvalho",
+      "usedAt": null,
+      "agent": null
+    },
+    {
+      "id": "enl_01jab2z7w8x9y0a1b2c3d4e5f6",
+      "pool": "maintainer-agents",
+      "owner": "gusfcarvalho",
+      "name": "mbp-01",
+      "createdAt": "2026-10-15T07:30:00Z",
+      "expiresAt": "2026-10-22T07:30:00Z",
+      "createdBy": "factory:cli",
+      "usedAt": "2026-10-15T07:45:00Z",
+      "agent": "agt_gusfcarvalho-mbp-01"
+    }
+  ]
+}

@@ -20,12 +20,14 @@ import (
 )
 
 const (
-	AgentTokenScopes agentTokenContextKey = "agentToken.Scopes"
-	CliTokenScopes   cliTokenContextKey   = "cliToken.Scopes"
-	JoinTokenScopes  joinTokenContextKey  = "joinToken.Scopes"
-	OwnerTokenScopes ownerTokenContextKey = "ownerToken.Scopes"
-	RunTokenScopes   runTokenContextKey   = "runToken.Scopes"
-	UiSessionScopes  uiSessionContextKey  = "uiSession.Scopes"
+	AgentRefreshTokenScopes agentRefreshTokenContextKey = "agentRefreshToken.Scopes"
+	AgentTokenScopes        agentTokenContextKey        = "agentToken.Scopes"
+	CliTokenScopes          cliTokenContextKey          = "cliToken.Scopes"
+	EnrollmentTokenScopes   enrollmentTokenContextKey   = "enrollmentToken.Scopes"
+	JoinTokenScopes         joinTokenContextKey         = "joinToken.Scopes"
+	OwnerTokenScopes        ownerTokenContextKey        = "ownerToken.Scopes"
+	RunTokenScopes          runTokenContextKey          = "runToken.Scopes"
+	UiSessionScopes         uiSessionContextKey         = "uiSession.Scopes"
 )
 
 // Defines values for AbandonRequestReason.
@@ -325,6 +327,11 @@ type AgentRegistration struct {
 	// AgentToken Keep in memory only; re-register on restart.
 	AgentToken string    `json:"agentToken"`
 	ExpiresAt  time.Time `json:"expiresAt"`
+
+	// RefreshToken The agent's new refresh token (the `agentRefreshToken` scheme). Present only when
+	// registering with an enrollment token or a refresh token. Keep it 0600 on the agent
+	// host; it replaces the previous one, which is now spent.
+	RefreshToken *string `json:"refreshToken,omitempty"`
 }
 
 // AgentSpec AgentSpec is what the agent offers and what its owner lends.
@@ -540,6 +547,67 @@ type EffectiveConfig = v1alpha1.EffectiveConfig
 
 // EffectsPolicy EffectsPolicy is what a task may do.
 type EffectsPolicy = v1alpha1.EffectsPolicy
+
+// Enrollment An enrollment, without its token or the token's hash.
+type Enrollment struct {
+	// Agent The agent the token registered (`agt_<owner>-<name>`); null while unused.
+	Agent     *string   `json:"agent"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// CreatedBy The admin who minted it, as an actor id (`<provider>:<login>`, or `factory:cli` for the CLI token).
+	CreatedBy string `json:"createdBy"`
+
+	// ExpiresAt After this the token no longer registers an agent.
+	ExpiresAt time.Time `json:"expiresAt"`
+
+	// Id The enrollment's id, `enl_` and a lowercase ULID.
+	Id string `json:"id"`
+
+	// Name The agent host's name.
+	Name string `json:"name"`
+
+	// Owner The GitHub login of the agent's owner.
+	Owner string `json:"owner"`
+
+	// Pool The Pool the agent joins.
+	Pool string `json:"pool"`
+
+	// UsedAt When the token registered the agent; null while unused.
+	UsedAt *time.Time `json:"usedAt"`
+}
+
+// EnrollmentCreated The minted enrollment and its one-time token.
+type EnrollmentCreated struct {
+	// Enrollment An enrollment, without its token or the token's hash.
+	Enrollment Enrollment `json:"enrollment"`
+
+	// Token The enrollment token (the `enrollmentToken` scheme), returned only here; the
+	// dispatcher keeps its hash. Hand it to the agent host's supervisor out of band.
+	Token string `json:"token"`
+}
+
+// EnrollmentList A page of enrollments.
+type EnrollmentList struct {
+	Items []Enrollment `json:"items"`
+
+	// NextCursor Absent on the last page.
+	NextCursor *string `json:"nextCursor,omitempty"`
+}
+
+// EnrollmentRequest The enrollment to mint. The pool, owner and name are fixed by the admin.
+type EnrollmentRequest struct {
+	// Name The agent host's name, its `RegisterAgentRequest.host`; the agent is named `agt_<owner>-<name>`.
+	Name string `json:"name"`
+
+	// Owner The GitHub login of the owner who lends the agent (its lending rules apply).
+	Owner string `json:"owner"`
+
+	// Pool The Pool the agent joins.
+	Pool string `json:"pool"`
+
+	// Ttl How long the enrollment token may be used, a Duration (`7d`, `36h`). At most `30d`.
+	Ttl *v1alpha1.Duration `json:"ttl,omitempty"`
+}
 
 // Evaluation What the rule engine decided for an event (internal/rules Evaluation).
 type Evaluation struct {
@@ -1143,6 +1211,9 @@ type AgentID = string
 // Cursor defines model for Cursor.
 type Cursor = string
 
+// EnrollmentID defines model for EnrollmentID.
+type EnrollmentID = string
+
 // LabelSelectorParam defines model for LabelSelectorParam.
 type LabelSelectorParam = string
 
@@ -1188,11 +1259,17 @@ type TooManyRequests = Problem
 // Unauthorized An RFC 9457 problem detail.
 type Unauthorized = Problem
 
+// agentRefreshTokenContextKey is the context key for agentRefreshToken security scheme
+type agentRefreshTokenContextKey string
+
 // agentTokenContextKey is the context key for agentToken security scheme
 type agentTokenContextKey string
 
 // cliTokenContextKey is the context key for cliToken security scheme
 type cliTokenContextKey string
+
+// enrollmentTokenContextKey is the context key for enrollmentToken security scheme
+type enrollmentTokenContextKey string
 
 // joinTokenContextKey is the context key for joinToken security scheme
 type joinTokenContextKey string
@@ -1240,6 +1317,15 @@ type AuthCallbackParams struct {
 type LoginParams struct {
 	// ReturnTo A same-origin path to return to after login.
 	ReturnTo *string `form:"returnTo,omitempty" json:"returnTo,omitempty"`
+}
+
+// ListEnrollmentsParams defines parameters for ListEnrollments.
+type ListEnrollmentsParams struct {
+	// Cursor The `nextCursor` of the previous page. Opaque.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The page size.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListPoolsParams defines parameters for ListPools.
@@ -1322,6 +1408,9 @@ type DryRunCatalogJSONRequestBody = DryRunRequest
 
 // PostCommandJSONRequestBody defines body for PostCommand for application/json ContentType.
 type PostCommandJSONRequestBody = Command
+
+// CreateEnrollmentJSONRequestBody defines body for CreateEnrollment for application/json ContentType.
+type CreateEnrollmentJSONRequestBody = EnrollmentRequest
 
 // AbandonLeaseJSONRequestBody defines body for AbandonLease for application/json ContentType.
 type AbandonLeaseJSONRequestBody = AbandonRequest
@@ -1793,6 +1882,17 @@ type ClientInterface interface {
 
 	PostCommand(ctx context.Context, body PostCommandJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListEnrollments request
+	ListEnrollments(ctx context.Context, params *ListEnrollmentsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateEnrollmentWithBody request with any body
+	CreateEnrollmentWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CreateEnrollment(ctx context.Context, body CreateEnrollmentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteEnrollment request
+	DeleteEnrollment(ctx context.Context, id EnrollmentID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// AbandonLeaseWithBody request with any body
 	AbandonLeaseWithBody(ctx context.Context, id LeaseID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2062,6 +2162,54 @@ func (c *Client) PostCommandWithBody(ctx context.Context, contentType string, bo
 
 func (c *Client) PostCommand(ctx context.Context, body PostCommandJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostCommandRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListEnrollments(ctx context.Context, params *ListEnrollmentsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListEnrollmentsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateEnrollmentWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateEnrollmentRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CreateEnrollment(ctx context.Context, body CreateEnrollmentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateEnrollmentRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteEnrollment(ctx context.Context, id EnrollmentID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteEnrollmentRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -2933,6 +3081,146 @@ func NewPostCommandRequestWithBody(server string, contentType string, body io.Re
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListEnrollmentsRequest generates requests for ListEnrollments
+func NewListEnrollmentsRequest(server string, params *ListEnrollmentsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/enrollments")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateEnrollmentRequest calls the generic CreateEnrollment builder with application/json body
+func NewCreateEnrollmentRequest(server string, body CreateEnrollmentJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateEnrollmentRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateEnrollmentRequestWithBody generates requests for CreateEnrollment with any type of body
+func NewCreateEnrollmentRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/enrollments")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteEnrollmentRequest generates requests for DeleteEnrollment
+func NewDeleteEnrollmentRequest(server string, id EnrollmentID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/enrollments/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -3958,6 +4246,17 @@ type ClientWithResponsesInterface interface {
 
 	PostCommandWithResponse(ctx context.Context, body PostCommandJSONRequestBody, reqEditors ...RequestEditorFn) (*PostCommandResponse, error)
 
+	// ListEnrollmentsWithResponse request
+	ListEnrollmentsWithResponse(ctx context.Context, params *ListEnrollmentsParams, reqEditors ...RequestEditorFn) (*ListEnrollmentsResponse, error)
+
+	// CreateEnrollmentWithBodyWithResponse request with any body
+	CreateEnrollmentWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateEnrollmentResponse, error)
+
+	CreateEnrollmentWithResponse(ctx context.Context, body CreateEnrollmentJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEnrollmentResponse, error)
+
+	// DeleteEnrollmentWithResponse request
+	DeleteEnrollmentWithResponse(ctx context.Context, id EnrollmentID, reqEditors ...RequestEditorFn) (*DeleteEnrollmentResponse, error)
+
 	// AbandonLeaseWithBodyWithResponse request with any body
 	AbandonLeaseWithBodyWithResponse(ctx context.Context, id LeaseID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AbandonLeaseResponse, error)
 
@@ -4474,6 +4773,107 @@ func (r PostCommandResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r PostCommandResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListEnrollmentsResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *EnrollmentList
+	ApplicationproblemJSON400     *BadRequest
+	ApplicationproblemJSON401     *Unauthorized
+	ApplicationproblemJSON403     *Forbidden
+	ApplicationproblemJSONDefault *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r ListEnrollmentsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListEnrollmentsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListEnrollmentsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateEnrollmentResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON201                       *EnrollmentCreated
+	ApplicationproblemJSON400     *BadRequest
+	ApplicationproblemJSON401     *Unauthorized
+	ApplicationproblemJSON403     *Forbidden
+	ApplicationproblemJSONDefault *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateEnrollmentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateEnrollmentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateEnrollmentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteEnrollmentResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	ApplicationproblemJSON401     *Unauthorized
+	ApplicationproblemJSON403     *Forbidden
+	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSONDefault *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteEnrollmentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteEnrollmentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteEnrollmentResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5246,6 +5646,41 @@ func (c *ClientWithResponses) PostCommandWithResponse(ctx context.Context, body 
 		return nil, err
 	}
 	return ParsePostCommandResponse(rsp)
+}
+
+// ListEnrollmentsWithResponse request returning *ListEnrollmentsResponse
+func (c *ClientWithResponses) ListEnrollmentsWithResponse(ctx context.Context, params *ListEnrollmentsParams, reqEditors ...RequestEditorFn) (*ListEnrollmentsResponse, error) {
+	rsp, err := c.ListEnrollments(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListEnrollmentsResponse(rsp)
+}
+
+// CreateEnrollmentWithBodyWithResponse request with arbitrary body returning *CreateEnrollmentResponse
+func (c *ClientWithResponses) CreateEnrollmentWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateEnrollmentResponse, error) {
+	rsp, err := c.CreateEnrollmentWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateEnrollmentResponse(rsp)
+}
+
+func (c *ClientWithResponses) CreateEnrollmentWithResponse(ctx context.Context, body CreateEnrollmentJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateEnrollmentResponse, error) {
+	rsp, err := c.CreateEnrollment(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateEnrollmentResponse(rsp)
+}
+
+// DeleteEnrollmentWithResponse request returning *DeleteEnrollmentResponse
+func (c *ClientWithResponses) DeleteEnrollmentWithResponse(ctx context.Context, id EnrollmentID, reqEditors ...RequestEditorFn) (*DeleteEnrollmentResponse, error) {
+	rsp, err := c.DeleteEnrollment(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteEnrollmentResponse(rsp)
 }
 
 // AbandonLeaseWithBodyWithResponse request with arbitrary body returning *AbandonLeaseResponse
@@ -6046,6 +6481,161 @@ func ParsePostCommandResponse(rsp *http.Response) (*PostCommandResponse, error) 
 		}
 		response.ApplicationproblemJSON400 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListEnrollmentsResponse parses an HTTP response from a ListEnrollmentsWithResponse call
+func ParseListEnrollmentsResponse(rsp *http.Response) (*ListEnrollmentsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListEnrollmentsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EnrollmentList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateEnrollmentResponse parses an HTTP response from a CreateEnrollmentWithResponse call
+func ParseCreateEnrollmentResponse(rsp *http.Response) (*CreateEnrollmentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateEnrollmentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest EnrollmentCreated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteEnrollmentResponse parses an HTTP response from a DeleteEnrollmentWithResponse call
+func ParseDeleteEnrollmentResponse(rsp *http.Response) (*DeleteEnrollmentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteEnrollmentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {

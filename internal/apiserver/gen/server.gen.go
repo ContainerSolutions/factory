@@ -19,12 +19,14 @@ import (
 )
 
 const (
-	AgentTokenScopes agentTokenContextKey = "agentToken.Scopes"
-	CliTokenScopes   cliTokenContextKey   = "cliToken.Scopes"
-	JoinTokenScopes  joinTokenContextKey  = "joinToken.Scopes"
-	OwnerTokenScopes ownerTokenContextKey = "ownerToken.Scopes"
-	RunTokenScopes   runTokenContextKey   = "runToken.Scopes"
-	UiSessionScopes  uiSessionContextKey  = "uiSession.Scopes"
+	AgentRefreshTokenScopes agentRefreshTokenContextKey = "agentRefreshToken.Scopes"
+	AgentTokenScopes        agentTokenContextKey        = "agentToken.Scopes"
+	CliTokenScopes          cliTokenContextKey          = "cliToken.Scopes"
+	EnrollmentTokenScopes   enrollmentTokenContextKey   = "enrollmentToken.Scopes"
+	JoinTokenScopes         joinTokenContextKey         = "joinToken.Scopes"
+	OwnerTokenScopes        ownerTokenContextKey        = "ownerToken.Scopes"
+	RunTokenScopes          runTokenContextKey          = "runToken.Scopes"
+	UiSessionScopes         uiSessionContextKey         = "uiSession.Scopes"
 )
 
 // Defines values for AbandonRequestReason.
@@ -324,6 +326,11 @@ type AgentRegistration struct {
 	// AgentToken Keep in memory only; re-register on restart.
 	AgentToken string    `json:"agentToken"`
 	ExpiresAt  time.Time `json:"expiresAt"`
+
+	// RefreshToken The agent's new refresh token (the `agentRefreshToken` scheme). Present only when
+	// registering with an enrollment token or a refresh token. Keep it 0600 on the agent
+	// host; it replaces the previous one, which is now spent.
+	RefreshToken *string `json:"refreshToken,omitempty"`
 }
 
 // AgentSpec AgentSpec is what the agent offers and what its owner lends.
@@ -539,6 +546,67 @@ type EffectiveConfig = v1alpha1.EffectiveConfig
 
 // EffectsPolicy EffectsPolicy is what a task may do.
 type EffectsPolicy = v1alpha1.EffectsPolicy
+
+// Enrollment An enrollment, without its token or the token's hash.
+type Enrollment struct {
+	// Agent The agent the token registered (`agt_<owner>-<name>`); null while unused.
+	Agent     *string   `json:"agent"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// CreatedBy The admin who minted it, as an actor id (`<provider>:<login>`, or `factory:cli` for the CLI token).
+	CreatedBy string `json:"createdBy"`
+
+	// ExpiresAt After this the token no longer registers an agent.
+	ExpiresAt time.Time `json:"expiresAt"`
+
+	// Id The enrollment's id, `enl_` and a lowercase ULID.
+	Id string `json:"id"`
+
+	// Name The agent host's name.
+	Name string `json:"name"`
+
+	// Owner The GitHub login of the agent's owner.
+	Owner string `json:"owner"`
+
+	// Pool The Pool the agent joins.
+	Pool string `json:"pool"`
+
+	// UsedAt When the token registered the agent; null while unused.
+	UsedAt *time.Time `json:"usedAt"`
+}
+
+// EnrollmentCreated The minted enrollment and its one-time token.
+type EnrollmentCreated struct {
+	// Enrollment An enrollment, without its token or the token's hash.
+	Enrollment Enrollment `json:"enrollment"`
+
+	// Token The enrollment token (the `enrollmentToken` scheme), returned only here; the
+	// dispatcher keeps its hash. Hand it to the agent host's supervisor out of band.
+	Token string `json:"token"`
+}
+
+// EnrollmentList A page of enrollments.
+type EnrollmentList struct {
+	Items []Enrollment `json:"items"`
+
+	// NextCursor Absent on the last page.
+	NextCursor *string `json:"nextCursor,omitempty"`
+}
+
+// EnrollmentRequest The enrollment to mint. The pool, owner and name are fixed by the admin.
+type EnrollmentRequest struct {
+	// Name The agent host's name, its `RegisterAgentRequest.host`; the agent is named `agt_<owner>-<name>`.
+	Name string `json:"name"`
+
+	// Owner The GitHub login of the owner who lends the agent (its lending rules apply).
+	Owner string `json:"owner"`
+
+	// Pool The Pool the agent joins.
+	Pool string `json:"pool"`
+
+	// Ttl How long the enrollment token may be used, a Duration (`7d`, `36h`). At most `30d`.
+	Ttl *v1alpha1.Duration `json:"ttl,omitempty"`
+}
 
 // Evaluation What the rule engine decided for an event (internal/rules Evaluation).
 type Evaluation struct {
@@ -1142,6 +1210,9 @@ type AgentID = string
 // Cursor defines model for Cursor.
 type Cursor = string
 
+// EnrollmentID defines model for EnrollmentID.
+type EnrollmentID = string
+
 // LabelSelectorParam defines model for LabelSelectorParam.
 type LabelSelectorParam = string
 
@@ -1187,11 +1258,17 @@ type TooManyRequests = Problem
 // Unauthorized An RFC 9457 problem detail.
 type Unauthorized = Problem
 
+// agentRefreshTokenContextKey is the context key for agentRefreshToken security scheme
+type agentRefreshTokenContextKey string
+
 // agentTokenContextKey is the context key for agentToken security scheme
 type agentTokenContextKey string
 
 // cliTokenContextKey is the context key for cliToken security scheme
 type cliTokenContextKey string
+
+// enrollmentTokenContextKey is the context key for enrollmentToken security scheme
+type enrollmentTokenContextKey string
 
 // joinTokenContextKey is the context key for joinToken security scheme
 type joinTokenContextKey string
@@ -1239,6 +1316,15 @@ type AuthCallbackParams struct {
 type LoginParams struct {
 	// ReturnTo A same-origin path to return to after login.
 	ReturnTo *string `form:"returnTo,omitempty" json:"returnTo,omitempty"`
+}
+
+// ListEnrollmentsParams defines parameters for ListEnrollments.
+type ListEnrollmentsParams struct {
+	// Cursor The `nextCursor` of the previous page. Opaque.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The page size.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListPoolsParams defines parameters for ListPools.
@@ -1321,6 +1407,9 @@ type DryRunCatalogJSONRequestBody = DryRunRequest
 
 // PostCommandJSONRequestBody defines body for PostCommand for application/json ContentType.
 type PostCommandJSONRequestBody = Command
+
+// CreateEnrollmentJSONRequestBody defines body for CreateEnrollment for application/json ContentType.
+type CreateEnrollmentJSONRequestBody = EnrollmentRequest
 
 // AbandonLeaseJSONRequestBody defines body for AbandonLease for application/json ContentType.
 type AbandonLeaseJSONRequestBody = AbandonRequest
@@ -1713,6 +1802,15 @@ type ServerInterface interface {
 	// Run an operator command
 	// (POST /commands)
 	PostCommand(ctx echo.Context) error
+	// List enrollments
+	// (GET /enrollments)
+	ListEnrollments(ctx echo.Context, params ListEnrollmentsParams) error
+	// Mint an enrollment
+	// (POST /enrollments)
+	CreateEnrollment(ctx echo.Context) error
+	// Revoke an enrollment
+	// (DELETE /enrollments/{id})
+	DeleteEnrollment(ctx echo.Context, id EnrollmentID) error
 	// Hand a leased task back
 	// (POST /leases/{id}/abandon)
 	AbandonLease(ctx echo.Context, id LeaseID) error
@@ -1818,6 +1916,10 @@ func (w *ServerInterfaceWrapper) RegisterAgent(ctx echo.Context) error {
 
 	ctx.Set(string(OwnerTokenScopes), []string{})
 
+	ctx.Set(string(EnrollmentTokenScopes), []string{})
+
+	ctx.Set(string(AgentRefreshTokenScopes), []string{})
+
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.RegisterAgent(ctx)
 	return err
@@ -1835,6 +1937,10 @@ func (w *ServerInterfaceWrapper) DeregisterAgent(ctx echo.Context) error {
 	}
 
 	ctx.Set(string(AgentTokenScopes), []string{})
+
+	ctx.Set(string(UiSessionScopes), []string{})
+
+	ctx.Set(string(CliTokenScopes), []string{})
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.DeregisterAgent(ctx, id)
@@ -2022,6 +2128,68 @@ func (w *ServerInterfaceWrapper) PostCommand(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.PostCommand(ctx)
+	return err
+}
+
+// ListEnrollments converts echo context to params.
+func (w *ServerInterfaceWrapper) ListEnrollments(ctx echo.Context) error {
+	var err error
+
+	ctx.Set(string(UiSessionScopes), []string{})
+
+	ctx.Set(string(CliTokenScopes), []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListEnrollmentsParams
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", ctx.QueryParams(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter cursor: %s", err))
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", ctx.QueryParams(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter limit: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ListEnrollments(ctx, params)
+	return err
+}
+
+// CreateEnrollment converts echo context to params.
+func (w *ServerInterfaceWrapper) CreateEnrollment(ctx echo.Context) error {
+	var err error
+
+	ctx.Set(string(UiSessionScopes), []string{})
+
+	ctx.Set(string(CliTokenScopes), []string{})
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.CreateEnrollment(ctx)
+	return err
+}
+
+// DeleteEnrollment converts echo context to params.
+func (w *ServerInterfaceWrapper) DeleteEnrollment(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "id" -------------
+	var id EnrollmentID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", ctx.Param("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter id: %s", err))
+	}
+
+	ctx.Set(string(UiSessionScopes), []string{})
+
+	ctx.Set(string(CliTokenScopes), []string{})
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.DeleteEnrollment(ctx, id)
 	return err
 }
 
@@ -2555,6 +2723,9 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 	router.POST(options.BaseURL+"/catalog/dry-run", wrapper.DryRunCatalog, options.OperationMiddlewares["dryRunCatalog"]...)
 	router.GET(options.BaseURL+"/catalog/:kind/:name", wrapper.GetCatalogObject, options.OperationMiddlewares["getCatalogObject"]...)
 	router.POST(options.BaseURL+"/commands", wrapper.PostCommand, options.OperationMiddlewares["postCommand"]...)
+	router.GET(options.BaseURL+"/enrollments", wrapper.ListEnrollments, options.OperationMiddlewares["listEnrollments"]...)
+	router.POST(options.BaseURL+"/enrollments", wrapper.CreateEnrollment, options.OperationMiddlewares["createEnrollment"]...)
+	router.DELETE(options.BaseURL+"/enrollments/:id", wrapper.DeleteEnrollment, options.OperationMiddlewares["deleteEnrollment"]...)
 	router.POST(options.BaseURL+"/leases/:id/abandon", wrapper.AbandonLease, options.OperationMiddlewares["abandonLease"]...)
 	router.POST(options.BaseURL+"/leases/:id/complete", wrapper.CompleteLease, options.OperationMiddlewares["completeLease"]...)
 	router.POST(options.BaseURL+"/leases/:id/heartbeat", wrapper.HeartbeatLease, options.OperationMiddlewares["heartbeatLease"]...)
@@ -3619,6 +3790,261 @@ type PostCommanddefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response PostCommanddefaultApplicationProblemPlusJSONResponse) VisitPostCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEnrollmentsRequestObject struct {
+	Params ListEnrollmentsParams
+}
+
+type ListEnrollmentsResponseObject interface {
+	VisitListEnrollmentsResponse(w http.ResponseWriter) error
+}
+
+type ListEnrollments200JSONResponse EnrollmentList
+
+func (response ListEnrollments200JSONResponse) VisitListEnrollmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEnrollments400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response ListEnrollments400ApplicationProblemPlusJSONResponse) VisitListEnrollmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEnrollments401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListEnrollments401ApplicationProblemPlusJSONResponse) VisitListEnrollmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEnrollments403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListEnrollments403ApplicationProblemPlusJSONResponse) VisitListEnrollmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListEnrollmentsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListEnrollmentsdefaultApplicationProblemPlusJSONResponse) VisitListEnrollmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentRequestObject struct {
+	Body *CreateEnrollmentJSONRequestBody
+}
+
+type CreateEnrollmentResponseObject interface {
+	VisitCreateEnrollmentResponse(w http.ResponseWriter) error
+}
+
+type CreateEnrollment201JSONResponse EnrollmentCreated
+
+func (response CreateEnrollment201JSONResponse) VisitCreateEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollment400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollment400ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollment401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollment401ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollment403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollment403ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateEnrollmentdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateEnrollmentdefaultApplicationProblemPlusJSONResponse) VisitCreateEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteEnrollmentRequestObject struct {
+	Id EnrollmentID `json:"id"`
+}
+
+type DeleteEnrollmentResponseObject interface {
+	VisitDeleteEnrollmentResponse(w http.ResponseWriter) error
+}
+
+type DeleteEnrollment204Response struct {
+}
+
+func (response DeleteEnrollment204Response) VisitDeleteEnrollmentResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteEnrollment401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteEnrollment401ApplicationProblemPlusJSONResponse) VisitDeleteEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteEnrollment403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteEnrollment403ApplicationProblemPlusJSONResponse) VisitDeleteEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteEnrollment404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteEnrollment404ApplicationProblemPlusJSONResponse) VisitDeleteEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteEnrollmentdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DeleteEnrollmentdefaultApplicationProblemPlusJSONResponse) VisitDeleteEnrollmentResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -5327,6 +5753,15 @@ type StrictServerInterface interface {
 	// Run an operator command
 	// (POST /commands)
 	PostCommand(ctx context.Context, request PostCommandRequestObject) (PostCommandResponseObject, error)
+	// List enrollments
+	// (GET /enrollments)
+	ListEnrollments(ctx context.Context, request ListEnrollmentsRequestObject) (ListEnrollmentsResponseObject, error)
+	// Mint an enrollment
+	// (POST /enrollments)
+	CreateEnrollment(ctx context.Context, request CreateEnrollmentRequestObject) (CreateEnrollmentResponseObject, error)
+	// Revoke an enrollment
+	// (DELETE /enrollments/{id})
+	DeleteEnrollment(ctx context.Context, request DeleteEnrollmentRequestObject) (DeleteEnrollmentResponseObject, error)
 	// Hand a leased task back
 	// (POST /leases/{id}/abandon)
 	AbandonLease(ctx context.Context, request AbandonLeaseRequestObject) (AbandonLeaseResponseObject, error)
@@ -5751,6 +6186,85 @@ func (sh *strictHandler) PostCommand(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(PostCommandResponseObject); ok {
 		return validResponse.VisitPostCommandResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ListEnrollments operation middleware
+func (sh *strictHandler) ListEnrollments(ctx echo.Context, params ListEnrollmentsParams) error {
+	var request ListEnrollmentsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListEnrollments(ctx.Request().Context(), request.(ListEnrollmentsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListEnrollments")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ListEnrollmentsResponseObject); ok {
+		return validResponse.VisitListEnrollmentsResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// CreateEnrollment operation middleware
+func (sh *strictHandler) CreateEnrollment(ctx echo.Context) error {
+	var request CreateEnrollmentRequestObject
+
+	var body CreateEnrollmentJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateEnrollment(ctx.Request().Context(), request.(CreateEnrollmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateEnrollment")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CreateEnrollmentResponseObject); ok {
+		return validResponse.VisitCreateEnrollmentResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// DeleteEnrollment operation middleware
+func (sh *strictHandler) DeleteEnrollment(ctx echo.Context, id EnrollmentID) error {
+	var request DeleteEnrollmentRequestObject
+
+	request.Id = id
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteEnrollment(ctx.Request().Context(), request.(DeleteEnrollmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteEnrollment")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DeleteEnrollmentResponseObject); ok {
+		return validResponse.VisitDeleteEnrollmentResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}
