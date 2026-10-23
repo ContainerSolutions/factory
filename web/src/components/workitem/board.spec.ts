@@ -109,6 +109,23 @@ describe('laneOf', () => {
     // Vocabulary-free values don't count either way.
     ['only refs and ids', { ...train }, 'waiting'],
     ['an unknown word', { review: 'pondering', merge: 'merged' }, 'done'],
+    // The close rule's `lifecycle: closed`: done whatever else is set.
+    ['closed', { lifecycle: 'closed' }, 'done'],
+    [
+      'closed with an open value',
+      { ...stack, review: 'changes-requested', lifecycle: 'closed' },
+      'done',
+    ],
+    [
+      'closed with a needs-human value',
+      { ...stack, merge: 'blocked', lifecycle: 'closed' },
+      'done',
+    ],
+    [
+      'closed with a running value',
+      { ...stack, review: 'running', lifecycle: 'closed' },
+      'done',
+    ],
   ])('%s', (_, values, want) => {
     expect(laneOf(wi({ state: values }))).toBe(want);
   });
@@ -130,6 +147,14 @@ describe('laneOf', () => {
         approvals: [{ name: 'merge', phase: 'Pending' }],
       },
       'needs-human',
+    ],
+    [
+      'closed beats a pending approval',
+      {
+        state: { ...stack, lifecycle: 'closed' },
+        approvals: [{ name: 'merge', phase: 'Pending' }],
+      },
+      'done',
     ],
     [
       'a granted approval',
