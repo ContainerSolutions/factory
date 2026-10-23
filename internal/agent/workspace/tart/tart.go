@@ -271,6 +271,14 @@ func validDir(p string) error {
 	return nil
 }
 
+// validFile accepts a plain file name for Get: not empty, ".", "..", an option or a path.
+func validFile(f string) error {
+	if f == "" || f == "." || f == ".." || strings.HasPrefix(f, "-") || strings.ContainsAny(f, "/\\\x00") {
+		return fmt.Errorf("VM file name %q isn't a plain name", f)
+	}
+	return nil
+}
+
 // putScript, run as root with $0 the destination, replaces it with the tar stream on stdin,
 // root's and read-only: a+rX,a-w makes files 0444 and directories and executables 0555.
 const putScript = `set -eu; rm -rf "$0"; mkdir -p "$0"; tar -xf - -C "$0" --no-same-owner; chown -R root:root "$0"; chmod -R a+rX,a-w "$0"`
@@ -345,15 +353,25 @@ func writeTar(w io.Writer, dir string) error {
 	return tw.Close()
 }
 
-// Get implements workspace.Driver: tart exec … sudo tar -czf - -C <srcDir> . into a temp
+// Get implements workspace.Driver: tart exec … sudo tar -czf - -C <srcDir> . (or the named
+// files, with GNU tar's --ignore-failed-read so a missing one is only a warning) into a temp
 // file next to dstDir (at most MaxGet bytes), then host.Extract into dstDir. A failure removes
 // dstDir.
-func (d *Driver) Get(ctx context.Context, name, srcDir, dstDir string) (err error) {
+func (d *Driver) Get(ctx context.Context, name, srcDir, dstDir string, files ...string) (err error) {
 	if err := workspace.ValidName(name); err != nil {
 		return err
 	}
 	if err := validDir(srcDir); err != nil {
 		return err
+	}
+	args := []string{"exec", name, "sudo", "-n", "tar", "-czf", "-", "-C", srcDir, "."}
+	if len(files) > 0 {
+		for _, f := range files {
+			if err := validFile(f); err != nil {
+				return err
+			}
+		}
+		args = append([]string{"exec", name, "sudo", "-n", "tar", "-czf", "-", "--ignore-failed-read", "-C", srcDir}, files...)
 	}
 	if err := os.Mkdir(dstDir, 0o700); err != nil {
 		return err
@@ -371,7 +389,7 @@ func (d *Driver) Get(ctx context.Context, name, srcDir, dstDir string) (err erro
 	errb := &limitedBuffer{n: 8 << 10}
 	cw := &capWriter{w: f, n: d.c.MaxGet}
 	rerr := d.c.Runner.Run(ctx, Cmd{
-		Name: d.c.Bin, Args: []string{"exec", name, "sudo", "-n", "tar", "-czf", "-", "-C", srcDir, "."},
+		Name: d.c.Bin, Args: args,
 		Stdout: cw, Stderr: errb,
 	})
 	switch {

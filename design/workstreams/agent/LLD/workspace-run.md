@@ -32,7 +32,7 @@ A new package that imports only `internal/apis/v1alpha1`, `internal/apiclient` (
 
 The bundle lives on the VM's root disk, not under `/run`: Ubuntu mounts `/run` as a `noexec` tmpfs, and the skills' scripts (`ccfr`, `lib/lisa`, …) must execute from it.
 
-The VM's outputs are under the workspace root's `out/`: `/work/out/{outcome.json,transcript.jsonl.gz,environment.log}` (`runbundle.OutcomeFile`, `TranscriptFile`, `EnvironmentLog`).
+The VM's outputs are under the workspace root's `out/`: `/work/out/{outcome.json,transcript.jsonl.gz,environment.log}` (`runbundle.OutcomeFile`, `TranscriptFile`, `EnvironmentLog`). `out/` is also the agent's `$FACTORY_OUT` (its `result.json`, the effector's state, any scratch), so the supervisor collects only `outcome.json` and `transcript.jsonl.gz` from it.
 
 ### Types
 
@@ -330,7 +330,7 @@ Specified in [gateway.md](gateway.md); in short:
 - Calls `PrepareBundle`, `Put`s the bundle, then execs `factory-agent run --proxy <gateway> --remaining <left>` (as `admin`: no `sudo`).
 - Decodes the events and relays `progress` and `usage` to the worker's `runner.Sink`; `step` events go to its log.
 - Cancels with SIGTERM, then SIGKILL after its grace, then `Destroy`.
-- Collects `out/` after the `outcome` event or the exit, and treats it as untrusted ([trust model](#trust-model)). Exit 3 or 4 without an outcome is `failed{harness-error}`.
+- Collects `out/outcome.json` and `out/transcript.jsonl.gz` (nothing else: the agent's scratch shares `out/`) after the `outcome` event or the exit, and treats it as untrusted ([trust model](#trust-model)). Exit 3 or 4 without an outcome is `failed{harness-error}`.
 
 ## Tests
 

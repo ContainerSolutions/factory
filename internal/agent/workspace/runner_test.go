@@ -124,14 +124,49 @@ func (d *fakeDriver) Exec(ctx context.Context, name string, argv []string, _ io.
 	return d.r.script(ctx, d.r, out, runbundle.NewEncoder(stdout, time.Now))
 }
 
-func (d *fakeDriver) Get(_ context.Context, name, src, dst string) error {
+// fakeMaxGet caps what the fake's Get copies, as tart's MaxGet does.
+const fakeMaxGet = 1 << 20
+
+// Get copies src, or only its named files (a missing one skipped), and fails over fakeMaxGet.
+func (d *fakeDriver) Get(_ context.Context, name, src, dst string, files ...string) error {
 	if err := d.record("get", name); err != nil {
 		return err
 	}
 	if _, err := os.Lstat(dst); err == nil {
 		return errors.New("get: dst exists")
 	}
-	return copyTree(d.vm(name, src), dst)
+	from := d.vm(name, src)
+	if len(files) == 0 {
+		if err := copyTree(from, dst); err != nil {
+			return err
+		}
+	} else {
+		if err := os.Mkdir(dst, 0o700); err != nil {
+			return err
+		}
+		for _, f := range files {
+			if _, err := os.Lstat(filepath.Join(from, f)); errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err := copyTree(filepath.Join(from, f), filepath.Join(dst, f)); err != nil {
+				return err
+			}
+		}
+	}
+	var size int64
+	_ = filepath.WalkDir(dst, func(_ string, e fs.DirEntry, err error) error {
+		if err == nil && e.Type().IsRegular() {
+			if fi, err := e.Info(); err == nil {
+				size += fi.Size()
+			}
+		}
+		return nil
+	})
+	if size > fakeMaxGet {
+		_ = os.RemoveAll(dst)
+		return fmt.Errorf("%s: getting %s: more than %d bytes", name, src, fakeMaxGet)
+	}
+	return nil
 }
 
 func (d *fakeDriver) Stop(_ context.Context, name string) error    { return d.record("stop", name) }
@@ -511,6 +546,23 @@ func TestRunnerOutcomes(t *testing.T) {
 			}
 			return os.Symlink(target, filepath.Join(out, runbundle.OutcomeFile))
 		}, wantFailed(runner.ReasonHarnessError, "not a regular file")},
+		{"a big scratch beside the outcome", func(ctx context.Context, r *rig, out string, enc *runbundle.Encoder) error {
+			// docs-gif's recordings, frames and tapes in $FACTORY_OUT: over the collect's cap.
+			if err := os.MkdirAll(filepath.Join(out, "gif", "frames"), 0o700); err != nil {
+				return err
+			}
+			big := bytes.Repeat([]byte("x"), fakeMaxGet)
+			for _, f := range []string{"gif/demo.mp4", "gif/frames/0001.png", "result.json"} {
+				if err := os.WriteFile(filepath.Join(out, filepath.FromSlash(f)), big, 0o600); err != nil {
+					return err
+				}
+			}
+			return finishWith(runbundle.Outcome{Status: runner.StatusDone, Result: doneResult()}, `{"type":"assistant","text":"recorded"}`)(ctx, r, out, enc)
+		}, func(t *testing.T, out runner.Outcome) {
+			if out.Status != runner.StatusDone || out.Result == nil || out.Result.Outcome != "pr-opened" || out.TranscriptRef == "" {
+				t.Errorf("outcome %+v (summary %q)", out, summaryOf(out))
+			}
+		}},
 		{"a transcript that isn't gzip", func(ctx context.Context, r *rig, out string, enc *runbundle.Encoder) error {
 			o := runbundle.Outcome{Status: runner.StatusDone, Result: doneResult(), Transcript: runbundle.TranscriptFile}
 			if err := os.WriteFile(filepath.Join(out, runbundle.TranscriptFile), []byte("plain "+harnesstest.GitToken), 0o600); err != nil {

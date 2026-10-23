@@ -77,8 +77,10 @@ type Driver interface {
 	// stopped too.
 	Exec(ctx context.Context, name string, argv []string, stdin io.Reader, stdout, stderr io.Writer) error
 	// Get copies the VM directory srcDir to the host directory dstDir, which must not exist
-	// (its parent must). The copy is capped and refuses links out of dstDir and special files.
-	Get(ctx context.Context, name, srcDir, dstDir string) error
+	// (its parent must): all of it, or only the named files when files is given (plain names
+	// in srcDir; a missing one is skipped). The copy is capped and refuses links out of dstDir
+	// and special files.
+	Get(ctx context.Context, name, srcDir, dstDir string, files ...string) error
 	// Stop shuts the workspace down and keeps it (--keep-workspace).
 	Stop(ctx context.Context, name string) error
 	// Destroy stops and deletes it; a workspace that doesn't exist is no error.
