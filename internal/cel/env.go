@@ -24,6 +24,7 @@ import (
 	"github.com/google/cel-go/common"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
+	"github.com/google/cel-go/ext"
 	"github.com/google/cel-go/interpreter"
 )
 
@@ -113,7 +114,10 @@ type cacheKey struct {
 
 // NewEnv returns the environment of the LLD: the variables as map(string, dyn) (now is a
 // timestamp), the CEL standard library and the custom functions item.count, item.lastRun,
-// hash, semver.bump and glob. Numbers compare across int and double.
+// hash, semver.bump and glob, and cel-go's two-variable comprehensions (all, exists,
+// existsOne, transformList, transformMap and transformMapEntry with an index or key and a
+// value: a rule builds a map from a list with list.transformMapEntry(i, v, {k: v})). Numbers
+// compare across int and double.
 func NewEnv(opts ...Option) (*Env, error) {
 	o := options{costLimit: DefaultCostLimit, timeout: DefaultTimeout, interrupt: DefaultInterruptCheckFrequency}
 	for _, opt := range opts {
@@ -126,6 +130,7 @@ func NewEnv(opts ...Option) (*Env, error) {
 		cel.CustomTypeAdapter(yamlAdapter{base: types.DefaultTypeAdapter}),
 		cel.CrossTypeNumericComparisons(true),
 		cel.Variable(VarNow, cel.TimestampType),
+		ext.TwoVarComprehensions(),
 	}
 	for _, v := range mapVars {
 		envOpts = append(envOpts, cel.Variable(v, cel.MapType(cel.StringType, cel.DynType)))

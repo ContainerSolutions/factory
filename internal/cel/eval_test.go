@@ -160,6 +160,44 @@ func TestEvalValue(t *testing.T) {
 	}
 }
 
+// TestTwoVarComprehensions builds a map from a list (ext.TwoVarComprehensions), as
+// docs-on-release-train builds release-docs' versions from a train event's repos.
+func TestTwoVarComprehensions(t *testing.T) {
+	env := newTestEnv(t)
+	a := Activation{Event: map[string]any{"train": map[string]any{"repos": []any{
+		map[string]any{"name": "api", "versions": map[string]any{".": "0.4.1"}},
+		map[string]any{"name": "ui", "versions": map[string]any{}},
+		map[string]any{"name": "agent", "versions": map[string]any{".": "0.2.0", "sub": "1.0.0"}},
+	}}}}
+	tests := []struct {
+		name string
+		src  string
+		want any
+	}{
+		{"transformMapEntry", "event.train.repos.filter(r, '.' in r.versions).transformMapEntry(i, r, {r.name: r.versions['.']})",
+			map[string]any{"api": "0.4.1", "agent": "0.2.0"}},
+		{"transformMapEntry of none", "event.train.repos.filter(r, 'x' in r.versions).transformMapEntry(i, r, {r.name: r.versions['x']})",
+			map[string]any{}},
+		{"transformList with the index", "event.train.repos.transformList(i, r, i < 2, r.name)", []any{"api", "ui"}},
+		{"all with the index", "event.train.repos.all(i, r, i >= 0 && r.name != '')", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := env.Compile(tt.src, Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := p.EvalValue(context.Background(), a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("got %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCompileErrors(t *testing.T) {
 	env := newTestEnv(t)
 	tests := []struct {

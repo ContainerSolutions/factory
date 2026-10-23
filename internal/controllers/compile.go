@@ -293,10 +293,11 @@ type RecompileOptions struct {
 // current defaults), the dispatch's context refs, the requires labels, the labels and the
 // rule provenance. It recomputes everything the current TaskSpec gives: the prompt (with wi's
 // current summary), skills (resolved again), workspace, context mounts, credentials request,
-// effects, limits, output and hosts; the provenance's CatalogSHA is cat's and its Event is
-// left for the caller. The harness request is opts.Harness, else the original's while the
-// TaskSpec is unchanged (same digest), else the current TaskSpec's default: a stored task
-// can't tell a dispatch's request from the default it was given.
+// effects, limits, output, hosts, environment and versions (from the kept inputs); the
+// provenance's CatalogSHA is cat's and its Event is left for the caller. The harness request
+// is opts.Harness, else the original's while the TaskSpec is unchanged (same digest), else the
+// current TaskSpec's default: a stored task can't tell a dispatch's request from the default
+// it was given.
 //
 // A TaskSpec or queue cat no longer has is ErrNotInCatalog; a task the current TaskSpec can't
 // express (an input it no longer declares, a prompt that doesn't render) is
@@ -549,7 +550,73 @@ func buildTask(ctx context.Context, b taskBasis, skills SkillResolver) (*v1alpha
 	if ws := spec.Workspace; ws != nil && len(ws.Hosts) > 0 {
 		task.Spec.Hosts = slices.Clone(ws.Hosts)
 	}
+	if ws := spec.Workspace; ws != nil && ws.Environment != nil {
+		task.Spec.Environment = cloneEnvironment(ws.Environment)
+		versions, err := resolveVersions(ws.Environment.Versions, inputs)
+		if err != nil {
+			return nil, nil, err
+		}
+		task.Spec.Versions = versions
+	}
 	return task, prompt, nil
+}
+
+// resolveVersions is a Task's spec.versions from its environment's versions source. For
+// from: inputs it is the input src.Input names (merged with its default): a map of component
+// to version (map[string]any with string values, as inputs come from JSON and CEL) that
+// passes the Task's versions checks, else ErrInvalidDispatch. An absent or empty input is no
+// versions.
+func resolveVersions(src *v1alpha1.VersionSource, inputs map[string]any) (map[string]string, error) {
+	if src == nil || src.From != "inputs" {
+		// from: latest and from: train aren't resolved yet: no versions, so the environment's
+		// own defaults apply.
+		return nil, nil
+	}
+	field := "inputs." + src.Input
+	raw := inputs[src.Input]
+	if raw == nil {
+		return nil, nil
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s is %T, want a map of component to version", ErrInvalidDispatch, field, raw)
+	}
+	if len(m) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(m))
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		v, ok := m[k].(string)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s.%s is %T, want a string", ErrInvalidDispatch, field, k, m[k])
+		}
+		out[k] = v
+	}
+	if err := (&v1alpha1.Task{Spec: v1alpha1.TaskRunSpec{Versions: out}}).Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %s: %w", ErrInvalidDispatch, field, err)
+	}
+	return out, nil
+}
+
+// cloneEnvironment is a deep copy of e (non-nil).
+func cloneEnvironment(e *v1alpha1.Environment) *v1alpha1.Environment {
+	c := *e
+	if e.Versions != nil {
+		v := *e.Versions
+		c.Versions = &v
+	}
+	if e.Ready != nil {
+		r := *e.Ready
+		r.HTTP = slices.Clone(e.Ready.HTTP)
+		c.Ready = &r
+	}
+	c.Exposes = maps.Clone(e.Exposes)
+	if e.Egress != nil {
+		g := *e.Egress
+		g.Allow = slices.Clone(e.Egress.Allow)
+		c.Egress = &g
+	}
+	return &c
 }
 
 // appendSkillRepos adds to readRepos the "owner/name" of each fetched skills source on host
