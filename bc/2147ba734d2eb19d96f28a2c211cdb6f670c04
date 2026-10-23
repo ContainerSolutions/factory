@@ -1,2 +1,5 @@
 lisa-addressed:
 Self-review pass 1 fixed: TestRunnerDeadlines (no time left, overrun on a fake clock, down budget); the not-gzip case checks the note and no token; wsRun.failed logs the reason at Warn and the error at Debug; release is deferred after freshRunDir and calls the driver only once Create was attempted.
+
+lisa-design:
+Owner-agreed (lead, 2026-10-23): dispatcher route = today's agent token (job.AgentToken), no run token; logins in <state>/logins 0600/0700; codex account from the login store; VM transcript re-redacted with the real tokens and the model logins; the Result re-validated on the host (pipeline.ValidateResult with the host-written bundle schema); --keep-workspace = Stop. The fake Driver replays scripted event streams (vmrun.Main can't take the fake adapter from outside its package). The gateway is real on loopback; the VM's address is TEST-NET-1 so the test's connection is a refused peer, proving the egress Sink reaches the transcript.
