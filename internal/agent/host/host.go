@@ -497,3 +497,10 @@ var ErrHostLocked = errors.New("another factory-agent host init is running")
 
 // hostLockPath is the lock Init holds while it applies.
 func hostLockPath(e *Env) string { return filepath.Join(e.StateDir(), "host.lock") }
+
+// ErrSuperviseLocked is LockSupervise's error while another supervise holds the lock.
+var ErrSuperviseLocked = errors.New("another factory-agent supervise is running")
+
+// superviseLockPath is the lock a supervise holds for its life: under the host's state dir,
+// whatever its --state-dir, since the VMs it cleans up are the user's.
+func superviseLockPath(e *Env) string { return filepath.Join(e.StateDir(), "supervise.lock") }

@@ -54,9 +54,10 @@ Today's worker loop (`cmd/factory-agent/worker.go`'s `runAgentLoop`, shared: reg
 
 1. **The config and the probe.** The harnesses run in the VM, so the host has nothing of theirs to probe: a configured harness is offered when its login is in `<state-dir>/logins` (else it's dropped with "run `factory-agent login codex`", and with none left supervise exits 1). Labels are advertised as configured; there's no host tooling check.
 2. **`host check`** (`internal/agent/host`, the config's `workspace` block, driver tart). When a step isn't ok or skipped, supervise prints those steps and exits 1 with "run `factory-agent host init --driver tart`". It never runs init.
-3. **The orphan cleanup:** the driver's `List`, then `Destroy` of each workspace name (`ws-tsk_…`; any other name is left alone). Nothing runs at start, so each is a killed supervisor's. A failure stops the start.
-4. **The runner:** `workspace.NewRunner` with the tart driver (`Bin` host check's tart, `WarmBase` the flag's, `Log` stderr at `--log-level debug`), the host pipeline (`WorkRoot`, the adapters, the skills cache; `GitAuthHelper`), `StateDir`, `Spec{}` (6 vCPUs, 8 GiB) and `--keep-workspace`.
-5. **Registration** with `lending.maxConcurrent` forced to 1, at start and on SIGHUP.
+3. **One supervisor per user:** an exclusive non-blocking flock on `<host state dir>/supervise.lock` (`~/Library/Application Support/factory-agent`, whatever `--state-dir` says, since Tart's VMs are the user's), held for the process's life; when another supervise holds it, exit 1 with "another factory-agent supervise is running", before the cleanup lists or destroys anything.
+4. **The orphan cleanup:** the driver's `List`, then `Destroy` of each workspace name (`ws-tsk_…`; any other name is left alone). Nothing runs at start, so each is a killed supervisor's. A failure stops the start.
+5. **The runner:** `workspace.NewRunner` with the tart driver (`Bin` host check's tart, `WarmBase` the flag's, `Log` stderr at `--log-level debug`), the host pipeline (`WorkRoot`, the adapters, the skills cache; `GitAuthHelper`), `StateDir`, `Spec{}` (6 vCPUs, 8 GiB) and `--keep-workspace`.
+6. **Registration** with `lending.maxConcurrent` forced to 1, at start and on SIGHUP.
 
 `--state-dir` (default `~/Library/Application Support/factory-agent`, `login`'s) holds `logins/`, `runs/` and `gateway-ca/`; host check always reads the default one. `worker`'s `--stub-result` isn't offered: it would skip the VM.
 

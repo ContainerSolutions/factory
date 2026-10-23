@@ -158,6 +158,10 @@ func newSupervisedTest(t *testing.T, dispatcher string) *supervisedTest {
 	}
 	hd, _ := hostTestDeps(t)
 	hd.Env.Home = s.dir
+	// the host's state dir, which host check would have made: the supervise lock is in it.
+	if err := os.MkdirAll(hd.Env.StateDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	s.deps = superviseDeps{
 		Worker: workerDeps{Config: homeIn(s.dir), Owner: owner.TokenFunc(func(context.Context) (string, error) { return ownerSecret, nil })},
 		Host:   hd.Env,
@@ -235,6 +239,27 @@ func TestSuperviseRefusals(t *testing.T) {
 		if code := runSupervise(context.Background(), s.args(), &errOut, s.deps); code != 1 ||
 			!strings.Contains(errOut.String(), "run `factory-agent login codex`") || !strings.Contains(errOut.String(), "no harness passed its probe") {
 			t.Fatalf("code %d:\n%s", code, errOut.String())
+		}
+	})
+	t.Run("another supervise", func(t *testing.T) {
+		s := newSupervisedTest(t, "http://127.0.0.1:1")
+		s.driver.listed = []string{"ws-tsk_live"}
+		e := s.deps.Host
+		release, err := host.LockSupervise(&e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+		// bounded: an unlocked supervise would go on to serve.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var errOut bytes.Buffer
+		if code := runSupervise(ctx, s.args(), &errOut, s.deps); code != 1 ||
+			!strings.Contains(errOut.String(), "another factory-agent supervise is running") {
+			t.Fatalf("code %d:\n%s", code, errOut.String())
+		}
+		if calls := s.driver.Calls(); len(calls) != 0 || s.driver.cfg.Bin != "" {
+			t.Errorf("a locked supervise built a driver or called it: %v", calls)
 		}
 	})
 	t.Run("list fails", func(t *testing.T) {

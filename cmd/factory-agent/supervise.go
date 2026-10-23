@@ -94,7 +94,8 @@ func runSupervise(ctx context.Context, args []string, stderr io.Writer, d superv
 	if d.Worker.Probe.Harnesses == nil {
 		d.Worker.Probe = loginProbe(login.ForStateDir(*stateDir))
 	}
-	s := &supervisor{d: d, e: &e, stderr: stderr, log: log, stateDir: *stateDir, warmBase: *warmBase, keep: *keepWorkspace}
+	s := &supervisor{d: d, e: &e, stderr: stderr, log: log, stateDir: *stateDir, warmBase: *warmBase, keep: *keepWorkspace, unlock: func() {}}
+	defer func() { s.unlock() }()
 	return runAgentLoop(ctx, stderr, d.Worker, agentLoop{
 		name: "supervisor", path: *path, log: log, newRunner: s.newRunner,
 		// concurrency 1 (supervise.md): one workspace VM at a time.
@@ -138,10 +139,12 @@ type supervisor struct {
 	stateDir string
 	warmBase string
 	keep     bool
+	// unlock releases the supervise lock newRunner takes, if it did.
+	unlock func()
 }
 
-// newRunner gates on host check, destroys the workspaces a killed supervisor left, and builds
-// the workspace runner on the host pipeline.
+// newRunner gates on host check, takes the supervise lock, destroys the workspaces a killed
+// supervisor left, and builds the workspace runner on the host pipeline.
 func (s *supervisor) newRunner(ctx context.Context, cfg *config.Config) (runner.Runner, error) {
 	w := config.Workspace{}
 	if cfg.Workspace != nil {
@@ -174,6 +177,13 @@ func (s *supervisor) newRunner(ctx context.Context, cfg *config.Config) (runner.
 		return nil, errHostCheck
 	}
 	warnSkipped(s.stderr, sts)
+	// One supervisor per user (supervise.md): the orphan cleanup would destroy another's VM.
+	// The lock is in the host's state dir, which host check made sure exists.
+	unlock, err := host.LockSupervise(s.e)
+	if err != nil {
+		return nil, err
+	}
+	s.unlock = unlock
 
 	newDriver := s.d.NewDriver
 	if newDriver == nil {
