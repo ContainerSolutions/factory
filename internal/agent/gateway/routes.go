@@ -33,7 +33,7 @@ var errDispatcherAddr = errors.New("gateway: the dispatcher transport dials only
 // routeIntercepted applies the class's request rule inside an intercepted tunnel (github.com
 // by repo, api.github.com's reads) and returns the Authorization to set after the carriers are
 // stripped ("" for none); it answers a refusal itself and returns ok false then. The model hosts
-// are a later PR's: they get no credential yet.
+// are routeCredentials'.
 func (g *Gateway) routeIntercepted(w http.ResponseWriter, r *http.Request, d policy.Decision, rec *Record) (auth string, ok bool) {
 	switch d.Class {
 	case policy.GitHub:

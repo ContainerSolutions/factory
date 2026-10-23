@@ -136,7 +136,7 @@ func TestTunnel(t *testing.T) {
 	}
 	r := last(t, e.sink.wait(t, 1))
 	want := Record{Type: RecordType, Mode: ModeTunnel, Method: http.MethodConnect, Host: "echo.test",
-		Port: r.Port, Status: http.StatusOK, Up: 5, Down: 5}
+		Port: r.Port, Status: http.StatusOK, Client: ClientNone, Up: 5, Down: 5}
 	r.At, r.Duration = time.Time{}, 0
 	if r != want || fmt.Sprint(r.Port) != echo.port() {
 		t.Errorf("record %+v, want %+v", r, want)
