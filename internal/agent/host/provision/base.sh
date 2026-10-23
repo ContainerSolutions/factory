@@ -33,9 +33,45 @@ NODE_SHA256=724282c3b43aec998aa9527380465b45d229e021b58035f5f4f63095eabfe5d5
 GO_VERSION=go1.26.9
 GO_SHA256=4a97373d49fcacdcf3694fea368a500b00ee3e963974f3e7514132717632f052
 
-# Playwright: the version web/package.json pins for @playwright/test. Only its system
-# dependencies are installed (the browsers come with a task's own Playwright).
+# Playwright: the version web/package.json pins for @playwright/test (npm checks its integrity
+# hashes). It is installed globally in npm's own global prefix (node's directory), where
+# `npx --no playwright` and `npm root -g` find it: docs-gif's record_ui.sh runs the first and
+# puts the second on NODE_PATH, so its flows' require('@playwright/test') resolves from a
+# scratch directory. Its Chromium (and the ffmpeg build Playwright records video with) go to
+# PLAYWRIGHT_BROWSERS, which the in-VM runtime exports as PLAYWRIGHT_BROWSERS_PATH
+# (vmrun.PlaywrightBrowsersPath): a run's HOME is a scratch directory, so Playwright's default,
+# ~/.cache/ms-playwright, would be empty. Playwright downloads the browsers from its CDN.
 PLAYWRIGHT_VERSION=1.63.0
+PLAYWRIGHT_BROWSERS=/opt/ms-playwright
+
+# The GIF tools docs-gif records with (ccf-skills' ccf-docs/skills/docs-gif): Playwright's
+# Chromium (above), vhs with ttyd, ffmpeg and gifski. ffmpeg, ttyd (1.7.4, vhs needs >= 1.7.2)
+# and vhs's first font come from Ubuntu's archive (GIF_PACKAGES).
+#
+# vhs: https://github.com/charmbracelet/vhs/releases/tag/v0.12.1 (2026-09-24, the newest release
+# at least two weeks old when pinned, 2026-10-23). The sha256 is vhs_0.12.1_Linux_arm64.tar.gz's
+# line in the release's checksums.txt, which matches its digest in GitHub's releases API. vhs
+# drives a Chromium it finds on PATH (go-rod's LookPath: `chromium` among others), else it
+# downloads one: /usr/local/bin/chromium links Playwright's. The runtime sets VHS_NO_SANDBOX,
+# since Ubuntu 24.04's AppArmor keeps Chromium's sandbox from its user namespaces (Playwright
+# turns the sandbox off itself); the VM is the task's sandbox.
+VHS_VERSION=v0.12.1
+VHS_SHA256=0b27029809fcc2ca2c381cceb854cbe03479a0f229b963e9bc3a2f2c36ffd3e7
+
+# gifski: no Ubuntu or Debian release packages it, and its releases ship x86-64 linux binaries
+# only, so it is built from https://crates.io/crates/gifski/1.34.0 (2025-07-13, the newest
+# release), with the crate's own Cargo.lock (--locked: cargo checks every dependency's
+# checksum). The sha256 is the crate's checksum in crates.io's API (crates/gifski/1.34.0).
+GIFSKI_VERSION=1.34.0
+GIFSKI_SHA256=c246c795a61d4a2476fb1c8ab70bedfaa825c734882adc40e117fc837df81190
+# The Rust toolchain that builds it, in $TMP only: rustc, cargo and rust-std 1.99.0 (2026-10-01,
+# the newest stable at least two weeks old when pinned). Each sha256 is the component's
+# <name>-1.99.0-aarch64-unknown-linux-gnu.tar.xz.sha256 on static.rust-lang.org, which matches
+# its xz_hash in channel-rust-1.99.0.toml.
+RUST_VERSION=1.99.0
+RUSTC_SHA256=89c0f1a3a44df63c95e5d5f2ba093d0a12c5f5f57f8635f8a7a0ce50cf86600e
+CARGO_SHA256=113229fcc16cc1ba004923a4cc275fbf3281dafaaf8b97269f9c00189d497fd4
+RUST_STD_SHA256=1cf7e2ef58ed1cfa6f1adea18e155cbf254c1951f39e5f5e3376879f55fd64a4
 
 # claude-code: the version the owner's smoke run accepted (2026-10-20,
 # internal/agent/harness/claudecode/flags.go). npm checks the integrity hashes of the package
@@ -90,6 +126,9 @@ GH_KEY_SHA256=6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b
 
 APT_PACKAGES=(ca-certificates curl gnupg git make jq openssl unzip python3 python3-venv bubblewrap)
 DOCKER_PACKAGES=(docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin)
+# ffmpeg, ttyd and JetBrains Mono (vhs's default font) for docs-gif; gcc, libc6-dev and
+# xz-utils for gifski's build (cc links it; the Rust tarballs are .tar.xz).
+GIF_PACKAGES=(ffmpeg ttyd fonts-jetbrains-mono gcc libc6-dev xz-utils)
 
 # The user the workspace runs as: the cirruslabs images' admin.
 WS_USER=admin
@@ -233,8 +272,56 @@ section_go() {
 }
 
 section_playwright() {
-	echo "== playwright $PLAYWRIGHT_VERSION system dependencies"
-	sudo env DEBIAN_FRONTEND=noninteractive npx -y "playwright@$PLAYWRIGHT_VERSION" install-deps chromium
+	echo "== playwright $PLAYWRIGHT_VERSION, its system dependencies and its Chromium"
+	local prefix root chrome
+	prefix="$(npm prefix -g)"
+	root="$(npm root -g)"
+	if [ "$(version "$root/@playwright/test")" != "$PLAYWRIGHT_VERSION" ] || [ ! -x "$prefix/bin/playwright" ]; then
+		sudo npm install -g --prefix "$prefix" --no-fund --no-audit "@playwright/test@$PLAYWRIGHT_VERSION"
+	fi
+	sudo env DEBIAN_FRONTEND=noninteractive "$prefix/bin/playwright" install-deps chromium
+	# an installed browser is skipped.
+	sudo install -d -m 0755 "$PLAYWRIGHT_BROWSERS"
+	sudo env PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS" "$prefix/bin/playwright" install chromium
+	sudo chmod -R a+rX "$PLAYWRIGHT_BROWSERS"
+	# vhs's Chromium: the one Playwright launches.
+	chrome="$(PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS" NODE_PATH="$root" node -e 'process.stdout.write(require("@playwright/test").chromium.executablePath())')"
+	[ -x "$chrome" ] || { echo "playwright's chromium is missing: $chrome" >&2; exit 1; }
+	sudo ln -sfn "$chrome" /usr/local/bin/chromium
+}
+
+# rust_component NAME SHA256 installs the Rust toolchain component NAME at RUST_VERSION in
+# $TMP/rust.
+rust_component() {
+	local dir="$1-$RUST_VERSION-aarch64-unknown-linux-gnu"
+	fetch "https://static.rust-lang.org/dist/$dir.tar.xz" "$2" "$TMP/$dir.tar.xz"
+	tar -xJf "$TMP/$dir.tar.xz" -C "$TMP" --no-same-owner
+	"$TMP/$dir/install.sh" --prefix="$TMP/rust" --disable-ldconfig >/dev/null
+}
+
+section_gif_tools() {
+	echo "== GIF tools: ffmpeg, ttyd, vhs $VHS_VERSION, gifski $GIFSKI_VERSION"
+	apt_get install --no-install-recommends "${GIF_PACKAGES[@]}"
+
+	if [ "$(cat /var/lib/factory/vhs.tar.sha256 2>/dev/null || true)" != "$VHS_SHA256" ] || [ ! -x /usr/local/bin/vhs ]; then
+		fetch "https://github.com/charmbracelet/vhs/releases/download/$VHS_VERSION/vhs_${VHS_VERSION#v}_Linux_arm64.tar.gz" "$VHS_SHA256" "$TMP/vhs.tar.gz"
+		mkdir "$TMP/vhs"
+		tar -xzf "$TMP/vhs.tar.gz" -C "$TMP/vhs" --no-same-owner
+		sudo install -m 0755 "$TMP/vhs/vhs_${VHS_VERSION#v}_Linux_arm64/vhs" /usr/local/bin/vhs
+		echo "$VHS_SHA256" | sudo tee /var/lib/factory/vhs.tar.sha256 >/dev/null
+	fi
+
+	if [ "$(cat /var/lib/factory/gifski.crate.sha256 2>/dev/null || true)" != "$GIFSKI_SHA256" ] || [ ! -x /usr/local/bin/gifski ]; then
+		rust_component rustc "$RUSTC_SHA256"
+		rust_component cargo "$CARGO_SHA256"
+		rust_component rust-std "$RUST_STD_SHA256"
+		fetch "https://static.crates.io/crates/gifski/gifski-$GIFSKI_VERSION.crate" "$GIFSKI_SHA256" "$TMP/gifski.crate"
+		tar -xzf "$TMP/gifski.crate" -C "$TMP" --no-same-owner
+		CARGO_HOME="$TMP/cargo" PATH="$TMP/rust/bin:$PATH" cargo install --locked --path "$TMP/gifski-$GIFSKI_VERSION" --root "$TMP/gifski"
+		sudo install -m 0755 "$TMP/gifski/bin/gifski" /usr/local/bin/gifski
+		echo "$GIFSKI_SHA256" | sudo tee /var/lib/factory/gifski.crate.sha256 >/dev/null
+	fi
+	[ -x /usr/local/bin/vhs ] && [ -x /usr/local/bin/gifski ] || { echo "vhs or gifski is missing from /usr/local/bin" >&2; exit 1; }
 }
 
 # version DIR is DIR/package.json's version, or "".
@@ -310,6 +397,7 @@ main() {
 	section_node
 	section_go
 	section_playwright
+	section_gif_tools
 	section_harnesses
 	section_cleanup
 	echo "== done"
