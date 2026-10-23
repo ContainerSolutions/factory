@@ -1,2 +1,5 @@
 lisa-design:
 Option (a) over (b): the host collects only outcome.json + transcript.jsonl.gz (what it reads). Changes only the darwin supervisor and the Driver interface; no guest-runtime change, no host/guest version skew, FACTORY_OUT layout (result.json, .effector-seq, codex writable roots, prompts) untouched. Get keeps a whole-dir mode (no names) so existing callers/tests stay as they are. Relies on GNU tar (base VM: Ubuntu 24.04) --ignore-failed-read for the missing-transcript case.
+
+lisa-selfreview:
+Pass 1 (lenient, final): approve. Deferred: (nit) Get's whole-dir mode is no longer used in production, kept for compatibility; (question) the --ignore-failed-read behaviour on a missing name is GNU tar's documented one but unverified in the real VM (no tart runs here). A hostile VM can still make outcome.json a big directory and fail its own collect: acceptable, it only fails its own run.
