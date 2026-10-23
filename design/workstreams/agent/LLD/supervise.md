@@ -64,3 +64,4 @@ Today's worker loop (registration by join token and the device flow, the lease l
 2. `tart exec`'s stdout carries `Get`'s gzip stream byte for byte.
 3. `ip -4 route get <gateway>` in the warm base prints `src <the VM's leased address>`, the address Softnet lets it send from (the gateway's client pin).
 4. The pid-file cancel: the remote `kill -s TERM` reaches `factory-agent run` and it writes its outcome.
+5. `tart exec` hands argv to the guest as it is (no shell joins it), so the `sh -c` scripts of `Put`, `Exec` and the cancel arrive intact.

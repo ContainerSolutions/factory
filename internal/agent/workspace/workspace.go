@@ -73,7 +73,8 @@ type Driver interface {
 	Put(ctx context.Context, name, srcDir, dstDir string) error
 	// Exec runs argv in the VM. stdin may be nil. A non-zero exit is an *ExitError. When ctx
 	// is done the remote process gets SIGTERM, then SIGKILL after the driver's grace; Exec
-	// returns once it has exited, with ctx's error.
+	// returns, with ctx's error, once it has exited, or after the grace once the local side is
+	// stopped too.
 	Exec(ctx context.Context, name string, argv []string, stdin io.Reader, stdout, stderr io.Writer) error
 	// Get copies the VM directory srcDir to the host directory dstDir, which must not exist
 	// (its parent must). The copy is capped and refuses links out of dstDir and special files.

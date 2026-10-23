@@ -56,6 +56,8 @@ type Config struct {
 type Driver struct {
 	c   Config
 	seq atomic.Int64
+	// log is Config.Log, shared by every workspace's tart run.
+	log *lockedWriter
 
 	mu    sync.Mutex
 	procs map[string]host.Process // the tart run of each workspace this driver started
@@ -91,7 +93,7 @@ func New(c Config) *Driver {
 	if c.MaxGet == 0 {
 		c.MaxGet = MaxGet
 	}
-	return &Driver{c: c, procs: map[string]host.Process{}}
+	return &Driver{c: c, log: &lockedWriter{w: c.Log}, procs: map[string]host.Process{}}
 }
 
 // tart runs tart with args and returns its stdout; a failure carries stderr's first line.
@@ -104,9 +106,14 @@ func (d *Driver) tart(ctx context.Context, args ...string) (string, error) {
 	return out.String(), nil
 }
 
+// withStderr adds stderr's first line, at most 256 bytes of it: a VM may write it.
 func withStderr(err error, stderr string) error {
-	if l, _, _ := strings.Cut(strings.TrimSpace(stderr), "\n"); l != "" {
-		return fmt.Errorf("%w: %s", err, l)
+	l, _, _ := strings.Cut(strings.TrimSpace(stderr), "\n")
+	if len(l) > 256 {
+		l = l[:256] + "…"
+	}
+	if l != "" {
+		return fmt.Errorf("%w: %q", err, l)
 	}
 	return err
 }
@@ -151,13 +158,17 @@ func (d *Driver) Start(ctx context.Context, name string) (workspace.Network, err
 		d.mu.Unlock()
 		return workspace.Network{}, fmt.Errorf("%s is already started", name)
 	}
-	log := &lockedWriter{w: d.c.Log}
+	// an empty element would be the current directory.
+	pathEnv := "PATH=" + filepath.Dir(host.SoftnetPath)
+	if d.c.Path != "" {
+		pathEnv += ":" + d.c.Path
+	}
 	p, err := d.c.Runner.Start(Cmd{
 		Name: d.c.Bin,
 		Args: []string{"run", name, "--no-graphics", "--net-softnet-block=0.0.0.0/0", "--net-softnet-allow=@host"},
-		Env:  []string{"PATH=" + filepath.Dir(host.SoftnetPath) + ":" + d.c.Path},
-		// tart run's output arrives from its own goroutines.
-		Stdout: log, Stderr: log,
+		Env:  []string{pathEnv},
+		// tart run's output arrives from its own goroutines, and every VM's goes to one Log.
+		Stdout: d.log, Stderr: d.log,
 	})
 	if err != nil {
 		d.mu.Unlock()
@@ -273,8 +284,10 @@ func (d *Driver) Put(ctx context.Context, name, srcDir, dstDir string) error {
 	if err := validDir(dstDir); err != nil {
 		return err
 	}
-	if fi, err := os.Stat(srcDir); err != nil || !fi.IsDir() {
-		return fmt.Errorf("put %s: not a directory (%v)", srcDir, err)
+	if fi, err := os.Stat(srcDir); err != nil {
+		return fmt.Errorf("put: %w", err)
+	} else if !fi.IsDir() {
+		return fmt.Errorf("put %s: not a directory", srcDir)
 	}
 	pr, pw := io.Pipe()
 	go func() { pw.CloseWithError(writeTar(pw, srcDir)) }()
