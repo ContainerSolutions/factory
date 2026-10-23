@@ -311,8 +311,10 @@ Checked against [workspace-host.md](workspace-host.md#the-vm-steps-p1-2):
 
 ### Phase 4's gateway
 
+Specified in [gateway.md](gateway.md); in short:
+
 - An explicit forward proxy: absolute-form HTTP and CONNECT.
-- `dispatcher.factory.internal` maps to the real dispatcher, with `Authorization` replaced by `Bearer <runToken>`; the VM only needs `POST /tasks/{id}/effects`.
+- `dispatcher.factory.internal` maps to the real dispatcher, with `Authorization` replaced by `Bearer <runToken>`; the VM only needs `POST /tasks/{id}/effects`, and it's the only route the gateway opens ([gateway.md](gateway.md#the-dispatcher)).
 - github.com: Basic auth by the repo in the path; `git-receive-pack` refused for repos that aren't rw for the task.
 - api.github.com: GET only, `Authorization` replaced.
 - Anthropic: the bearer replaced, or `x-api-key` set. chatgpt.com: the bearer and `chatgpt-account-id` replaced.
