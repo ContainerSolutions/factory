@@ -1,0 +1,4 @@
+lisa-selfreview:
+Pass 1 (lenient, final): verdict approve, no blocker/must-fix.
+- nit (deferred): `closed` is matched under any state key, not only `lifecycle`; consistent with how the other vocabularies are matched (by value, not key).
+- note: closed also beats running values and pending approvals (spec named open and needs-human values); a closed item has no more work, and the existing tests show rules leave `review: running` stale, so closing wins outright. Listed in the PR body.
