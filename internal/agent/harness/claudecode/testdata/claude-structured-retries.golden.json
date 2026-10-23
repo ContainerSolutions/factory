@@ -1,0 +1,102 @@
+{
+  "progress": [
+    {
+      "kind": "turn",
+      "summary": "turn 1"
+    },
+    {
+      "kind": "tool",
+      "summary": "$ factory review --pr 21 --event request-changes"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 2"
+    },
+    {
+      "kind": "tool",
+      "summary": "result"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 3"
+    },
+    {
+      "kind": "tool",
+      "summary": "result"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 4"
+    },
+    {
+      "kind": "tool",
+      "summary": "result"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 5"
+    },
+    {
+      "kind": "tool",
+      "summary": "result"
+    },
+    {
+      "kind": "turn",
+      "summary": "turn 6"
+    },
+    {
+      "kind": "tool",
+      "summary": "result"
+    },
+    {
+      "kind": "error",
+      "summary": "the structured output never matched the schema"
+    }
+  ],
+  "usage": [
+    {
+      "InputTokens": 56501,
+      "OutputTokens": 17,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 58071,
+      "OutputTokens": 24,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 58690,
+      "OutputTokens": 25,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 59316,
+      "OutputTokens": 3,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 59936,
+      "OutputTokens": 6,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 60471,
+      "OutputTokens": 2,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 480989,
+      "OutputTokens": 8441,
+      "CostUSD": null
+    }
+  ],
+  "rateLimited": null,
+  "sessionId": "39c54d91-04fc-4ab9-96f5-bfdd681be463",
+  "turns": 6,
+  "result": "{\"data\":{},\"outcome\":\"changes-requested\",\"question\":null,\"status\":\"done\",\"summary\":\"Reviewed mock-docs#21: changes requested; the build fails on a broken link.\",\"task\":\"tsk_01JCLAUDE\"}",
+  "failed": false,
+  "lastError": "",
+  "limit": "",
+  "fatal": "",
+  "stopped": false
+}

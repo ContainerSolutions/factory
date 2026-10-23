@@ -127,6 +127,52 @@ func TestPipelineEndToEnd(t *testing.T) {
 	}
 }
 
+// TestPipelineStructuredOutputRefused: claude ran out of StructuredOutput retries and exited
+// 1 (a docs-review run's model sent `"data": "{}"`, a string, five times). The run isn't a
+// harness error: the last attempt, its stringified fields decoded, is the Result candidate, and
+// the pipeline validates it and repairs it as any other.
+func TestPipelineStructuredOutputRefused(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		runs     []fakeRun
+		outcome  string
+		claudes  int // the run, and the repair when there was one
+		repaired bool
+	}{
+		{"the reported run: data decoded, valid", []fakeRun{{Stream: "claude-structured-retries.jsonl", Exit: 1}},
+			"changes-requested", 1, false},
+		{"data that isn't JSON: the repair turn", []fakeRun{{Stream: "claude-structured-notjson.jsonl", Exit: 1}, {Stream: "claude-success.jsonl"}},
+			"pr-opened", 2, true},
+		{"the repair refused too, its data decoded", []fakeRun{{Stream: "claude-structured-notjson.jsonl", Exit: 1}, {Stream: "claude-structured-retries.jsonl", Exit: 1}},
+			"changes-requested", 2, true},
+		{"a structured output claude accepted, unchanged", []fakeRun{{Stream: "claude-success.jsonl"}},
+			"pr-opened", 1, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := harnesstest.NewE2E(t, e2eTaskID, "Review acme/docs#21.\n")
+			fc := newFakeClaude(t, fakePlan{Runs: tt.runs})
+			a := New(Options{LookPath: sandboxed, Config: config.Harness{ConfigDir: ownerConfigDir(t)}, Binary: fc.Binary, GOOS: "linux", Environ: workerEnv()})
+			out, err := e.Pipeline(a).Run(context.Background(),
+				e.Job(claudeHarness("claude-sonnet-5-5", "low", AuthSubscription), []string{"pr-opened", "changes-requested"}), &harnesstest.Sink{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Status != runner.StatusDone || out.Result == nil || out.Result.Outcome != tt.outcome {
+				t.Fatalf("outcome %+v, result %+v", out, out.Result)
+			}
+			if n := len(fc.calls()); n != tt.claudes {
+				t.Errorf("%d claude runs, want %d", n, tt.claudes)
+			}
+			if got := slices.Contains(e.TranscriptTypes(), "factory.repair"); got != tt.repaired {
+				t.Errorf("repaired %v, want %v", got, tt.repaired)
+			}
+		})
+	}
+}
+
 // TestPipelineRateLimited: a rejected rate limit in claude's stream ends the run throttled
 // until the limit's reset.
 func TestPipelineRateLimited(t *testing.T) {

@@ -259,3 +259,25 @@ func TestIsRateLimit(t *testing.T) {
 		}
 	}
 }
+
+// TestDecodeStringFields: only a top-level string that parses as a JSON object or array is
+// decoded.
+func TestDecodeStringFields(t *testing.T) {
+	tests := []struct{ name, in, want string }{
+		{"a stringified object", `{"status":"done","data":"{}"}`, `{"data":{},"status":"done"}`},
+		{"a stringified array, spaces around", `{"artifacts":" [{\"kind\":\"pr\"}]\n"}`, `{"artifacts":[{"kind":"pr"}]}`},
+		{"a string that isn't JSON", `{"data":"2 findings"}`, `{"data":"2 findings"}`},
+		{"a string that starts like JSON but isn't", `{"summary":"[wip] {not json"}`, `{"summary":"[wip] {not json"}`},
+		{"a JSON scalar in a string", `{"data":"42"}`, `{"data":"42"}`},
+		{"a nested string untouched", `{"data":{"x":"{}"}}`, `{"data":{"x":"{}"}}`},
+		{"not an object", `["{}"]`, `["{}"]`},
+		{"not JSON", `{"data":`, `{"data":`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := string(decodeStringFields([]byte(tt.in))); got != tt.want {
+				t.Errorf("decodeStringFields(%s) = %s, want %s", tt.in, got, tt.want)
+			}
+		})
+	}
+}

@@ -1,0 +1,37 @@
+{
+  "progress": [
+    {
+      "kind": "turn",
+      "summary": "turn 1"
+    },
+    {
+      "kind": "tool",
+      "summary": "result"
+    },
+    {
+      "kind": "error",
+      "summary": "the structured output never matched the schema"
+    }
+  ],
+  "usage": [
+    {
+      "InputTokens": 60471,
+      "OutputTokens": 2,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 773503,
+      "OutputTokens": 8516,
+      "CostUSD": null
+    }
+  ],
+  "rateLimited": null,
+  "sessionId": "39c54d91-04fc-4ab9-96f5-bfdd681be463",
+  "turns": 1,
+  "result": "{\"task\":\"tsk_01JCLAUDE\",\"status\":\"done\",\"question\":null,\"outcome\":\"pr-opened\",\"summary\":\"Reviewed mock-docs#21.\",\"data\":\"2 findings posted, 1 blocking\"}",
+  "failed": false,
+  "lastError": "",
+  "limit": "",
+  "fatal": "",
+  "stopped": false
+}
