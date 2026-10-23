@@ -323,7 +323,7 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	sched, err := scheduler.New(scheduler.Deps{
 		Store: st, Catalog: cs, Conns: pc, Runs: runs, Secrets: secrets,
 		Owners: auth.GitHubOwners{Provider: authProvider, APIBase: apiBase, HTTPClient: d.HTTPClient},
-	}, scheduler.Options{Clock: clk, Logger: log})
+	}, scheduler.Options{Clock: clk, Logger: log, AntiAffinityWait: cfg.AntiAffinityWait})
 	if err != nil {
 		return err
 	}

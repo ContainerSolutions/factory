@@ -230,6 +230,28 @@ func (e *env) registerWith(login, host string, mut func(*RegisterRequest)) (stri
 	return reg.AgentID, reg.AgentToken
 }
 
+// authored makes agent, leased on harness, the work item's last author (implement) run; a
+// reported harness ("" for none) is the one its Result names.
+func (e *env) authored(agent, harness, reported string) {
+	e.t.Helper()
+	e.task("tsk_impl", "implement", func(t *v1alpha1.Task) {
+		t.Spec.Harness = &v1alpha1.TaskHarness{Resolved: &v1alpha1.HarnessResolved{Name: harness}}
+		t.Status = &v1alpha1.TaskStatus{Phase: v1alpha1.TaskSucceeded, Agent: &agent}
+	})
+	st := &v1alpha1.RunStatus{StartedAt: t0.Add(-time.Hour), End: v1alpha1.RunCompleted}
+	if reported != "" {
+		st.Result = &v1alpha1.Result{Task: "tsk_impl", Status: v1alpha1.ResultDone, Harness: &v1alpha1.ResultHarness{Name: reported}}
+	}
+	if err := e.st.Create(e.ctx, &v1alpha1.Run{
+		TypeMeta: v1alpha1.TypeMeta{Kind: v1alpha1.KindRun},
+		Metadata: v1alpha1.ObjectMeta{Name: "run_impl-1"},
+		Spec:     v1alpha1.RunSpec{Task: "tsk_impl", Attempt: 1, Agent: agent},
+		Status:   st,
+	}); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
 // task creates a Pending task of spec in the poc queue (RuleSet poc-docs-epic, git credential
 // on the docs repo), after mut.
 func (e *env) task(id, spec string, mut func(*v1alpha1.Task)) *v1alpha1.Task {

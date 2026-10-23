@@ -10,6 +10,8 @@ deploy/poc/logs/
 
 # Build outputs
 /bin/
+/cmd/factory/factory
+/cmd/factory-agent/factory-agent
 /dist/
 internal/webui/dist/
 /coverage*.out

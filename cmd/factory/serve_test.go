@@ -22,6 +22,7 @@ import (
 	"github.com/compliance-framework/factory/internal/catalog"
 	"github.com/compliance-framework/factory/internal/provider"
 	"github.com/compliance-framework/factory/internal/provider/fake"
+	"github.com/compliance-framework/factory/internal/scheduler"
 	"github.com/compliance-framework/factory/internal/server"
 )
 
@@ -463,7 +464,8 @@ func TestParseServeConfig(t *testing.T) {
 		{name: "defaults", env: testEnv(), check: func(t *testing.T, c serveConfig, w []string) {
 			if c.Addr != ":8800" || c.OpsAddr != "127.0.0.1:9090" || c.Retention != 2160*time.Hour || c.LogFormat != "json" ||
 				c.CatalogRepo != "https://github.com/compliance-framework/factory" || c.CatalogRef != "main" || c.CatalogPath != "catalog" ||
-				c.DevFakeProviders || c.PublicURL != "http://localhost:8800" || c.DeployEnvironment != "github-pages" || c.StateDir != "" {
+				c.DevFakeProviders || c.PublicURL != "http://localhost:8800" || c.DeployEnvironment != "github-pages" || c.StateDir != "" ||
+				c.AntiAffinityWait != scheduler.DefaultAntiAffinityWait {
 				t.Errorf("defaults %+v", c)
 			}
 			if len(w) != 1 || !strings.Contains(w[0], "no --public-url") {
@@ -526,6 +528,17 @@ func TestParseServeConfig(t *testing.T) {
 			}
 		}},
 		{name: "state dir is a file", args: []string{"--state-dir", file}, env: testEnv(), wantErr: []string{"--state-dir", "is not a directory"}},
+		{name: "anti-affinity wait", args: []string{"--anti-affinity-wait", "3m"}, env: testEnv(), check: func(t *testing.T, c serveConfig, _ []string) {
+			if c.AntiAffinityWait != 3*time.Minute {
+				t.Errorf("anti-affinity wait %v", c.AntiAffinityWait)
+			}
+		}},
+		{name: "anti-affinity off", args: []string{"--anti-affinity-wait", "0"}, env: testEnv(), check: func(t *testing.T, c serveConfig, _ []string) {
+			if c.AntiAffinityWait != scheduler.AntiAffinityOff {
+				t.Errorf("anti-affinity wait %v, want off", c.AntiAffinityWait)
+			}
+		}},
+		{name: "negative anti-affinity wait", args: []string{"--anti-affinity-wait", "-1m"}, env: testEnv(), wantErr: []string{"--anti-affinity-wait must not be negative"}},
 		{name: "empty deploy environment", args: []string{"--deploy-environment", " "}, env: testEnv(), wantErr: []string{"--deploy-environment must not be empty"}},
 	}
 	for _, tt := range tests {
