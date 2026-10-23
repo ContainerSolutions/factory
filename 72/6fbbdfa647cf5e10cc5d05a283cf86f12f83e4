@@ -1,0 +1,6 @@
+lisa-selfreview:
+Pass 1 (final, lenient; ccf-review packs core,go,repo/factory):
+- 705dacb61955 CORE-TEST-001 must-fix: the SIGHUP reload's maxConcurrent clamp wasn't tested -> fixed (SIGHUP case in TestSuperviseOneLease; mutation-checked).
+- CORE-STYLE-001 nit: hostPipelineOptions's no-adapter error hinted --stub-result, which supervise lacks -> fixed (hint moved to worker's newRunner).
+- CORE-DOC-001 should-fix, deferred: supervise.md's PR 2 section still shows `claude setup-token | factory-agent login claude`; #126 owns that section and its login change; the PR 3 runbook already says pbpaste.
+- Question: supervise advertises the configured labels unverified (has-local-stack/gif-tooling probe the host, not the VM).
