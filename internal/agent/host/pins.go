@@ -1,0 +1,38 @@
+package host
+
+// The pinned releases host init installs. Bump a pin by downloading the release on a trusted
+// machine and recording the sha256 of what was downloaded (and, for Softnet, of the binary in
+// it); never copy a checksum from the release page alone.
+const (
+	// TartVersion is the pinned Tart: https://github.com/cirruslabs/tart/releases/tag/2.41.1.
+	TartVersion = "2.41.1"
+	TartURL     = "https://github.com/cirruslabs/tart/releases/download/" + TartVersion + "/tart.tar.gz"
+	// TartSHA256 is the sha256 of tart.tar.gz: `shasum -a 256` of the release asset, recorded
+	// when the pin was set (P1 phase 2a).
+	TartSHA256 = "e680a734febccfce7d4e910c1f7f13fc3b00f19a181c945e2d746de3214c32c2"
+	// TartTeamID is Cirrus Labs' Developer ID team: `codesign -dv` of the notarized tart.app
+	// reports it as TeamIdentifier.
+	TartTeamID = "9M2P8L4D89"
+
+	// SoftnetVersion is the pinned Softnet: https://github.com/cirruslabs/softnet/releases/tag/0.24.1.
+	SoftnetVersion = "0.24.1"
+	SoftnetURL     = "https://github.com/cirruslabs/softnet/releases/download/" + SoftnetVersion + "/softnet.tar.gz"
+	// SoftnetSHA256 is the sha256 of softnet.tar.gz: `shasum -a 256` of the release asset,
+	// recorded when the pin was set (P1 phase 2a).
+	SoftnetSHA256 = "8ff8ff099c2b5ac1b1128e7999c4a730ac85f486c8a4cb0239eb98432859a0f7"
+	// SoftnetBinarySHA256 is the sha256 of the softnet binary in that tarball (it matches the
+	// 0.24.1 binary installed by hand in P1 phase 0). Softnet isn't code-signed, so the two
+	// checksums are its only verification.
+	SoftnetBinarySHA256 = "e5e35d61a6dd7e35a3134732e766c897b7cb6f097080ff00e1e75adeab0471c7"
+)
+
+// Pins are the releases a host init installs; tests replace them with fakes.
+type Pins struct {
+	TartVersion, TartURL, TartSHA256, TartTeamID   string
+	SoftnetURL, SoftnetSHA256, SoftnetBinarySHA256 string
+}
+
+// DefaultPins are the pinned releases above.
+func DefaultPins() Pins {
+	return Pins{TartVersion, TartURL, TartSHA256, TartTeamID, SoftnetURL, SoftnetSHA256, SoftnetBinarySHA256}
+}
