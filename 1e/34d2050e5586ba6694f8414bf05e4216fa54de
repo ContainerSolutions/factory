@@ -6,3 +6,8 @@ Deferred:
 - nit: without versions, start_showcase runs local-dev's file pins while showcase-kind resolves CCF_IMAGES=latest (local-dev's own behaviour in the P1 §4 sequence).
 Questions:
 - build-single: the implement PR for the epic may close the epic issue ("Closes #70"); when it merges, closed-gate suppresses the merge run's record-merge-outcome/announce-ptbr-live. No effect today (merge-whole-stack is excluded, human merges announce nothing).
+
+lisa-design:
+docs-review-verify mounts the docs repo as a ro repo item (=task.target.repo + '@main'): checkout: read-only plus repos mounts only the repo items (planMounts), without the task repo. The review skill checks out the PR head in its own workspace.
+The up script adds what a fresh local-dev clone needs in the VM: .env from .env.example (the Makefile includes it), COMPOSE_COMMAND="docker compose" (default podman-compose), CCF_IMAGES=file when a version is set (latest would replace the pins), and one retry of demo-up-showcase-load (create-user races the API's migrations, Phase 0 report Q3). local-dev's agent variable is CCF_AGENT_VERSION, not CCF_AGENT_IMAGE.
+The docs-review-release prompt case became docs-review-verify (no rule dispatches docs-review with verifyAgainst any more).
