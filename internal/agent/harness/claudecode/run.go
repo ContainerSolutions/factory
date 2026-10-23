@@ -158,6 +158,10 @@ func (a *Adapter) exec(ctx context.Context, ws harness.Workspace, s session, pro
 		return raw, sessionID, fmt.Errorf("claude: rate limited until %s: %s", p.until.UTC().Format(time.RFC3339), clirun.Clip(p.lastError, maxDetail))
 	case p.limit != nil:
 		return raw, sessionID, p.limit
+	case exit.Err != nil && p.structuredFailed:
+		// claude exits 1 when its StructuredOutput retries ran out, after the work: the last
+		// attempt is the Result candidate, for the pipeline to validate and repair.
+		return raw, sessionID, nil
 	case exit.Err != nil:
 		tail := clirun.LastLine(exit.Stderr)
 		if isRateLimit(tail) {

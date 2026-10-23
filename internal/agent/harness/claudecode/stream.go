@@ -43,12 +43,15 @@ type parser struct {
 	lastText   string            // the last top-level text
 	resultText string
 	structured json.RawMessage
-	failed     bool
-	lastError  string
-	limited    bool
-	until      time.Time
-	limit      *harness.LimitError
-	fatal      string
+	// structuredFailed: claude ran out of StructuredOutput retries (and exits 1); structured
+	// is then the last refused attempt.
+	structuredFailed bool
+	failed           bool
+	lastError        string
+	limited          bool
+	until            time.Time
+	limit            *harness.LimitError
+	fatal            string
 }
 
 type tokens struct{ in, out int64 }
@@ -281,7 +284,9 @@ func (p *parser) result(ev event, raw []byte, now time.Time) {
 		p.limit = &harness.LimitError{Limit: harness.LimitCost, Detail: "claude stopped at its --max-budget-usd"}
 		p.progress(harness.KindError, p.limit.Error(), now)
 	case ev.Subtype == resultStructuredFailed:
-		// Not fatal: the pipeline checks $FACTORY_RESULT or the final text, and repairs.
+		// Not fatal (exec returns the Raw despite the exit status): the pipeline checks
+		// $FACTORY_RESULT or the last attempt (finalResult), and repairs.
+		p.structuredFailed = true
 		p.progress(harness.KindError, "the structured output never matched the schema", now)
 	case ev.Subtype != resultSuccess || ev.IsError:
 		p.failed = true
@@ -341,9 +346,13 @@ func (p *parser) progress(kind, summary string, at time.Time) {
 }
 
 // finalResult is the run's Result candidate: the structured output, else the final text
-// without a Markdown code fence around it.
+// without a Markdown code fence around it. A structured output claude refused is the last
+// attempt, with its stringified fields decoded (decodeStringFields).
 func (p *parser) finalResult() []byte {
 	if len(p.structured) > 0 {
+		if p.structuredFailed {
+			return decodeStringFields(p.structured)
+		}
 		return bytes.Clone(p.structured)
 	}
 	text := p.resultText
@@ -351,6 +360,41 @@ func (p *parser) finalResult() []byte {
 		text = p.lastText
 	}
 	return clirun.Unfence([]byte(text))
+}
+
+// decodeStringFields decodes each top-level field of a JSON object whose value is a string
+// holding a JSON object or array: models sometimes stringify a nested object in a tool's input
+// (a docs-review run sent StructuredOutput `"data": "{}"` five times, each refused with
+// "/data: must be object", until claude gave up). Only those strings change, and only when
+// they parse; anything else, or a document that isn't an object, is returned as it is, for
+// the pipeline to validate and repair. It is used on a refused structured output only: one
+// claude accepted already matched the schema.
+func decodeStringFields(b []byte) []byte {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(b, &doc); err != nil || doc == nil {
+		return bytes.Clone(b)
+	}
+	changed := false
+	for k, v := range doc {
+		var s string
+		if json.Unmarshal(v, &s) != nil {
+			continue
+		}
+		t := bytes.TrimSpace([]byte(s))
+		if len(t) == 0 || (t[0] != '{' && t[0] != '[') || !json.Valid(t) {
+			continue
+		}
+		doc[k] = json.RawMessage(t)
+		changed = true
+	}
+	if !changed {
+		return bytes.Clone(b)
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return bytes.Clone(b)
+	}
+	return out
 }
 
 // resultError is an error result's text: its result, else its errors, else its subtype.
