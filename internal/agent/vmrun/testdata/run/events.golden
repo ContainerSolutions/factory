@@ -6,7 +6,7 @@
 {"v":1,"type":"step","at":"2026-10-22T09:00:00Z","step":{"name":"skills","state":"ok","ms":0}}
 {"v":1,"type":"step","at":"2026-10-22T09:00:00Z","step":{"name":"schema","state":"ok","ms":0}}
 {"v":1,"type":"step","at":"2026-10-22T09:00:00Z","step":{"name":"prompt","state":"ok","ms":0}}
-{"v":1,"type":"step","at":"2026-10-22T09:00:00Z","step":{"name":"environment","state":"ok","ms":0}}
+{"v":1,"type":"step","at":"2026-10-22T09:00:00Z","step":{"name":"env","state":"ok","ms":0}}
 {"v":1,"type":"step","at":"2026-10-22T09:00:00Z","step":{"name":"prepare","state":"ok","ms":0}}
 {"v":1,"type":"progress","at":"2026-10-22T09:00:00Z","progress":{"at":"2026-10-22T09:00:00Z","kind":"turn","message":"writing the intro"}}
 {"v":1,"type":"usage","at":"2026-10-22T09:00:00Z","usage":{"inputTokens":120,"outputTokens":30}}

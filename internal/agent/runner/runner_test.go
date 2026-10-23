@@ -118,7 +118,7 @@ func TestStatusesReasons(t *testing.T) {
 	if s := Statuses(); len(s) != 5 || s[4] != StatusThrottled {
 		t.Errorf("Statuses() = %v", s)
 	}
-	if r := Reasons(); len(r) != 5 || r[4] != ReasonCancelled {
+	if r := Reasons(); len(r) != 6 || r[4] != ReasonEnvironmentError || r[5] != ReasonCancelled {
 		t.Errorf("Reasons() = %v", r)
 	}
 }

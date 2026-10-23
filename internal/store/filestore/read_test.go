@@ -179,21 +179,30 @@ func TestReadTornLine(t *testing.T) {
 	}
 }
 
-// TestReadConcurrent reads while writers append and compact (tiny limits): every Read
+// TestReadConcurrent reads while writers append and compact (small limits): every Read
 // succeeds, holds a state the store went through (versions only move forward, and the
 // counter's runs exist), and the last one matches the store.
+//
+// The whole test compacts fewer times than readAttempts. A Read starts over once per
+// compaction that overlaps it, so it can't run out of attempts however the goroutines are
+// scheduled, as with a dispatcher, which compacts every DefaultCompactLines lines. Compacting
+// every few lines (as this test once did) let a writer with Linux's fast fsync replace the
+// snapshot during ten attempts in a row. TestReadRacesCompaction covers running out.
 func TestReadConcurrent(t *testing.T) {
+	const writes, compactLines = 150, 64 // 2*writes+1 lines: 4 compactions
+	if (2*writes+1)/compactLines >= readAttempts {
+		t.Fatal("the test compacts as often as a Read starts over")
+	}
 	ctx := t.Context()
 	dir := stateDir(t)
 	opts, _ := testOpts()
-	s := mustOpen(t, dir, opts, WithCompaction(2<<10, 7))
+	s := mustOpen(t, dir, opts, WithCompaction(1<<20, compactLines))
 	defer s.crash()
 	counter := &v1alpha1.BudgetCounter{TypeMeta: v1alpha1.TypeMeta{Kind: v1alpha1.KindBudgetCounter}, Metadata: v1alpha1.ObjectMeta{Name: "c"}}
 	if err := s.Create(ctx, counter); err != nil {
 		t.Fatal(err)
 	}
 
-	const writes = 150
 	var done atomic.Bool
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -248,6 +257,9 @@ func TestReadConcurrent(t *testing.T) {
 	}
 	if reads.Load() == 0 {
 		t.Fatal("no read finished while writing")
+	}
+	if _, err := os.Stat(filepath.Join(dir, snapshotFile)); err != nil {
+		t.Fatalf("no compaction while reading: %v", err)
 	}
 	sameDump(t, "the last read", viewDump(t, mustRead(t, dir)), unordered(takeDump(t, s)))
 }

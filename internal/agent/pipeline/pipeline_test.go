@@ -1041,7 +1041,7 @@ func TestRunHooks(t *testing.T) {
 				Turn:    fake.Turn{Result: []byte(invalidResult)},
 				Repairs: []fake.Turn{{Result: []byte(validResult)}},
 			},
-			want: steps("workspace", "credentials", "clone", "stack", "skills", "schema", "prompt", "environment", "prepare", "harness", "repair", "finish"),
+			want: steps("workspace", "credentials", "clone", "stack", "skills", "schema", "prompt", "env", "prepare", "harness", "repair", "finish"),
 		},
 		{
 			name:    "the prompt fails",
