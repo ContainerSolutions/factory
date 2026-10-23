@@ -1,0 +1,8 @@
+lisa-addressed:
+pass 2: DenyClass.Valid is slices.Contains(DenyClasses(), c), one list.
+
+lisa-selfreview:
+pass 3 (strict, an independent read): request_changes
+- must-fix c53dc5de897e cookies.go FilterCookies: a kept value with a space or comma could smuggle another cookie past lenient parsers.
+- should-fix 9af5650931d2 hosts.go parseHostPort: numeric IPv4 forms (127.1, 0x7f000001) parsed as names and reached the resolver.
+- should-fix d12bf31627e2 hosts_test.go TestHostClasses: the Kelvin-sign Unicode-folding row couldn't fail.
