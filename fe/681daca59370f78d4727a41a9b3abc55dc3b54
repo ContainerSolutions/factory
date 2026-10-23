@@ -1,0 +1,7 @@
+lisa-selfreview:
+Pass 1 (strict), 5 findings via ccfr classify:
+- should-fix duplicated-system-roots-path (container_test.go systemRootsFile repeats system.go's systemRoots) -> fix
+- should-fix duplicated-rig-readers (outcome/event readers duplicate vmRig.outcome/events) -> fix
+- should-fix GO-CTX-001 (context.Background in runInContainer; use t.Context) -> fix
+- nit agents-md-missing-target (AGENTS.md Commands lacks make e2e-run-container) -> fix
+- question image-not-digest-pinned (buildpack-deps:noble-scm by tag) -> open question in the PR body, not fixed
