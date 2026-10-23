@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -163,6 +164,10 @@ func TestGitHubAPIRoutes(t *testing.T) {
 			"Content-Length: " + strconv.Itoa(len(mutation)) + "\r\n\r\n" + mutation, policy.CodeAPIWrite},
 		{"graphql form-encoded", "POST /graphql HTTP/1.1\r\nHost: api.github.com\r\nContent-Type: application/x-www-form-urlencoded\r\n" +
 			"Content-Length: " + strconv.Itoa(len(query)) + "\r\n\r\n" + query, policy.CodeAPIWrite},
+		{"graphql two content types", "POST /graphql HTTP/1.1\r\nHost: api.github.com\r\nContent-Type: application/json\r\n" +
+			"Content-Type: application/x-www-form-urlencoded\r\nContent-Length: " + strconv.Itoa(len(query)) + "\r\n\r\n" + query, policy.CodeAPIWrite},
+		{"graphql gzip", "POST /graphql HTTP/1.1\r\nHost: api.github.com\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\n" +
+			"Content-Length: " + strconv.Itoa(len(query)) + "\r\n\r\n" + query, policy.CodeAPIWrite},
 		{"graphql too long", "POST /graphql HTTP/1.1\r\nHost: api.github.com\r\nContent-Type: application/json\r\n" +
 			"Content-Length: " + strconv.Itoa(policy.MaxGraphQLBody+1) + "\r\n\r\n", policy.CodeAPIWrite},
 		{"POST", "POST /repos/acme/rw/issues HTTP/1.1\r\nHost: api.github.com\r\nContent-Length: 2\r\n\r\n{}", policy.CodeAPIWrite},
@@ -193,6 +198,10 @@ func TestGitHubAPIRoutes(t *testing.T) {
 			}
 			if rec.Injected != InjectedGitHubAPI {
 				t.Errorf("record %+v, want injected github-api", rec)
+			}
+			if up := got.all()[before]; up.URL.Path == "/graphql" &&
+				(!slices.Equal(up.Header.Values("Content-Type"), []string{"application/json"}) || up.Header.Get("Content-Encoding") != "") {
+				t.Errorf("the upstream got Content-Type %q, Content-Encoding %q", up.Header.Values("Content-Type"), up.Header.Get("Content-Encoding"))
 			}
 		})
 	}

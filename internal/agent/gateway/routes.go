@@ -72,10 +72,16 @@ func (g *Gateway) routeIntercepted(w http.ResponseWriter, r *http.Request, d pol
 }
 
 // checkGraphQL reads a POST /graphql body (at most policy.MaxGraphQLBody) and checks that it
-// only reads, then puts the bytes back for forwarding. Anything it can't show is a read (another
-// content type than JSON, a body too long or cut short, a mutation) is api-write.
+// only reads, then puts the bytes back for forwarding with Content-Type exactly application/json
+// and no Content-Encoding, so the upstream parses the bytes that were checked. Anything it can't
+// show is a read (not exactly one Content-Type, another content type than JSON, an encoding other
+// than identity, a body too long or cut short, a mutation) is api-write.
 func (g *Gateway) checkGraphQL(r *http.Request) policy.Code {
-	mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	cts := r.Header.Values("Content-Type")
+	if len(cts) != 1 || !identityEncoding(r.Header.Values("Content-Encoding")) {
+		return policy.CodeAPIWrite
+	}
+	mt, _, err := mime.ParseMediaType(cts[0])
 	if err != nil || mt != "application/json" || r.ContentLength > policy.MaxGraphQLBody {
 		return policy.CodeAPIWrite
 	}
@@ -85,7 +91,23 @@ func (g *Gateway) checkGraphQL(r *http.Request) policy.Code {
 	}
 	_ = r.Body.Close()
 	r.Body, r.ContentLength, r.TransferEncoding = io.NopCloser(bytes.NewReader(body)), int64(len(body)), nil
+	// The forwarded request's headers are cloned from r's.
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Del("Content-Encoding")
 	return ""
+}
+
+// identityEncoding reports whether a request's Content-Encoding values name no coding but
+// identity (none at all included).
+func identityEncoding(values []string) bool {
+	for _, v := range values {
+		for _, c := range strings.Split(v, ",") {
+			if !strings.EqualFold(strings.TrimSpace(c), "identity") {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // repoAccess is repo's access (owner/name, lower-cased) and its token, from the job's current
