@@ -50,6 +50,10 @@ type EventSink interface { Progress(ProgressEvent); Usage(UsageDelta); RateLimit
 | Stream | stream-json: `system/init` (confirms plugins loaded; fail if `plugin_errors`), `assistant`/`user` (tool_use/tool_result) → progress, `result` (usage, `num_turns`, `total_cost_usd` → only meaningful for API keys) ; rate-limit errors → `RateLimited` |
 | Result | `--json-schema` structured output → `out/result.json` |
 
+## Isolation (P1 phase 3)
+
+Both adapters take `Options.Isolation` (`harness.Isolation`). `IsolationSandbox`, the zero value, is everything this LLD describes: the harness's own OS sandbox on the owner's host. `IsolationVM` is for `factory-agent run` inside a VM workspace, where the VM is the boundary: no Probe; claude gets no `sandbox` or `permissions` settings, a scratch `CLAUDE_CONFIG_DIR` and a placeholder `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`), and keeps its PreToolUse hook; codex runs `--sandbox danger-full-access` with no `[sandbox_workspace_write]` or `workDirFor`, and a placeholder `auth.json` built from the account identifiers in the run bundle, in Phase 0's shape. See [workspace-run.md](workspace-run.md#harnesses-under-isolationvm).
+
 ## Fake adapter
 
 Scriptable (`fake.Script{Events, Result, Err, RateLimitAfter}`) for pipeline and worker tests.
