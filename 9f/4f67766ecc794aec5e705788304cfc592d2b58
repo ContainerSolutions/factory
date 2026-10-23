@@ -1,0 +1,14 @@
+lisa-addressed:
+CI flake: filestore TestReadConcurrent ("the snapshot ... was replaced 10 times while it was read"), about ten times on 2026-10-23. Fixed here with the owner's OK.
+
+Root cause: the test, not Read. It compacted every 7 lines / 2 KiB (~43 compactions in 301 lines). Each Read retry needs its own snapshot rename (attempt windows don't overlap), so a Read fails only after 10 compactions overlapping 10 attempts in a row. With Linux's plain fsync the writer does that during one Read; macOS's F_FULLFSYNC (File.Sync on darwin) slows writes enough to hide it. A dispatcher compacts every 50,000 lines (DefaultCompactLines) at a few writes a second, so Read can't starve in production.
+
+Fix: compact every 64 lines (bytes 1 MiB): 4 compactions in the whole test, fewer than readAttempts, so no Read can run out of attempts under any schedule; a guard fails the test if the constants stop holding, and it checks a snapshot exists (a compaction did happen). Read and the other tests unchanged; TestReadRacesCompaction still covers running out.
+
+Proof (darwin, -race; "linux-sync" = a go test -overlay of journal.go/snapshot.go swapping File.Sync for plain fsync(2), as on Linux; not committed):
+- before, linux-sync, -count=200: -cpu 1: 0/200 fail, -cpu 2: 1/200, -cpu 4: 54/200; 16 procs x 25 at -cpu 4: 39/400 fail.
+- after, linux-sync, -count=200: 0/200 at each of -cpu 1, 2, 4; 16 procs x 25 at -cpu 4: 0/400; 12 procs x 20 x -cpu 1,2,4: 0/720.
+- after, native: go test -race -count=200 -run TestReadConcurrent ./internal/store/filestore/: ok (0/200).
+- go test -race ./internal/store/... ./cmd/factory, gofmt, make lint: green.
+
+Possible later improvement (not done): opening journal.jsonl before snapshot.json would make Read retry-free (a journal opened first never starts above the snapshot opened after it), but it changes the LLD's Read design and TestReadRacesCompaction.
