@@ -4,6 +4,42 @@
   "matches": [
     {
       "ruleSet": "dev-release-docs",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-human-review",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
       "rule": "record-release-docs-outcome",
       "priority": 100,
       "result": "not-matched",
@@ -48,7 +84,7 @@
       "ruleSet": "poc-docs-epic",
       "rule": "record-review-outcome",
       "priority": 100,
-      "result": "matched",
+      "result": "not-matched",
       "inputs": [
         "run"
       ]
@@ -125,6 +161,14 @@
     },
     {
       "ruleSet": "poc-docs-epic",
+      "rule": "build-single",
+      "result": "not-matched",
+      "inputs": [
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
       "rule": "build-stack-next",
       "result": "not-matched",
       "inputs": [
@@ -182,23 +226,6 @@
     }
   ],
   "decisions": [
-    {
-      "ruleSet": "poc-docs-epic",
-      "rule": "record-review-outcome",
-      "action": {
-        "set": {
-          "key": "review",
-          "value": "changes-requested"
-        }
-      },
-      "rail": {
-        "rail": "",
-        "verdict": "allowed"
-      },
-      "inputs": [
-        "run"
-      ]
-    },
     {
       "ruleSet": "poc-release-docs",
       "rule": "record-release-review-outcome",

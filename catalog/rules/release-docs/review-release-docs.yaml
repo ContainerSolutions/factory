@@ -1,6 +1,7 @@
 # Review the factory's docs PR for a train. The work item's primary link is the train issue in
 # workflows, so the dispatch targets the docs PR itself: docsRepo, and the PR the event is
-# about (only one in docsRepo).
+# about (only one in docsRepo). docs-review-verify brings local-dev up at the train's versions
+# (item.state.versions, which docs-on-release-train keeps; none for an item from before it did).
 kind: Rule
 metadata: { name: review-release-docs, labels: { pack: release-docs } }
 spec:
@@ -9,14 +10,14 @@ spec:
   params: { docsRepo: compliance-framework/docs }          # the dev RuleSet's defaults set mock-docs
   where: "actor.isFactory && has(item.state.release) && event.repo == params.docsRepo"
   actions:
-    - cancel: { taskSpec: docs-review }
+    - cancel: { taskSpec: docs-review-verify }
     - dispatch:
-        taskSpec: docs-review
+        taskSpec: docs-review-verify
         queue: poc
         target: { repo: "{{ params.docsRepo }}", ref: "=event.object.ref" }
-        requires: { labels: [has-local-stack] }
         inputs:
           target: pr
           verifyAgainst: "={'train': item.state.train}"
+          versions: "=has(item.state.versions) ? item.state.versions : {}"
           checks: [version-accuracy, versioning, style, build]
     - set: { review: running }

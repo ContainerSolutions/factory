@@ -20,7 +20,7 @@
     "review": "running"
   },
   "counters": {
-    "docs-review": 3,
+    "docs-review-verify": 3,
     "implement": 2
   },
   "pr": {

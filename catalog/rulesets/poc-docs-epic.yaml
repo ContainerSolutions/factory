@@ -8,4 +8,4 @@ spec:
     selector: { matchExpressions: [{ key: pack, operator: In, values: [docs-epic, shared] }] }
     exclude: [merge-whole-stack]           # same
   defaults: { docsRepo: compliance-framework/docs }
-  stateKeys: [plan, stackNext, stackTotal, review, merge, announced]
+  stateKeys: [plan, stackNext, stackTotal, review, merge, announced, lifecycle]

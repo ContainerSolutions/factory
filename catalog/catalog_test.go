@@ -13,6 +13,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -34,14 +35,17 @@ var overlapRE = regexp.MustCompile(`rule (\S+) is also selected by RuleSet (\S+)
 
 // expectedOverlap says whether a rule may be selected by two RuleSets with overlapping scope
 // (CAT1200, a warning). Two overlaps are by design (catalog-poc LLD §Dev and prod RuleSets):
-// every RuleSet selects the shared pack, and both release-docs RuleSets scope workflows, where
-// the trains are; their rules tell prod and dev trains apart by the train's manifest. Any
-// other overlap fails, as every other warning does.
+// every RuleSet selects the shared pack (sharedRules), and both release-docs RuleSets scope
+// workflows, where the trains are; their rules tell prod and dev trains apart by the train's
+// manifest. Any other overlap fails, as every other warning does.
 func expectedOverlap(rule, a, b string) bool {
 	pair := []string{a, b}
 	slices.Sort(pair)
-	return rule == "escalate-needs-human" || slices.Equal(pair, []string{"dev-release-docs", "poc-release-docs"})
+	return slices.Contains(sharedRules, rule) || slices.Equal(pair, []string{"dev-release-docs", "poc-release-docs"})
 }
+
+// sharedRules are the shared pack's rules, which every RuleSet selects.
+var sharedRules = []string{"close-on-primary-closed", "closed-gate", "escalate-needs-human"}
 
 // load loads this directory as factory serve does. Warnings fail it, as with validate
 // --strict, except the RuleSet overlaps the design calls for (expectedOverlap).
@@ -72,14 +76,15 @@ func TestCatalog(t *testing.T) {
 		"rules": keys(c.Rules), "rulesets": keys(c.RuleSets),
 	} {
 		want := map[string][]string{
-			"rules": {"announce-ptbr-live", "announce-release-docs", "build-stack-next", "build-stack-start",
-				"docs-on-release-train", "escalate-needs-human", "fix-release-docs-review", "fix-stack-review",
+			"rules": {"announce-ptbr-live", "announce-release-docs", "build-single", "build-stack-next", "build-stack-start",
+				"close-on-primary-closed", "closed-gate", "docs-on-release-train", "escalate-needs-human",
+				"fix-release-docs-review", "fix-stack-review",
 				"merge-release-docs", "merge-whole-stack", "plan-maintainer-epics", "record-merge-outcome",
 				"record-release-docs-merged", "record-release-docs-outcome", "record-release-docs-repos",
 				"record-release-review-outcome", "record-review-outcome", "review-human-prs", "review-release-docs",
 				"review-whole-stack"},
 			"rulesets":  {"dev-docs-epic", "dev-release-docs", "poc-docs-epic", "poc-docs-human-review", "poc-release-docs"},
-			"taskspecs": {"docs-review", "implement", "merge", "plan-epic", "release-docs"},
+			"taskspecs": {"docs-review", "docs-review-verify", "implement", "merge", "plan-epic", "release-docs"},
 			"templates": {"epic-plan", "needs-human", "ptbr-live", "release-docs-published"},
 			"prompts": {"prompts/docs-review.md.tmpl", "prompts/implement.md.tmpl", "prompts/merge.md.tmpl",
 				"prompts/plan-epic.md.tmpl", "prompts/release-docs.md.tmpl"},
@@ -95,8 +100,8 @@ func TestCatalog(t *testing.T) {
 			t.Errorf("%s: prompt %v, output schema %v", name, ts.Prompt != nil, ts.OutputSchema != nil)
 		}
 		for _, s := range ts.Spec.Spec.Skills {
-			if s.Source != "ccf-skills" || s.Ref != "v0.8.0" {
-				t.Errorf("%s: skills %s@%s, want ccf-skills@v0.8.0", name, s.Source, s.Ref)
+			if s.Source != "ccf-skills" || s.Ref != "v0.9.0" {
+				t.Errorf("%s: skills %s@%s, want ccf-skills@v0.9.0", name, s.Source, s.Ref)
 			}
 		}
 		// The write token follows the first rw mount (controllers.compileTask), so a literal
@@ -112,6 +117,30 @@ func TestCatalog(t *testing.T) {
 	}
 }
 
+// TestClosedGate: closed-gate listens on every event type a rule listens on and outranks
+// every rule, so a closed work item runs no rule at all.
+func TestClosedGate(t *testing.T) {
+	c := load(t)
+	gate := c.Rules["closed-gate"]
+	if gate == nil || !gate.Spec.Final {
+		t.Fatal("closed-gate is missing or not final")
+	}
+	for _, name := range keys(c.Rules) {
+		r := c.Rules[name]
+		if name == "closed-gate" {
+			continue
+		}
+		if r.Spec.Priority >= gate.Spec.Priority {
+			t.Errorf("rule %s: priority %d, not below closed-gate's %d", name, r.Spec.Priority, gate.Spec.Priority)
+		}
+		for _, on := range r.Spec.On {
+			if !slices.Contains(gate.Spec.On, on) {
+				t.Errorf("rule %s listens on %s, which closed-gate doesn't", name, on)
+			}
+		}
+	}
+}
+
 // docsHosts are the registries the docs site's yarn install (Node 20) needs.
 var docsHosts = []string{"registry.yarnpkg.com", "registry.npmjs.org"}
 
@@ -120,10 +149,13 @@ var docsHosts = []string{"registry.yarnpkg.com", "registry.npmjs.org"}
 //   - only the docs TaskSpecs set workspace.hosts, exactly docsHosts (hosts widen what a
 //     prompt-injected run could reach: such a change needs two approvals, FACTORY-CAT-002);
 //   - no TaskSpec sets publicReads: true, as the repos they read (local-dev, and ccf-skills
-//     for the skills) are private and need their read-only tokens.
+//     for the skills) are private and need their read-only tokens;
+//   - only release-docs and docs-review-verify bring an environment up (local-dev's showcase),
+//     the same one.
 func TestWorkspace(t *testing.T) {
 	c := load(t)
-	wantHosts := map[string][]string{"docs-review": docsHosts, "release-docs": docsHosts}
+	wantHosts := map[string][]string{"docs-review": docsHosts, "docs-review-verify": docsHosts, "release-docs": docsHosts}
+	var envs []string
 	for _, name := range keys(c.TaskSpecs) {
 		ws := c.TaskSpecs[name].Spec.Spec.Workspace
 		var hosts []string
@@ -136,6 +168,15 @@ func TestWorkspace(t *testing.T) {
 		if ws != nil && ws.PublicReads != nil && *ws.PublicReads {
 			t.Errorf("%s: workspace.publicReads is true: its ro repos would get no read-only token", name)
 		}
+		if ws != nil && ws.Environment != nil {
+			envs = append(envs, name)
+		}
+	}
+	if want := []string{"docs-review-verify", "release-docs"}; !slices.Equal(envs, want) {
+		t.Fatalf("TaskSpecs with an environment = %v, want %v", envs, want)
+	}
+	if a, b := c.TaskSpecs["release-docs"].Spec.Spec.Workspace.Environment, c.TaskSpecs["docs-review-verify"].Spec.Spec.Workspace.Environment; !reflect.DeepEqual(a, b) {
+		t.Errorf("release-docs and docs-review-verify bring up different environments:\n%+v\n%+v", a, b)
 	}
 }
 
@@ -373,9 +414,10 @@ var promptCases = []promptCase{
 		links: trainLinks, state: trainState},
 	{name: "implement-address-review-stack", spec: "implement", inputs: map[string]any{"mode": "address-review", "target": "stack"},
 		links: epicLinks, state: epicState(2)},
-	{name: "docs-review-release", spec: "docs-review", target: docs,
-		inputs: map[string]any{"target": "pr", "verifyAgainst": map[string]any{"train": train}, "checks": []any{"version-accuracy", "versioning", "style", "build"}},
-		links:  trainLinks, state: trainState},
+	{name: "docs-review-verify", spec: "docs-review-verify", target: docs,
+		inputs: map[string]any{"target": "pr", "verifyAgainst": map[string]any{"train": train}, "checks": []any{"version-accuracy", "versioning", "style", "build"},
+			"versions": map[string]any{"api": "0.22.0", "ui": "2.13.0"}},
+		links: trainLinks, state: trainState},
 	{name: "docs-review-stack", spec: "docs-review", inputs: map[string]any{"target": "stack", "checks": []any{"i18n", "versioning", "style", "build"}},
 		links: epicLinks, state: epicState(2)},
 	{name: "docs-review-human", spec: "docs-review", inputs: map[string]any{"target": "pr", "checks": []any{"style", "versioning", "build"}},
@@ -617,6 +659,9 @@ var resultCases = []resultCase{
 		"artifacts": [{"kind": "pr", "ref": "compliance-framework/docs#50"}],
 		"data": {"findings": {"posted": 0, "blocking": false, "questions": [], "nits": []},
 			"prs": [{"pr": "compliance-framework/docs#50", "event": "approve", "threads": 0}]}}`},
+	{"review-verify changes requested", "docs-review-verify", true, `{"task": "t", "status": "done", "outcome": "changes-requested", "question": null,
+		"data": {"findings": {"posted": 1, "blocking": true, "questions": [], "nits": []},
+			"prs": [{"pr": "compliance-framework/docs#50", "event": "request-changes", "threads": 1}]}}`},
 	{"review needs-human", "docs-review", true, `{"task": "t", "status": "done", "outcome": "needs-human", "question": null,
 		"data": {"findings": {"posted": 2, "blocking": true, "questions": [{"id": "Q1"}], "nits": []},
 			"prs": [{"pr": "compliance-framework/docs#81", "event": "request-changes", "threads": 2}, {"pr": "compliance-framework/docs#82", "event": "comment", "threads": 0}]}}`},

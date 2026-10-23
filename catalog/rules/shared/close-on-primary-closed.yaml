@@ -1,0 +1,19 @@
+# A closed work item has no more work (shared pack: every RuleSet selects it). When the item's
+# primary link, an epic issue or a person's PR, is closed, the item is closed: every in-flight
+# task of it is cancelled and closed-gate suppresses every later rule. A merged PR is
+# pr.merged, not pr.closed, so the merge flows are unaffected. A release train's issue closing
+# is not an end: it starts release-docs (docs-on-release-train), so a train event never closes.
+kind: Rule
+metadata: { name: close-on-primary-closed, labels: { pack: shared } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [issue.closed, pr.closed]
+  where: "!has(event.train) && item.links.exists(l, l.primary == true && l.ref == event.object.ref)"
+  actions:
+    - set: { lifecycle: closed }
+    - cancel: { taskSpec: docs-review }
+    - cancel: { taskSpec: docs-review-verify }
+    - cancel: { taskSpec: implement }
+    - cancel: { taskSpec: merge }
+    - cancel: { taskSpec: plan-epic }
+    - cancel: { taskSpec: release-docs }

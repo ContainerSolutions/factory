@@ -4,17 +4,20 @@
 #
 # Hosts: the docs site builds with yarn (Node 20), so the sandbox may reach the yarn and npm
 # registries. Widening workspace.hosts needs two approvals (FACTORY-CAT-002).
+#
+# No environment: epic stacks and people's PRs are reviewed without a running stack. The
+# release-docs PR's review, against the train's versions, is docs-review-verify.
 kind: TaskSpec
 metadata: { name: docs-review }
 spec:
-  description: Review a docs PR or stack for accuracy (against running CCF versions when given), style, versioning and i18n.
+  description: Review a docs PR or stack for accuracy, style, versioning and i18n.
   inputs:
     target:        { type: string, enum: [pr, stack], default: pr }
-    verifyAgainst: { type: object }               # { train } or { repo, tag } → bring up those versions and check claims
+    verifyAgainst: { type: object }               # { train } or { repo, tag }; nothing runs them here (docs-review-verify does)
     checks:        { type: array, default: [style, build] }   # + version-accuracy, versioning, i18n
   instructions: { template: prompts/docs-review.md.tmpl, headless: true }
-  skills: [{ source: ccf-skills, ref: v0.8.0, use: ["ccf-review:review", docs-style, docs-verify, ccf-test] }]
-  requires: { labels: [] }                        # has-local-stack added at dispatch when verifyAgainst is set
+  skills: [{ source: ccf-skills, ref: v0.9.0, use: ["ccf-review:review", docs-style, docs-verify, ccf-test] }]
+  requires: { labels: [] }
   harness: { default: { name: claude-code, config: { model: "claude-{sonnet,opus}-5-*", reasoningEffort: high } } }
   workspace: { checkout: read-only, hosts: [registry.yarnpkg.com, registry.npmjs.org] }
   identity: reviewer

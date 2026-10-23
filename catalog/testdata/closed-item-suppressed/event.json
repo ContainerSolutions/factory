@@ -1,0 +1,28 @@
+{
+  "kind": "Event",
+  "id": "factory-run-after-close",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-factory-run-after-close",
+        "spec": "implement",
+        "outcome": "pr-opened",
+        "status": "done",
+        "inputs": {
+          "mode": "new",
+          "target": "pr",
+          "issue": "compliance-framework/docs#71",
+          "base": "main"
+        },
+        "result": {
+          "branch": "factory/stack/wi-epic/0"
+        }
+      }
+    }
+  },
+  "workItem": "wi-epic"
+}

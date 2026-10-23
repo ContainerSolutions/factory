@@ -9,4 +9,4 @@ spec:
     selector: { matchExpressions: [{ key: pack, operator: In, values: [release-docs, shared] }] }
     exclude: [merge-release-docs]          # remove this line once everything else is trusted (Q10)
   defaults: { trainManifest: repos.yaml, docsRepo: compliance-framework/docs }   # every dispatch's target
-  stateKeys: [release, train, manifest, repos, review, merge]
+  stateKeys: [release, train, manifest, repos, versions, review, merge, lifecycle]

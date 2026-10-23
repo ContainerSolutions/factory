@@ -1,0 +1,43 @@
+{
+  "id": "wi-epic",
+  "links": [
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#70",
+      "kind": "issue",
+      "primary": true
+    },
+    {
+      "provider": "github-public",
+      "ref": "compliance-framework/docs#81",
+      "kind": "pr"
+    }
+  ],
+  "state": {
+    "plan": [
+      {
+        "issue": "compliance-framework/docs#71",
+        "title": "Enable Docusaurus i18n with pt-BR",
+        "dependsOn": []
+      },
+      {
+        "issue": "compliance-framework/docs#72",
+        "title": "PT-BR glossary",
+        "dependsOn": [
+          "compliance-framework/docs#71"
+        ]
+      }
+    ],
+    "stackNext": 0,
+    "stackTotal": 2,
+    "review": "running"
+  },
+  "counters": {
+    "plan-epic": 1,
+    "implement": 1
+  },
+  "reporter": {
+    "id": "github-public:admin",
+    "tier": "maintainer"
+  }
+}

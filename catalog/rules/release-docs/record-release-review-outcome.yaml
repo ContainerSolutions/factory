@@ -1,6 +1,7 @@
 # The docs PR's review outcome, as the docs-epic pack's record-review-outcome records it: the
 # review-release-docs rule sets review: running, and the web board shows running as the
-# Running lane, so without this a reviewed release would stay there. A pack factory.* rule,
+# Running lane, so without this a reviewed release would stay there. The review is
+# docs-review-verify (docs-review for a run dispatched before it was). A pack factory.* rule,
 # so it requires this RuleSet's train manifest.
 kind: Rule
 metadata: { name: record-release-review-outcome, labels: { pack: release-docs } }
@@ -9,6 +10,6 @@ spec:
   priority: 100                                            # runs first, so later rules see the new state
   params: { trainManifest: repos.yaml }
   where: >
-    run.spec == 'docs-review' && has(item.state.release) &&
+    run.spec in ['docs-review', 'docs-review-verify'] && has(item.state.release) &&
     has(item.state.manifest) && item.state.manifest == params.trainManifest
   actions: [{ set: { review: "=run.outcome" } }]

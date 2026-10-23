@@ -1,0 +1,20 @@
+{
+  "kind": "Event",
+  "id": "gh-201/0",
+  "source": "github-public",
+  "type": "pr.closed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "github-public",
+    "actor": {
+      "id": "github-public:admin",
+      "tier": "maintainer"
+    },
+    "object": {
+      "provider": "github-public",
+      "kind": "pr",
+      "ref": "compliance-framework/docs#81"
+    },
+    "facts": {}
+  }
+}

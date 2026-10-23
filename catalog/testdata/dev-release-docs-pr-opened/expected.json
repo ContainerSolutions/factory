@@ -3,6 +3,24 @@
   "workItem": "wi-mock-train",
   "matches": [
     {
+      "ruleSet": "dev-docs-epic",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
       "ruleSet": "dev-release-docs",
       "rule": "review-release-docs",
       "result": "matched",
@@ -20,7 +38,7 @@
       "rule": "review-release-docs",
       "action": {
         "cancel": {
-          "taskSpec": "docs-review"
+          "taskSpec": "docs-review-verify"
         }
       },
       "rail": {
@@ -39,7 +57,7 @@
       "rule": "review-release-docs",
       "action": {
         "dispatch": {
-          "taskSpec": "docs-review",
+          "taskSpec": "docs-review-verify",
           "queue": "poc",
           "inputs": {
             "checks": [
@@ -51,12 +69,8 @@
             "target": "pr",
             "verifyAgainst": {
               "train": "compliance-framework/workflows#124"
-            }
-          },
-          "requires": {
-            "labels": [
-              "has-local-stack"
-            ]
+            },
+            "versions": {}
           },
           "target": {
             "repo": "compliance-framework/mock-docs",

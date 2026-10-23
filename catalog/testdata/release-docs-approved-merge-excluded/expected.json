@@ -3,6 +3,33 @@
   "workItem": "wi-train",
   "matches": [
     {
+      "ruleSet": "poc-docs-epic",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-human-review",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
       "ruleSet": "poc-release-docs",
       "rule": "fix-release-docs-review",
       "result": "not-matched",

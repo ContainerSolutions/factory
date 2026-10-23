@@ -1,0 +1,21 @@
+{
+  "kind": "Event",
+  "id": "factory-run-mock-plan-single",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-factory-run-mock-plan-single",
+        "spec": "plan-epic",
+        "outcome": "single",
+        "status": "done",
+        "inputs": {},
+        "result": {}
+      }
+    }
+  },
+  "workItem": "wi-mock-epic"
+}

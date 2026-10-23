@@ -1,0 +1,21 @@
+{
+  "kind": "Event",
+  "id": "factory-run-plan-single",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-19T11:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-factory-run-plan-single",
+        "spec": "plan-epic",
+        "outcome": "single",
+        "status": "done",
+        "inputs": {},
+        "result": {}
+      }
+    }
+  },
+  "workItem": "wi-epic"
+}

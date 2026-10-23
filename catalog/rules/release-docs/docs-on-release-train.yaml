@@ -3,6 +3,10 @@
 # dispatch names the docs repo as its target: release-docs' rw workspace repo, and so its
 # write token, come from task.target.repo. docsRepo is compliance-framework/docs here and
 # compliance-framework/mock-docs in the dev RuleSet (its defaults).
+#
+# versions: the train's releases, repo name → its root package's version ('.' in the
+# release-please manifest; repos that released nothing have none), which release-docs'
+# environment runs as FACTORY_VERSION_<REPO> (api, ui and agent pin local-dev's images).
 kind: Rule
 metadata: { name: docs-on-release-train, labels: { pack: release-docs } }
 spec:
@@ -19,5 +23,11 @@ spec:
         taskSpec: release-docs
         queue: poc
         target: { repo: "{{ params.docsRepo }}" }
-        inputs: { train: "=event.object.ref" }
-    - set: { release: drafting, train: "=event.object.ref", manifest: "=event.train.manifest" }   # binds the item to this RuleSet's trains
+        inputs:
+          train: "=event.object.ref"
+          versions: "=event.train.repos.transformMapEntry(i, r, r.versions[?'.'].hasValue(), {r.name: r.versions['.']})"
+    - set:
+        release: drafting
+        train: "=event.object.ref"
+        manifest: "=event.train.manifest"   # binds the item to this RuleSet's trains
+        versions: "=event.train.repos.transformMapEntry(i, r, r.versions[?'.'].hasValue(), {r.name: r.versions['.']})"   # for review-release-docs' docs-review-verify

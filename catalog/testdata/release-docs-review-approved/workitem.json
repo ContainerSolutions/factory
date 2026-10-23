@@ -51,7 +51,7 @@
     ]
   },
   "counters": {
-    "docs-review": 2,
+    "docs-review-verify": 2,
     "implement": 1
   },
   "pr": {
