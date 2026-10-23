@@ -93,11 +93,29 @@ func newRunner(cfg *config.Config, o runnerOptions) (runner.Runner, error) {
 		}
 		return &runner.Stub{Outcome: runner.Outcome{Result: res}}, nil
 	}
+	po, err := hostPipelineOptions(cfg, o)
+	if err != nil {
+		return nil, err
+	}
+	po.KeepWorkspace = o.KeepWorkspace
+	home := o.Home
+	if home == nil {
+		home = os.UserHomeDir
+	}
+	if po.Stack, err = newStack(cfg, home, o.Logger); err != nil {
+		return nil, err
+	}
+	return pipeline.New(po)
+}
+
+// hostPipelineOptions are the host run pipeline's options worker and supervise share: an
+// adapter for every configured harness, the work root and the skills cache.
+func hostPipelineOptions(cfg *config.Config, o runnerOptions) (pipeline.Options, error) {
 	adapters := map[string]harness.Adapter{}
 	for _, name := range slices.Sorted(maps.Keys(cfg.Harnesses)) {
 		mk, ok := harnessAdapters[name]
 		if !ok {
-			return nil, fmt.Errorf("no harness adapter for %s; pass --stub-result <result.json> to run against a development dispatcher", name)
+			return pipeline.Options{}, fmt.Errorf("no harness adapter for %s; pass --stub-result <result.json> to run against a development dispatcher", name)
 		}
 		adapters[name] = mk(cfg.Harnesses[name])
 	}
@@ -107,16 +125,9 @@ func newRunner(cfg *config.Config, o runnerOptions) (runner.Runner, error) {
 	}
 	cache, err := config.ExpandPath(skillsCache, home)
 	if err != nil {
-		return nil, err
+		return pipeline.Options{}, err
 	}
-	po := pipeline.Options{
-		WorkRoot: cfg.WorkRoot, Adapters: adapters, SkillsCache: cache,
-		Logger: o.Logger, KeepWorkspace: o.KeepWorkspace,
-	}
-	if po.Stack, err = newStack(cfg, home, o.Logger); err != nil {
-		return nil, err
-	}
-	return pipeline.New(po)
+	return pipeline.Options{WorkRoot: cfg.WorkRoot, Adapters: adapters, SkillsCache: cache, Logger: o.Logger}, nil
 }
 
 // newStack is the pipeline's local stack (local-stack.md) when the agent advertises
@@ -161,16 +172,48 @@ func runWorker(ctx context.Context, args []string, stderr io.Writer, d workerDep
 		fmt.Fprintln(stderr, "factory-agent worker:", err)
 		return 2
 	}
+	if d.NewRunner == nil {
+		d.NewRunner = newRunner
+	}
+	return runAgentLoop(ctx, stderr, d, agentLoop{
+		name: "worker", path: *path, log: log,
+		newRunner: func(_ context.Context, cfg *config.Config) (runner.Runner, error) {
+			rn, err := d.NewRunner(cfg, runnerOptions{StubResult: *stubResult, KeepWorkspace: *keepWorkspace, Logger: log, Home: d.Config.Home})
+			if err == nil && *stubResult != "" {
+				log.Warn("development mode: every leased task is answered with --stub-result, nothing runs", "file", *stubResult)
+			}
+			return rn, err
+		},
+	})
+}
+
+// agentLoop is what runAgentLoop needs of its command: worker's or supervise's.
+type agentLoop struct {
+	// name is the command's, in the logs.
+	name string
+	// path is the config file.
+	path string
+	log  *slog.Logger
+	// newRunner builds the Runner once the config is loaded and probed.
+	newRunner func(ctx context.Context, cfg *config.Config) (runner.Runner, error)
+	// lending adjusts the config's lending, at start and on SIGHUP; nil keeps it.
+	lending func(v1alpha1.Lending) v1alpha1.Lending
+}
+
+// runAgentLoop is worker's and supervise's common part once their flags are parsed: load the
+// config, probe, build the Runner, register, and serve leases until a drain or an abort.
+func runAgentLoop(ctx context.Context, stderr io.Writer, d workerDeps, l agentLoop) int {
+	log := l.log
 	if d.HTTPClient == nil {
 		d.HTTPClient = &http.Client{}
 	}
-	if d.NewRunner == nil {
-		d.NewRunner = newRunner
+	if l.lending == nil {
+		l.lending = func(x v1alpha1.Lending) v1alpha1.Lending { return x }
 	}
 
 	co := d.Config
 	co.Warn = func(s string) { log.Warn(s) }
-	cfg, err := config.Load(*path, co)
+	cfg, err := config.Load(l.path, co)
 	if err != nil {
 		log.Error("config", "err", err)
 		return 1
@@ -180,16 +223,13 @@ func runWorker(ctx context.Context, args []string, stderr io.Writer, d workerDep
 		log.Warn("not advertised: its probe failed", "kind", dr.Kind, "name", dr.Name, "reason", dr.Reason)
 	}
 	if ok, why := rep.Ready(); !ok {
-		log.Error("the worker can't start", "why", strings.Join(why, "; "))
+		log.Error("the "+l.name+" can't start", "why", strings.Join(why, "; "))
 		return 1
 	}
-	rn, err := d.NewRunner(cfg, runnerOptions{StubResult: *stubResult, KeepWorkspace: *keepWorkspace, Logger: log, Home: d.Config.Home})
+	rn, err := l.newRunner(ctx, cfg)
 	if err != nil {
 		log.Error("runner", "err", err)
 		return 1
-	}
-	if *stubResult != "" {
-		log.Warn("development mode: every leased task is answered with --stub-result, nothing runs", "file", *stubResult)
 	}
 
 	src := d.Owner
@@ -208,7 +248,7 @@ func runWorker(ctx context.Context, args []string, stderr io.Writer, d workerDep
 	}
 	w, err := worker.New(worker.Options{
 		Dispatcher: cfg.Dispatcher, Pool: cfg.Pool, Host: cfg.Host,
-		AgentVersion: version.Version, Capabilities: rep.Capabilities, Lending: cfg.Lending,
+		AgentVersion: version.Version, Capabilities: rep.Capabilities, Lending: l.lending(cfg.Lending),
 		JoinToken: func() (string, error) { return config.ReadSecretFile(cfg.JoinTokenFile) },
 		Owner:     src, Runner: rn, HTTPClient: d.HTTPClient, Logger: log,
 	})
@@ -226,21 +266,21 @@ func runWorker(ctx context.Context, args []string, stderr io.Writer, d workerDep
 	}
 	runCtx, abort := context.WithCancel(ctx)
 	defer abort()
-	go handleSignals(runCtx, sigs, w, abort, *path, co, log)
+	go handleSignals(runCtx, sigs, w, abort, l.path, co, l.lending, log)
 
-	log.Info("factory-agent worker starting", "version", version.Version, "dispatcher", cfg.Dispatcher, "pool", cfg.Pool, "host", cfg.Host)
+	log.Info("factory-agent "+l.name+" starting", "version", version.Version, "dispatcher", cfg.Dispatcher, "pool", cfg.Pool, "host", cfg.Host)
 	if err := w.Run(runCtx); err != nil {
-		log.Error("worker stopped", "err", err)
+		log.Error(l.name+" stopped", "err", err)
 		return 1
 	}
-	log.Info("worker stopped")
+	log.Info(l.name + " stopped")
 	return 0
 }
 
 // handleSignals: the first SIGTERM/SIGINT drains, the second aborts (running tasks are
 // abandoned with shutdown); SIGHUP re-reads the config and re-sends lending.
 func handleSignals(ctx context.Context, sigs <-chan os.Signal, w *worker.Worker, abort context.CancelFunc,
-	path string, co config.Options, log *slog.Logger) {
+	path string, co config.Options, lending func(v1alpha1.Lending) v1alpha1.Lending, log *slog.Logger) {
 	draining := false
 	for {
 		select {
@@ -253,7 +293,7 @@ func handleSignals(ctx context.Context, sigs <-chan os.Signal, w *worker.Worker,
 					log.Error("SIGHUP: config not reloaded", "err", err)
 					continue
 				}
-				if err := w.SetLending(ctx, cfg.Lending); err != nil {
+				if err := w.SetLending(ctx, lending(cfg.Lending)); err != nil {
 					log.Error("SIGHUP: lending not updated", "err", err)
 					continue
 				}

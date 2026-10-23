@@ -47,22 +47,32 @@ Output a VM produces for the driver itself (the `ip` reads, stderr in errors) is
 ## `factory-agent supervise` (PR 3)
 
 ```text
-factory-agent supervise [worker's flags] [--driver tart] [--warm-base factory-agent-warm] [--keep-workspace] [--state-dir <dir>]
+factory-agent supervise [--config <agent.yaml>] [--log-level info] [--log-format text] [--driver tart] [--warm-base factory-agent-warm] [--keep-workspace] [--state-dir <dir>]
 ```
 
-Today's worker loop (registration by join token and the device flow, the lease long-poll, heartbeats, lending, drain) with the workspace runner, concurrency 1. At start it runs `host check`; when a step isn't ok it exits with the list and "run `factory-agent host init --driver tart`". Then it destroys every `List`ed workspace (orphans of a killed supervisor).
+Today's worker loop (`cmd/factory-agent/worker.go`'s `runAgentLoop`, shared: registration by join token and the device flow, the lease long-poll, heartbeats, lending and its SIGHUP reload, drain on the first SIGTERM, abort on the second) with the workspace runner. In order:
+
+1. **The config and the probe.** The harnesses run in the VM, so the host has nothing of theirs to probe: a configured harness is offered when its login is in `<state-dir>/logins` (else it's dropped with "run `factory-agent login codex`", and with none left supervise exits 1). Labels are advertised as configured; there's no host tooling check.
+2. **`host check`** (`internal/agent/host`, the config's `workspace` block, driver tart). When a step isn't ok or skipped, supervise prints those steps and exits 1 with "run `factory-agent host init --driver tart`". It never runs init.
+3. **The orphan cleanup:** the driver's `List`, then `Destroy` of each workspace name (`ws-tsk_…`; any other name is left alone). Nothing runs at start, so each is a killed supervisor's. A failure stops the start.
+4. **The runner:** `workspace.NewRunner` with the tart driver (`Bin` host check's tart, `WarmBase` the flag's, `Log` stderr at `--log-level debug`), the host pipeline (`WorkRoot`, the adapters, the skills cache; `GitAuthHelper`), `StateDir`, `Spec{}` (6 vCPUs, 8 GiB) and `--keep-workspace`.
+5. **Registration** with `lending.maxConcurrent` forced to 1, at start and on SIGHUP.
+
+`--state-dir` (default `~/Library/Application Support/factory-agent`, `login`'s) holds `logins/`, `runs/` and `gateway-ca/`; host check always reads the default one. `worker`'s `--stub-result` isn't offered: it would skip the VM.
 
 ## Tests
 
 - PR 1: the full lifecycle against the fake tart (golden `testdata/lifecycle.golden`); the network reads and each failure (no or two default routes, IPv6, no `src`, `src` equal to the gateway, loopback, `tart run` exiting, the boot timeout), each leaving no `tart run`; names refused by every call before tart runs; `Put`'s entries, modes and owner, and its refusals; `Exec`'s exit code, stdin, and both cancel paths (TERM honoured; TERM ignored, then KILL and the local stop); hostile `Get` streams (traversal, absolute, symlink out, FIFO, not gzip, over the cap); `Stop` and `Destroy` on running, stopped and missing VMs. `ExecRunner` on `sh`.
 - PR 2: a fake `Driver` (its `Exec` runs `vmrun.Main` against the bundle directory, or a scripted event stream), the gateway on loopback, a fake dispatcher: success, failure, cancel, throttled, a hostile outcome.
-- PR 3: usage, the `host check` gate, the orphan cleanup.
+- PR 3: usage; the `host check` gate on the fake Mac (Softnet missing); a missing login; the orphan cleanup (only `ws-tsk_…`); one lease end to end: a dispatcher that registers and leases harnesstest's task, the real gateway on loopback, a fake driver whose `Exec` writes a done outcome, then the completion, the transcript upload, `maxConcurrent: 1` and a drain.
 
 ## The owner's run (manual)
 
-1. `make tart-up` (host init, with pf), then `factory-agent host check`: every step ok.
-2. `claude setup-token` on its own; copy the token it prints, then `pbpaste | factory-agent login claude`. Then `factory-agent login codex`.
-3. `factory-agent supervise --driver tart`, then dispatch a task.
+On the Mac, from a checkout of this branch (the dispatcher up, and `~/.config/factory-agent/agent.yaml` pointing at it with `codex` and/or `claude-code` under `harnesses`):
+
+1. `make tart-up` (builds `bin/factory-agent` and `bin/factory-agent-linux-arm64`, then `host init --driver tart`: one sudo prompt for Softnet and pf; the base and warm VMs take a while), then `bin/factory-agent host check`: every step ok (pf may be skipped).
+2. Run `claude setup-token` on its own and copy the token it prints, then `pbpaste | bin/factory-agent login claude` (not a direct pipe); and `bin/factory-agent login codex` (reads `~/.codex/auth.json`; `--auth-json <path>` for another).
+3. `bin/factory-agent supervise --log-level debug` (add `--keep-workspace` to keep the VM, stopped, and `runs/<task>/` for a look), register through the device-flow prompt, then dispatch a task (`bin/factory dispatch --event event.json --server …`). Watch for the five items below; `tart list` shows `ws-tsk_<id>` while it runs and nothing after.
 
 ## UNVERIFIED (the one list, for the owner's Mac run)
 
