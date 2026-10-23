@@ -1,2 +1,5 @@
 lisa-addressed:
 705dacb61955 (SIGHUP clamp untested) and the --stub-result hint nit fixed in this commit.
+
+lisa-design:
+supervise: harnesses are offered by their login in <state-dir>/logins (no host binary probe, no host tooling check); labels advertised as configured; host check + orphan cleanup run inside the runner factory, after the config load and probe, before registration; --stub-result not offered; lending.maxConcurrent forced to 1 at registration and on SIGHUP; tart run's log goes to stderr only at --log-level debug.
