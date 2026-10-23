@@ -1,0 +1,2 @@
+lisa-addressed:
+validZone's upper-case test rewritten for staticcheck QF1001 (no behaviour change).

@@ -1,0 +1,6 @@
+lisa-selfreview:
+pass 1 (strict): request_changes
+- [must-fix] CORE-TEST-001 vmrun.go vm.run: Run's error path (an invalid maxWallClock, before any step) has no test. Fix: a TestRunOutcomes case.
+- [must-fix] GO-NIL-001 vmrun.go watchSignals: a closed signal channel yields nil forever (s.String() panics, the loop spins). Fix: s, ok := <-sigs.
+- [must-fix] CORE-TEST-002 vmrun_test.go TestRunOutcomes/TestRunEndToEnd: SIGTERM twice doesn't show the second signal was seen; got[0] on a possibly empty event list. Fix: assert the log lines; guard the length.
+- [nit] exported-internal-helper adapters.go Adapters/AdapterOptions: exported with no consumer outside vmrun (the LLD names it adapters(b)). Fix: unexport.

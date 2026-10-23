@@ -1,0 +1,5 @@
+lisa-addressed:
+pass 3 fixes: PR 7 adds X-Factory-Gateway-Refusal to the fake's refusals; a dispatcher request on another port is dispatcher-route; Config.Clock covers records only.
+
+lisa-selfreview:
+pass 4 (final, lenient), verdict approve: no blocker or must-fix left. Every link and anchor in gateway.md, workspace-run.md, workspace-host.md and definitions.md resolves (scripted check). Docs-only: no Go changed, so no build/test gate applies beyond the link check.

@@ -1,0 +1,12 @@
+lisa-addressed:
+Pass 1 fixes:
+- 194acbe8c361 ensureDir: os.MkdirAll for the run user's attempt (the default state dir's parent is absent in the base); sudo -n install -d already makes parents. Tests: TestSetupEnvIsPipelineEnv uses a nested state dir; TestSetupMakesDirsWithSudo a nested one under a locked parent.
+- cbfa5aa9d1cb readCapped: TestSetupErrors gains an oversize CA and a CA that's a directory.
+- 00b8fb31ddb9 daemonConfig: wraps json.Unmarshal's error with %w; null keeps its own message; a not-JSON case added.
+
+lisa-selfreview:
+Pass 2 (strict), reviewer verdict request_changes:
+- must-fix 78a8800fa3f7 CORE-INPUT-001 (checkCertificates): text before the first PEM block is skipped by pem.Decode and accepted. Fix: refuse it.
+- nit cbd7257b3a58 CORE-STYLE-001 (dirs): an unwrapped doc comment line.
+- nit 7c7eb58cef98 CORE-STYLE-001 (TestSetupErrors): the proxy default keyed on the case's name.
+Dismissed: a nil *user.User with a nil error from System.User (not reachable: user.Current never returns it; only a test's func could).

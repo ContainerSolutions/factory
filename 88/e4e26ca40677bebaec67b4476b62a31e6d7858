@@ -1,0 +1,18 @@
+lisa-addressed:
+ccf-review #117 (all 17 accepted), fixed in gateway.md (+ workspace-host.md later phases):
+- 93361bc50487 Cookie: not a carrier on chatgpt.com/Anthropic; policy.InfraCookies (codex v0.163.0 allow list) kept, others dropped; stripped on GitHub and dispatcher; client classifies Authorization/X-Api-Key/Proxy-Authorization/userinfo only; PR 8 test.
+- 6a095ff933df AllowHosts wildcard matching per ValidateHost (*.x matches any depth, not apex; port rule); release redirect hosts noted; PR 2 rows.
+- 8455dea6a26e gatewayca: Apply = rotation for missing/wrong/outdated (init and supervise rotate unattended); --rotate-ca forces on ok pair; ca.Load via os.OpenRoot + one retry on missing dir; .old removed after swap.
+- 24c4ac904d5f name constraints: ExcludedIPRanges 0.0.0.0/0, ::/0; URI/email permitted only under invalid; CA without IP exclusions is outdated; PR 4 tests.
+- 5d42b461a498 Egress.Allow renamed OpenAddrs.
+- 6b59da37595a "Departures from Phase 0's gw.py" table D1-D5, each a phase 8 check (UNVERIFIED 8).
+- b02a0fc1cb05 dispatcher's own transport (plain dialer, only its host:port, UpstreamRoots).
+- ed1bf481c752 deny table by class: + 64:ff9b:1::/48, 2001::/32, ::/96, fec0::/10, TEST-NETs, 192.88.99.0/24.
+- 8f3b53edd0d6 Login Issuer/ClientID from oauth_provenance; all response fields optional; 200 bad body not retried; error code case-insensitive from error or error.code; v0.163.0 verified (no provenance, constants).
+- 1ff6af13ab54 missing refusal rows assigned to PRs; every refusal code a policy row.
+- 7c12814d959c sizes with tests; 10 PRs (policy | proxy core | ca | interception+peek | gatewayca | GitHub+dispatcher | model injection | refresher | conformance).
+- 6747456566ac Host normalised (:443 stripped); CONNECT/absolute-form/OPTIONS * inside a tunnel = not-proxy.
+- 302446f4400f/34248f06764f exact-address Clients, Softnet anti-spoof precondition (phase 5 manual check), kata per-workspace isolation (phase 9), Serve refuses host addresses.
+- 58a847e195b2/3c842d3965fe tunnel ClientHello peek (16 KiB, 10 s), sni-mismatch / not-tls codes, residual risk documented (Risk 10).
+- 803b8784a081 VM DNS via the Mac: overview qualified; Risk 9 with phase 5 decision.
+Decided (lead): POST /graphql refused for the PoC; name-constrained CA kept with fallback; no idle timeout on tunnels/WebSockets. Open: #100 EgressPolicy comment (owner's call).

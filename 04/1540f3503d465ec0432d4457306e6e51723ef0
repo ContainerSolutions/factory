@@ -1,0 +1,5 @@
+lisa-addressed:
+Pass 2 fixes:
+- 78a8800fa3f7 checkCertificates: refuses any text before, between or after the PEM blocks (and a block that doesn't decode); cases added to TestSetupErrors.
+- cbd7257b3a58 dirs: comment rewrapped.
+- 7c7eb58cef98 TestSetupErrors: the "no proxy" case sets proxy "-" instead of the loop comparing the case's name.
