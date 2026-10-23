@@ -3,6 +3,7 @@ package controllers
 import (
 	"errors"
 	"maps"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -161,5 +162,99 @@ func TestDispatchedTicketReachesTheLease(t *testing.T) {
 	want := v1alpha1.ContextItem{Kind: provider.KindIssue, Provider: ghProvider, Ref: docsRepo + "#43", Trust: TrustUntrusted}
 	if len(task.Spec.Context) == 0 || task.Spec.Context[0] != want {
 		t.Errorf("leased context = %+v, want %+v first", task.Spec.Context, want)
+	}
+}
+
+// withEnvironment is the PoC catalog with docs-review's workspace bringing up env and
+// declaring a versions input (default def).
+func withEnvironment(c *catalog.Catalog, env *v1alpha1.Environment, def any) *catalog.Catalog {
+	return withTaskSpec(c, "docs-review", func(ts *catalog.CompiledTaskSpec) {
+		if env == nil {
+			return
+		}
+		ws := *ts.Spec.Spec.Workspace
+		ws.Environment = env
+		ts.Spec.Spec.Workspace = &ws
+		ts.Spec.Spec.Inputs = maps.Clone(ts.Spec.Spec.Inputs)
+		ts.Spec.Spec.Inputs["versions"] = v1alpha1.InputSpec{Type: "object", Default: def}
+	})
+}
+
+func TestCompileEnvironment(t *testing.T) {
+	e := newEnv(t)
+	wi, _ := e.startPlan()
+	env := func(from, input string) *v1alpha1.Environment {
+		return &v1alpha1.Environment{
+			Versions: &v1alpha1.VersionSource{From: from, Input: input},
+			Setup:    "corepack enable",
+			Up:       "make up",
+			Ready:    &v1alpha1.ReadyCheck{HTTP: []string{"http://localhost:8080/api/health"}, Timeout: "20m"},
+			Exposes:  map[string]string{"FACTORY_STACK_URL": "http://localhost:8000"},
+			Egress:   &v1alpha1.EgressPolicy{Mode: "deny-by-default", Allow: []string{"registry.npmjs.org"}},
+			Down:     "make down",
+		}
+	}
+	for _, tc := range []struct {
+		name    string
+		env     *v1alpha1.Environment
+		def     any
+		inputs  map[string]any
+		want    map[string]string
+		wantErr bool
+	}{
+		{name: "no environment"},
+		{name: "versions from inputs", env: env("inputs", "versions"),
+			inputs: map[string]any{"versions": map[string]any{"api": "0.4.1", "ui": "v0.3.0"}},
+			want:   map[string]string{"api": "0.4.1", "ui": "v0.3.0"}},
+		{name: "versions from the default", env: env("inputs", "versions"), def: map[string]any{"agent": "0.2.0"},
+			want: map[string]string{"agent": "0.2.0"}},
+		{name: "absent input", env: env("inputs", "versions")},
+		{name: "empty input", env: env("inputs", "versions"), inputs: map[string]any{"versions": map[string]any{}}},
+		{name: "latest is deferred", env: env("latest", "")},
+		{name: "train is deferred", env: env("train", "versions"), inputs: map[string]any{"versions": map[string]any{"api": "0.4.1"}}},
+		{name: "not a map", env: env("inputs", "versions"), inputs: map[string]any{"versions": []any{"api"}}, wantErr: true},
+		{name: "not a string", env: env("inputs", "versions"), inputs: map[string]any{"versions": map[string]any{"api": 1.0}}, wantErr: true},
+		{name: "bad component", env: env("inputs", "versions"), inputs: map[string]any{"versions": map[string]any{"API": "0.4.1"}}, wantErr: true},
+		{name: "empty version", env: env("inputs", "versions"), inputs: map[string]any{"versions": map[string]any{"api": ""}}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cat := withEnvironment(e.cat, tc.env, tc.def)
+			task, _, err := compileTask(e.ctx, compileInput{
+				cat: cat, wi: wi, ev: v1alpha1.Event{ID: "ev"}, taskID: "tsk_e", now: e.clk.Now(),
+				d: &rules.Dispatch{TaskSpec: "docs-review", Queue: "poc", Inputs: tc.inputs},
+			}, KeepSkills{})
+			if tc.wantErr {
+				if !errors.Is(err, ErrInvalidDispatch) {
+					t.Fatalf("err = %v, want ErrInvalidDispatch", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(task.Spec.Environment, tc.env) {
+				t.Errorf("environment = %+v, want %+v", task.Spec.Environment, tc.env)
+			}
+			if !maps.Equal(task.Spec.Versions, tc.want) || (tc.want == nil && task.Spec.Versions != nil) {
+				t.Errorf("versions = %#v, want %#v", task.Spec.Versions, tc.want)
+			}
+			if err := task.Validate(); err != nil {
+				t.Errorf("Validate: %v", err)
+			}
+			if tc.env != nil {
+				got := task.Spec.Environment
+				got.Versions.Input, got.Ready.HTTP[0], got.Exposes["FACTORY_STACK_URL"], got.Egress.Allow[0] = "x", "x", "x", "x"
+				if tc.env.Versions.Input == "x" || tc.env.Ready.HTTP[0] == "x" || tc.env.Exposes["FACTORY_STACK_URL"] == "x" || tc.env.Egress.Allow[0] == "x" {
+					t.Error("the task's environment aliases the TaskSpec's")
+				}
+			}
+			again, _, err := Recompile(e.ctx, cat, KeepSkills{}, wi, stored(t, task), RecompileOptions{TaskID: "tsk_e2", Now: e.clk.Now()})
+			if err != nil {
+				t.Fatalf("Recompile: %v", err)
+			}
+			if !maps.Equal(again.Spec.Versions, tc.want) {
+				t.Errorf("recompiled versions = %#v, want %#v", again.Spec.Versions, tc.want)
+			}
+		})
 	}
 }
