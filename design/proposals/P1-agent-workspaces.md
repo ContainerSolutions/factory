@@ -258,10 +258,10 @@ workspace:
     - { ref: "=task.target.repo + '@main'", mode: rw }
     - { ref: compliance-framework/local-dev@main, mode: ro }
   environment:
-    versions: latest                         # latest | inputs | train(inputs.train), resolved at compile time
+    versions: { from: latest }               # from: latest | inputs | train (+ input: <input name>); resolved at compile time
     setup: |                                 # before the environment comes up; root in the VM
       corepack enable
-    up: |                                    # with the resolved versions as CCF_*_IMAGE
+    up: |                                    # FACTORY_VERSION_* are set; map them to local-dev's CCF_*_IMAGE here
       make -C /work/ro/local-dev todo-agent-env
       cd /work/ro/local-dev && ./scripts/do start_showcase
       make -C /work/ro/local-dev demo-up-showcase-load showcase-kind register-todo-agent
@@ -269,7 +269,7 @@ workspace:
     ready: { http: ["http://localhost:8080/api/health", "http://localhost:8000/"], timeout: 20m }
     down: |                                  # best effort; the VM is destroyed anyway
       make -C /work/ro/local-dev compose-down-showcase
-    egress: default                          # default | deny-by-default (+ allow: [...])
+    egress: { mode: default }                # mode: default | deny-by-default (+ allow: [hosts])
 ```
 
 - **The environment is the repo's own tooling, run where it works:** a Docker host of its own,
@@ -282,7 +282,11 @@ workspace:
   the Task, so a run is reproducible and a Redispatch (#89) re-resolves explicitly:
   - `latest`: each component's latest final release;
   - `inputs`: a map in the task's inputs;
-  - `train(…)`: CCF's train issue, through the existing extractor.
+  - `train`: CCF's train issue named by the input, through the existing extractor.
+
+  The resolved versions are the Task's `spec.versions`, exported in the workspace as
+  `FACTORY_VERSION_<COMPONENT>`; the environment's `up` maps them to the repo's own variables
+  (local-dev's `CCF_*_IMAGE`).
 - **What it replaces:**
   - `internal/agent/stack`, and the agent's `localDev` config;
   - the `has-local-stack` and `gif-tooling` labels (every workspace has Docker, and tools ship in

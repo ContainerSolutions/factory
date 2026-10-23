@@ -1,0 +1,26 @@
+# Source: design/proposals/P1-agent-workspaces.md §4, as a whole TaskSpec using every
+# workspace.environment field.
+kind: TaskSpec
+metadata: { name: docs-gif }
+spec:
+  description: Record a docs GIF against a CCF stack brought up in the task's workspace.
+  inputs:   # changed from the doc: the train input that versions.input names
+    train: { type: string, required: true }
+  instructions: { template: prompts/docs-gif.md.tmpl, headless: true }
+  workspace:
+    repos:
+      - { ref: "=task.target.repo + '@main'", mode: rw }
+      - { ref: compliance-framework/local-dev@main, mode: ro }
+    environment:
+      versions: { from: train, input: train }   # changed from the doc: versions: latest
+      setup: |
+        corepack enable
+      up: |
+        make -C /work/ro/local-dev todo-agent-env
+        cd /work/ro/local-dev && ./scripts/do start_showcase
+        make -C /work/ro/local-dev demo-up-showcase-load showcase-kind register-todo-agent
+      exposes: { FACTORY_STACK_URL: "http://localhost:8000", FACTORY_STACK_API: "http://localhost:8080" }
+      ready: { http: ["http://localhost:8080/api/health", "http://localhost:8000/"], timeout: 20m }
+      down: |
+        make -C /work/ro/local-dev compose-down-showcase
+      egress: { mode: deny-by-default, allow: [registry.npmjs.org, "*.docker.io"] }   # changed from the doc: egress: default

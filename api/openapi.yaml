@@ -2943,6 +2943,70 @@ components:
           items:
             type: string
       additionalProperties: false
+    EgressPolicy:
+      x-go-type: v1alpha1.EgressPolicy
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: EgressPolicy narrows a workspace's network.
+      type: object
+      properties:
+        mode:
+          description: |-
+            Mode is default (open through the gateway, except its denied ranges) or deny-by-default
+            (only Allow, plus the git host and the dispatcher).
+          type: string
+          enum:
+            - default
+            - deny-by-default
+        allow:
+          description: |-
+            Allow are hostnames reachable under deny-by-default; same rules as workspace.hosts
+            (ValidateHost, at most 20). Only valid with deny-by-default.
+          type: array
+          items:
+            type: string
+            pattern: ^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?(:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$
+            not:
+              pattern: (^|\.)localhost(:|$)
+          maxItems: 20
+      additionalProperties: false
+    Environment:
+      x-go-type: v1alpha1.Environment
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: 'Environment is what a task''s workspace brings up before the harness runs (P1 §4): plain commands run as root inside the task''s VM workspace, which has its own Docker.'
+      type: object
+      properties:
+        versions:
+          $ref: '#/components/schemas/VersionSource'
+        setup:
+          description: |-
+            Setup runs first (install tools the base image lacks); Up brings the environment up;
+            Down runs best effort at the end. Each is a shell script for /bin/bash, at most 64 KiB.
+          type: string
+          maxLength: 65536
+        up:
+          type: string
+          maxLength: 65536
+        down:
+          type: string
+          maxLength: 65536
+        ready:
+          $ref: '#/components/schemas/ReadyCheck'
+        exposes:
+          description: |-
+            Exposes are exported to the harness's environment: FACTORY_* names to values, typically
+            URLs inside the workspace (FACTORY_STACK_URL: http://localhost:8000). At most 20; no
+            name the runtime sets (ReservedEnvNames, FACTORY_VERSION_*).
+          type: object
+          maxProperties: 20
+          additionalProperties:
+            type: string
+            minLength: 1
+            maxLength: 2048
+        egress:
+          $ref: '#/components/schemas/EgressPolicy'
+      additionalProperties: false
     Event:
       x-go-type: v1alpha1.Event
       x-go-type-import:
@@ -3898,6 +3962,24 @@ components:
         reason:
           type: string
       additionalProperties: false
+    ReadyCheck:
+      x-go-type: v1alpha1.ReadyCheck
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: ReadyCheck is how the runtime waits for an environment.
+      type: object
+      properties:
+        http:
+          description: HTTP URLs that must each answer 2xx or 3xx; at most 10, http or https.
+          type: array
+          items:
+            type: string
+            pattern: ^https?://[^\s/?#]+([/?#]\S*)?$
+          maxItems: 10
+          minItems: 1
+        timeout:
+          $ref: '#/components/schemas/Duration'
+      additionalProperties: false
     RepoMount:
       x-go-type: v1alpha1.RepoMount
       x-go-type-import:
@@ -4527,6 +4609,19 @@ components:
             not:
               pattern: (^|\.)localhost(:|$)
           maxItems: 20
+        environment:
+          $ref: '#/components/schemas/Environment'
+        versions:
+          description: |-
+            Versions are the environment's component versions, resolved at compile time from
+            environment.versions (component name -> version). The workspace runtime exports each as
+            FACTORY_VERSION_<COMPONENT>, so a Redispatch re-resolves explicitly.
+          type: object
+          maxProperties: 50
+          additionalProperties:
+            type: string
+            minLength: 1
+            maxLength: 128
       additionalProperties: false
     TaskSpec:
       x-go-type: v1alpha1.TaskSpec
@@ -4730,6 +4825,30 @@ components:
           type: number
           nullable: true
       additionalProperties: false
+    VersionSource:
+      x-go-type: v1alpha1.VersionSource
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: VersionSource is where an environment's component versions come from.
+      type: object
+      required:
+        - from
+      properties:
+        from:
+          description: |-
+            From is latest (each component's latest final release), inputs (a map in the task's
+            inputs) or train (a release-train reference in the task's inputs).
+          type: string
+          enum:
+            - latest
+            - inputs
+            - train
+        input:
+          description: |-
+            Input names the TaskSpec input that holds the map (inputs) or the train reference
+            (train). Required for those two, forbidden for latest.
+          type: string
+      additionalProperties: false
     Webhook:
       x-go-type: v1alpha1.Webhook
       x-go-type-import:
@@ -4846,5 +4965,7 @@ components:
             not:
               pattern: (^|\.)localhost(:|$)
           maxItems: 20
+        environment:
+          $ref: '#/components/schemas/Environment'
       additionalProperties: false
     # ---- END GENERATED ------------------------------------------------------------------------

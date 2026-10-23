@@ -1,14 +1,11 @@
 package v1alpha1
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // hostCases are workspace.hosts entries with the sentinel ValidateHost wraps (nil = valid).
@@ -259,22 +256,7 @@ func TestTaskValidateHosts(t *testing.T) {
 // TestTaskHostSchemaMatchesGo checks that the Task's schema (the one the OpenAPI components
 // are reflected from) and ValidateHost agree on every host case, and that it caps the list.
 func TestTaskHostSchemaMatchesGo(t *testing.T) {
-	b, err := json.Marshal(NewReflector().Reflect(&Task{}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(b))
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := jsonschema.NewCompiler()
-	if err := c.AddResource("task.schema.json", doc); err != nil {
-		t.Fatal(err)
-	}
-	sch, err := c.Compile("task.schema.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	sch := taskSchema(t)
 	inst := func(hosts ...string) any {
 		hs := make([]any, len(hosts))
 		for i, h := range hosts {

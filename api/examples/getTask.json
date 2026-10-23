@@ -112,6 +112,30 @@
         "not-actionable",
         "promote"
       ]
+    },
+    "environment": {
+      "versions": {
+        "from": "latest"
+      },
+      "up": "make -C /work/ro/local-dev demo-up-showcase\n",
+      "exposes": {
+        "FACTORY_STACK_URL": "http://localhost:8000",
+        "FACTORY_STACK_API": "http://localhost:8080"
+      },
+      "ready": {
+        "http": [
+          "http://localhost:8080/api/health"
+        ],
+        "timeout": "20m"
+      },
+      "down": "make -C /work/ro/local-dev compose-down-showcase\n",
+      "egress": {
+        "mode": "default"
+      }
+    },
+    "versions": {
+      "api": "v0.12.0",
+      "ui": "v0.9.1"
     }
   },
   "status": {

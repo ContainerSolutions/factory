@@ -1570,6 +1570,41 @@ export interface components {
              */
             labels?: string[];
         };
+        /** @description EgressPolicy narrows a workspace's network. */
+        EgressPolicy: {
+            /**
+             * @description Mode is default (open through the gateway, except its denied ranges) or deny-by-default
+             *     (only Allow, plus the git host and the dispatcher).
+             * @enum {string}
+             */
+            mode?: "default" | "deny-by-default";
+            /**
+             * @description Allow are hostnames reachable under deny-by-default; same rules as workspace.hosts
+             *     (ValidateHost, at most 20). Only valid with deny-by-default.
+             */
+            allow?: string[];
+        };
+        /** @description Environment is what a task's workspace brings up before the harness runs (P1 §4): plain commands run as root inside the task's VM workspace, which has its own Docker. */
+        Environment: {
+            versions?: components["schemas"]["VersionSource"];
+            /**
+             * @description Setup runs first (install tools the base image lacks); Up brings the environment up;
+             *     Down runs best effort at the end. Each is a shell script for /bin/bash, at most 64 KiB.
+             */
+            setup?: string;
+            up?: string;
+            down?: string;
+            ready?: components["schemas"]["ReadyCheck"];
+            /**
+             * @description Exposes are exported to the harness's environment: FACTORY_* names to values, typically
+             *     URLs inside the workspace (FACTORY_STACK_URL: http://localhost:8000). At most 20; no
+             *     name the runtime sets (ReservedEnvNames, FACTORY_VERSION_*).
+             */
+            exposes?: {
+                [key: string]: string;
+            };
+            egress?: components["schemas"]["EgressPolicy"];
+        };
         /** @description Event is a normalised provider event, shaped as a CloudEvent: its identity is (Source = provider instance or "factory", Type). */
         Event: {
             /** @enum {string} */
@@ -1941,6 +1976,12 @@ export interface components {
             verdict: "allowed" | "suppressed" | "deferred" | "unsupported";
             reason?: string;
         };
+        /** @description ReadyCheck is how the runtime waits for an environment. */
+        ReadyCheck: {
+            /** @description HTTP URLs that must each answer 2xx or 3xx; at most 10, http or https. */
+            http?: string[];
+            timeout?: components["schemas"]["Duration"];
+        };
         /** @description RepoMount is one repo in the workspace. */
         RepoMount: {
             /** @description Ref is owner/repo@ref, or "=CEL". */
@@ -2199,6 +2240,15 @@ export interface components {
              *     20).
              */
             hosts?: string[];
+            environment?: components["schemas"]["Environment"];
+            /**
+             * @description Versions are the environment's component versions, resolved at compile time from
+             *     environment.versions (component name -> version). The workspace runtime exports each as
+             *     FACTORY_VERSION_<COMPONENT>, so a Redispatch re-resolves explicitly.
+             */
+            versions?: {
+                [key: string]: string;
+            };
         };
         /** @description TaskSpec is what and how for one role, with no triggers or transitions. */
         TaskSpec: {
@@ -2285,6 +2335,20 @@ export interface components {
             wallClock?: components["schemas"]["Duration"];
             costUSD: number | null;
         };
+        /** @description VersionSource is where an environment's component versions come from. */
+        VersionSource: {
+            /**
+             * @description From is latest (each component's latest final release), inputs (a map in the task's
+             *     inputs) or train (a release-train reference in the task's inputs).
+             * @enum {string}
+             */
+            from: "latest" | "inputs" | "train";
+            /**
+             * @description Input names the TaskSpec input that holds the map (inputs) or the train reference
+             *     (train). Required for those two, forbidden for latest.
+             */
+            input?: string;
+        };
         /** @description Webhook is where the provider's webhook is mounted, and the secret that signs it. */
         Webhook: {
             path: string;
@@ -2339,6 +2403,7 @@ export interface components {
              *     two approvals (FACTORY-CAT-002).
              */
             hosts?: string[];
+            environment?: components["schemas"]["Environment"];
         };
     };
     responses: {
