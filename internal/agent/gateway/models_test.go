@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -196,6 +198,59 @@ func TestChatGPTRoutes(t *testing.T) {
 	}
 }
 
+// TestModelMethodsRefused: TRACE and TRACK, in any case, are api-write on every model host
+// before a credential is read, so an upstream that echoes the request (as TRACE does) never sees
+// one; the allowed methods still get it.
+func TestModelMethodsRefused(t *testing.T) {
+	echo := func(w http.ResponseWriter, r *http.Request) { _ = r.Write(w) }
+	var reads atomic.Int32
+	cfg := func(c *Config) {
+		c.Anthropic = func(context.Context) (AnthropicAuth, error) {
+			reads.Add(1)
+			return AnthropicAuth{OAuthToken: oauthTok}, nil
+		}
+		c.ChatGPT = func(context.Context) (ChatGPTLogin, error) {
+			reads.Add(1)
+			return ChatGPTLogin{AccessToken: accessTok, AccountID: accountID}, nil
+		}
+	}
+	hosts := append(policy.AnthropicHosts(), policy.ChatGPTHost)
+	for _, host := range hosts {
+		for _, m := range []string{"TRACE", "trace", "Trace", "TRACK", "track", "PROPFIND"} {
+			t.Run(host+" "+m, func(t *testing.T) {
+				reads.Store(0)
+				e, got := startIntercept(t, echo, cfg)
+				raw := m + " /v1/messages HTTP/1.1\r\nHost: " + host + "\r\n" + phBearer + phKey + "\r\n"
+				status, code, rec := e.call(t, host, raw)
+				if status != http.StatusForbidden || code != policy.CodeAPIWrite {
+					t.Fatalf("got %d %s, want 403 %s", status, code, policy.CodeAPIWrite)
+				}
+				if n := len(got.all()); n != 0 {
+					t.Errorf("a %s reached the upstream %d times", m, n)
+				}
+				if n := reads.Load(); n != 0 {
+					t.Errorf("the login was read %d times", n)
+				}
+				if rec.Injected != "" || rec.Refusal != policy.CodeAPIWrite || rec.Method != m {
+					t.Errorf("record %+v", rec)
+				}
+			})
+		}
+		t.Run(host+" allowed", func(t *testing.T) {
+			e, got := startIntercept(t, modelUpstream, cfg)
+			for i, m := range []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"} { // not HEAD: roundTrip would wait for a body
+				raw := m + " /v1/messages HTTP/1.1\r\nHost: " + host + "\r\n" + phBearer + "Content-Length: 0\r\n\r\n"
+				if status, code, _ := e.call(t, host, raw); status != http.StatusOK || code != "" {
+					t.Errorf("%s: got %d %s", m, status, code)
+				}
+				if all := got.all(); len(all) != i+1 || all[i].Header.Get("Authorization") == "" {
+					t.Errorf("%s: the upstream didn't get the credential", m)
+				}
+			}
+		})
+	}
+}
+
 // TestChatGPTWebSocket: codex's WebSocket upgrade on chatgpt.com carries the bearer and the
 // account id, and its bytes pass both ways.
 func TestChatGPTWebSocket(t *testing.T) {
@@ -303,16 +358,40 @@ func TestClassifyClient(t *testing.T) {
 	}
 }
 
-// TestModelLoginsRedact: no format verb and no slog handler prints a model credential.
+// TestModelLoginsRedact: no format verb, no slog handler and no JSON encoding prints a model
+// credential, on the value, inside a slice or map, or in an exported field of an enclosing
+// struct. %p on the value and an unexported enclosing field reach the fields through fmt's
+// reflection without calling a method, so they aren't asserted (the types' doc says so).
 func TestModelLoginsRedact(t *testing.T) {
-	var logs strings.Builder
-	l := slog.New(slog.NewJSONHandler(&logs, nil))
+	type outer struct{ Login any }
 	for _, v := range []any{AnthropicAuth{OAuthToken: oauthTok, APIKey: apiKey}, ChatGPTLogin{AccessToken: accessTok, AccountID: accountID}} {
-		s := fmt.Sprintf("%v %+v %#v %s %q", v, v, v, v, v)
-		l.Info("login", "v", v)
-		for _, out := range []string{s, logs.String()} {
-			if strings.Contains(out, secrets[0]) || strings.Contains(out, accountID) {
-				t.Errorf("printed a credential: %s", out)
+		var js, text strings.Builder
+		lj, lt := slog.New(slog.NewJSONHandler(&js, nil)), slog.New(slog.NewTextHandler(&text, nil))
+		nested := []any{v, []any{v}, map[string]any{"a": v}, outer{v}, &outer{v}}
+		for _, x := range append([]any{v}, nested...) {
+			lj.Info("login", "v", x)
+			lt.Info("login", "v", x)
+		}
+		outs := map[string]string{"json handler": js.String(), "text handler": text.String()}
+		for i, x := range append([]any{v}, nested...) {
+			outs[fmt.Sprintf("fmt %d", i)] = fmt.Sprintf("%v %+v %#v %s %q %x %d", x, x, x, x, x, x, x)
+			b, err := json.Marshal(x)
+			if err != nil {
+				t.Fatalf("json.Marshal %d: %v", i, err)
+			}
+			outs[fmt.Sprintf("json %d", i)] = string(b)
+		}
+		switch k := v.(type) { // the value as a map key goes through MarshalText
+		case AnthropicAuth:
+			b, err := json.Marshal(map[AnthropicAuth]int{k: 1})
+			outs["json key"] = fmt.Sprint(string(b), err)
+		case ChatGPTLogin:
+			b, err := json.Marshal(map[ChatGPTLogin]int{k: 1})
+			outs["json key"] = fmt.Sprint(string(b), err)
+		}
+		for name, out := range outs {
+			if strings.Contains(out, secrets[0]) || strings.Contains(out, accountID) || !strings.Contains(out, "redacted") {
+				t.Errorf("%T, %s: %s", v, name, out)
 			}
 		}
 	}

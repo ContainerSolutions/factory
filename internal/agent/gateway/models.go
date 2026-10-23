@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -30,7 +31,11 @@ const (
 )
 
 // AnthropicAuth is the Claude credential the Anthropic hosts get: exactly one of the OAuth
-// token (a subscription login) and the API key. Its String, Format and LogValue redact.
+// token (a subscription login) and the API key. String, Format, GoString, LogValue,
+// MarshalJSON and MarshalText redact, so fmt, slog (inside a slice or map too) and encoding/json
+// never print it. fmt's reflection paths call no method: %p on the value, and the value in an
+// unexported field of an enclosing struct, print the token. Pass it by pointer or hold it only in
+// exported fields.
 type AnthropicAuth struct{ OAuthToken, APIKey string }
 
 func (AnthropicAuth) String() string { return "gateway.AnthropicAuth{redacted}" }
@@ -38,11 +43,21 @@ func (AnthropicAuth) String() string { return "gateway.AnthropicAuth{redacted}" 
 // Format redacts every verb, %#v included.
 func (a AnthropicAuth) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, a.String()) }
 
+// GoString redacts.
+func (a AnthropicAuth) GoString() string { return a.String() }
+
 // LogValue redacts.
 func (a AnthropicAuth) LogValue() slog.Value { return slog.StringValue(a.String()) }
 
-// ChatGPTLogin is the codex login chatgpt.com gets: the access token and the account id. Its
-// String, Format and LogValue redact.
+// MarshalJSON is the redacted form as a JSON string.
+func (a AnthropicAuth) MarshalJSON() ([]byte, error) { return json.Marshal(a.String()) }
+
+// MarshalText is the redacted form (slog's text handler, encoding/xml, map keys).
+func (a AnthropicAuth) MarshalText() ([]byte, error) { return []byte(a.String()), nil }
+
+// ChatGPTLogin is the codex login chatgpt.com gets: the access token and the account id. It
+// redacts as AnthropicAuth does, with the same limits: pass it by pointer or hold it only in
+// exported fields.
 type ChatGPTLogin struct{ AccessToken, AccountID string }
 
 func (ChatGPTLogin) String() string { return "gateway.ChatGPTLogin{redacted}" }
@@ -50,13 +65,34 @@ func (ChatGPTLogin) String() string { return "gateway.ChatGPTLogin{redacted}" }
 // Format redacts every verb, %#v included.
 func (l ChatGPTLogin) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, l.String()) }
 
+// GoString redacts.
+func (l ChatGPTLogin) GoString() string { return l.String() }
+
 // LogValue redacts.
 func (l ChatGPTLogin) LogValue() slog.Value { return slog.StringValue(l.String()) }
+
+// MarshalJSON is the redacted form as a JSON string.
+func (l ChatGPTLogin) MarshalJSON() ([]byte, error) { return json.Marshal(l.String()) }
+
+// MarshalText is the redacted form (slog's text handler, encoding/xml, map keys).
+func (l ChatGPTLogin) MarshalText() ([]byte, error) { return []byte(l.String()), nil }
+
+// modelMethods are the methods the model hosts take, exactly as sent (Go keeps a method's case):
+// any other (TRACE and TRACK, which echo the request back, in any case) is api-write.
+var modelMethods = map[string]bool{
+	http.MethodGet: true, http.MethodHead: true, http.MethodPost: true, http.MethodPut: true,
+	http.MethodPatch: true, http.MethodDelete: true, http.MethodOptions: true,
+}
 
 // routeCredentials is the class's rule and the headers to set after the carriers are stripped:
 // the model hosts' (anthropicRoute, chatgptRoute), else routeIntercepted's Authorization. It answers a refusal
 // itself and returns ok false then.
 func (g *Gateway) routeCredentials(w http.ResponseWriter, r *http.Request, d policy.Decision, rec *Record) (http.Header, bool) {
+	if (d.Class == policy.Anthropic || d.Class == policy.ChatGPT) && !modelMethods[r.Method] {
+		// Before a credential is read: TRACE reflects the request, the injected header included.
+		rec.Status, rec.Refusal = writeRefusal(w, policy.CodeAPIWrite, "")
+		return nil, false
+	}
 	switch d.Class {
 	case policy.Anthropic:
 		return g.anthropicRoute(w, r, rec)

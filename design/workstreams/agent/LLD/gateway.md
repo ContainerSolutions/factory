@@ -68,7 +68,7 @@ type Config struct {
     UpstreamRoots *x509.CertPool   // default: the system roots; tests: their httptest CAs. Also the dispatcher's
     Limits        Limits           // zero: the defaults below
 }
-type AnthropicAuth struct{ OAuthToken, APIKey string } // exactly one; String, Format and LogValue redact
+type AnthropicAuth struct{ OAuthToken, APIKey string } // exactly one; String, Format, GoString, LogValue, MarshalJSON and MarshalText redact
 type ChatGPTSource interface {
     Current(ctx context.Context) (chatgpt.Token, error)                  // refreshed ahead of expiry
     Unauthorized(ctx context.Context, used chatgpt.Token) (chatgpt.Token, error) // after an upstream 401
@@ -98,8 +98,8 @@ Host names are compared lower-cased and without a trailing dot, exactly (no suff
 
 | Host | Methods and paths | Credential | Refused |
 |---|---|---|---|
-| `api.anthropic.com`, `claude.ai`, `console.anthropic.com`, `platform.claude.com` | all | the request carried `Authorization` or `X-Api-Key` (present, whatever its value): every carrier is stripped, then `Authorization: Bearer <OAuthToken>` or `X-Api-Key: <APIKey>`, per the gateway's `AnthropicAuth`, not per the carrier the VM used. No carrier: stripped and forwarded without one (Phase 0: event logging and the MCP registry are called that way). `Cookie`: [filtered](#carriers-and-cookies) | — |
-| `chatgpt.com` | all, the WebSocket upgrade included | `ChatGPT-Account-Id: <account>` set from `ChatGPT.Current` on every request while a login exists, as gw.py did (an identifier, not a credential). With `Authorization` present: carriers stripped and `Authorization: Bearer <access>` set from `ChatGPT.Current`. A 401 is retried once ([refresh](#chatgpt-refresh)). Without it: stripped, no credential. `Cookie`: [filtered](#carriers-and-cookies) | — |
+| `api.anthropic.com`, `claude.ai`, `console.anthropic.com`, `platform.claude.com` | `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` (exactly as sent) | the request carried `Authorization` or `X-Api-Key` (present, whatever its value): every carrier is stripped, then `Authorization: Bearer <OAuthToken>` or `X-Api-Key: <APIKey>`, per the gateway's `AnthropicAuth`, not per the carrier the VM used. No carrier: stripped and forwarded without one (Phase 0: event logging and the MCP registry are called that way). `Cookie`: [filtered](#carriers-and-cookies) | any other method (`TRACE` and `TRACK` echo the request, the injected credential included, in any case): 403 `api-write`, before the login is read |
+| `chatgpt.com` | the same methods, the WebSocket upgrade included | `ChatGPT-Account-Id: <account>` set from `ChatGPT.Current` on every request while a login exists, as gw.py did (an identifier, not a credential). With `Authorization` present: carriers stripped and `Authorization: Bearer <access>` set from `ChatGPT.Current`. A 401 is retried once ([refresh](#chatgpt-refresh)). Without it: stripped, no credential. `Cookie`: [filtered](#carriers-and-cookies) | as the Anthropic hosts |
 | `auth.openai.com` | none | — | every CONNECT and plain request: 403 `auth-host` |
 | `github.com` | see [github.com](#githubcom) | `Basic x-access-token:<token>` by the repo in the path | receive-pack for a repo that isn't rw, malformed git requests, non-`GET`/`HEAD` web requests |
 | `api.github.com` | `GET`, `HEAD`, any path but `/graphql` (in any spelling: it can't be checked there); `POST /graphql` (exactly, no query) when the body is a read ([GraphQL](#graphql-reads)) | `Authorization: Bearer <task token>` (the lease's `gitCredential`); none when it's empty | every other request: 403 `api-write` |

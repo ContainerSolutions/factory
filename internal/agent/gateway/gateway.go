@@ -59,11 +59,12 @@ type Config struct {
 	// Anthropic returns the Claude credential (exactly one of its fields) the Anthropic hosts
 	// get, read on every request that carried a carrier, so the supervisor hands it in from its
 	// login store; nil: none (a codex task's gateway). A value returned with an error is still
-	// used; none is no-login.
+	// used; none is no-login. The gateway logs its error, which must never hold a credential.
 	Anthropic func(ctx context.Context) (AnthropicAuth, error)
 	// ChatGPT returns the codex login chatgpt.com gets, read on every request; nil: none (a
 	// claude task's gateway). A token returned with an error is still sent (its 401 shows in the
 	// record); no token is no-login. The PoC doesn't refresh it: the owner re-imports the login.
+	// The gateway logs its error, which must never hold a credential.
 	ChatGPT func(ctx context.Context) (ChatGPTLogin, error)
 	// UpstreamRoots verifies the intercepted hosts' upstreams, and an https dispatcher; default
 	// the system roots.
