@@ -226,6 +226,8 @@ const ReasonEnvironmentError = "environment-error" // in internal/agent/runner, 
 | `FACTORY_RUNTIME` | `workspace` |
 | `DOCKER_CONFIG` | `<state>/docker`, with a `config.json` that has **no** `proxies` key (decided 2026-10-22, risk 13): containers get no proxy variables, so calls between compose services by name stay direct. Containers therefore have no internet egress; image pulls still work through dockerd's own proxy below |
 | `XDG_DATA_HOME` | the run user's own `~/.local/share` (from the passwd entry): the pipeline's scratch `HOME` would hide the gh extensions the base installed for `admin` |
+| `PLAYWRIGHT_BROWSERS_PATH` | `/opt/ms-playwright` (`PlaywrightBrowsersPath`), where the base installed Playwright's Chromium: the scratch `HOME` would hide `~/.cache/ms-playwright` |
+| `VHS_NO_SANDBOX` | `1`: vhs starts Chromium without its sandbox, which Ubuntu 24.04's AppArmor keeps from user namespaces (Playwright turns it off itself); the VM is the task's sandbox |
 
 `config.json` and the CA bundle are written before the environment's `setup` runs.
 
@@ -307,6 +309,7 @@ Checked against [workspace-host.md](workspace-host.md#the-vm-steps-p1-2):
 | the pinned claude and codex | `/usr/local/bin/claude` (2.1.304), `/usr/local/bin/codex` (rust-v0.163.0) |
 | root when needed | `admin` with passwordless sudo |
 | gh with its extensions | gh and the pinned `gh-pr-review`, `gh-stack` for `admin` (found through `XDG_DATA_HOME`) |
+| docs-gif's GIF tools | Playwright 1.63.0 (`npx --no playwright`, `npm root -g`) with its Chromium in `/opt/ms-playwright` (found through `PLAYWRIGHT_BROWSERS_PATH`), vhs with ttyd, ffmpeg, gifski |
 | kind images | the warm base's `/var/lib/factory/kind-images/*.tar` (`FACTORY_KIND_IMAGES`); the base has the empty directory |
 
 ### Phase 4's gateway

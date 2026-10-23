@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
+	"github.com/compliance-framework/factory/internal/agent/vmrun"
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
@@ -1008,7 +1009,12 @@ func TestProvisionScript(t *testing.T) {
 		"--allow-scripts=@anthropic-ai/claude-code",
 		"DOCKER_KEY_SHA256=1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570",
 		"GH_KEY_SHA256=6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b",
-		"sudo systemctl mask apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service unattended-upgrades.service"} {
+		"sudo systemctl mask apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service unattended-upgrades.service",
+		// docs-gif's tools; the in-VM runtime exports the browsers' directory.
+		"PLAYWRIGHT_BROWSERS=" + vmrun.PlaywrightBrowsersPath + "\n",
+		"VHS_VERSION=v0.12.1", "VHS_SHA256=0b27029809fcc2ca2c381cceb854cbe03479a0f229b963e9bc3a2f2c36ffd3e7",
+		"GIFSKI_VERSION=1.34.0", "GIFSKI_SHA256=c246c795a61d4a2476fb1c8ab70bedfaa825c734882adc40e117fc837df81190",
+		"cargo install --locked", "\tsection_gif_tools\n"} {
 		if !bytes.Contains(provisionScript, []byte(w)) {
 			t.Errorf("the script lacks %q", w)
 		}

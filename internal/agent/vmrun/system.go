@@ -99,6 +99,11 @@ const (
 	daemonJSON  = "/etc/docker/daemon.json"
 )
 
+// PlaywrightBrowsersPath is where the base VM installs Playwright's Chromium
+// (provision/base.sh's PLAYWRIGHT_BROWSERS). Setup exports it as PLAYWRIGHT_BROWSERS_PATH:
+// Playwright's default, ~/.cache/ms-playwright, is under the pipeline's scratch HOME.
+const PlaywrightBrowsersPath = "/opt/ms-playwright"
+
 // tmpSuffix names the temp file beside a system file that SetupOn installs and then renames
 // over it: /etc/docker/.daemon.json.factory-tmp.
 const tmpSuffix = ".factory-tmp"
@@ -228,6 +233,11 @@ func (s System) Setup(ctx context.Context, b *runbundle.Bundle, proxy *url.URL, 
 		"GH_TOKEN":            harness.Placeholder,
 		pipeline.EnvRuntime:   pipeline.RuntimeWorkspace,
 		"DOCKER_CONFIG":       docker,
+		// docs-gif's tools in the base (provision/base.sh): Playwright's browsers, and vhs's
+		// Chromium without its sandbox, which Ubuntu 24.04's AppArmor keeps from user
+		// namespaces (Playwright turns it off itself). The VM is the task's sandbox.
+		"PLAYWRIGHT_BROWSERS_PATH": PlaywrightBrowsersPath,
+		"VHS_NO_SANDBOX":           "1",
 	}
 	// The pipeline's scratch HOME would hide the gh extensions the base installed for the
 	// run's user under its own ~/.local/share.
