@@ -22,6 +22,7 @@ var commands = []command{
 	stackCommand(),
 	hostCommand(),
 	runCommand(),
+	loginCommand(),
 }
 
 // command is one subcommand. run gets the arguments after the subcommand's name and returns

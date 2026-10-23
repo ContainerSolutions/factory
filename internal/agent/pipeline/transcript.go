@@ -31,9 +31,11 @@ var secretPatterns = []*regexp.Regexp{
 var authHeaderRE = regexp.MustCompile(`(?i)((?:proxy-)?authorization["']?\s*[:=]\s*["']?)(?:(?:basic|bearer|token|digest)\s+)?[^\s"'\\,;]+`)
 
 // redactor removes secrets: the run's own (the git tokens, read-only and refreshed ones
-// included, and the agent token) and anything shaped like one.
+// included, and the agent token), any extra ones (the supervisor's model logins) and anything
+// shaped like one.
 type redactor struct {
-	job *runner.Job
+	job   *runner.Job
+	extra []string
 }
 
 func newRedactor(job *runner.Job) *redactor { return &redactor{job: job} }
@@ -41,8 +43,13 @@ func newRedactor(job *runner.Job) *redactor { return &redactor{job: job} }
 // secrets are the run's current secrets.
 func (r *redactor) secrets() []string {
 	var out []string
+	for _, t := range r.extra {
+		if len(t) >= 4 {
+			out = append(out, t)
+		}
+	}
 	if r.job == nil {
-		return nil
+		return out
 	}
 	if r.job.Git != nil {
 		if t := r.job.Git.Get().Token; len(t) >= 4 {
@@ -65,6 +72,13 @@ func (r *redactor) secrets() []string {
 // RedactShapes redacts s by the token shapes alone, as a run that holds no token of its own
 // (a VM workspace's) does.
 func RedactShapes(s string) string { return newRedactor(nil).String(s) }
+
+// Redact redacts s as the run's redactor does: job's secrets (its git tokens and its agent
+// token, read now), extra (secrets the job doesn't hold, such as the supervisor's model
+// logins) and every token shape. The supervisor redacts what a VM workspace reports with it.
+func Redact(job *runner.Job, s string, extra ...string) string {
+	return (&redactor{job: job, extra: extra}).String(s)
+}
 
 // String redacts s.
 func (r *redactor) String(s string) string {
@@ -172,6 +186,19 @@ func buildTranscript(parts [][]byte, red *redactor, limit int64) ([]byte, error)
 		return nil, fmt.Errorf("transcript: %d bytes over the %d-byte cap", buf.Len(), limit)
 	}
 	return buf.Bytes(), nil
+}
+
+// StoreTranscript is the host's transcript step for a run that happened elsewhere (a VM
+// workspace's, whose transcript the supervisor holds as untrusted data): parts' lines are
+// redacted with job's secrets and extra, capped at TranscriptLimit as buildTranscript does,
+// and handed to the TranscriptStore (APITranscripts: PUT /runs/{id}/transcript). It returns
+// the reference.
+func (p *Pipeline) StoreTranscript(ctx context.Context, job *runner.Job, parts [][]byte, extra ...string) (string, error) {
+	body, err := buildTranscript(parts, &redactor{job: job, extra: extra}, p.o.TranscriptLimit)
+	if err != nil {
+		return "", err
+	}
+	return p.o.Transcripts.Store(ctx, job, body)
 }
 
 // storeTranscript builds the run's transcript and hands it to the TranscriptStore
