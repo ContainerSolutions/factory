@@ -1,0 +1,2 @@
+lisa-design:
+Option (a) over (b): the host collects only outcome.json + transcript.jsonl.gz (what it reads). Changes only the darwin supervisor and the Driver interface; no guest-runtime change, no host/guest version skew, FACTORY_OUT layout (result.json, .effector-seq, codex writable roots, prompts) untouched. Get keeps a whole-dir mode (no names) so existing callers/tests stay as they are. Relies on GNU tar (base VM: Ubuntu 24.04) --ignore-failed-read for the missing-transcript case.
