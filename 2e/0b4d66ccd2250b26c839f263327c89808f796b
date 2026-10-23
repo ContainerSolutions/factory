@@ -1,0 +1,7 @@
+lisa-selfreview:
+Self-review (one lenient pass, PoC rules): no blocker/must-fix.
+Deferred (nit): decodeStringFields would also decode a summary whose whole text is a JSON
+array/object; only on the refused path, and the pipeline then validates (and repairs), so harmless.
+Checked: rate limit, limits and fatal still win over the structured-failed exit (earlier cases);
+an accepted structured output is untouched (existing goldens unchanged); Repair goes through exec,
+so it gets the same exit handling and decoding.
