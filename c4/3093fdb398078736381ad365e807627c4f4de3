@@ -1,2 +1,5 @@
 lisa-selfreview:
 Pass 1 (lenient, final): approve, no findings. Checked against core + repo/factory rules: no permissions/effects/identity/hosts change (FACTORY-CAT-002 not triggered); no secrets (admin@example.com/password are local-dev's demo values, owner-approved); render goldens regenerated (CORE-GEN-001); the two environments stay equal (TestWorkspace); rules test 66/66; validate 0 errors, 23 warnings as on main. Up/down scripts pass bash -n.
+
+lisa-design:
+CCF_IMAGES=file is exported unconditionally, not only when FACTORY_VERSION_* is set: the showcase path ran scripts/do directly (no resolve-images), so it always ran the file pins; make demo-up-slate runs resolve-images-slate, and its default (latest) would look every release up on api.github.com from the VM. The retry is `make demo-up-slate || make demo-up-slate`: compose up, create-user, wait-for-api and register-agents are all idempotent. demo-rc-apply writes only under $TMPDIR (agent-remote-config.sh, ccf-api.sh), so the agent runs it against the ro checkout (same user as the environment scripts, admin) with an overlay of its own under $FACTORY_OUT/$TMPDIR; OVERLAY must be absolute (make -C).
