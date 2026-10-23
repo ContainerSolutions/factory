@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"regexp"
 	"strings"
 
@@ -73,6 +72,24 @@ func (r *redactor) String(s string) string {
 	}
 	return authHeaderRE.ReplaceAllString(s, "${1}"+Redacted)
 }
+
+// Error redacts err's text: the result's Error() is the redacted text, and it unwraps to
+// err, so errors.Is and errors.As still match. nil stays nil.
+func (r *redactor) Error(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &redactedError{msg: r.String(err.Error()), err: err}
+}
+
+// redactedError is an error whose text was redacted; it wraps the original.
+type redactedError struct {
+	msg string
+	err error
+}
+
+func (e *redactedError) Error() string { return e.msg }
+func (e *redactedError) Unwrap() error { return e.err }
 
 // factoryLine is a transcript line the pipeline itself writes.
 func factoryLine(event string, data map[string]any) []byte {
@@ -153,24 +170,19 @@ func buildTranscript(parts [][]byte, red *redactor, limit int64) ([]byte, error)
 	return buf.Bytes(), nil
 }
 
-// uploadTranscript uploads the run's transcript (PUT /runs/{id}/transcript) and returns its
-// reference; "" when the lease names no run.
-func (r *run) uploadTranscript(ctx context.Context) (string, error) {
-	runID := r.job.Lease.Lease.Run
-	if runID == nil || *runID == "" || r.job.API == nil {
-		return "", nil
-	}
+// storeTranscript builds the run's transcript and hands it to the TranscriptStore
+// (APITranscripts: PUT /runs/{id}/transcript), returning its reference.
+func (r *run) storeTranscript(ctx context.Context) (string, error) {
 	body, err := buildTranscript(r.parts, r.red, r.p.o.TranscriptLimit)
 	if err != nil {
 		return "", err
 	}
-	res, err := r.job.API.UploadTranscriptWithBodyWithResponse(ctx, *runID, "application/gzip", bytes.NewReader(body))
+	ref, err := r.p.o.Transcripts.Store(ctx, r.job, body)
 	if err != nil {
-		return "", fmt.Errorf("PUT /runs/%s/transcript: %w", *runID, err)
+		return "", err
 	}
-	if res.StatusCode() != http.StatusOK || res.JSON200 == nil {
-		return "", apiError("PUT /runs/"+*runID+"/transcript", res.StatusCode(), res.Body)
+	if ref != "" {
+		r.log.Info("transcript uploaded", "bytes", len(body))
 	}
-	r.log.Info("transcript uploaded", "bytes", res.JSON200.Bytes)
-	return res.JSON200.TranscriptRef, nil
+	return ref, nil
 }

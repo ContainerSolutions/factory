@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -29,7 +28,7 @@ type APISchemas struct{}
 // OutputSchema implements SchemaSource.
 func (APISchemas) OutputSchema(ctx context.Context, job *runner.Job) ([]byte, error) {
 	if job.API == nil {
-		return nil, errors.New("no dispatcher client")
+		return nil, errNoClient
 	}
 	id := job.TaskID()
 	op := "GET /tasks/" + id + "/output-schema"

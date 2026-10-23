@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -52,27 +51,21 @@ type contextItem struct {
 	dir     string // the checkout, for repo items
 }
 
-// renderPrompt fetches the rendered template and the context items and puts the prompt
-// together (run-pipeline.md §Steps 6). Ticket context items are also written to
-// tickets/<owner>-<repo>-<n>.md for ticket-based skills.
+// renderPrompt fetches the rendered template and the context items through the PromptSource
+// and puts the prompt together (run-pipeline.md §Steps 6). Ticket context items are also
+// written to tickets/<owner>-<repo>-<n>.md for ticket-based skills.
 func (r *run) renderPrompt(ctx context.Context) error {
-	api := r.job.API
-	if api == nil {
-		return fmt.Errorf("no dispatcher client")
-	}
-	res, err := api.GetTaskPromptWithResponse(ctx, r.id)
+	src := r.p.o.Prompts
+	raw, err := src.Prompt(ctx, r.job)
 	if err != nil {
-		return fmt.Errorf("GET /tasks/%s/prompt: %w", r.id, err)
+		return err
 	}
-	if res.StatusCode() != http.StatusOK {
-		return apiError("GET /tasks/"+r.id+"/prompt", res.StatusCode(), res.Body)
-	}
-	if len(res.Body) > maxPrompt {
+	if len(raw) > maxPrompt {
 		return fmt.Errorf("the prompt is over %d bytes", maxPrompt)
 	}
-	body := string(res.Body)
+	body := string(raw)
 	if p := r.task.Spec.Prompt; p != nil && p.Digest != "" {
-		sum := sha256.Sum256(res.Body)
+		sum := sha256.Sum256(raw)
 		if got := "sha256:" + hex.EncodeToString(sum[:]); got != p.Digest {
 			return fmt.Errorf("the prompt's digest is %s, the task says %s", got, p.Digest)
 		}
@@ -95,22 +88,19 @@ func (r *run) renderPrompt(ctx context.Context) error {
 			items = append(items, it)
 			continue
 		}
-		cres, err := api.GetTaskContextWithResponse(ctx, r.id, i)
-		if err != nil {
-			return fmt.Errorf("GET /tasks/%s/context/%d: %w", r.id, i, err)
-		}
+		tc, gone, err := src.Context(ctx, r.job, i)
 		switch {
-		case cres.StatusCode() == http.StatusNotFound:
+		case err != nil:
+			return err
+		case gone:
 			it.gone = true
-		case cres.StatusCode() != http.StatusOK || cres.JSON200 == nil:
-			return apiError(fmt.Sprintf("GET /tasks/%s/context/%d", r.id, i), cres.StatusCode(), cres.Body)
 		default:
-			if len(cres.JSON200.Content) > maxContext {
+			if len(tc.Content) > maxContext {
 				return fmt.Errorf("context item %d is over %d bytes", i, maxContext)
 			}
-			it.content = cres.JSON200.Content
-			if cres.JSON200.Trust != "" {
-				it.trust = cres.JSON200.Trust
+			it.content = tc.Content
+			if tc.Trust != "" {
+				it.trust = tc.Trust
 			}
 		}
 		items = append(items, it)
