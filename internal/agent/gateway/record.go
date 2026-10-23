@@ -39,7 +39,7 @@ type Record struct {
 	Port     uint16
 	Path     string // the URL path only, cut at 512 bytes; empty for CONNECT and tunnels
 	Status   int    // the status the client got; 0 for a connection closed without one
-	Injected string // the credential the gateway added; "" in the proxy core
+	Injected string // the credential the gateway added: git:<owner>/<repo>, github-api, dispatcher-token or ""
 	Client   string // the VM's carriers (none, placeholder, other): classified by PR 8, "" here
 	Refusal  policy.Code
 	Up, Down int64 // bytes from the client and to it (bodies, or a tunnel's streams)

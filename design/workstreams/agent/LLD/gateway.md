@@ -56,7 +56,7 @@ type Config struct {
     Clients       []netip.Addr     // the VM's exact addresses (IPv4-mapped unmapped); any other peer is closed. Required
     CA            *ca.CA           // required
     Git           *runner.Credentials // the job's; nil: none. Read on every request, so heartbeats' Set/SetReads apply at once
-    RunToken      string           // the lease's runToken (#101); required
+    DispatcherToken func() string  // read on every request; required. PoC: the worker's agent token; the lease's runToken (#101) when it lands
     Dispatcher    *url.URL         // the supervisor's dispatcher base URL (http or https), required; its own transport
     Anthropic     *AnthropicAuth   // nil: none. Only for a claude task
     ChatGPT       ChatGPTSource    // nil: none. Only for a codex task (*chatgpt.Refresher)
@@ -88,9 +88,9 @@ func (g *Gateway) Close() error                     // idempotent; see [Close](#
 ```
 
 - **The supervisor (phase 5)**, per lease: loads the CA (`ca.Load`, so a rotated CA applies to the next workspace without a restart), builds the `Config` from the job, `net.Listen("tcp", <gateway address>:<workspace.gatewayPort>)` after the driver's `Start`, runs `Serve` in a goroutine, and closes the gateway after `Destroy`. It gives a gateway only its task's model credential: a claude task's gateway has no ChatGPT login, and a codex task's has no Claude token.
-- **Lease refresh needs no new call.** The worker's heartbeat already swaps refreshed git tokens into `job.Git` (`Set`, `SetReads`), and the gateway reads it on every request, as `gitcred` does. The run token isn't refreshed: it lives exactly as long as the lease (#101).
+- **Lease refresh needs no new call.** The worker's heartbeat already swaps refreshed git tokens into `job.Git` (`Set`, `SetReads`), and the gateway reads it on every request, as `gitcred` does. `DispatcherToken` is read on every request too, so a re-registered agent token applies at once; the run token (#101), when it replaces it, lives exactly as long as the lease.
 - **The git host is `github.com`** (`policy.GitHost`), not a knob: the CA's name constraints list it ([the CA](#the-ca)), so another host (GitHub Enterprise) would need a new CA and a contract for it. Credentials whose `host` isn't `github.com` are never used.
-- `New` refuses: an empty `TaskID`, `RunID`, `RunToken`, `Clients` or `Sink`; an invalid `Clients` address (unspecified, with a zone); an `AllowHosts` entry `v1alpha1.ValidateHost` refuses; a `Dispatcher` that isn't an absolute http(s) URL without user info, query or fragment; an `AnthropicAuth` with neither or both fields; `RunToken` equal to `harness.Placeholder`. Errors are `*ConfigError{Field}` and never carry a value.
+- `New` refuses: an empty `TaskID`, `RunID`, `Clients` or `Sink`; a nil `DispatcherToken`; an invalid `Clients` address (unspecified, with a zone); an `AllowHosts` entry `v1alpha1.ValidateHost` refuses; a `Dispatcher` that isn't an absolute http(s) URL without user info, query or fragment; an `AnthropicAuth` with neither or both fields. Errors are `*ConfigError{Field}` and never carry a value.
 
 ## The host table
 
@@ -102,8 +102,8 @@ Host names are compared lower-cased and without a trailing dot, exactly (no suff
 | `chatgpt.com` | all, the WebSocket upgrade included | `ChatGPT-Account-Id: <account>` set from `ChatGPT.Current` on every request while a login exists, as gw.py did (an identifier, not a credential). With `Authorization` present: carriers stripped and `Authorization: Bearer <access>` set from `ChatGPT.Current`. A 401 is retried once ([refresh](#chatgpt-refresh)). Without it: stripped, no credential. `Cookie`: [filtered](#carriers-and-cookies) | — |
 | `auth.openai.com` | none | — | every CONNECT and plain request: 403 `auth-host` |
 | `github.com` | see [github.com](#githubcom) | `Basic x-access-token:<token>` by the repo in the path | receive-pack for a repo that isn't rw, malformed git requests, non-`GET`/`HEAD` web requests |
-| `api.github.com` | `GET`, `HEAD`, any path | `Authorization: Bearer <task token>` (the lease's `gitCredential`); none when it's empty | every other method: 403 `api-write` |
-| `dispatcher.factory.internal` (`runbundle.DefaultDispatcherURL`) | absolute-form `http` only, on port 80 (another port is `dispatcher-route`); see [the dispatcher](#the-dispatcher) | `Authorization: Bearer <RunToken>` | every other route: 403 `dispatcher-route`; CONNECT: 403 `plain-only` |
+| `api.github.com` | `GET`, `HEAD`, any path but `/graphql` (in any spelling: it can't be checked there); `POST /graphql` (exactly, no query) when the body is a read ([GraphQL](#graphql-reads)) | `Authorization: Bearer <task token>` (the lease's `gitCredential`); none when it's empty | every other request: 403 `api-write` |
+| `dispatcher.factory.internal` (`runbundle.DefaultDispatcherURL`) | absolute-form `http` only, on port 80 (another port is `dispatcher-route`); see [the dispatcher](#the-dispatcher) | `Authorization: Bearer <DispatcherToken()>` | every other route: 403 `dispatcher-route`; CONNECT: 403 `plain-only` |
 | everything else | CONNECT: a tunnel; absolute-form `http`: forwarded | none; only `Proxy-Authorization` is dropped | the [egress check](#egress) |
 
 ### Carriers and cookies
@@ -160,6 +160,10 @@ The repo's access comes from `Config.Git` at the time of the request, only from 
 | web, any other method | 403 `web-write` | 403 `web-write` | 403 `web-write` |
 
 These are the fake's rows (rw repos pass any git request, read and unknown repos only the two exact fetch forms), plus the web rows. Refusals happen before any upstream is dialled. Pushing to a read repo is refused at `info/refs`, before GitHub sees it (Phase 0's check). A web request never carries a credential: GitHub's web paths don't need one for public content, and a release asset of a private repo goes through api.github.com.
+
+### GraphQL reads
+
+**Decided (2026-10-22, owner):** lisa and gh read through GraphQL, so `POST /graphql` on api.github.com passes when it only reads; GitHub writes from the VM stay on the `factory` CLI (the Effector). The request must have exactly one Content-Type, `application/json`, and no Content-Encoding but `identity`; the body at most 1 MiB, valid UTF-8, one JSON object (no batch array, no trailing data, no key twice under any case) with only `query` (a non-empty string), `variables` and `operationName`. The document is lexed (comments, strings and block strings skipped; a lexical error refuses it), and outside every bracket each definition must start with `{`, `query` or `fragment`, and no name may be `mutation` or `subscription` in any case (so an operation named `mutation` is refused too). Anything else is 403 `api-write`, before the upstream is dialled; the checked bytes are what's forwarded, with `Content-Type: application/json` and no Content-Encoding.
 
 ### The dispatcher
 
@@ -260,7 +264,7 @@ Every request, refusals included, is one `Record`. The supervisor (phase 5) writ
 ```
 
 - **`mode`** says where the request was handled: `connect` (an intercepted host's CONNECT itself), `intercept` (a request inside one), `tunnel` (any other CONNECT: one line per tunnel, written when it closes, with its bytes), `forward` (plain HTTP), `dispatcher` or `accept` (a peer outside `Clients`). A non-empty `refusal` marks a refusal, whatever the mode.
-- **`injected`:** `""`, `anthropic-oauth`, `anthropic-key`, `chatgpt`, `git:<owner>/<repo>`, `github-api` or `run-token`. **`refusal`:** one of the codes in the tables above.
+- **`injected`:** `""`, `anthropic-oauth`, `anthropic-key`, `chatgpt`, `git:<owner>/<repo>`, `github-api` or `dispatcher-token`. **`refusal`:** one of the codes in the tables above.
 - **`path`:** the URL path only, never the query, cut at 512 bytes on a UTF-8 boundary; empty for CONNECT and tunnels.
 - **What is never logged:** header values, bodies, queries, or the resolved addresses.
 - **Upgrades** are logged with status 101 when they end. `at` is the request's start, on the injected clock; `ms` is its duration.
@@ -348,7 +352,7 @@ Phase 8's first codex run through the real gateway checks 3, 4, 6 and 8; phase 5
 
 ## Risks and open questions
 
-1. **gh's GraphQL reads are refused.** `gh pr view` and the `gh-pr-review` extension `POST /graphql`, which "GET only" refuses. Telling a query from a mutation means parsing the VM's GraphQL, which the PoC doesn't do. **Decided (2026-10-22):** refused for the PoC; phase 7's skills read through REST or the factory CLI.
+1. **gh's GraphQL reads.** `gh pr view` and the `gh-pr-review` extension `POST /graphql`. **Decided (2026-10-22, revised):** queries pass ([GraphQL reads](#graphql-reads)); mutations and subscriptions are refused, and GitHub writes stay on the factory CLI.
 2. **The ChatGPT refresh is UNVERIFIED** ([the list](#unverified-the-one-list)), and if the owner keeps using the same login in their own codex, one side ends up holding a spent refresh token (P1 §5: log in again and re-import).
 3. **Name constraints tie the CA to the host list:** adding a host makes the `gatewayca` check `outdated`, and the next `init` or `supervise` rotates the CA.
 4. **Name-constrained roots** must be accepted by every client in the VM: claude's runtime (BoringSSL), codex (rustls), git (GnuTLS on Ubuntu), Node and Python (OpenSSL). All of them implement the extension, but none was tried with it in Phase 0, whose CA was mitmproxy's unconstrained one. PR 4's tests run Go's verifier and PR 10's end-to-end test adds git's (the real `git` binary through the gateway); phase 8's first run checks claude and codex. **Decided (2026-10-22):** the name-constrained CA stays, with this fallback: if a client refuses only the URI or email subtrees, `Generate` drops those first; if it refuses the constraints, `Generate` drops them all (constants) and the CA rotates, and the key's 0600 file is then the only protection, as in P1.

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,7 +26,7 @@ import (
 var update = flag.Bool("update", false, "rewrite the goldens under testdata/")
 
 func TestNewRefuses(t *testing.T) {
-	ok := Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2"), Sink: &sink{t: t}, CA: testCA(t)}
+	ok := Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2"), Sink: &sink{t: t}, CA: testCA(t), Dispatcher: testDispatcher, DispatcherToken: noToken}
 	tests := []struct {
 		name, field string
 		mut         func(*Config)
@@ -35,6 +36,11 @@ func TestNewRefuses(t *testing.T) {
 		{"no CA", "CA", func(c *Config) { c.CA = nil }},
 		{"unspecified client", "Clients[0]", func(c *Config) { c.Clients = addrs("0.0.0.0") }},
 		{"bad allow host", "Egress.AllowHosts[0]", func(c *Config) { c.Egress.AllowHosts = []string{"localhost"} }},
+		{"no dispatcher", "Dispatcher", func(c *Config) { c.Dispatcher = nil }},
+		{"dispatcher with a query", "Dispatcher", func(c *Config) { c.Dispatcher = &url.URL{Scheme: "http", Host: "h", RawQuery: "a=b"} }},
+		{"dispatcher with user info", "Dispatcher", func(c *Config) { c.Dispatcher = &url.URL{Scheme: "https", Host: "h", User: url.User("u")} }},
+		{"dispatcher not http", "Dispatcher", func(c *Config) { c.Dispatcher = &url.URL{Scheme: "ftp", Host: "h"} }},
+		{"no dispatcher token", "DispatcherToken", func(c *Config) { c.DispatcherToken = nil }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -53,7 +59,7 @@ func TestNewRefuses(t *testing.T) {
 }
 
 func TestClientPin(t *testing.T) {
-	g, err := New(Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2"), Sink: &sink{t: t}, CA: testCA(t)})
+	g, err := New(Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2"), Sink: &sink{t: t}, CA: testCA(t), Dispatcher: testDispatcher, DispatcherToken: noToken})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +80,7 @@ func TestClientPin(t *testing.T) {
 	}
 
 	t.Run("the host's own address is refused by Serve", func(t *testing.T) {
-		g, err := New(Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2", "192.168.64.1"), Sink: &sink{t: t}, CA: testCA(t)})
+		g, err := New(Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2", "192.168.64.1"), Sink: &sink{t: t}, CA: testCA(t), Dispatcher: testDispatcher, DispatcherToken: noToken})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -239,7 +245,7 @@ func TestRefusals(t *testing.T) {
 		{"nothing listening", "CONNECT echo.test:" + closedPort + " HTTP/1.1\r\nHost: x\r\n\r\n", policy.CodeUpstream, ModeTunnel, ""},
 		{"intercepted, another port", "CONNECT api.anthropic.com:8443 HTTP/1.1\r\nHost: x\r\n\r\n", policy.CodePort, ModeConnect, ""},
 		{"auth host", "CONNECT auth.openai.com:443 HTTP/1.1\r\nHost: x\r\n\r\n", policy.CodeAuthHost, ModeConnect, ""},
-		{"dispatcher (PR 7)", "POST http://dispatcher.factory.internal/api/v1/tasks/task-1/effects HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n", policy.CodeDispatcherRoute, ModeDispatcher, ""},
+		{"dispatcher, another task", "POST http://dispatcher.factory.internal/api/v1/tasks/task-2/effects HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n", policy.CodeDispatcherRoute, ModeDispatcher, ""},
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

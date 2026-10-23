@@ -46,9 +46,8 @@ func (g *Gateway) plain(w http.ResponseWriter, r *http.Request, start time.Time)
 	case policy.Forward:
 		g.forwardPlain(w, r, &rec)
 	case policy.ToDispatcher:
-		// The dispatcher route and its transport are PR 7's: until then the route is closed.
 		rec.Mode = ModeDispatcher
-		rec.Status, rec.Refusal = writeRefusal(w, policy.CodeDispatcherRoute, "")
+		g.toDispatcher(w, r, &rec)
 	default:
 		rec.Status, rec.Refusal = writeRefusal(w, d.Refusal, "")
 	}

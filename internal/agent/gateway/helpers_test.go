@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -124,6 +125,11 @@ func addrs(ss ...string) []netip.Addr {
 
 var loopback = netip.MustParseAddr("127.0.0.1")
 
+// testDispatcher is the dispatcher of the tests that don't reach it; noToken its token.
+var testDispatcher = &url.URL{Scheme: "http", Host: "127.0.0.1:1"}
+
+func noToken() string { return "" }
+
 // hostIfaces is the agent host's interfaces the tests' gateways see: a VM bridge.
 func hostIfaces() ([]net.Addr, error) {
 	return []net.Addr{&net.IPNet{IP: net.ParseIP("192.168.64.1"), Mask: net.CIDRMask(24, 32)}}, nil
@@ -163,7 +169,7 @@ func start(t *testing.T, mut func(*Config), gmut ...func(*Gateway)) *env {
 	t.Helper()
 	h := &env{sink: &sink{t: t}, res: newResolver(), logs: &syncBuffer{}, errc: make(chan error, 1)}
 	cfg := Config{
-		TaskID: "task-1", RunID: "run-1", Clients: []netip.Addr{loopback}, Sink: h.sink, Resolver: h.res, CA: testCA(t),
+		TaskID: "task-1", RunID: "run-1", Clients: []netip.Addr{loopback}, Sink: h.sink, Resolver: h.res, CA: testCA(t), Dispatcher: testDispatcher, DispatcherToken: noToken,
 		Logger: slog.New(slog.NewTextHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}
 	if mut != nil {

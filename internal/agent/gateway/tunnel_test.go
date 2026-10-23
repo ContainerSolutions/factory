@@ -110,7 +110,7 @@ func TestPeekHello(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			g, err := New(Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2"), Sink: &sink{t: t}, CA: testCA(t),
+			g, err := New(Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2"), Sink: &sink{t: t}, CA: testCA(t), Dispatcher: testDispatcher, DispatcherToken: noToken,
 				Egress: policy.Egress{Mode: tt.mode, AllowHosts: []string{"*.example.com"}}})
 			if err != nil {
 				t.Fatal(err)
