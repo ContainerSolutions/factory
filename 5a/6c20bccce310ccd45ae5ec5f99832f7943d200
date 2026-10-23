@@ -1,0 +1,5 @@
+lisa-selfreview:
+Pass 1 (of 1, PoC: one pass). Rules: core, go, repo/factory packs.
+- must-fix CORE-ERR-001 (280694a5b17a) ca.Generate: a failed ca.pem write left ca.key behind, so every later LoadOrGenerate failed with EEXIST. Fixed: the key is removed again; test added.
+- should-fix loaded-ca-constraints-unchecked (Load): a loaded CA's name constraints aren't compared with this binary's InterceptedHosts. Deferred: the LLD gives it to the gatewayca step's "outdated" state, deferred with rotation in the PoC plan.
+Also applied the lead's #120 finding: ReverseProxy's http.ErrAbortHandler panic skipped the intercepted request's record; the record is now deferred (TestInterceptAbortedBody, mutation-checked).
