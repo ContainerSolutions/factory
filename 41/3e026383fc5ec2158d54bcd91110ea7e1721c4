@@ -1,0 +1,2 @@
+lisa-addressed:
+ccf-review 8c44e91bca66 (Blocker, accepted): model hosts path-scoped via policy.DecideModel before the login is read; new refusal model-path. Lists from Phase 0 Q4/Q5; wham/ps narrowed to the recorded exact paths; chatgpt.com gated on every request; Anthropic only with a carrier.
