@@ -24,15 +24,25 @@ const (
 	// 0.24.1 binary installed by hand in P1 phase 0). Softnet isn't code-signed, so the two
 	// checksums are its only verification.
 	SoftnetBinarySHA256 = "e5e35d61a6dd7e35a3134732e766c897b7cb6f097080ff00e1e75adeab0471c7"
+
+	// BaseImage is the image the base VM is cloned from: cirruslabs' Ubuntu 24.04, pinned by
+	// its manifest digest (the one P1 phase 0 ran). Tart keeps it in its OCI cache, so a
+	// rebuild downloads nothing. The tools the base adds are pinned in provision/base.sh.
+	BaseImage = "ghcr.io/cirruslabs/ubuntu@sha256:51b493a05e4bc6f21c5c5052cffc1b26b5cea1d76847f5db10b97da90c16e58c"
 )
 
 // Pins are the releases a host init installs; tests replace them with fakes.
 type Pins struct {
 	TartVersion, TartURL, TartSHA256, TartTeamID   string
 	SoftnetURL, SoftnetSHA256, SoftnetBinarySHA256 string
+	BaseImage                                      string
 }
 
 // DefaultPins are the pinned releases above.
 func DefaultPins() Pins {
-	return Pins{TartVersion, TartURL, TartSHA256, TartTeamID, SoftnetURL, SoftnetSHA256, SoftnetBinarySHA256}
+	return Pins{
+		TartVersion: TartVersion, TartURL: TartURL, TartSHA256: TartSHA256, TartTeamID: TartTeamID,
+		SoftnetURL: SoftnetURL, SoftnetSHA256: SoftnetSHA256, SoftnetBinarySHA256: SoftnetBinarySHA256,
+		BaseImage: BaseImage,
+	}
 }

@@ -161,8 +161,8 @@ process inside it is privileged only inside that VM.
 
 - **The base image is built on the agent host, not published.** The factory repo holds one
   provisioning script, embedded in `factory-agent`, and `host init` builds the base with it:
-  - **tart:** clones `ghcr.io/cirruslabs/ubuntu` (pinned by digest) into `factory-ws-base`, boots
-    it, runs the script, and shuts it down;
+  - **tart:** clones `ghcr.io/cirruslabs/ubuntu` (pinned by digest) into
+    `factory-agent-base-<version>`, boots it, runs the script, and shuts it down;
   - **kata:** builds an OCI image (Debian) from the same script with `nerdctl build`.
 
   Both carry:
@@ -389,8 +389,8 @@ The steps, pins, sudo batch and pf rules are in the
 | Tart | notarized release, sha256-checked (the Homebrew tap is broken) | installs the pinned release into the state dir if it's missing or older: sha256 from `factory-agent`'s own pin list, and the Developer ID checked with `codesign` |
 | Softnet | release 0.24.1, installed SUID root by hand | installs the pinned release to `/usr/local/libexec/factory-agent/softnet`, root-owned and SUID. Tart is run with that directory on its `PATH`. **Needs `sudo` once:** it prompts in the terminal |
 | pf anchor | — | from Softnet bridges, only the gateway port reaches the Mac (`com.compliance-framework.factory`, loaded by a LaunchDaemon). **The same `sudo` prompt** |
-| Base VM | cloned and provisioned by hand | builds `factory-ws-base` locally (§2): about 6 minutes on a good connection |
-| Warm base | cloned by hand | clones the base into `factory-ws-warm` and pulls `warm.images` into it, with `warm.kindImages` saved for `kind load`. Rebuilt when the list or the base changes |
+| Base VM | cloned and provisioned by hand | builds `factory-agent-base-<version>` locally (§2): about 6 minutes on a good connection. See the [LLD's VM steps](../workstreams/agent/LLD/workspace-host.md#the-vm-steps-p1-2) |
+| Warm base | cloned by hand | clones the base into `factory-agent-warm` and pulls `warm.images` into it, with `warm.kindImages` saved for `kind load`. Rebuilt when the list or the base changes. See the [LLD's VM steps](../workstreams/agent/LLD/workspace-host.md#the-vm-steps-p1-2) |
 | Subscriptions | the spike's 0600 files | **a person, once:** `factory-agent login claude` reads `claude setup-token`'s output from stdin; `factory-agent login codex` imports `~/.codex/auth.json` |
 | Enrollment | — | **a person, once:** `factory-agent supervise --enroll <token>` with a token an admin minted (§6) |
 | State dir | — | `~/Library/Application Support/factory-agent/` (0700): agent credential, logins, gateway CA, Tart, run bundles |

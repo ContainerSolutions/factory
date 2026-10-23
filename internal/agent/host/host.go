@@ -1,8 +1,8 @@
 // Package host checks and sets up an agent host for VM workspaces (P1 §7,
 // design/workstreams/agent/LLD/workspace-host.md). For the tart driver the steps are the
-// platform, the state dir, Tart, Softnet and the pf anchor. Check reports each step's state;
-// Init applies the steps that aren't ok, in order, and runs their root actions in one sudo
-// script.
+// platform, the state dir, Tart, Softnet, the pf anchor, the base VM and the warm base. Check
+// reports each step's state; Init applies the steps that aren't ok, in order, and runs their
+// root actions in one sudo script.
 package host
 
 import (
@@ -18,11 +18,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/compliance-framework/factory/internal/version"
 )
 
 // State is a step's state.
@@ -51,7 +53,7 @@ type Plan struct {
 	// Do lists the unprivileged actions, one line each (printed by --dry-run).
 	Do []string
 	// Root are the shell lines that need root. Init batches every step's lines into one sudo
-	// script, run after every step's Apply.
+	// script, run after the Apply of the last step that has some.
 	Root []string
 }
 
@@ -90,7 +92,9 @@ type Env struct {
 	Workspace config.Workspace
 	Pins      Pins
 	Runner    Runner
-	Fetcher   Fetcher
+	// Spawner runs tart run in the background and tart exec -i with a stdin.
+	Spawner Spawner
+	Fetcher Fetcher
 	// Root prefixes the system paths (/usr/local, /etc, /Library); "" in production.
 	Root string
 	// Home is the owner's home: the state dir is under it.
@@ -106,11 +110,43 @@ type Env struct {
 	LookPath func(string) (string, error)
 	// Prompt asks a y/N question; Init asks it before the pf step unless --yes.
 	Prompt func(question string) (bool, error)
-	// Clock dates the pf opt-out.
+	// Clock dates the pf opt-out and the VM records' builtAt.
 	Clock clock.Clock
+	// AgentVersion names the base VM (factory-agent-base-<version>); default version.Version.
+	AgentVersion string
+	// AgentLinux is the linux/arm64 factory-agent the base VM gets; default
+	// factory-agent-linux-arm64 next to the running binary.
+	AgentLinux string
+	// KeepFailed keeps a VM build's .building VM when the build fails, for debugging.
+	KeepFailed bool
+	// VM is the VM builds' timeouts and poll interval.
+	VM VMTimings
 	// Out gets the plan and the progress.
 	Out io.Writer
 	Log *slog.Logger
+}
+
+// VMTimings bound a VM build's waits.
+type VMTimings struct {
+	// Boot is the wait for the VM's guest agent (tart exec true): default 3 minutes.
+	Boot time.Duration
+	// Provision bounds the provisioning script, and the warm base's image pulls: 30 minutes.
+	Provision time.Duration
+	// Shutdown is the wait for the VM to stop after shutdown, before tart stop: 2 minutes.
+	Shutdown time.Duration
+	// Poll is the interval between the waits' checks: 2 seconds.
+	Poll time.Duration
+}
+
+func (t *VMTimings) defaults() {
+	for _, d := range []struct {
+		p *time.Duration
+		v time.Duration
+	}{{&t.Boot, 3 * time.Minute}, {&t.Provision, 30 * time.Minute}, {&t.Shutdown, 2 * time.Minute}, {&t.Poll, 2 * time.Second}} {
+		if *d.p == 0 {
+			*d.p = d.v
+		}
+	}
 }
 
 // Defaults fills the unset fields with the production ones.
@@ -128,6 +164,19 @@ func (e *Env) Defaults() error {
 	if e.Runner == nil {
 		e.Runner = ExecRunner{}
 	}
+	if e.Spawner == nil {
+		e.Spawner = ExecRunner{}
+	}
+	if e.AgentVersion == "" {
+		e.AgentVersion = version.Version
+	}
+	if e.AgentLinux == "" {
+		// without the executable's path, the basevm check reports the binary missing.
+		if exe, err := os.Executable(); err == nil {
+			e.AgentLinux = filepath.Join(filepath.Dir(exe), AgentLinuxName)
+		}
+	}
+	e.VM.defaults()
 	if e.Fetcher == nil {
 		e.Fetcher = HTTPFetcher{}
 	}
@@ -185,7 +234,7 @@ func Steps(e *Env) ([]Step, error) {
 	if e.Workspace.Driver != config.DriverTart {
 		return nil, fmt.Errorf("the %s driver's host init comes in P1 phase 9", e.Workspace.Driver)
 	}
-	return []Step{platformStep{e}, stateDirStep{e}, tartStep{e}, softnetStep{e}, pfStep{e}}, nil
+	return []Step{platformStep{e}, stateDirStep{e}, tartStep{e}, softnetStep{e}, pfStep{e}, baseVMStep{e}, warmBaseStep{e}}, nil
 }
 
 // Check runs every step's Check. A step whose check fails is reported wrong, with the error.
@@ -219,6 +268,8 @@ type InitOptions struct {
 	Yes bool
 	// NoPF skips the pf step and records the opt-out in the state dir.
 	NoPF bool
+	// Only, when set, names the steps to apply; the others are checked but not applied.
+	Only []string
 }
 
 // pfNotice is what Init says before asking about the pf step.
@@ -231,11 +282,14 @@ other listening services. `+"`factory-agent host init --remove-pf`"+` undoes it.
 `, pfBridgeRange(), pfFirstBridge)
 }
 
-// Init applies the steps that aren't ok, in order, then runs the root lines in one sudo
-// script and checks again. It returns the final check (the first one with DryRun, which
-// changes nothing), also when an Apply or the sudo script fails. A failed platform check
-// stops it before anything changes. A pf step skipped (--no-pf, or the prompt declined) is
-// recorded as an opt-out in the state dir; one that's installed removes it.
+// Init applies the steps that aren't ok, in order (only those in o.Only, when set), runs the
+// root lines in one sudo script after the last step that has some, and checks again. It
+// returns the final check (the first one with DryRun, which changes nothing), also when an
+// Apply or the sudo script fails. A failed platform check stops it before anything changes.
+// A pf step skipped (--no-pf, or the prompt declined) is recorded as an opt-out in the state
+// dir; one that's installed removes it. With o.Only, the statedir step is applied too when it
+// isn't ok, since the applies need the dir. The applies hold <statedir>/host.lock: a second
+// Init fails while one runs.
 func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	if e.StageDir == "" {
 		dir, err := os.MkdirTemp("", "factory-agent-host-")
@@ -249,6 +303,10 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	if err != nil {
 		return nil, err
 	}
+	only, err := onlySet(steps, o.Only)
+	if err != nil {
+		return nil, err
+	}
 	sts := Check(ctx, steps)
 	var todo []Step
 	var optOut string // the pf opt-out's reason, when the step is skipped
@@ -256,6 +314,8 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	for i, s := range steps {
 		switch {
 		case sts[i].State == StateOK:
+			continue
+		case only != nil && !only[s.Name()] && s.Name() != platformName:
 			continue
 		case s.Name() == platformName:
 			return sts, fmt.Errorf("platform: %s", sts[i].Detail)
@@ -278,9 +338,17 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 		pfTodo = pfTodo || s.Name() == pfName
 		todo = append(todo, s)
 	}
+	// every apply holds the state dir's lock, and the tart, pf opt-out and VM steps write in
+	// the dir: with --only, the statedir step comes first whenever it isn't ok.
+	if only != nil && (len(todo) > 0 || optOut != "") && !slices.ContainsFunc(todo, func(s Step) bool { return s.Name() == stateDirName }) {
+		if i := slices.IndexFunc(steps, func(s Step) bool { return s.Name() == stateDirName }); i >= 0 && sts[i].State != StateOK {
+			todo = append([]Step{steps[i]}, todo...)
+		}
+	}
 	var root []string
+	lastRoot := -1 // the todo index after whose Apply the sudo script runs
 	fmt.Fprintln(e.Out, "plan:")
-	for _, s := range todo {
+	for i, s := range todo {
 		p, err := s.Plan(ctx)
 		if err != nil {
 			return sts, fmt.Errorf("%s: %w", s.Name(), err)
@@ -288,7 +356,9 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 		for _, d := range p.Do {
 			fmt.Fprintf(e.Out, "  %-9s %s\n", s.Name(), d)
 		}
-		root = append(root, p.Root...)
+		if len(p.Root) > 0 {
+			root, lastRoot = append(root, p.Root...), i
+		}
 	}
 	if optOut != "" {
 		fmt.Fprintf(e.Out, "  %-9s record the opt-out (%s) in %s\n", pfName, optOut, pfOptOutPath(e))
@@ -304,29 +374,90 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 		return sts, nil
 	}
 	// after a failure the statuses are checked again: some steps may have changed things.
-	for _, s := range todo {
+	// The sudo script runs as soon as its steps are staged, so the long VM builds after it
+	// don't hold back the password prompt, and a failed build doesn't skip it.
+	//
+	// The applies, all but the statedir step's (which makes the dir the lock is in), hold
+	// <statedir>/host.lock: a second host init would delete this one's .building VMs.
+	release := func() {}
+	defer func() { release() }()
+	locked := false
+	lock := func() error {
+		if locked {
+			return nil
+		}
+		r, err := lockHost(e)
+		if err != nil {
+			return err
+		}
+		release, locked = r, true
+		return nil
+	}
+	if optOut != "" && !slices.ContainsFunc(todo, func(s Step) bool { return s.Name() == stateDirName }) {
+		if err := lock(); err != nil {
+			return Check(ctx, steps), err
+		}
+		if err := writePFOptOut(e, optOut); err != nil {
+			return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
+		}
+		optOut = ""
+	}
+	for i, s := range todo {
+		if s.Name() != stateDirName {
+			if err := lock(); err != nil {
+				return Check(ctx, steps), err
+			}
+		}
 		e.Log.DebugContext(ctx, "host init: apply", "step", s.Name())
 		if err := s.Apply(ctx); err != nil {
 			return Check(ctx, steps), fmt.Errorf("%s: %w", s.Name(), err)
 		}
-	}
-	// the statedir step, applied above, made the dir the opt-out goes in.
-	if optOut != "" {
-		if err := writePFOptOut(e, optOut); err != nil {
-			return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
+		// the statedir step, just applied, made the dir the opt-out goes in.
+		if s.Name() == stateDirName && optOut != "" {
+			if err := lock(); err != nil {
+				return Check(ctx, steps), err
+			}
+			if err := writePFOptOut(e, optOut); err != nil {
+				return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
+			}
+			optOut = ""
 		}
-	}
-	if len(root) > 0 {
-		if err := runRoot(ctx, e, script); err != nil {
-			return Check(ctx, steps), err
-		}
-	}
-	if pfTodo {
-		if err := removePFOptOut(e); err != nil {
-			return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
+		if i == lastRoot {
+			if err := runRoot(ctx, e, script); err != nil {
+				return Check(ctx, steps), err
+			}
+			// pf's root lines are in the script, so it's installed now: before the VM builds,
+			// which may fail.
+			if pfTodo {
+				if err := removePFOptOut(e); err != nil {
+					return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
+				}
+			}
 		}
 	}
 	return Check(ctx, steps), nil
+}
+
+// onlySet is --only's step names as a set; nil when there are none. An unknown name is an
+// error.
+func onlySet(steps []Step, names []string) (map[string]bool, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	known := map[string]bool{}
+	var all []string
+	for _, s := range steps {
+		known[s.Name()] = true
+		all = append(all, s.Name())
+	}
+	set := map[string]bool{}
+	for _, n := range names {
+		if !known[n] {
+			return nil, fmt.Errorf("--only: no step %q (the steps: %s)", n, strings.Join(all, ", "))
+		}
+		set[n] = true
+	}
+	return set, nil
 }
 
 // Script is the sudo batch: the root lines under set -eu.
@@ -360,3 +491,9 @@ func quote(s string) string {
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// ErrHostLocked is Init's error while another host init holds the state dir's lock.
+var ErrHostLocked = errors.New("another factory-agent host init is running")
+
+// hostLockPath is the lock Init holds while it applies.
+func hostLockPath(e *Env) string { return filepath.Join(e.StateDir(), "host.lock") }

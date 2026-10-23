@@ -15,6 +15,7 @@ import (
 
 const (
 	platformName = "platform"
+	stateDirName = "statedir"
 	// minMacOS is the oldest macOS Softnet runs on.
 	minMacOS = 26
 	// minFreeGiB is the free disk the state dir's volume needs (the base and warm VMs).
@@ -105,7 +106,7 @@ func freeBytes(ctx context.Context, e *Env, p string) (uint64, error) {
 // stateDirStep makes the state dir: the owner's, mode 0700.
 type stateDirStep struct{ e *Env }
 
-func (stateDirStep) Name() string { return "statedir" }
+func (stateDirStep) Name() string { return stateDirName }
 
 func (s stateDirStep) Check(context.Context) (Status, error) {
 	d := s.e.StateDir()

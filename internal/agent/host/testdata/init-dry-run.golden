@@ -7,6 +7,15 @@ plan:
   softnet   install it SUID root at $ROOT/usr/local/libexec/factory-agent/softnet (sudo)
   pf        render the anchor (gateway port 3128, bridge100 to bridge163) and the LaunchDaemon into the sudo script
   pf        install them, append anchor "com.compliance-framework.factory" to /etc/pf.conf (backup /etc/pf.conf.factory-backup) and load the LaunchDaemon (sudo)
+  basevm    tart clone ghcr.io/cirruslabs/ubuntu@sha256:51b493a05e4bc6f21c5c5052cffc1b26b5cea1d76847f5db10b97da90c16e58c factory-agent-base-0.1.0.building
+  basevm    tart set factory-agent-base-0.1.0.building --cpu 6 --memory 8192 --disk-size 60
+  basevm    tart run factory-agent-base-0.1.0.building --no-graphics (in the background); wait for tart exec (5s)
+  basevm    tart exec -i factory-agent-base-0.1.0.building bash -s < the embedded provisioning script (5s)
+  basevm    copy $HOME/bin/factory-agent-linux-arm64 to /usr/local/bin/factory-agent in the VM and check its sha256
+  basevm    shut it down (5s), tart rename factory-agent-base-0.1.0.building factory-agent-base-0.1.0 (an older factory-agent-base-0.1.0 is renamed aside to factory-agent-base-0.1.0.old, then deleted), write $HOME/Library/Application Support/factory-agent/basevm.json
+  warmbase  tart clone factory-agent-base-0.1.0 factory-agent-warm.building
+  warmbase  no warm images: the warm base is a plain clone of the base
+  warmbase  tart rename factory-agent-warm.building factory-agent-warm (an older one is renamed aside to factory-agent-warm.old, then deleted), write $HOME/Library/Application Support/factory-agent/warmbase.json
 sudo script (one sudo prompt):
 #!/bin/sh
 # factory-agent host init: the root actions, run once with sudo.

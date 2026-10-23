@@ -260,6 +260,9 @@ func TestWorkspace(t *testing.T) {
 		{"port", "{gatewayPort: 80}", "darwin", Workspace{}, []string{"workspace.gatewayPort: 80"}},
 		{"images", "{warm: {images: ['', 'a b', " + long + "], kindImages: " + many + "}}", "darwin", Workspace{},
 			[]string{"workspace.warm.images[0]", "workspace.warm.images[1]", "workspace.warm.images[2]", "workspace.warm.kindImages: 101 images"}},
+		{"image flag", "{warm: {kindImages: ['--help']}}", "darwin", Workspace{}, []string{`workspace.warm.kindImages[0]: "--help"`}},
+		{"kind digest without a tag", "{warm: {images: ['postgres@sha256:ab'], kindImages: ['ghcr.io/x/agent:0.7.1@sha256:ab', 'localhost:5000/agent@sha256:ab']}}", "darwin", Workspace{},
+			[]string{`workspace.warm.kindImages[1]: "localhost:5000/agent@sha256:ab" has a digest but no tag`}},
 		{"unknown key", "{size: {gpus: 1}}", "darwin", Workspace{}, []string{`unknown field "gpus"`}},
 	}
 	for _, tt := range tests {
@@ -289,6 +292,24 @@ func TestWorkspace(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestKindImageTag(t *testing.T) {
+	for _, tt := range []struct {
+		ref, want string
+		ok        bool
+	}{
+		{"kindest/node:v1.33.1", "kindest/node:v1.33.1", true},
+		{"postgres", "postgres", true},
+		{"ghcr.io/x/agent:0.7.1@sha256:ab", "ghcr.io/x/agent:0.7.1", true},
+		{"localhost:5000/agent:1@sha256:ab", "localhost:5000/agent:1", true},
+		{"localhost:5000/agent@sha256:ab", "", false},
+		{"agent@sha256:ab", "", false},
+	} {
+		if got, ok := KindImageTag(tt.ref); got != tt.want || ok != tt.ok {
+			t.Errorf("KindImageTag(%q) = %q, %v; want %q, %v", tt.ref, got, ok, tt.want, tt.ok)
+		}
 	}
 }
 

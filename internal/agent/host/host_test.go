@@ -31,9 +31,11 @@ import (
 var update = flag.Bool("update", false, "rewrite the goldens under testdata/")
 
 // fakeRunner answers the commands the steps run; sudo and any other command are recorded.
+// It is also the Spawner, and fakes tart's VMs (vm_test.go).
 type fakeRunner struct {
 	mu       sync.Mutex
 	calls    []string
+	tart     fakeTart
 	versions map[string]string // tart binary -> its --version
 	team     string            // codesign -dv's TeamIdentifier
 	verify   error             // codesign --verify's error (a bad signature)
@@ -48,8 +50,11 @@ type fakeRunner struct {
 func (r *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.calls = append(r.calls, strings.Join(append([]string{name}, args...), " "))
+	call := strings.Join(append([]string{name}, args...), " ")
+	r.calls = append(r.calls, call)
 	switch {
+	case path.Base(name) == "tart" && len(args) > 0 && args[0] != "--version":
+		return r.tart.run(call, out, nil, args)
 	case name == "sw_vers":
 		_, _ = io.WriteString(out, r.macOS+"\n")
 	case name == "sysctl":
@@ -167,14 +172,25 @@ func testEnv(t *testing.T) (*Env, *fakeRunner) {
 		t.Fatal(err)
 	}
 	r := &fakeRunner{versions: map[string]string{}, team: TartTeamID, macOS: "26.6.2", memory: "25769803776", freeKB: "98351052"}
+	r.tart.init()
+	home := t.TempDir()
+	agent := filepath.Join(home, "bin", AgentLinuxName)
+	if err := os.MkdirAll(filepath.Dir(agent), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(agent, []byte("factory-agent linux/arm64"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	e := &Env{
 		Workspace: config.Workspace{}.WithDefaults("darwin"),
-		Runner:    r, Root: root, Home: t.TempDir(), StageDir: t.TempDir(), GOOS: "darwin", GOARCH: "arm64",
-		UID:      func() int { return 501 },
-		Owner:    func(fs.FileInfo) (int, int, bool) { return 501, 20, true },
-		LookPath: func(string) (string, error) { return "", errors.New("not found") },
-		Out:      io.Discard,
-		Clock:    clock.NewFake(time.Date(2026, 10, 22, 9, 30, 0, 0, time.UTC)),
+		Runner:    r, Spawner: r, Root: root, Home: home, StageDir: t.TempDir(), GOOS: "darwin", GOARCH: "arm64",
+		UID:          func() int { return 501 },
+		Owner:        func(fs.FileInfo) (int, int, bool) { return 501, 20, true },
+		LookPath:     func(string) (string, error) { return "", errors.New("not found") },
+		AgentVersion: "v0.1.0", AgentLinux: agent,
+		Clock: clock.NewFake(time.Date(2026, 10, 22, 9, 30, 0, 0, time.UTC)),
+		VM:    VMTimings{Boot: 5 * time.Second, Provision: 5 * time.Second, Shutdown: 5 * time.Second, Poll: time.Millisecond},
+		Out:   io.Discard,
 	}
 	if err := e.Defaults(); err != nil {
 		t.Fatal(err)
@@ -530,7 +546,7 @@ func TestInitDryRun(t *testing.T) {
 	if b, err := exec.Command("/bin/sh", "-n", "-c", script).CombinedOutput(); err != nil {
 		t.Errorf("sh -n: %v\n%s", err, b)
 	}
-	if r.ran("sudo") != 0 || len(sts) != 5 || AllOK(sts) {
+	if r.ran("sudo") != 0 || len(sts) != 7 || AllOK(sts) {
 		t.Errorf("sudo calls %d, statuses %+v", r.ran("sudo"), sts)
 	}
 	if _, err := os.Stat(e.StateDir()); err == nil {
@@ -613,7 +629,7 @@ func TestInitApplyFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "softnet: GET") {
 		t.Fatalf("err = %v", err)
 	}
-	if len(sts) != 5 || sts[1].State != StateOK || sts[3].State != StateMissing || r.ran("sudo") != 0 {
+	if len(sts) != 7 || sts[1].State != StateOK || sts[3].State != StateMissing || r.ran("sudo") != 0 {
 		t.Errorf("statuses %+v, sudo calls %d", sts, r.ran("sudo"))
 	}
 }

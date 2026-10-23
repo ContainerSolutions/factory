@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -29,7 +30,7 @@ type hostDeps struct {
 func hostCommand() command {
 	return command{
 		name:    "host",
-		summary: "check or set up this machine as a VM workspace host (Tart, Softnet, pf)",
+		summary: "check or set up this machine as a VM workspace host (Tart, Softnet, pf, the base VMs)",
 		run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -44,15 +45,20 @@ func hostUsage(w io.Writer) {
   check [--driver tart] [--json]
         one line per step (ok, missing, outdated, wrong, skipped); exit 0 when every step is
         ok or skipped, else 1. skipped is a pf step the owner opted out of (a warning)
-  init  [--driver tart] [--dry-run] [--yes] [--no-pf] [--remove-pf]
+  init  [--driver tart] [--dry-run] [--yes] [--no-pf] [--remove-pf] [--only <steps>] [--keep-failed]
         applies the steps that aren't ok (one sudo prompt for Softnet and pf), then checks
         again: its exit code is that check's. --dry-run prints the plan and the sudo script
         and changes nothing. --yes installs pf without asking; --no-pf skips it and records
         the opt-out in the state dir (a later init without --no-pf asks again).
+        --only basevm,warmbase applies only those steps; all are still checked and printed, but
+        the exit code judges only those steps, platform and statedir.
+        --keep-failed keeps a failed VM build's <name>.building VM, for debugging.
         --remove-pf removes the pf anchor, its LaunchDaemon and its pf.conf line.
 
 common flags: --config <agent.yaml> (only its workspace block is read; without the file, the
-defaults). The kata driver's host init comes in P1 phase 9.
+defaults); --agent-linux <path>, the linux/arm64 factory-agent the base VM gets (default
+factory-agent-linux-arm64 next to this binary; make tart-up builds it). The kata driver's
+host init comes in P1 phase 9.
 `)
 }
 
@@ -82,6 +88,9 @@ func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hos
 	fs.BoolVar(&o.DryRun, "dry-run", false, "init: print the plan and the sudo script; change nothing")
 	fs.BoolVar(&o.Yes, "yes", false, "init: install the pf anchor without asking")
 	fs.BoolVar(&o.NoPF, "no-pf", false, "init: skip the pf anchor and record the opt-out")
+	only := fs.String("only", "", "init: apply only these steps (comma-separated, e.g. basevm,warmbase)")
+	keepFailed := fs.Bool("keep-failed", false, "init: keep a failed VM build's .building VM")
+	agentLinux := fs.String("agent-linux", "", "the linux/arm64 factory-agent for the base VM (default: "+host.AgentLinuxName+" next to this binary)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -90,8 +99,9 @@ func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hos
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
-	if fs.NArg() > 0 || op == "check" && (set["dry-run"] || set["yes"] || set["no-pf"] || set["remove-pf"]) ||
-		op == "init" && set["json"] || *removePF && (o.NoPF || o.Yes) {
+	initOnly := set["dry-run"] || set["yes"] || set["no-pf"] || set["remove-pf"] || set["only"] || set["keep-failed"]
+	if fs.NArg() > 0 || op == "check" && initOnly || op == "init" && set["json"] ||
+		*removePF && (o.NoPF || o.Yes || set["only"] || set["keep-failed"]) {
 		fmt.Fprintf(stderr, "factory-agent host %s: unexpected arguments or flags (see factory-agent host help)\n", op)
 		return 2
 	}
@@ -115,8 +125,19 @@ func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hos
 		fmt.Fprintf(stderr, "factory-agent host %s: --driver %q is not tart or kata\n", op, w.Driver)
 		return 2
 	}
+	if set["only"] {
+		for n := range strings.SplitSeq(*only, ",") {
+			o.Only = append(o.Only, strings.TrimSpace(n))
+		}
+	}
 	e := d.Env
 	e.Workspace, e.Out = w, stdout
+	e.KeepFailed = e.KeepFailed || *keepFailed
+	if *agentLinux != "" {
+		if e.AgentLinux, err = filepath.Abs(*agentLinux); err != nil {
+			return fail(err)
+		}
+	}
 	if e.Prompt == nil {
 		in := d.Stdin
 		if in == nil {
@@ -155,10 +176,30 @@ func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hos
 		return fail(err)
 	}
 	warnSkipped(stderr, sts)
-	if !host.AllOK(sts) {
+	if !host.AllOK(onlyStatuses(sts, o.Only)) {
 		return 1
 	}
 	return 0
+}
+
+// onlyStatuses is what init --only's exit code judges: the listed steps plus platform and
+// statedir, which every apply needs. Without --only, it's every status. The full check is
+// still printed, so a skipped step's state stays visible.
+func onlyStatuses(sts []host.Status, only []string) []host.Status {
+	if len(only) == 0 {
+		return sts
+	}
+	keep := map[string]bool{"platform": true, "statedir": true}
+	for _, n := range only {
+		keep[n] = true
+	}
+	var out []host.Status
+	for _, st := range sts {
+		if keep[st.Step] {
+			out = append(out, st)
+		}
+	}
+	return out
 }
 
 func printStatuses(w io.Writer, sts []host.Status, asJSON bool) error {
