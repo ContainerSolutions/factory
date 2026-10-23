@@ -28,6 +28,14 @@ const (
 	EnvGHToken  = "GH_TOKEN"
 )
 
+// EnvRuntime names the runtime a run's processes are in: unset on the host, RuntimeWorkspace
+// in a VM workspace (workspace-run.md §System setup), where vmrun sets it through Options.Env.
+// The Effector reads it.
+const (
+	EnvRuntime       = "FACTORY_RUNTIME"
+	RuntimeWorkspace = "workspace"
+)
+
 // ownerAllowed are the only variables taken from the owner's environment: PATH, LANG, TERM
 // and Docker's (DOCKER_HOST, DOCKER_CONTEXT, …). Everything else (credentials, the owner's
 // git and gh config, proxies) stays out.
