@@ -414,6 +414,35 @@ func TestGetHostile(t *testing.T) {
 	})
 }
 
+// TestGetFiles: Get with names tars only those, a missing one a warning (GNU tar's
+// --ignore-failed-read), and refuses a name that isn't a plain one before tart runs.
+func TestGetFiles(t *testing.T) {
+	f := newFake()
+	d := started(t, f)
+	f.get = tgz(t, file("outcome.json", `{"status":"succeeded"}`))
+	out := filepath.Join(t.TempDir(), "out")
+	if err := d.Get(context.Background(), ws, "/work/out", out, "outcome.json", "transcript.jsonl.gz"); err != nil {
+		t.Fatal(err)
+	}
+	want := "tart exec " + ws + " sudo -n tar -czf - --ignore-failed-read -C /work/out outcome.json transcript.jsonl.gz"
+	if len(f.calls) != 1 || f.calls[0] != want {
+		t.Errorf("calls %q, want %q", f.calls, want)
+	}
+	if b, err := os.ReadFile(filepath.Join(out, "outcome.json")); err != nil || string(b) != `{"status":"succeeded"}` {
+		t.Errorf("got outcome.json %q, %v", b, err)
+	}
+	for _, name := range []string{"", ".", "..", "../x", "a/b", "-C", "--to-command=sh"} {
+		f.calls = nil
+		dst := filepath.Join(t.TempDir(), "out")
+		if err := d.Get(context.Background(), ws, "/work/out", dst, "outcome.json", name); err == nil || len(f.calls) != 0 {
+			t.Errorf("%q: err %v, calls %v", name, err, f.calls)
+		}
+		if _, err := os.Lstat(dst); err == nil {
+			t.Errorf("%q: Get made dst", name)
+		}
+	}
+}
+
 func TestStopAndDestroy(t *testing.T) {
 	ctx := context.Background()
 	t.Run("stop keeps the VM", func(t *testing.T) {

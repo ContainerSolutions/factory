@@ -112,7 +112,7 @@ func (d *supDriver) Exec(_ context.Context, name string, argv []string, _ io.Rea
 	return runbundle.NewEncoder(stdout, time.Now).Encode(runbundle.OutcomeEvent(o))
 }
 
-func (d *supDriver) Get(_ context.Context, name, src, dst string) error {
+func (d *supDriver) Get(_ context.Context, name, src, dst string, _ ...string) error {
 	if err := d.record("get", name); err != nil {
 		return err
 	}

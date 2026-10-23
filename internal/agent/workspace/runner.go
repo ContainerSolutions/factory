@@ -508,10 +508,16 @@ func (w *wsRun) relay(ctx context.Context, r io.Reader, outcome func()) {
 	}
 }
 
-// collect gets the VM's out/ and turns it into the Outcome, re-checked on the host.
+// collected are the files of the VM's out/ the host reads: the outcome and the transcript it
+// names. out/ is the agent's $FACTORY_OUT too, so its scratch (recordings, frames) stays in the
+// VM, and no size of it can fail a run's collect.
+var collected = []string{runbundle.OutcomeFile, runbundle.TranscriptFile}
+
+// collect gets the outcome files of the VM's out/ and turns them into the Outcome, re-checked
+// on the host.
 func (w *wsRun) collect(ctx context.Context, execErr error) runner.Outcome {
 	out := filepath.Join(w.runDir, "out")
-	if err := w.r.o.Driver.Get(ctx, w.name, VMOutDir, out); err != nil {
+	if err := w.r.o.Driver.Get(ctx, w.name, VMOutDir, out, collected...); err != nil {
 		if ctx.Err() != nil {
 			return cancelled()
 		}
