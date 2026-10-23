@@ -1,0 +1,2 @@
+lisa-design:
+cel.OptionalTypes() added (not in the phase 7 spec): the spec's '.' in r.versions filter is estimated at ~11k cost on dyn values (as a list scan), over the 10k limit (CAT603) the catalog enforces; r.versions[?'.'].hasValue() costs a constant. With it the train expression is ~3.8k.
