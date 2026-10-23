@@ -1,2 +1,5 @@
 lisa-selfreview:
 pass 1/1 (lenient): approve. Deferred should-fix CORE-DUP-001: the bundle path is two constants, workspace.BundleDir and vmrun.DefaultBundle (pre-existing duplication; workspace and vmrun don't import each other); both now carry a comment naming the other. No blocker/must-fix.
+
+lisa-design:
+The run bundle moves to /var/lib/factory/run (the root disk; base.sh already creates /var/lib/factory 0755 root) because Ubuntu 24.04 mounts /run as a noexec tmpfs. Checked the other in-VM paths: workspace root /work (scratch HOME, TMPDIR, bin, skills copies) and state dir /var/lib/factory-agent/run are on the root disk; /tmp (gitcred socket, tart exec pid file) is the root disk on Ubuntu 24.04 and holds data only; codex-code-mode-host is /usr/local/bin; nothing uses /dev/shm or XDG_RUNTIME_DIR. The gateway CA is read from the bundle relative to its dir and copied to the state dir and the system store, so nothing derives from the old path.
