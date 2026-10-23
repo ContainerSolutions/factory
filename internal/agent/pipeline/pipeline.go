@@ -2,8 +2,9 @@
 // turns one leased Task into a harness run and the run into a validated Result. It
 // implements runner.Runner, so the worker's lease loop drives it.
 //
-// For each job it creates a scratch workspace (0700, always removed), starts an in-memory git
-// credential helper (package gitcred) for the task's repos, clones them, materialises the
+// For each job it creates a scratch workspace (0700, always removed; or the exact Root, kept),
+// starts an in-memory git credential helper (package gitcred) for the task's repos (or, in
+// gateway mode, none: git goes through the gateway's proxy), clones them, materialises the
 // pinned skills, renders the prompt (the headless preamble, the rendered template from the
 // API, and the context items fenced with their trust level), builds the harness's
 // environment from an allow-list, runs the harness through its harness.Adapter under the
@@ -16,11 +17,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,10 +66,54 @@ type Stack interface {
 	Down(ctx context.Context) error
 }
 
-// Options configure a Pipeline. WorkRoot and Adapters are required.
+// GitAuth is how the run's git authenticates to the git host (workspace-run.md §Gateway mode).
+type GitAuth int
+
+const (
+	// GitAuthHelper, the zero value (the host), answers git from the job's credentials through
+	// the in-memory credential helper (package gitcred) on a Unix socket.
+	GitAuthHelper GitAuth = iota
+	// GitAuthGateway (the VM workspace) has no credential helper: no socket and no helper
+	// config. git reaches the git host through the gateway (HTTPS_PROXY in Options.Env), which
+	// adds the credential for the repo in the path. The job carries no credential: Run refuses
+	// one that does (GatewayCredentialError) before any step.
+	GitAuthGateway
+)
+
+// String implements fmt.Stringer.
+func (a GitAuth) String() string {
+	switch a {
+	case GitAuthHelper:
+		return "helper"
+	case GitAuthGateway:
+		return "gateway"
+	}
+	return "GitAuth(" + strconv.Itoa(int(a)) + ")"
+}
+
+// Options configure a Pipeline. Adapters and exactly one of WorkRoot and Root are required.
 type Options struct {
-	// WorkRoot holds the per-task workspaces (workRoot/<taskID>/).
+	// WorkRoot holds the per-task workspaces (workRoot/<taskID>/), each removed after its
+	// run (the host).
 	WorkRoot string
+	// Root is the exact workspace root, instead of WorkRoot (the VM workspace: /work). It must
+	// be absolute, and empty or absent when a run starts (its parent must exist); the run lays
+	// its tree directly in it and cleanup never removes it, so out/ survives the run. One run
+	// at a time: a second finds it non-empty and fails its workspace step.
+	Root string
+	// GitAuth is how the run's git authenticates. Default: GitAuthHelper.
+	GitAuth GitAuth
+	// Env is added to the environment that the pipeline's own git and the harness share,
+	// after the owner's allow-list (so it wins over Environ) and before the pipeline's own
+	// variables: the gateway's proxies (HTTP_PROXY, HTTPS_PROXY, NO_PROXY, either case) and CA
+	// (SSL_CERT_FILE, GIT_SSL_CAINFO, NODE_EXTRA_CA_CERTS, …), a GH_TOKEN placeholder,
+	// DOCKER_CONFIG. New refuses a variable the pipeline sets itself (HOME, TMPDIR, the XDG
+	// and PATH ones, the GIT_* and GCM_* ones of the git setup, the credential socket and the
+	// FACTORY_* ones of the harness's environment, every FACTORY_STACK_* one), and one that
+	// could add a credential helper or change what git or the shell runs: every GIT_* name
+	// but GIT_SSL_CAINFO and GIT_SSL_CAPATH, SSH_ASKPASS, LD_*, DYLD_*, BASH_ENV and ENV. On
+	// the host it is usually empty.
+	Env map[string]string
 	// Adapters are the harness adapters by harness name (task.harness.resolved.name).
 	Adapters map[string]harness.Adapter
 	// AgentBinary is the factory-agent executable: the credential helper and the `factory`
@@ -90,6 +137,15 @@ type Options struct {
 	// Schemas gives spec-specific output schemas. Default: APISchemas, the dispatcher's
 	// getTaskOutputSchema through the job's client.
 	Schemas SchemaSource
+	// Prompts gives the rendered prompt template and the context items. Default:
+	// APIPrompts, the dispatcher's getTaskPrompt and getTaskContext through the job's client.
+	Prompts PromptSource
+	// Skills gives the run its materialised skills. Default: FetchSkills, the pinned skills
+	// repos fetched with the run's git (through SkillsCache) into the workspace's skills/.
+	Skills SkillSource
+	// Transcripts keeps the redacted, gzipped transcript. Default: APITranscripts, the
+	// dispatcher's uploadTranscript through the job's client.
+	Transcripts TranscriptStore
 	// Stack brings the local stack up; nil: tasks that need one fail with stack-error.
 	Stack Stack
 	// Environ is the owner's environment, reduced to the allow-list for the harness.
@@ -100,7 +156,7 @@ type Options struct {
 	// Logger logs the pipeline's steps; never a token. Default: discard.
 	Logger *slog.Logger
 	// KeepWorkspace keeps the workspace after the run (debugging): it is logged, not
-	// removed. The credential socket is removed anyway.
+	// removed. The credential socket is removed anyway. A Root is always kept.
 	KeepWorkspace bool
 	// TranscriptLimit caps the gzipped transcript. Default: DefaultTranscriptLimit.
 	TranscriptLimit int64
@@ -109,6 +165,19 @@ type Options struct {
 	DefaultWallClock time.Duration
 	// BotName and BotEmail are the commit author set in the writable checkout.
 	BotName, BotEmail string
+	// OnStep, when set, is called after each step that ran with its name, its duration and
+	// its error (nil on success): workspace, credentials, clone, stack, skills, schema,
+	// prompt, environment, prepare, harness, repair (only after an invalid Result) and
+	// finish (its error is the transcript's). The error is redacted with the run's redactor
+	// (its tokens and anything shaped like one): its Error() is the redacted text, and it
+	// unwraps to the step's own error, so errors.Is and errors.As still match. An error
+	// unwrapped from it is the original, unredacted: report the error OnStep gets, not one
+	// errors.Unwrap or errors.As returns.
+	OnStep func(name string, d time.Duration, err error)
+	// Finished, when set, is called once with the run's Outcome at the end of finish, after
+	// the transcript is stored and before cleanup (the stack's Down, the credential socket,
+	// the workspace's removal). It isn't called when Run returns an error.
+	Finished func(runner.Outcome)
 }
 
 // Pipeline runs leased tasks. It is safe for concurrent use: each run has its own
@@ -126,12 +195,23 @@ var _ runner.Runner = (*Pipeline)(nil)
 
 // New checks the options and fills in the defaults.
 func New(o Options) (*Pipeline, error) {
-	if o.WorkRoot == "" {
-		return nil, errors.New("pipeline: WorkRoot is required")
-	}
-	if !filepath.IsAbs(o.WorkRoot) {
+	switch {
+	case o.WorkRoot == "" && o.Root == "":
+		return nil, errors.New("pipeline: WorkRoot or Root is required")
+	case o.WorkRoot != "" && o.Root != "":
+		return nil, errors.New("pipeline: WorkRoot and Root are exclusive")
+	case o.Root != "" && !filepath.IsAbs(o.Root):
+		return nil, fmt.Errorf("pipeline: Root %q must be absolute", o.Root)
+	case o.WorkRoot != "" && !filepath.IsAbs(o.WorkRoot):
 		return nil, fmt.Errorf("pipeline: WorkRoot %q must be absolute", o.WorkRoot)
 	}
+	if o.GitAuth != GitAuthHelper && o.GitAuth != GitAuthGateway {
+		return nil, fmt.Errorf("pipeline: unknown GitAuth %v", o.GitAuth)
+	}
+	if err := checkEnv(o.Env); err != nil {
+		return nil, fmt.Errorf("pipeline: Env: %w", err)
+	}
+	o.Env = maps.Clone(o.Env)
 	if len(o.Adapters) == 0 {
 		return nil, errors.New("pipeline: no harness adapters")
 	}
@@ -153,6 +233,15 @@ func New(o Options) (*Pipeline, error) {
 	}
 	if o.Schemas == nil {
 		o.Schemas = APISchemas{}
+	}
+	if o.Prompts == nil {
+		o.Prompts = APIPrompts{}
+	}
+	if o.Skills == nil {
+		o.Skills = FetchSkills{}
+	}
+	if o.Transcripts == nil {
+		o.Transcripts = APITranscripts{}
 	}
 	if o.Environ == nil {
 		o.Environ = os.Environ
@@ -266,8 +355,54 @@ func failed(reason string, err error) stepResult {
 	return stepResult{status: runner.StatusFailed, reason: reason, err: err}
 }
 
+// GatewayCredentialError is a gateway-mode run's refusal of a job that carries a credential:
+// in a VM workspace every credential lives in the gateway, never in the job. Field names the
+// field (Lease.GitCredential.Token, Git.Reads[0].Token, AgentToken, …), never its value.
+type GatewayCredentialError struct{ Field string }
+
+func (e *GatewayCredentialError) Error() string {
+	return "gateway mode: the job carries a credential in " + e.Field
+}
+
+// jobCredential is the first credential field the job sets, or "" when it carries none: the
+// lease's git and read tokens, the current ones in Git, the agent token and the dispatcher
+// client (authenticated as the agent).
+func jobCredential(job *runner.Job) string {
+	if job.Lease.GitCredential.Token != "" {
+		return "Lease.GitCredential.Token"
+	}
+	for i, c := range job.Lease.ReadCredentials {
+		if c.Token != "" {
+			return fmt.Sprintf("Lease.ReadCredentials[%d].Token", i)
+		}
+	}
+	if job.Git != nil {
+		if job.Git.Get().Token != "" {
+			return "Git.Token"
+		}
+		for i, c := range job.Git.Reads() {
+			if c.Token != "" {
+				return fmt.Sprintf("Git.Reads[%d].Token", i)
+			}
+		}
+	}
+	if job.AgentToken != nil {
+		return "AgentToken"
+	}
+	if job.API != nil {
+		return "API"
+	}
+	return ""
+}
+
 // execute runs the steps up to the validated Result.
 func (r *run) execute(ctx context.Context) stepResult {
+	// Before any step: a gateway-mode job holds no credential (workspace-run.md §Gateway mode).
+	if r.p.o.GitAuth == GitAuthGateway {
+		if f := jobCredential(r.job); f != "" {
+			return failed(runner.ReasonHarnessError, &GatewayCredentialError{Field: f})
+		}
+	}
 	h := r.task.Spec.Harness
 	if h == nil || h.Resolved == nil || h.Resolved.Name == "" {
 		return failed(runner.ReasonHarnessError, errors.New("the task has no resolved harness"))
@@ -293,15 +428,28 @@ func (r *run) execute(ctx context.Context) stepResult {
 		{"environment", runner.ReasonHarnessError, r.buildEnv},
 	}
 	for _, s := range steps {
-		if err := s.fn(ctx); err != nil {
+		t0 := r.p.clk.Now()
+		err := s.fn(ctx)
+		r.stepDone(s.name, t0, err)
+		if err != nil {
 			return failed(s.reason, fmt.Errorf("%s: %w", s.name, err))
 		}
 		r.log.Debug("pipeline step done", "step", s.name)
 	}
-	if err := ad.Prepare(ctx, r.ws, r.task); err != nil {
+	t0 := r.p.clk.Now()
+	err := ad.Prepare(ctx, r.ws, r.task)
+	r.stepDone("prepare", t0, err)
+	if err != nil {
 		return failed(runner.ReasonHarnessError, fmt.Errorf("prepare %s: %w", ad.Name(), err))
 	}
 	return r.runHarness(ctx)
+}
+
+// stepDone reports a step that started at t0 to Options.OnStep, its error redacted.
+func (r *run) stepDone(name string, t0 time.Time, err error) {
+	if f := r.p.o.OnStep; f != nil {
+		f(name, r.p.clk.Now().Sub(t0), r.red.Error(err))
+	}
 }
 
 // runHarness runs the harness, validates the Result and, once, repairs it.
@@ -309,32 +457,42 @@ func (r *run) runHarness(ctx context.Context) stepResult {
 	r.harnessed = true
 	r.mon.countTurns(true)
 	r.log.Info("harness starting", "harness", r.adapter.Name())
+	t0 := r.p.clk.Now()
 	raw, err := r.adapter.Run(ctx, r.ws, r.task, r.prompt, r.mon)
 	r.parts = append(r.parts, raw.Transcript)
 	r.mon.countTurns(false)
 	if res, stop := r.harnessEnded(ctx, err); stop {
+		r.stepDone("harness", t0, res.err)
 		return res
 	}
 	res, problems := r.checkResult(raw)
+	r.stepDone("harness", t0, nil)
 	if len(problems) == 0 {
 		r.result = res
 		return stepResult{status: string(res.Status)}
 	}
 	r.log.Info("the result is invalid: one repair turn", "problems", len(problems))
 	r.parts = append(r.parts, factoryLine("repair", map[string]any{"problems": problems}))
+	t0 = r.p.clk.Now()
 	if err := os.Remove(r.ws.Result); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return failed(runner.ReasonHarnessError, fmt.Errorf("remove the invalid result: %w", err))
+		s := failed(runner.ReasonHarnessError, fmt.Errorf("remove the invalid result: %w", err))
+		r.stepDone("repair", t0, s.err)
+		return s
 	}
 	raw, err = r.adapter.Repair(ctx, r.ws, problems, r.mon)
 	r.parts = append(r.parts, raw.Transcript)
 	if res, stop := r.harnessEnded(ctx, err); stop {
+		r.stepDone("repair", t0, res.err)
 		return res
 	}
 	res, problems = r.checkResult(raw)
 	if len(problems) > 0 {
 		r.parts = append(r.parts, factoryLine("invalid-result", map[string]any{"problems": problems}))
-		return failed(runner.ReasonInvalidResult, fmt.Errorf("still invalid after the repair turn: %s", strings.Join(problems, "; ")))
+		s := failed(runner.ReasonInvalidResult, fmt.Errorf("still invalid after the repair turn: %s", strings.Join(problems, "; ")))
+		r.stepDone("repair", t0, s.err)
+		return s
 	}
+	r.stepDone("repair", t0, nil)
 	r.result = res
 	return stepResult{status: string(res.Status)}
 }
@@ -367,9 +525,11 @@ func stepFromCause(cause error) stepResult {
 	return failed(runner.ReasonCancelled, cause)
 }
 
-// finish turns the last step into the Outcome, uploading the transcript when the harness
-// ran. parent is the worker's context.
+// finish turns the last step into the Outcome, storing the transcript when the harness ran,
+// and hands it to Options.Finished. parent is the worker's context.
 func (r *run) finish(parent context.Context, s stepResult) runner.Outcome {
+	t0 := r.p.clk.Now()
+	var storeErr error
 	// A step that failed because a limit or a rate limit cancelled it (the clone was
 	// cancelled by the wall-clock timer) ended for that reason.
 	if cause := r.mon.stopped(); cause != nil && s.status == runner.StatusFailed &&
@@ -392,11 +552,7 @@ func (r *run) finish(parent context.Context, s stepResult) runner.Outcome {
 		res.Harness = r.harnessInfo(usage)
 		out.Result = &res
 	case s.status == runner.StatusFailed && s.reason != runner.ReasonCancelled:
-		summary := s.reason
-		if s.err != nil {
-			summary += ": " + r.red.String(s.err.Error())
-		}
-		res := v1alpha1.Result{Task: r.id, Status: v1alpha1.ResultFailed, Summary: truncate(summary, maxSummary)}
+		res := FailedResult(r.id, s.reason, s.err, r.red.String)
 		if r.harnessed {
 			res.Harness = r.harnessInfo(usage)
 		}
@@ -409,13 +565,18 @@ func (r *run) finish(parent context.Context, s stepResult) runner.Outcome {
 	}
 	if r.harnessed && parent.Err() == nil {
 		uctx, cancel := context.WithTimeout(context.WithoutCancel(parent), cleanupTimeout)
-		ref, err := r.uploadTranscript(uctx)
+		ref, err := r.storeTranscript(uctx)
 		cancel()
 		if err != nil {
+			storeErr = err
 			r.log.Warn("transcript not uploaded", "err", r.red.String(err.Error()))
 		} else {
 			out.TranscriptRef = ref
 		}
+	}
+	r.stepDone("finish", t0, storeErr)
+	if f := r.p.o.Finished; f != nil {
+		f(out)
 	}
 	return out
 }
@@ -431,7 +592,7 @@ func (r *run) harnessInfo(u v1alpha1.Usage) *v1alpha1.ResultHarness {
 }
 
 // cleanup always runs: stack down, the credential socket closed, the workspace removed
-// (run-pipeline.md §Steps 12).
+// (run-pipeline.md §Steps 12), except a Root, which is kept for whoever collects out/.
 func (r *run) cleanup(parent context.Context) {
 	if r.stackUp {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), StackDownTimeout)
@@ -446,7 +607,7 @@ func (r *run) cleanup(parent context.Context) {
 		}
 		r.creds = nil
 	}
-	if r.ws.Root == "" {
+	if r.ws.Root == "" || r.p.o.Root != "" {
 		return
 	}
 	if r.p.o.KeepWorkspace {
@@ -460,6 +621,21 @@ func (r *run) cleanup(parent context.Context) {
 
 // maxSummary bounds a failure summary (the worker's bound).
 const maxSummary = 500
+
+// FailedResult is the failed Result of a run that ended without one of its own, the pipeline's
+// and the VM's (workspace-run.md, decided 2026-10-22): its summary is reason, then ": " and
+// err's message redacted by redact (nil: by the token shapes alone, RedactShapes) when err
+// isn't nil, cut to 500 bytes on a rune boundary.
+func FailedResult(task, reason string, err error, redact func(string) string) v1alpha1.Result {
+	if redact == nil {
+		redact = RedactShapes
+	}
+	summary := reason
+	if err != nil {
+		summary += ": " + redact(err.Error())
+	}
+	return v1alpha1.Result{Task: task, Status: v1alpha1.ResultFailed, Summary: truncate(summary, maxSummary)}
+}
 
 // truncate cuts s to n bytes on a rune boundary.
 func truncate(s string, n int) string {

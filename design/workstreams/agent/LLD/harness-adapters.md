@@ -50,6 +50,10 @@ type EventSink interface { Progress(ProgressEvent); Usage(UsageDelta); RateLimit
 | Stream | stream-json: `system/init` (confirms plugins loaded; fail if `plugin_errors`), `assistant`/`user` (tool_use/tool_result) → progress, `result` (usage, `num_turns`, `total_cost_usd` → only meaningful for API keys) ; rate-limit errors → `RateLimited` |
 | Result | `--json-schema` structured output → `out/result.json` |
 
+## Isolation (P1 phase 3)
+
+Both adapters take `Options.Isolation` (`harness.Isolation`). `IsolationSandbox`, the zero value, is everything this LLD describes: the harness's own OS sandbox on the owner's host. `IsolationVM` is for `factory-agent run` inside a VM workspace, where the VM is the boundary: no Probe; claude gets no `sandbox` or `permissions` settings, a scratch `CLAUDE_CONFIG_DIR` and a placeholder `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`), and keeps its PreToolUse hook; codex runs `--sandbox danger-full-access` with no `[sandbox_workspace_write]` or `workDirFor`, and a placeholder `auth.json` built from the account identifiers in the run bundle, in Phase 0's shape. See [workspace-run.md](workspace-run.md#harnesses-under-isolationvm).
+
 ## Fake adapter
 
 Scriptable (`fake.Script{Events, Result, Err, RateLimitAfter}`) for pipeline and worker tests.
@@ -71,6 +75,7 @@ Scriptable (`fake.Script{Events, Result, Err, RateLimitAfter}`) for pipeline and
   - `-c approval_policy="never"`, which replaces the LLD's `--ask-for-approval never`: as far as known that is a top-level flag `exec` doesn't take;
   - `-c model_reasoning_effort=…` and its values: `minimal`, `low`, `medium`, `high`, and `xhigh` for the `*-codex-max*` models, which `max` maps to there; `minimal` maps to `low` on the `*-codex*` models;
   - the `config.toml` keys: `check_for_update_on_startup`, `[sandbox_workspace_write] network_access` and `writable_roots`, `[shell_environment_policy] inherit` and `ignore_default_excludes`, and `[mcp_servers.<name>] command`, `args`, `env_vars` and `default_tools_approval_mode = "approve"`;
+  - under `IsolationVM`: `--sandbox danger-full-access`, and the placeholder `auth.json` keys (Phase 0's shape, exactly: `OPENAI_API_KEY` null, `last_refresh`, `tokens.{id_token, access_token, refresh_token, account_id}`, and the id_token's claims `email`, `exp` and `https://api.openai.com/auth` with `chatgpt_account_id`, `chatgpt_user_id` and `chatgpt_plan_type`), the id_token's non-empty dummy signature segment (`x`, as Phase 0's), and that a fresh `last_refresh` keeps codex from refreshing;
   - the JSONL event and item names below, `turn.completed`'s usage being per turn rather than cumulative, and the rate-limit wording;
   - `useOutputSchema` (true), i.e. that codex accepts the Result schemas for `--output-schema`.
 - **Package and registration.** `internal/agent/harness/codex`, registered with one line in `cmd/factory-agent/worker.go`'s `harnessAdapters`. `probeOptions` now probes each configured harness with its registered adapter's `Probe`, falling back to `probe.Configured` for one without an adapter. Every codex invocation goes through `Options.Binary`, and `Probe`'s short commands also go through `Options.Commands`, so tests run a fake codex.
@@ -122,6 +127,7 @@ Scriptable (`fake.Script{Events, Result, Err, RateLimitAfter}`) for pipeline and
   - the minimum version `2.1.0` and `claude --version`'s `x.y.z (Claude Code)`;
   - `CLAUDE_CONFIG_DIR`; `ANTHROPIC_API_KEY` taking precedence over a subscription login; `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`); the login in `<configDir>/.credentials.json` outside macOS and in the Keychain on macOS, with `<configDir>/.claude.json` present once the dir is set up; the login hint (`CLAUDE_CONFIG_DIR=<dir> claude`, then `/login`);
   - `DISABLE_AUTOUPDATER=1` and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`;
+  - `IS_SANDBOX=1` letting a root run use `bypassPermissions` (set only under `IsolationVM`, for a root run);
   - `--print` reading the prompt from stdin, `--output-format stream-json` with `--verbose`, `--model`, `--append-system-prompt`, `--plugin-dir` (once per plugin), `--settings <file>`, `--setting-sources user`, `--mcp-config <file>` with `--strict-mcp-config`, `--json-schema` taking the schema **inline** (not a path), `--max-turns`, `--max-budget-usd`, `--permission-mode bypassPermissions`, `--disallowedTools` as one comma-separated list, `--add-dir`, `--resume <session id>` from the same working directory;
   - `useJSONSchema` (true), i.e. that claude accepts the Result schemas (local `$defs`/`$ref`, `oneOf`, `additionalProperties: false`);
   - the settings keys `enabledPlugins`, `effortLevel` (the LLD's example) and `hooks.PreToolUse[].{matcher, hooks[].{type: command, command, timeout}}`, the matcher being a regular expression over tool names;

@@ -145,9 +145,11 @@ export interface paths {
         /**
          * Long-poll for a task
          * @description Parks the request for up to `wait` while the scheduler looks for a task this agent may
-         *     take. Returns the lease, the task (with its resolved harness), a scoped git credential
-         *     for the task repo and a read-only one per private read repo (public read repos are
-         *     cloned anonymously); the credentials appear only in this response and are never stored.
+         *     take. Returns the lease, the task (with its resolved harness) and the lease's credential
+         *     bundle: a scoped git credential for the task repo, a read-only one per private read repo
+         *     (public read repos are cloned anonymously) and the run token (`runToken`); the
+         *     credentials appear only in this response and are never stored (the run token only as
+         *     its hash).
          *     `204` when nothing matched in time.
          */
         get: operations["leaseTask"];
@@ -291,7 +293,8 @@ export interface paths {
         /**
          * Get a task's rendered prompt
          * @description The prompt rendered from the TaskSpec's instructions template with the task's inputs.
-         *     It refers to context items by index; it never inlines untrusted bodies.
+         *     It refers to context items by index; it never inlines untrusted bodies. A run token
+         *     works only for its own task.
          */
         get: operations["getTaskPrompt"];
         put?: never;
@@ -321,7 +324,7 @@ export interface paths {
          *     (they are embedded under `$defs`, by `$id`); references to the v1alpha1 schemas (the
          *     base Result) stay references by their `$id`. `404` when the TaskSpec declares no
          *     output schema (or is no longer in the catalog). An agent may read only a task it holds
-         *     the active lease of.
+         *     the active lease of. A run token works only for its own task.
          */
         get: operations["getTaskOutputSchema"];
         put?: never;
@@ -348,7 +351,7 @@ export interface paths {
          * Get one fetched context item
          * @description Context item `n` of the task, fetched by the dispatcher and labelled with its trust.
          *     Untrusted content is returned fenced; the agent wraps it in `<untrusted>` before handing
-         *     it to the harness.
+         *     it to the harness. A run token works only for its own task.
          */
         get: operations["getTaskContext"];
         put?: never;
@@ -379,7 +382,8 @@ export interface paths {
         /**
          * Upload a run's transcript
          * @description The harness transcript as gzip-compressed JSON Lines, at most 20 MB. Uploading again
-         *     replaces it. `getTranscript` serves it back unchanged.
+         *     replaces it. `getTranscript` serves it back unchanged. A run token works only for its
+         *     own run.
          */
         put: operations["uploadTranscript"];
         post?: never;
@@ -408,7 +412,7 @@ export interface paths {
          *     task's target or its linked objects (`403 effect-not-allowed`). `idempotencyKey` is
          *     required (`400 idempotency-key-required`): a repeated key returns the stored effect with
          *     `200`. Rate limits answer `429`. Git-side ops (`push-branch`, `stack.*`) are recorded,
-         *     not applied.
+         *     not applied. A run token works only for its own task.
          */
         post: operations["createEffect"];
         delete?: never;
@@ -917,7 +921,10 @@ export interface components {
             until?: string;
             lending?: components["schemas"]["Lending"];
         };
-        /** @description A leased task, its lease and its scoped git credentials. */
+        /**
+         * @description A leased task, its lease and its credential bundle for the agent's gateway: the scoped
+         *     git credential, the read credentials and the run token.
+         */
         Lease: {
             lease: components["schemas"]["LeaseInfo"];
             task: components["schemas"]["Task"];
@@ -929,6 +936,12 @@ export interface components {
              *     cloned anonymously.
              */
             readCredentials?: components["schemas"]["GitCredential"][];
+            /**
+             * @description The run-scoped token for this lease (the `runToken` scheme). Appears only in this
+             *     response; the dispatcher keeps only its hash. Not refreshed by heartbeats: it lives
+             *     exactly as long as the lease.
+             */
+            runToken?: string;
         };
         /** @description The lease itself. */
         LeaseInfo: {

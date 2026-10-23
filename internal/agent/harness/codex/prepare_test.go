@@ -122,7 +122,7 @@ func listTree(t *testing.T, dir string) []string {
 func TestPrepareLayout(t *testing.T) {
 	owner := ownerHome(t)
 	ws := workspace(t, true)
-	a := New(Options{Config: config.Harness{Home: owner}})
+	a := noCodex(t, Options{Config: config.Harness{Home: owner}})
 	if err := a.Prepare(context.Background(), ws, task("gpt-5-codex", "high")); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestPrepareReadOnly(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(ws.Repo, ".git"), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := New(Options{Config: config.Harness{Home: owner}}).Prepare(context.Background(), ws, task("", "")); err != nil {
+		if err := noCodex(t, Options{Config: config.Harness{Home: owner}}).Prepare(context.Background(), ws, task("", "")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -237,7 +237,7 @@ func TestPrepareRefusals(t *testing.T) {
 		"not signed in": {Home: t.TempDir()},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if err := New(Options{Config: h}).Prepare(context.Background(), ws, task("", "")); err == nil {
+			if err := noCodex(t, Options{Config: h}).Prepare(context.Background(), ws, task("", "")); err == nil {
 				t.Error("Prepare succeeded")
 			}
 		})
@@ -245,7 +245,7 @@ func TestPrepareRefusals(t *testing.T) {
 	// Two skills that would land in the same folder.
 	ws.SkillList = append(ws.SkillList, harness.Skill{Plugin: "", Name: "docs-style", Dir: ws.SkillList[0].Dir})
 	ws.SkillList = append(ws.SkillList, harness.Skill{Plugin: "", Name: "docs-style", Dir: ws.SkillList[0].Dir})
-	if err := New(Options{Config: config.Harness{Home: ownerHome(t)}}).Prepare(context.Background(), ws, task("", "")); err == nil {
+	if err := noCodex(t, Options{Config: config.Harness{Home: ownerHome(t)}}).Prepare(context.Background(), ws, task("", "")); err == nil {
 		t.Error("clashing skill folders: Prepare succeeded")
 	}
 }

@@ -161,8 +161,8 @@ process inside it is privileged only inside that VM.
 
 - **The base image is built on the agent host, not published.** The factory repo holds one
   provisioning script, embedded in `factory-agent`, and `host init` builds the base with it:
-  - **tart:** clones `ghcr.io/cirruslabs/ubuntu` (pinned by digest) into `factory-ws-base`, boots
-    it, runs the script, and shuts it down;
+  - **tart:** clones `ghcr.io/cirruslabs/ubuntu` (pinned by digest) into
+    `factory-agent-base-<version>`, boots it, runs the script, and shuts it down;
   - **kata:** builds an OCI image (Debian) from the same script with `nerdctl build`.
 
   Both carry:
@@ -195,8 +195,9 @@ process inside it is privileged only inside that VM.
   - the gateway's CA certificate and the gateway's URL;
   - for codex, the account identifiers it reads locally (account id, user id, plan type: not
     credentials, §5);
-  - a **run token**: an opaque per-run identifier, not a credential. The gateway maps it to this
-    task.
+  - the run's id (`run_…`), for logs and the transcript. It's not a credential, and the
+    gateway needs no identifier from the workspace: it serves exactly one. The lease's run
+    token (§5) stays in the gateway and never enters the bundle.
 - **`factory-agent run`** (in the VM) is today's pipeline from step 2 on:
   1. Clones the repos through the gateway: rw into `/work/repo`, ro into `/work/ro/<name>`.
      - The LLM is root in its VM, so "ro" inside the VM is advisory.
@@ -342,7 +343,11 @@ Every credential is added by the workspace's gateway, so none enters a VM. Where
     and `PUT` its own transcript;
   - **it expires with the lease.**
 
-  It replaces `FACTORY_TOKEN` = agent token (a new `runToken` security scheme in the API).
+  - **its format:** `rtk_` followed by 43 base64url characters (32 random bytes), a prefix no
+    identifier uses (run IDs start with `run_`).
+
+  It replaces `FACTORY_TOKEN` = agent token: the lease's `runToken`, for the API's
+  [`runToken` security scheme](../../api/openapi.yaml) (`components.securitySchemes.runToken`).
 - **Accepted risk:** the agent host holds the subscription tokens (0600 files, and in memory
   while a lease runs). A Claude OAuth token is long-lived (1 year), so a compromised agent host
   leaks it. Rotate it with `claude setup-token` and `factory-agent login claude`. The gateway
@@ -384,6 +389,8 @@ on macOS 26 can run it.** `make tart-up` in the factory repo builds `factory-age
 `factory-agent supervise` runs the same checks (`host check`) at start: if something is missing
 or out of date, it runs the missing `init` steps itself. It stops only for a step that needs a
 person, and says which.
+The steps, pins, sudo batch and pf rules are in the
+[workspace-host LLD](../workstreams/agent/LLD/workspace-host.md).
 
 | Step | Phase 0 (by hand) | `host init` |
 |---|---|---|
@@ -391,8 +398,8 @@ person, and says which.
 | Tart | notarized release, sha256-checked (the Homebrew tap is broken) | installs the pinned release into the state dir if it's missing or older: sha256 from `factory-agent`'s own pin list, and the Developer ID checked with `codesign` |
 | Softnet | release 0.24.1, installed SUID root by hand | installs the pinned release to `/usr/local/libexec/factory-agent/softnet`, root-owned and SUID. Tart is run with that directory on its `PATH`. **Needs `sudo` once:** it prompts in the terminal |
 | pf anchor | — | from Softnet bridges, only the gateway port reaches the Mac (`com.compliance-framework.factory`, loaded by a LaunchDaemon). **The same `sudo` prompt** |
-| Base VM | cloned and provisioned by hand | builds `factory-ws-base` locally (§2): about 6 minutes on a good connection |
-| Warm base | cloned by hand | clones the base into `factory-ws-warm` and pulls `warm.images` into it, with `warm.kindImages` saved for `kind load`. Rebuilt when the list or the base changes |
+| Base VM | cloned and provisioned by hand | builds `factory-agent-base-<version>` locally (§2): about 6 minutes on a good connection. See the [LLD's VM steps](../workstreams/agent/LLD/workspace-host.md#the-vm-steps-p1-2) |
+| Warm base | cloned by hand | clones the base into `factory-agent-warm` and pulls `warm.images` into it, with `warm.kindImages` saved for `kind load`. Rebuilt when the list or the base changes. See the [LLD's VM steps](../workstreams/agent/LLD/workspace-host.md#the-vm-steps-p1-2) |
 | Subscriptions | the spike's 0600 files | **a person, once:** `factory-agent login claude` reads `claude setup-token`'s output from stdin; `factory-agent login codex` imports `~/.codex/auth.json` |
 | Enrollment | — | **a person, once:** `factory-agent supervise --enroll <token>` with a token an admin minted (§6) |
 | State dir | — | `~/Library/Application Support/factory-agent/` (0700): agent credential, logins, gateway CA, Tart, run bundles |

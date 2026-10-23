@@ -12,7 +12,9 @@ import (
 func TestHookMain(t *testing.T) {
 	root := t.TempDir()
 	out, repo, ro := filepath.Join(root, "out"), filepath.Join(root, "repo"), filepath.Join(root, "ro")
-	for _, d := range []string{out, repo, ro} {
+	// outside shares out's name as a prefix: --write out doesn't let a write into it.
+	outside := filepath.Join(root, "outside")
+	for _, d := range []string{out, repo, ro, outside, filepath.Join(out, "outside")} {
 		if err := os.Mkdir(d, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -27,6 +29,7 @@ func TestHookMain(t *testing.T) {
 	}
 	readWrite := []string{"pre-tool-use", "--write", out, "--write", repo}
 	readOnly := []string{"pre-tool-use", "--write", out}
+	vm := []string{"pre-tool-use", "--write", "/"} // IsolationVM's writable workspace
 	tests := []struct {
 		name  string
 		args  []string
@@ -34,6 +37,8 @@ func TestHookMain(t *testing.T) {
 		deny  string // "" allows
 	}{
 		{"write the result", readOnly, call("Write", map[string]any{"file_path": filepath.Join(out, "result.json"), "content": "{}"}, ro), ""},
+		{"write a sibling that shares the root's prefix", readOnly, call("Write", map[string]any{"file_path": filepath.Join(outside, "x")}, ro), "may write only under"},
+		{"write under the root, in a directory named like the sibling", readOnly, call("Write", map[string]any{"file_path": filepath.Join(out, "outside", "x")}, ro), ""},
 		{"write a read-only checkout", readOnly, call("Write", map[string]any{"file_path": filepath.Join(ro, "README.md")}, ro), "may write only under"},
 		{"edit the writable checkout", readWrite, call("Edit", map[string]any{"file_path": "docs/a.md"}, repo), ""},
 		{"edit a checkout that is read-only here", readOnly, call("Edit", map[string]any{"file_path": "docs/a.md"}, repo), "is outside"},
@@ -62,6 +67,11 @@ func TestHookMain(t *testing.T) {
 		{"no event", nil, call("Read", nil, ro), "usage"},
 		{"a relative root", []string{"pre-tool-use", "--write", "out"}, call("Read", nil, ro), "bad arguments"},
 		{"an extra argument", []string{"pre-tool-use", "extra"}, call("Read", nil, ro), "bad arguments"},
+		{"the VM: write anywhere", vm, call("Write", map[string]any{"file_path": "/etc/apt/sources.list.d/x.list"}, repo), ""},
+		{"the VM: through a symlink", vm, call("Write", map[string]any{"file_path": filepath.Join(out, "escape", "x")}, repo), ""},
+		{"the VM: a relative edit", vm, call("Edit", map[string]any{"file_path": "docs/a.md"}, repo), ""},
+		{"the VM: git push", vm, call("Bash", map[string]any{"command": "git push origin HEAD"}, repo), "factory push"},
+		{"the VM: gh api POST", vm, call("Bash", map[string]any{"command": "gh api -X POST repos/acme/docs/issues -f title=x"}, repo), "gh api"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

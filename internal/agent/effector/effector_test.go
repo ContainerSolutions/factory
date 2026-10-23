@@ -49,7 +49,22 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
+	// `fx <op>`: the test binary is the run's `factory` CLI, as cmd/factory-agent's fx is, so
+	// a test can run an op in a process of its own environment (workspace_test.go).
+	if len(os.Args) > 2 && os.Args[1] == "fx" && effector.IsOp(os.Args[2:]) {
+		os.Exit(fxMain(os.Args[2:]))
+	}
 	os.Exit(runTests(m))
+}
+
+// fxMain is cmd/factory-agent's `fx <op>`: the Effector from this process's environment.
+func fxMain(args []string) int {
+	e, err := effector.FromEnv(os.Getenv, nil)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "factory:", err)
+		return effector.ExitUsage
+	}
+	return effector.Main(context.Background(), e, args, os.Stdin, os.Stdout, os.Stderr)
 }
 
 func runTests(m *testing.M) int {
@@ -590,7 +605,7 @@ func TestDispatcherErrors(t *testing.T) {
 	}{
 		{400, `{"status": 400, "title": "Bad Request", "code": "invalid", "detail": "the provider refused the effect", "errors": [{"field": "args.title", "message": "required"}]}`,
 			"comment was refused as invalid: the provider refused the effect (args.title: required)"},
-		{401, `{"status": 401, "title": "Unauthorized"}`, "the dispatcher refused the agent token"},
+		{401, `{"status": 401, "title": "Unauthorized"}`, "the dispatcher refused the run's credentials"},
 		{403, `{"status": 403, "title": "Forbidden", "code": "not-lease-holder", "detail": "the agent doesn't hold the task's lease"}`, "comment is not allowed: the agent doesn't hold"},
 		{404, `{"status": 404, "title": "Not Found", "detail": "the effect's target doesn't exist"}`, "comment: not found: the effect's target"},
 		{429, `{"status": 429, "title": "Too Many Requests", "code": "rate-limited", "detail": "the run made 20 comments (limit 20)"}`, "rate limited: the run made 20 comments (limit 20); retry later"},

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -233,5 +234,101 @@ func TestExpandPath(t *testing.T) {
 		if got, err := ExpandPath(in, home); err != nil || got != want {
 			t.Errorf("ExpandPath(%q) = %q, %v; want %q", in, got, err, want)
 		}
+	}
+}
+
+func TestWorkspace(t *testing.T) {
+	long := strings.Repeat("a", 201)
+	many := "[" + strings.TrimSuffix(strings.Repeat("x,", 101), ",") + "]"
+	tests := []struct {
+		name string
+		yaml string
+		goos string
+		want Workspace // checked when no problems are wanted
+		errs []string
+	}{
+		{"defaults on darwin", "{}", "darwin", Workspace{Driver: DriverTart, Size: WorkspaceSize{CPUs: 6, Memory: "8Gi", Disk: "60Gi"}, GatewayPort: 3128}, nil},
+		{"defaults on linux", "{}", "linux", Workspace{Driver: DriverKata, Size: WorkspaceSize{CPUs: 6, Memory: "8Gi", Disk: "60Gi"}, GatewayPort: 3128}, nil},
+		{"set", "{driver: kata, size: {cpus: 16, memory: 64Gi, disk: 20Gi}, gatewayPort: 1024, warm: {images: [postgres:17.5], kindImages: [ghcr.io/x/agent:0.7.1]}}", "darwin",
+			Workspace{Driver: DriverKata, Size: WorkspaceSize{CPUs: 16, Memory: "64Gi", Disk: "20Gi"}, GatewayPort: 1024, Warm: WarmImages{Images: []string{"postgres:17.5"}, KindImages: []string{"ghcr.io/x/agent:0.7.1"}}}, nil},
+		{"bad driver", "{driver: docker}", "darwin", Workspace{}, []string{`workspace.driver: "docker"`}},
+		{"cpus", "{size: {cpus: 17}}", "darwin", Workspace{}, []string{"workspace.size.cpus: 17"}},
+		{"memory too small", "{size: {memory: 1Gi}}", "darwin", Workspace{}, []string{`workspace.size.memory: "1Gi"`}},
+		{"memory not Gi", "{size: {memory: 8G}}", "darwin", Workspace{}, []string{`workspace.size.memory: "8G"`}},
+		{"memory leading zero", "{size: {memory: 08Gi}}", "darwin", Workspace{}, []string{`workspace.size.memory: "08Gi"`}},
+		{"disk", "{size: {disk: 501Gi}}", "darwin", Workspace{}, []string{`workspace.size.disk: "501Gi"`}},
+		{"port", "{gatewayPort: 80}", "darwin", Workspace{}, []string{"workspace.gatewayPort: 80"}},
+		{"images", "{warm: {images: ['', 'a b', " + long + "], kindImages: " + many + "}}", "darwin", Workspace{},
+			[]string{"workspace.warm.images[0]", "workspace.warm.images[1]", "workspace.warm.images[2]", "workspace.warm.kindImages: 101 images"}},
+		{"image flag", "{warm: {kindImages: ['--help']}}", "darwin", Workspace{}, []string{`workspace.warm.kindImages[0]: "--help"`}},
+		{"kind digest without a tag", "{warm: {images: ['postgres@sha256:ab'], kindImages: ['ghcr.io/x/agent:0.7.1@sha256:ab', 'localhost:5000/agent@sha256:ab']}}", "darwin", Workspace{},
+			[]string{`workspace.warm.kindImages[1]: "localhost:5000/agent@sha256:ab" has a digest but no tag`}},
+		{"unknown key", "{size: {gpus: 1}}", "darwin", Workspace{}, []string{`unknown field "gpus"`}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := opts()
+			o.GOOS = tt.goos
+			dir := t.TempDir()
+			// host's view: a file with only the workspace block, no worker keys.
+			p := writeFile(t, dir, "agent.yaml", "workspace: "+tt.yaml+"\n", 0o600)
+			w, err := LoadWorkspace(p, false, o)
+			// the worker's view: the same block in a full config.
+			_, perr := Parse([]byte(validYAML+"workspace: "+tt.yaml+"\n"), o)
+			if tt.errs == nil {
+				if err != nil || perr != nil {
+					t.Fatalf("LoadWorkspace: %v; Parse: %v", err, perr)
+				}
+				if !reflect.DeepEqual(w, tt.want) {
+					t.Errorf("workspace %+v\nwant %+v", w, tt.want)
+				}
+				return
+			}
+			for _, e := range []error{err, perr} {
+				for _, want := range tt.errs {
+					if e == nil || !strings.Contains(e.Error(), want) {
+						t.Errorf("err = %v\nwant %q", e, want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestKindImageTag(t *testing.T) {
+	for _, tt := range []struct {
+		ref, want string
+		ok        bool
+	}{
+		{"kindest/node:v1.33.1", "kindest/node:v1.33.1", true},
+		{"postgres", "postgres", true},
+		{"ghcr.io/x/agent:0.7.1@sha256:ab", "ghcr.io/x/agent:0.7.1", true},
+		{"localhost:5000/agent:1@sha256:ab", "localhost:5000/agent:1", true},
+		{"localhost:5000/agent@sha256:ab", "", false},
+		{"agent@sha256:ab", "", false},
+	} {
+		if got, ok := KindImageTag(tt.ref); got != tt.want || ok != tt.ok {
+			t.Errorf("KindImageTag(%q) = %q, %v; want %q, %v", tt.ref, got, ok, tt.want, tt.ok)
+		}
+	}
+}
+
+func TestLoadWorkspaceFile(t *testing.T) {
+	o := opts()
+	o.GOOS = "darwin"
+	missing := filepath.Join(t.TempDir(), "agent.yaml")
+	if w, err := LoadWorkspace(missing, true, o); err != nil || w.Driver != DriverTart {
+		t.Fatalf("missing, missingOK: %+v %v", w, err)
+	}
+	if _, err := LoadWorkspace(missing, false, o); err == nil {
+		t.Fatal("missing: no error")
+	}
+	p := writeFile(t, t.TempDir(), "agent.yaml", "workspace: {}\n", 0o666)
+	if _, err := LoadWorkspace(p, true, o); err == nil || !strings.Contains(err.Error(), "writable by group or others") {
+		t.Fatalf("0666: %v", err)
+	}
+	full := writeFile(t, t.TempDir(), "agent.yaml", validYAML, 0o600)
+	if w, err := LoadWorkspace(full, false, o); err != nil || w.GatewayPort != 3128 {
+		t.Fatalf("a worker config without workspace: %+v %v", w, err)
 	}
 }

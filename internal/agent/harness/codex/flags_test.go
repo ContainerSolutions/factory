@@ -119,7 +119,7 @@ func TestTOMLString(t *testing.T) {
 }
 
 func TestCapabilities(t *testing.T) {
-	c := New(Options{}).Capabilities()
+	c := noCodex(t, Options{}).Capabilities()
 	if c.Harness != "codex" || c.EffortMapping["max"] != "high" || c.EffortMapping["minimal"] != "minimal" || !slices.Contains(c.Features, "mcp") {
 		t.Errorf("capabilities %+v", c)
 	}

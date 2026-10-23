@@ -17,7 +17,7 @@ import (
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
-var update = flag.Bool("update", false, "rewrite the parser goldens under testdata/")
+var update = flag.Bool("update", false, "rewrite the goldens under testdata/ (the parser's and the IsolationVM files)")
 
 // t0 is the fake clock's time in the stream tests.
 var t0 = time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)

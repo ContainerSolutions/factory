@@ -9,6 +9,12 @@
 // the run's in-memory credential helper, then record the op through the same endpoint. A
 // local pre-check of the task's effects.allow and effects.labels gives fast, clear
 // refusals; the dispatcher re-checks everything and is authoritative.
+//
+// In a VM workspace ($FACTORY_RUNTIME=workspace) the Effector holds no credential: there is
+// no FACTORY_TOKEN and no credential helper, and the workspace's gateway (HTTP_PROXY,
+// HTTPS_PROXY) adds the run token to its effects and the repo's credential to its pushes,
+// refusing a push to a repo the task may not write. Stack ops always take the git fallback
+// there.
 package effector
 
 import (
@@ -104,8 +110,9 @@ const maxResponse = 1 << 20
 
 // Options configure an Effector.
 type Options struct {
-	// API is the dispatcher client, authenticated as the agent; nil refuses API-side ops
-	// (and the records of git-side ones) with a usage error.
+	// API is the dispatcher client: authenticated as the agent on the host, or without a
+	// credential in a VM workspace, where the gateway adds the run token. nil refuses API-side
+	// ops (and the records of git-side ones) with a usage error.
 	API API
 	// TaskID is the run's task ($FACTORY_TASK_ID).
 	TaskID string
@@ -122,8 +129,12 @@ type Options struct {
 	// Git and GH are the git and gh executables (default "git" and "gh", from PATH).
 	Git, GH string
 	// Env is git's and gh's environment (default os.Environ()): the run's, with the
-	// credential helper's GIT_CONFIG_* variables and GH_TOKEN.
+	// credential helper's GIT_CONFIG_* variables and GH_TOKEN (in a VM workspace: no helper,
+	// a placeholder GH_TOKEN, and the gateway's proxy and CA variables).
 	Env []string
+	// Runtime is $FACTORY_RUNTIME: "" on the host; pipeline.RuntimeWorkspace makes
+	// `stack push|rebase` always take the git fallback.
+	Runtime string
 	// Attempts per call on network errors (default DefaultAttempts).
 	Attempts int
 	// Sleep waits between attempts (default: a timer, honouring ctx).
@@ -180,10 +191,25 @@ func sleep(ctx context.Context, d time.Duration) error {
 }
 
 // FromEnv builds the Effector of a run from its environment: FACTORY_API, FACTORY_TOKEN,
-// FACTORY_TASK_ID, FACTORY_OUT, FACTORY_RESULT and FACTORY_EFFECTOR. A nil client uses a
-// default one.
+// FACTORY_TASK_ID, FACTORY_OUT, FACTORY_RESULT, FACTORY_EFFECTOR and FACTORY_RUNTIME. Without
+// FACTORY_TOKEN (a VM workspace) requests carry no Authorization. A nil client uses a default
+// one, which honours HTTP_PROXY (the workspace's gateway).
+//
+// It fails closed on the runtime: FACTORY_RUNTIME must be unset (the host) or
+// pipeline.RuntimeWorkspace, and the workspace runtime refuses a FACTORY_TOKEN, since it holds
+// no credential. Both are usage errors that name the variable, never its value.
 func FromEnv(getenv func(string) string, client *http.Client) (*Effector, error) {
-	o := Options{TaskID: getenv(pipeline.EnvTaskID), Result: getenv(pipeline.EnvResult)}
+	o := Options{TaskID: getenv(pipeline.EnvTaskID), Result: getenv(pipeline.EnvResult), Runtime: getenv(pipeline.EnvRuntime)}
+	switch o.Runtime {
+	case "":
+	case pipeline.RuntimeWorkspace:
+		if getenv(pipeline.EnvToken) != "" {
+			return nil, usagef("$%s is set in the workspace runtime ($%s=%s), which holds no credential: the gateway adds the run token",
+				pipeline.EnvToken, pipeline.EnvRuntime, pipeline.RuntimeWorkspace)
+		}
+	default:
+		return nil, usagef("$%s is not a known runtime: it must be unset (the host) or %q", pipeline.EnvRuntime, pipeline.RuntimeWorkspace)
+	}
 	if out := getenv(pipeline.EnvOut); out != "" {
 		o.State = filepath.Join(out, StateFile)
 	}
@@ -395,7 +421,7 @@ func rejection(op v1alpha1.EffectOp, key string, res *http.Response, body []byte
 	case http.StatusBadRequest:
 		msg = fmt.Sprintf("%s was refused as invalid: %s", op, detail)
 	case http.StatusUnauthorized:
-		msg = fmt.Sprintf("%s: the dispatcher refused the agent token: %s", op, detail)
+		msg = fmt.Sprintf("%s: the dispatcher refused the run's credentials: %s", op, detail)
 	case http.StatusForbidden:
 		msg = fmt.Sprintf("%s is not allowed: %s", op, detail)
 	case http.StatusNotFound:

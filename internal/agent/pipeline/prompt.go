@@ -6,13 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
@@ -36,10 +36,12 @@ func Preamble(taskID, taskSpec string) string {
 	return fmt.Sprintf(preamble, taskID, taskSpec)
 }
 
-// maxPrompt bounds the rendered prompt and each context item fetched.
+// maxPrompt bounds the rendered prompt and maxContext each context item fetched: runbundle's
+// bounds, so an oversize item fails here, on the host, never in runbundle.Write or the VM's
+// Read.
 const (
-	maxPrompt  = 1 << 20
-	maxContext = 4 << 20
+	maxPrompt  = runbundle.MaxPromptBytes
+	maxContext = runbundle.MaxContextBytes
 )
 
 // contextItem is one fetched context item.
@@ -52,31 +54,19 @@ type contextItem struct {
 	dir     string // the checkout, for repo items
 }
 
-// renderPrompt fetches the rendered template and the context items and puts the prompt
-// together (run-pipeline.md §Steps 6). Ticket context items are also written to
-// tickets/<owner>-<repo>-<n>.md for ticket-based skills.
+// renderPrompt fetches the rendered template and the context items through the PromptSource
+// and puts the prompt together (run-pipeline.md §Steps 6). Ticket context items are also
+// written to tickets/<owner>-<repo>-<n>.md for ticket-based skills.
 func (r *run) renderPrompt(ctx context.Context) error {
-	api := r.job.API
-	if api == nil {
-		return fmt.Errorf("no dispatcher client")
-	}
-	res, err := api.GetTaskPromptWithResponse(ctx, r.id)
+	src := r.p.o.Prompts
+	raw, err := src.Prompt(ctx, r.job)
 	if err != nil {
-		return fmt.Errorf("GET /tasks/%s/prompt: %w", r.id, err)
+		return err
 	}
-	if res.StatusCode() != http.StatusOK {
-		return apiError("GET /tasks/"+r.id+"/prompt", res.StatusCode(), res.Body)
+	if err := checkPrompt(r.task, raw); err != nil {
+		return err
 	}
-	if len(res.Body) > maxPrompt {
-		return fmt.Errorf("the prompt is over %d bytes", maxPrompt)
-	}
-	body := string(res.Body)
-	if p := r.task.Spec.Prompt; p != nil && p.Digest != "" {
-		sum := sha256.Sum256(res.Body)
-		if got := "sha256:" + hex.EncodeToString(sum[:]); got != p.Digest {
-			return fmt.Errorf("the prompt's digest is %s, the task says %s", got, p.Digest)
-		}
-	}
+	body := string(raw)
 
 	var items []contextItem
 	for i, c := range r.task.Spec.Context {
@@ -95,22 +85,19 @@ func (r *run) renderPrompt(ctx context.Context) error {
 			items = append(items, it)
 			continue
 		}
-		cres, err := api.GetTaskContextWithResponse(ctx, r.id, i)
-		if err != nil {
-			return fmt.Errorf("GET /tasks/%s/context/%d: %w", r.id, i, err)
-		}
+		tc, gone, err := src.Context(ctx, r.job, i)
 		switch {
-		case cres.StatusCode() == http.StatusNotFound:
+		case err != nil:
+			return err
+		case gone:
 			it.gone = true
-		case cres.StatusCode() != http.StatusOK || cres.JSON200 == nil:
-			return apiError(fmt.Sprintf("GET /tasks/%s/context/%d", r.id, i), cres.StatusCode(), cres.Body)
 		default:
-			if len(cres.JSON200.Content) > maxContext {
-				return fmt.Errorf("context item %d is over %d bytes", i, maxContext)
+			if err := checkContext(i, tc); err != nil {
+				return err
 			}
-			it.content = cres.JSON200.Content
-			if cres.JSON200.Trust != "" {
-				it.trust = cres.JSON200.Trust
+			it.content = tc.Content
+			if tc.Trust != "" {
+				it.trust = tc.Trust
 			}
 		}
 		items = append(items, it)
@@ -119,6 +106,29 @@ func (r *run) renderPrompt(ctx context.Context) error {
 	r.ws.Preamble = Preamble(r.id, r.task.Spec.TaskSpec.Name)
 	r.prompt = buildPrompt(r.ws.Preamble, body, items, r.ws.Root)
 	return r.writeTickets(items)
+}
+
+// checkPrompt refuses a rendered template over maxPrompt or whose digest isn't the task's
+// spec.prompt.digest.
+func checkPrompt(t v1alpha1.Task, raw []byte) error {
+	if len(raw) > maxPrompt {
+		return fmt.Errorf("the prompt is over %d bytes", maxPrompt)
+	}
+	if p := t.Spec.Prompt; p != nil && p.Digest != "" {
+		sum := sha256.Sum256(raw)
+		if got := "sha256:" + hex.EncodeToString(sum[:]); got != p.Digest {
+			return fmt.Errorf("the prompt's digest is %s, the task says %s", got, p.Digest)
+		}
+	}
+	return nil
+}
+
+// checkContext refuses a context item whose content is over maxContext.
+func checkContext(i int, tc apiclient.TaskContext) error {
+	if len(tc.Content) > maxContext {
+		return fmt.Errorf("context item %d is over %d bytes", i, maxContext)
+	}
+	return nil
 }
 
 // buildPrompt is the preamble, the rendered template, then the context items: untrusted

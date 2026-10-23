@@ -15,6 +15,36 @@ import (
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
+// Isolation is what bounds a run's commands (workspace-run.md §Harnesses under
+// IsolationVM): an adapter option (claudecode.Options.Isolation, codex.Options.Isolation).
+type Isolation int
+
+const (
+	// IsolationSandbox, the zero value, is the owner's host: the harness's own OS sandbox
+	// bounds every command, and the harness signs in with the owner's login.
+	IsolationSandbox Isolation = iota
+	// IsolationVM is `factory-agent run` inside a VM workspace: the VM is the boundary, so
+	// the harness runs without its own sandbox, and it holds no credential: the gateway
+	// outside the VM injects every one, and the harness gets Placeholder instead.
+	IsolationVM
+)
+
+func (i Isolation) String() string {
+	switch i {
+	case IsolationSandbox:
+		return "sandbox"
+	case IsolationVM:
+		return "vm"
+	}
+	return fmt.Sprintf("Isolation(%d)", int(i))
+}
+
+// Placeholder is the one placeholder credential a VM workspace carries where a tool refuses
+// to start without one (CLAUDE_CODE_OAUTH_TOKEN, GH_TOKEN, codex's auth.json). It matches
+// none of the transcript redactor's token patterns, and the gateway replaces whatever value
+// it finds, so it never has to recognise this one.
+const Placeholder = "factory-placeholder-not-a-credential"
+
 // Adapter drives one harness. The pipeline calls Prepare once, then Run, then at most one
 // Repair when the Result was invalid. Run and Repair return when the harness exits or ctx is
 // done; the pipeline cancels ctx on a limit (wall-clock, turns, cost) or a rate limit.

@@ -529,14 +529,16 @@ func TestOperationsCovered(t *testing.T) {
 	}
 	// The policies follow the spec's security requirements.
 	want := map[access][]string{
-		agentOnly:     {"agentToken"},
-		reader:        {"cliToken", "uiSession"},
-		readerOrAgent: {"agentToken", "cliToken", "uiSession"},
-		admin:         {"cliToken", "uiSession"},
-		sessionOnly:   {"uiSession"},
-		registration:  {"agentRefreshToken", "enrollmentToken", "joinToken", "ownerToken"},
-		agentOrAdmin:  {"agentToken", "cliToken", "uiSession"},
-		public:        nil,
+		agentOnly:        {"agentToken"},
+		reader:           {"cliToken", "uiSession"},
+		readerOrAgent:    {"agentToken", "cliToken", "uiSession"},
+		agentOrRun:       {"agentToken", "runToken"},
+		readerAgentOrRun: {"agentToken", "cliToken", "runToken", "uiSession"},
+		admin:            {"cliToken", "uiSession"},
+		sessionOnly:      {"uiSession"},
+		registration:     {"agentRefreshToken", "enrollmentToken", "joinToken", "ownerToken"},
+		agentOrAdmin:     {"agentToken", "cliToken", "uiSession"},
+		public:           nil,
 	}
 	for id, acc := range operations {
 		var got []string

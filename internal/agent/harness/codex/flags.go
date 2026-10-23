@@ -47,6 +47,57 @@ const loginCommand = "codex login --device-auth"
 // UNVERIFIED (owner to verify with make smoke-codex)
 const authFile = "auth.json"
 
+// auth.json under IsolationVM (placeholderAuth): the keys codex reads its ChatGPT login from,
+// in exactly the shape of the auth.json Phase 0's run used (P1-phase0-report.md, Q5: codex
+// rust-v0.163.0 answered behind the gateway with it): authKeyAPIKey, authKeyLastRefresh and
+// authKeyTokens at the top level, and tokenID, tokenAccess, tokenRefresh and tokenAccountID
+// in tokens, nothing added or left out.
+//
+//   - authKeyAPIKey is null: the run has no API key (an API-key run is refused in the VM).
+//   - authKeyTokens.tokenID is the id_token, a JWT codex decodes without verifying it. Its
+//     claimAuth claim's claimAccountID, claimUserID and claimPlanType pick codex's
+//     workspace: with placeholders codex fails "selected workspace missing from routing
+//     discovery" before it sends the prompt. Its claimEmail is idTokenEmail and its
+//     claimExpiry idTokenExpiry (2100-01-01), Phase 0's values: were codex to check the
+//     id_token's expiry, it would never find it stale. The token is unsigned (jwtAlgNone); idTokenSignature, Phase 0's dummy,
+//     fills its third segment, because codex's decoder may refuse an empty one (from a
+//     reading of codex-rs/login, not a run) and ignores what it holds.
+//   - tokenAccess and tokenRefresh are harness.Placeholder: the gateway replaces the bearer
+//     (and the chatgpt-account-id codex sends from tokenAccountID) on the way to chatgpt.com.
+//   - authKeyLastRefresh is the run's start, so codex, which refreshes a login days old
+//     (from a reading of codex-rs/login; Phase 0's run saw no call to auth.openai.com),
+//     never refreshes in a run. The gateway refreshes the owner's real token itself (P1 §3).
+//     Were codex to try anyway (a 401 after the gateway's token expired), it would post the
+//     placeholder refresh token to auth.openai.com, which refuses it: the run fails on auth,
+//     and nothing it holds is a credential.
+//
+// Phase 0's shape (owner to re-check on the first VM workspace run: make smoke-codex runs
+// the host path only)
+const (
+	authKeyAPIKey      = "OPENAI_API_KEY"
+	authKeyTokens      = "tokens"
+	authKeyLastRefresh = "last_refresh"
+	tokenID            = "id_token"
+	tokenAccess        = "access_token"
+	tokenRefresh       = "refresh_token"
+	tokenAccountID     = "account_id"
+	claimEmail         = "email"
+	claimExpiry        = "exp"
+	claimAuth          = "https://api.openai.com/auth"
+	claimAccountID     = "chatgpt_account_id"
+	claimUserID        = "chatgpt_user_id"
+	claimPlanType      = "chatgpt_plan_type"
+	jwtAlg             = "alg"
+	jwtAlgNone         = "none"
+	jwtTyp             = "typ"
+	jwtTypJWT          = "JWT"
+	// idTokenEmail and idTokenExpiry are Phase 0's email and exp claims: a placeholder
+	// address (.invalid is reserved, RFC 2606) and 2100-01-01T00:00:00Z in Unix seconds.
+	idTokenEmail           = "placeholder@example.invalid"
+	idTokenExpiry    int64 = 4102444800
+	idTokenSignature       = "x"
+)
+
 // configFile is codex's config in CODEX_HOME.
 // UNVERIFIED (owner to verify with make smoke-codex)
 const configFile = "config.toml"
@@ -79,8 +130,8 @@ const (
 	// flagConfig overrides one config key: -c key=<TOML value>.
 	// UNVERIFIED (owner to verify with make smoke-codex)
 	flagConfig = "-c"
-	// flagSandbox is the sandbox mode, always workspace-write (see workDirFor; the LLD notes
-	// 2026 renames towards a permission profile).
+	// flagSandbox is the sandbox mode: workspace-write on the host (see workDirFor; the LLD
+	// notes 2026 renames towards a permission profile), danger-full-access under IsolationVM.
 	// UNVERIFIED (owner to verify with make smoke-codex)
 	flagSandbox = "--sandbox"
 	// flagCd is the directory codex works in: the writable checkout, else out/ (workDirFor).
@@ -114,11 +165,17 @@ const (
 // passes the workspace's schema again.
 const useOutputSchema = false
 
-// sandboxWorkspaceWrite is the sandbox every run gets. codex's read-only mode isn't used: it
+// sandboxWorkspaceWrite is the sandbox every run on the host gets. codex's read-only mode isn't used: it
 // denies the agent every write ($FACTORY_OUT, $FACTORY_RESULT, TMPDIR) and the network (the
 // `factory` CLI), so a read-only checkout runs workspace-write from out/ instead (workDirFor).
 // UNVERIFIED (owner to verify with make smoke-codex)
 const sandboxWorkspaceWrite = "workspace-write"
+
+// sandboxDangerFullAccess is the sandbox under IsolationVM: none, since the VM is the
+// boundary (workspace-run.md §Harnesses under IsolationVM). codex then needs no bubblewrap
+// (Phase 0 saw only a warning that it was missing) and asks no approval for MCP tools.
+// UNVERIFIED (owner to verify with make smoke-codex)
+const sandboxDangerFullAccess = "danger-full-access"
 
 // Config keys set with -c. The LLD's `--ask-for-approval never` is a top-level codex flag
 // that exec doesn't take as far as known, so the approval policy goes through -c.

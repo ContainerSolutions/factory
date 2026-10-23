@@ -1,0 +1,17 @@
+tart list --format json
+tart list --format json
+tart clone factory-agent-base-0.1.0 factory-agent-warm.building
+tart run factory-agent-warm.building --no-graphics &
+tart exec factory-agent-warm.building true
+tart exec factory-agent-warm.building sudo docker pull postgres:17.5
+tart exec factory-agent-warm.building sudo docker pull ghcr.io/x/agent:0.7.1@sha256:ab
+tart exec factory-agent-warm.building sudo docker tag ghcr.io/x/agent:0.7.1@sha256:ab ghcr.io/x/agent:0.7.1
+tart exec factory-agent-warm.building sudo docker save -o /var/lib/factory/kind-images/ghcr.io_x_agent_0.7.1.tar ghcr.io/x/agent:0.7.1
+tart exec factory-agent-warm.building sudo cloud-init clean --logs
+tart exec factory-agent-warm.building sudo truncate -s 0 /etc/machine-id
+tart exec factory-agent-warm.building sudo shutdown -h now
+tart list --format json
+tart list --format json
+tart rename factory-agent-warm factory-agent-warm.old
+tart rename factory-agent-warm.building factory-agent-warm
+tart delete factory-agent-warm.old

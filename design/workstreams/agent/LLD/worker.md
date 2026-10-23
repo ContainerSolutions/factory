@@ -8,7 +8,7 @@
 ```text
 factory-agent register [--config …]                                   # device-flow owner login → agent registration
 factory-agent worker  [--config ~/.config/factory-agent/agent.yaml]   # (registers if needed) + lease loop
-factory-agent run     --task <id>                                      # one task, then exit (ephemeral pools, later)
+factory-agent run     --proxy <gateway> [--bundle /run/factory] …      # the in-VM runtime: one task from a run bundle (workspace-run.md)
 factory-agent probe   [--json]                                         # print capabilities (no network to dispatcher)
 factory-agent fx <op> [flags]                                          # Effector CLI (also installed as `factory` on PATH in runs)
 factory-agent mcp                                                      # Effector MCP server (stdio)
@@ -42,6 +42,8 @@ lending:
 ```
 
 `lending` changes take effect on `SIGHUP` (re-sent via `PATCH /agents/{id}`).
+
+**`factory-agent run` is the in-VM runtime (P1 phase 3),** not the one-task ephemeral mode first sketched here. It runs inside a VM workspace, reads the run bundle the supervisor wrote to `/run/factory`, runs the pipeline with no token of any kind (the workspace's gateway adds every credential), streams JSONL events on stdout and writes `out/outcome.json` for the supervisor. It never talks to the dispatcher's agent routes, so it needs no config, registration or lease. See [workspace-run.md](workspace-run.md#factory-agent-run).
 
 ## Startup
 

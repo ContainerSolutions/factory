@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -83,6 +84,8 @@ type Config struct {
 	// Lending is the owner's consent: what the agent may take. Sent at registration and again
 	// on SIGHUP.
 	Lending v1alpha1.Lending `json:"lending"`
+	// Workspace is the VM workspace setup; `factory-agent host` reads only this block.
+	Workspace *Workspace `json:"workspace,omitzero"`
 
 	// Path is the file the config was read from (not a config key).
 	Path string `json:"-"`
@@ -129,6 +132,8 @@ type Options struct {
 	Hostname func() (string, error)
 	// Warn gets non-fatal findings (a config readable by others). Default: discarded.
 	Warn func(string)
+	// GOOS picks the default workspace driver. Default runtime.GOOS.
+	GOOS string
 }
 
 func (o *Options) defaults() {
@@ -140,6 +145,9 @@ func (o *Options) defaults() {
 	}
 	if o.Warn == nil {
 		o.Warn = func(string) {}
+	}
+	if o.GOOS == "" {
+		o.GOOS = runtime.GOOS
 	}
 }
 
@@ -160,31 +168,73 @@ func ExpandPath(p string, home func() (string, error)) (string, error) {
 // owner's login, at another dispatcher.
 func Load(path string, o Options) (*Config, error) {
 	o.defaults()
-	p, err := ExpandPath(path, o.Home)
+	p, data, err := readConfig(path, o)
 	if err != nil {
 		return nil, err
 	}
+	cfg, err := Parse(data, o)
+	if err != nil {
+		return nil, withPath(err, p)
+	}
+	cfg.Path = p
+	return cfg, nil
+}
+
+// LoadWorkspace reads only the workspace block of the config at path, with the defaults
+// filled: `factory-agent host` needs no dispatcher, pool or join token. The file is checked
+// as Load checks it, and unknown keys are still errors; the other blocks aren't validated.
+// A missing file gives the defaults when missingOK is set.
+func LoadWorkspace(path string, missingOK bool, o Options) (Workspace, error) {
+	o.defaults()
+	p, data, err := readConfig(path, o)
+	if err != nil {
+		if missingOK && errors.Is(err, fs.ErrNotExist) {
+			return Workspace{}.WithDefaults(o.GOOS), nil
+		}
+		return Workspace{}, err
+	}
+	var cfg Config
+	if err := decodeStrict(data, &cfg); err != nil {
+		return Workspace{}, fmt.Errorf("config %s: %w", p, err)
+	}
+	w := Workspace{}
+	if cfg.Workspace != nil {
+		w = *cfg.Workspace
+	}
+	w = w.WithDefaults(o.GOOS)
+	if probs := w.validate(); len(probs) > 0 {
+		return Workspace{}, &ValidationError{Path: p, Problems: probs}
+	}
+	return w, nil
+}
+
+// readConfig expands path and reads the file, refusing it when group or others can write it:
+// whoever can write it can point the worker, and the owner's login, at another dispatcher.
+func readConfig(path string, o Options) (string, []byte, error) {
+	p, err := ExpandPath(path, o.Home)
+	if err != nil {
+		return "", nil, err
+	}
 	data, mode, err := readFile(p)
 	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
+		return "", nil, fmt.Errorf("read config: %w", err)
 	}
 	if mode&0o022 != 0 {
-		return nil, fmt.Errorf("config %s is writable by group or others (mode %04o): chmod 600 it", p, mode)
+		return "", nil, fmt.Errorf("config %s is writable by group or others (mode %04o): chmod 600 it", p, mode)
 	}
 	if mode&0o044 != 0 {
 		o.Warn(fmt.Sprintf("config %s is readable by group or others (mode %04o); the LLD asks for 0600", p, mode))
 	}
-	cfg, err := Parse(data, o)
-	if err != nil {
-		var ve *ValidationError
-		if errors.As(err, &ve) {
-			ve.Path = p
-			return nil, ve
-		}
-		return nil, fmt.Errorf("config %s: %w", p, err)
+	return p, data, nil
+}
+
+func withPath(err error, p string) error {
+	var ve *ValidationError
+	if errors.As(err, &ve) {
+		ve.Path = p
+		return ve
 	}
-	cfg.Path = p
-	return cfg, nil
+	return fmt.Errorf("config %s: %w", p, err)
 }
 
 // Parse decodes and validates a config document, fills the defaults and expands ~ in paths.
@@ -196,6 +246,10 @@ func Parse(data []byte, o Options) (*Config, error) {
 	}
 	if err := cfg.complete(o); err != nil {
 		return nil, err
+	}
+	if cfg.Workspace != nil {
+		w := cfg.Workspace.WithDefaults(o.GOOS)
+		cfg.Workspace = &w
 	}
 	if probs := cfg.validate(); len(probs) > 0 {
 		return nil, &ValidationError{Problems: probs}
@@ -322,6 +376,9 @@ func (c *Config) validate() []string {
 	}
 	for _, p := range validateLending(c.Lending) {
 		add("lending%s", p)
+	}
+	if c.Workspace != nil {
+		probs = append(probs, c.Workspace.validate()...)
 	}
 	return probs
 }
