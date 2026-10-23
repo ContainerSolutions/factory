@@ -814,3 +814,81 @@ func TestAPISourcesWithoutClient(t *testing.T) {
 		t.Errorf("Store without a run: %q %v", ref, err)
 	}
 }
+
+// FileTranscript writes the gzip to its path (replacing a previous one) and returns no ref;
+// a missing directory or path is an error, and a failed rename leaves no temp file behind.
+func TestFileTranscript(t *testing.T) {
+	t.Parallel()
+	ctx, dir := context.Background(), t.TempDir()
+	p := filepath.Join(dir, "transcript.jsonl.gz")
+	for _, body := range []string{"first", "second"} {
+		if ref, err := (FileTranscript{Path: p}).Store(ctx, &runner.Job{}, []byte(body)); ref != "" || err != nil {
+			t.Fatalf("Store: %q %v", ref, err)
+		}
+		if b, err := os.ReadFile(p); err != nil || string(b) != body {
+			t.Errorf("the file: %q %v, want %q", b, err, body)
+		}
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Errorf("leftovers beside the transcript: %v", entries)
+	}
+	for name, s := range map[string]FileTranscript{"no path": {}, "no directory": {Path: filepath.Join(dir, "missing", "t.gz")}} {
+		if _, err := s.Store(ctx, &runner.Job{}, []byte("x")); err == nil || !strings.Contains(err.Error(), "the transcript file") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// The rename fails after the temp file is written: Path is an existing directory.
+	other := t.TempDir()
+	busy := filepath.Join(other, "transcript.jsonl.gz")
+	if err := os.Mkdir(busy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (FileTranscript{Path: busy}).Store(ctx, &runner.Job{}, []byte("x")); err == nil || !strings.Contains(err.Error(), "the transcript file") {
+		t.Errorf("a directory at the path: %v", err)
+	}
+	entries, err := os.ReadDir(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".transcript.jsonl.gz.") {
+			t.Errorf("a failed rename left the temp file %s", e.Name())
+		}
+	}
+	if len(entries) != 1 {
+		t.Errorf("beside the directory: %v", entries)
+	}
+}
+
+// RedactShapes redacts the token shapes and Authorization values, with no run's own secrets.
+func TestRedactShapes(t *testing.T) {
+	t.Parallel()
+	in := "key sk-abcdefghijklmnop0123 token ghs_abcdefghijklmnop0123 Authorization: Bearer opaque-value kept"
+	want := "key " + Redacted + " token " + Redacted + " Authorization: " + Redacted + " kept"
+	if got := RedactShapes(in); got != want {
+		t.Errorf("RedactShapes = %q, want %q", got, want)
+	}
+}
+
+// FailedResult is the failed Result the pipeline and the VM give a run that ended without one:
+// the reason, then the error redacted (by the shapes when redact is nil), cut on a rune boundary.
+func TestFailedResult(t *testing.T) {
+	t.Parallel()
+	long := errors.New(strings.Repeat("é", 300)) // 600 bytes
+	for _, tt := range []struct {
+		name   string
+		err    error
+		redact func(string) string
+		want   string
+	}{
+		{"no error", nil, nil, "harness-error"},
+		{"the shapes", errors.New("key sk-abcdefghijklmnop0123"), nil, "harness-error: key " + Redacted},
+		{"its own redactor", errors.New("secret"), func(string) string { return "R" }, "harness-error: R"},
+		{"cut on a rune", long, nil, "harness-error: " + strings.Repeat("é", (maxSummary-len("harness-error: "))/2)},
+	} {
+		got := FailedResult("tsk_1", runner.ReasonHarnessError, tt.err, tt.redact)
+		if got.Task != "tsk_1" || got.Status != v1alpha1.ResultFailed || got.Summary != tt.want || len(got.Summary) > maxSummary {
+			t.Errorf("%s: %+v, want the summary %q", tt.name, got, tt.want)
+		}
+	}
+}

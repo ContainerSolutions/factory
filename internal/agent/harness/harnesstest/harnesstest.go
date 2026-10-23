@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cgi"
@@ -93,6 +94,13 @@ type E2E struct {
 
 	mu          sync.Mutex
 	transcripts [][]byte
+	effects     []Effect
+}
+
+// Effect is one POST /tasks/{id}/effects the dispatcher answered.
+type Effect struct {
+	Op   string
+	Auth string // the Authorization it arrived with
 }
 
 // NewE2E starts the servers. It skips the test when git's http-backend isn't installed.
@@ -117,6 +125,7 @@ func NewE2E(t *testing.T, taskID, prompt string) *E2E {
 	}))
 	t.Cleanup(e.git.Close)
 	e.addRepo("acme/docs", map[string]string{"README.md": "# docs\n", "AGENTS.md": "Docs repo.\n"})
+	Git(t, e.bare("acme/docs"), "config", "http.receivepack", "true") // factory push, with the token
 	e.SkillsCommit = e.addRepo("acme/ccf-skills", map[string]string{
 		"ccf-docs/.claude-plugin/plugin.json":         `{"name": "ccf-docs"}`,
 		"ccf-docs/skills/docs-style/SKILL.md":         "---\nname: docs-style\ndescription: style\n---\n",
@@ -166,7 +175,7 @@ func (e *E2E) addRepo(repo string, files map[string]string) string {
 	}
 	Git(t, work, "add", "-A")
 	Git(t, work, "commit", "--quiet", "--no-gpg-sign", "-m", "initial")
-	bare := filepath.Join(e.root, filepath.FromSlash(repo)+".git")
+	bare := e.bare(repo)
 	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -176,9 +185,45 @@ func (e *E2E) addRepo(repo string, files map[string]string) string {
 	return Git(t, work, "rev-parse", "HEAD")
 }
 
+// bare is repo's bare repository on the git server.
+func (e *E2E) bare(repo string) string { return filepath.Join(e.root, filepath.FromSlash(repo)+".git") }
+
+// GitURL is the git server's base URL (<base>/<owner>/<name>.git).
+func (e *E2E) GitURL() string { return e.git.URL }
+
+// DispatcherURL is the dispatcher's base URL.
+func (e *E2E) DispatcherURL() string { return e.disp.URL }
+
+// RemoteHead is branch's commit on the git server's repo, or "" when it has none.
+func (e *E2E) RemoteHead(repo, branch string) string {
+	cmd := exec.Command("git", "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	cmd.Dir = e.bare(repo)
+	out, _ := cmd.Output()
+	return strings.TrimSpace(string(out))
+}
+
+// Effects are the effects the dispatcher answered, in order.
+func (e *E2E) Effects() []Effect {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]Effect(nil), e.effects...)
+}
+
 func (e *E2E) serve(w http.ResponseWriter, r *http.Request) {
 	p := strings.TrimPrefix(r.URL.Path, "/api/v1")
 	switch {
+	case r.Method == http.MethodPost && p == "/tasks/"+e.TaskID+"/effects":
+		var req apiclient.EffectRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "not an effect", http.StatusBadRequest)
+			return
+		}
+		e.mu.Lock()
+		e.effects = append(e.effects, Effect{Op: string(req.Op), Auth: r.Header.Get("Authorization")})
+		n := len(e.effects)
+		e.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(apiclient.EffectResponse{EffectId: fmt.Sprintf("eff_%d", n)})
 	case r.Method == http.MethodGet && strings.HasSuffix(p, "/prompt"):
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = io.WriteString(w, e.prompt)
@@ -271,11 +316,17 @@ func (e *E2E) Bundle(h v1alpha1.HarnessResolved, outcomes []string) (string, *ru
 		acct := CodexAccount
 		x.Codex = &acct
 	}
+	return e.BundleJob(job, x), job
+}
+
+// BundleJob writes job's run bundle with x, as Bundle does, and returns its directory.
+func (e *E2E) BundleJob(job *runner.Job, x pipeline.BundleExtras) string {
+	e.t.Helper()
 	dir := filepath.Join(e.t.TempDir(), "bundle")
 	if err := e.Pipeline(&fake.Adapter{}).PrepareBundle(context.Background(), job, dir, x); err != nil {
 		e.t.Fatalf("PrepareBundle: %v", err)
 	}
-	return dir, job
+	return dir
 }
 
 // Transcript is the uploaded transcript's lines; the run must have uploaded exactly one.

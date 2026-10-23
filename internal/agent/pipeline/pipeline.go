@@ -552,11 +552,7 @@ func (r *run) finish(parent context.Context, s stepResult) runner.Outcome {
 		res.Harness = r.harnessInfo(usage)
 		out.Result = &res
 	case s.status == runner.StatusFailed && s.reason != runner.ReasonCancelled:
-		summary := s.reason
-		if s.err != nil {
-			summary += ": " + r.red.String(s.err.Error())
-		}
-		res := v1alpha1.Result{Task: r.id, Status: v1alpha1.ResultFailed, Summary: truncate(summary, maxSummary)}
+		res := FailedResult(r.id, s.reason, s.err, r.red.String)
 		if r.harnessed {
 			res.Harness = r.harnessInfo(usage)
 		}
@@ -625,6 +621,21 @@ func (r *run) cleanup(parent context.Context) {
 
 // maxSummary bounds a failure summary (the worker's bound).
 const maxSummary = 500
+
+// FailedResult is the failed Result of a run that ended without one of its own, the pipeline's
+// and the VM's (workspace-run.md, decided 2026-10-22): its summary is reason, then ": " and
+// err's message redacted by redact (nil: by the token shapes alone, RedactShapes) when err
+// isn't nil, cut to 500 bytes on a rune boundary.
+func FailedResult(task, reason string, err error, redact func(string) string) v1alpha1.Result {
+	if redact == nil {
+		redact = RedactShapes
+	}
+	summary := reason
+	if err != nil {
+		summary += ": " + redact(err.Error())
+	}
+	return v1alpha1.Result{Task: task, Status: v1alpha1.ResultFailed, Summary: truncate(summary, maxSummary)}
+}
 
 // truncate cuts s to n bytes on a rune boundary.
 func truncate(s string, n int) string {
