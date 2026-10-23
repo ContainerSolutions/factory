@@ -499,28 +499,36 @@ func (d *Driver) reap(name string) {
 	}
 }
 
-// Stop implements workspace.Driver: tart stop, then its tart run is reaped.
+// Stop implements workspace.Driver: tart stop, then its tart run is reaped. It runs after
+// ctx is done too.
 func (d *Driver) Stop(ctx context.Context, name string) error {
 	if err := workspace.ValidName(name); err != nil {
 		return err
 	}
-	err := d.stopVM(ctx, name)
+	cctx, cancel := cleanupCtx(ctx)
+	defer cancel()
+	err := d.stopVM(cctx, name)
 	d.reap(name)
 	return err
 }
 
-// Destroy implements workspace.Driver: tart stop when it's running, then tart delete.
+// Destroy implements workspace.Driver: tart stop when it's running, then tart delete. It
+// runs after ctx is done too, and its tart run is reaped on every path: its SIGTERM ends the
+// VM when tart stop never ran.
 func (d *Driver) Destroy(ctx context.Context, name string) error {
 	if err := workspace.ValidName(name); err != nil {
 		return err
 	}
-	vms, err := d.vms(ctx)
+	defer d.reap(name)
+	cctx, cancel := cleanupCtx(ctx)
+	defer cancel()
+	vms, err := d.vms(cctx)
 	if err != nil {
 		return err
 	}
 	state, ok := vms[name]
 	if ok && state != "stopped" {
-		if err := d.stopVM(ctx, name); err != nil {
+		if err := d.stopVM(cctx, name); err != nil {
 			return err
 		}
 	}
@@ -528,7 +536,7 @@ func (d *Driver) Destroy(ctx context.Context, name string) error {
 	if !ok {
 		return nil
 	}
-	if _, err := d.tart(ctx, "delete", name); err != nil {
+	if _, err := d.tart(cctx, "delete", name); err != nil {
 		return fmt.Errorf("%s: tart delete: %w", name, err)
 	}
 	return nil

@@ -453,6 +453,45 @@ func TestStopAndDestroy(t *testing.T) {
 			t.Errorf("calls %v", f.calls)
 		}
 	})
+	t.Run("destroy after a cancel still stops, deletes and reaps", func(t *testing.T) {
+		f := newFake()
+		d := started(t, f)
+		cctx, cancel := context.WithCancel(ctx)
+		cancel()
+		if err := d.Destroy(cctx, ws); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(f.calls, "; "); got != "tart list --format json; tart stop "+ws+"; tart delete "+ws {
+			t.Errorf("calls %s", got)
+		}
+		if _, ok := f.vms[ws]; ok || len(d.procs) != 0 || len(f.runs) != 0 {
+			t.Errorf("vm %q, procs %d, runs %d", f.vms[ws], len(d.procs), len(f.runs))
+		}
+	})
+	t.Run("stop after a cancel still stops", func(t *testing.T) {
+		f := newFake()
+		d := started(t, f)
+		cctx, cancel := context.WithCancel(ctx)
+		cancel()
+		if err := d.Stop(cctx, ws); err != nil {
+			t.Fatal(err)
+		}
+		if f.vms[ws] != "stopped" || len(d.procs) != 0 || len(f.runs) != 0 {
+			t.Errorf("state %q, procs %d, runs %d", f.vms[ws], len(d.procs), len(f.runs))
+		}
+	})
+	t.Run("destroy: list fails, tart run is still reaped", func(t *testing.T) {
+		f := newFake()
+		d := started(t, f)
+		run := f.runs[ws]
+		f.fail, f.failErr = "tart list", "boom"
+		if err := d.Destroy(ctx, ws); err == nil || !strings.Contains(err.Error(), "boom") {
+			t.Fatalf("err %v", err)
+		}
+		if len(d.procs) != 0 || len(f.runs) != 0 || !run.stopped || f.vms[ws] != "stopped" {
+			t.Errorf("procs %d, runs %d, tart run SIGTERMed %v, state %q", len(d.procs), len(f.runs), run.stopped, f.vms[ws])
+		}
+	})
 	t.Run("destroy: delete fails", func(t *testing.T) {
 		f := newFake()
 		d := started(t, f)

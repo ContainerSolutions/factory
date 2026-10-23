@@ -144,7 +144,11 @@ func (f *fakeTart) stopVM(vm string) {
 	}
 }
 
-func (f *fakeTart) Run(_ context.Context, c Cmd) error {
+func (f *fakeTart) Run(ctx context.Context, c Cmd) error {
+	// as exec.CommandContext: a done ctx runs nothing.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	call, err := f.record(c, "")
 	if err != nil {
 		_, _ = io.WriteString(c.Stderr, f.failErr+"\n")
