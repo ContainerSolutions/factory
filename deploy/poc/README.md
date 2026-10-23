@@ -118,7 +118,7 @@ make poc-up
 
 1. loads and checks `.env` (§3);
 2. runs `make build-release` (`web/` with `npm ci`, then `go build -tags webui`). Use `SKIP_BUILD=1 make poc-up` to reuse `bin/factory`;
-3. runs `bin/factory serve --addr 127.0.0.1:8800 --ops-addr 127.0.0.1:9090 --public-url "$FACTORY_PUBLIC_URL" <catalog flags> --retention 2160h --state-dir <FACTORY_STATE_DIR, default ~/.factory/state> --log-format json`, plus any arguments given to `run.sh` (for example `deploy/poc/run.sh --log-level debug`). `FACTORY_ADDR` in `.env` overrides `--addr`.
+3. runs `bin/factory serve --addr 127.0.0.1:8800 --ops-addr 127.0.0.1:9090 --public-url "$FACTORY_PUBLIC_URL" <catalog flags> --retention 2160h --state-dir <FACTORY_STATE_DIR, default ~/.factory/state> --log-format json --anti-affinity-wait <FACTORY_ANTI_AFFINITY_WAIT, default 10m>`, plus any arguments given to `run.sh` (for example `deploy/poc/run.sh --log-level debug`). `FACTORY_ADDR` in `.env` overrides `--addr`.
 
 The JSON log goes to the terminal and to `deploy/poc/logs/factory-serve-<UTC time>.log` (one file per start).
 
@@ -272,7 +272,7 @@ What you should see (the UI's board and work-item pages, or `GET /api/v1/workite
 
 1. A work item linked to `workflows#132`, with state `release: drafting`, `manifest: repos.mock.yaml` and `train: …#132`.
 2. A `release-docs` task for `compliance-framework/mock-docs`. It stays `Pending` with reason `no-capable-agent` until an agent offers codex `gpt-5*` or `gpt-6*`. Its VM workspace brings local-dev's showcase up at the train's versions, and the agent opens a PR on mock-docs.
-3. A `docs-review-verify` task (claude-code, reviewer identity, with the same environment). Anti-affinity keeps a review off the agent that wrote the PR. With a single agent it waits **10 minutes** (`scheduler.DefaultAntiAffinityWait`) before the author's own agent may take it.
+3. A `docs-review-verify` task (claude-code, reviewer identity, with the same environment). Anti-affinity keeps a review off the agent that wrote the PR only when both run on the same harness (here release-docs is codex and the review claude-code, so it doesn't apply). When it does, with a single agent the review waits `FACTORY_ANTI_AFFINITY_WAIT` (`--anti-affinity-wait`, default **10 minutes**) before the author's own agent may take it; `0` turns anti-affinity off.
 4. On changes requested, `implement` (codex, mode address-review) pushes a fix, and the review runs again, at most 3 implement runs per item. The 3rd changes-requested, or a `needs-human` or `blocked` outcome, escalates.
 5. **It ends at the reviewer's approval.** `merge-release-docs` is excluded in every RuleSet until RUN-S4-T01. A human merge announces nothing, because `announce-release-docs` fires only after a factory merge run.
 

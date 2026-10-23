@@ -47,6 +47,9 @@ const (
 	MaxCredentialTTL = time.Hour
 )
 
+// AntiAffinityOff as Options.AntiAffinityWait turns anti-affinity off.
+const AntiAffinityOff time.Duration = -1
+
 // Pool fairness values (Pool.spec.fairness).
 const (
 	FairnessPreferLimited   = "prefer-limited"
@@ -71,7 +74,8 @@ type Options struct {
 	// GroupCacheTTL caches the owners Group's resolution. Default 10 min.
 	GroupCacheTTL time.Duration
 	// AntiAffinityWait is how long a reviewer task waits for another agent before its
-	// author's agent may take it (soft anti-affinity). Default 10 min.
+	// author's agent may take it on the author's harness (soft anti-affinity). Default
+	// 10 min; AntiAffinityOff (any negative value) turns anti-affinity off.
 	AntiAffinityWait time.Duration
 	// MaxWait caps a long poll. Default 60 s.
 	MaxWait time.Duration
@@ -102,7 +106,9 @@ func (o Options) withDefaults() Options {
 	def(&o.TokenTTL, DefaultTokenTTL)
 	def(&o.TokenRenewEvery, DefaultTokenRenewEvery)
 	def(&o.GroupCacheTTL, DefaultGroupCacheTTL)
-	def(&o.AntiAffinityWait, DefaultAntiAffinityWait)
+	if o.AntiAffinityWait == 0 {
+		o.AntiAffinityWait = DefaultAntiAffinityWait // negative is AntiAffinityOff, kept
+	}
 	def(&o.MaxWait, DefaultMaxWait)
 	def(&o.LeaseRetention, DefaultLeaseRetention)
 	def(&o.Throttle, DefaultThrottle)

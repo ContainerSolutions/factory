@@ -15,6 +15,7 @@ import (
 
 	"github.com/compliance-framework/factory/internal/controllers"
 	"github.com/compliance-framework/factory/internal/provider/github"
+	"github.com/compliance-framework/factory/internal/scheduler"
 )
 
 // Environment variables `factory serve` reads (api-server.md §factory serve). Secrets come from
@@ -81,6 +82,10 @@ type serveConfig struct {
 	// DeployEnvironment is the GitHub environment whose latest deployment of the default
 	// branch the GitHub adapter reports for merged PRs (item.deploy).
 	DeployEnvironment string
+	// AntiAffinityWait is the scheduler's Options.AntiAffinityWait: how long a review waits
+	// before its author's agent may take it on the author's harness; --anti-affinity-wait 0
+	// is scheduler.AntiAffinityOff.
+	AntiAffinityWait time.Duration
 
 	LogLevel  slog.Level
 	LogFormat string
@@ -119,6 +124,7 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 	fl.StringVar(&cfg.GitHubAPIURL, "github-api-url", "", "GitHub API URL for GET /user (default: the auth Provider's spec.github.apiURL)")
 	fl.StringVar(&cfg.SkillsBase, "skills-base", defaultSkillsBase, "base URL of skill repositories, resolved with git ls-remote; empty: leave skill refs unresolved")
 	fl.StringVar(&cfg.DeployEnvironment, "deploy-environment", github.DefaultDeployEnvironment, "GitHub environment whose deployments of the default branch are item.deploy")
+	fl.DurationVar(&cfg.AntiAffinityWait, "anti-affinity-wait", scheduler.DefaultAntiAffinityWait, "how long a review waits for another agent before the author's agent may take it on the author's harness; 0 turns anti-affinity off")
 	level := fl.String("log-level", "info", "log level: debug, info, warn or error")
 	fl.StringVar(&cfg.LogFormat, "log-format", "json", "log format: json or text")
 	fl.Usage = func() { serveUsage(stderr, fl) }
@@ -219,6 +225,13 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 		}
 	}
 
+	switch {
+	case cfg.AntiAffinityWait < 0:
+		bad("--anti-affinity-wait must not be negative (0 turns anti-affinity off)")
+	case cfg.AntiAffinityWait == 0:
+		cfg.AntiAffinityWait = scheduler.AntiAffinityOff
+	}
+
 	// GitHub URLs.
 	for _, u := range []struct{ name, v string }{{"github-url", cfg.GitHubURL}, {"github-api-url", cfg.GitHubAPIURL}, {"skills-base", cfg.SkillsBase}} {
 		if u.v == "" && u.name != "github-url" {
@@ -274,6 +287,7 @@ func serveUsage(w io.Writer, fl *flag.FlagSet) {
 	fmt.Fprintln(w, `usage: factory serve [--addr :8800] [--ops-addr 127.0.0.1:9090] [--public-url URL]
                      [--catalog-repo URL --catalog-ref main --catalog-path catalog | --catalog-dir DIR]
                      [--retention 2160h] [--state-dir DIR] [--deploy-environment github-pages]
+                     [--anti-affinity-wait 10m]
                      [--log-level info] [--log-format json|text] [--dev-fake-providers]
 
 Runs the dispatcher: the store, catalog-sync, the provider connections, the controllers, the

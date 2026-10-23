@@ -24,7 +24,7 @@ const (
 	rowLending      = 5 // the owner's lending → lending
 	rowLabels       = 6 // requires.labels ⊆ agent labels → no-capable-agent
 	rowHarness      = 7 // patterns.Resolve → no-capable-agent
-	rowAntiAffinity = 8 // a reviewer task on its author's agent → anti-affinity
+	rowAntiAffinity = 8 // a reviewer task on its author's agent and harness → anti-affinity
 	rowLocalStack   = 9 // one has-local-stack task per agent → agent-busy
 	rowMatch        = 10
 )
@@ -71,7 +71,7 @@ type snapshot struct {
 	runningByQueue map[string]int
 
 	counters   map[string]v1alpha1.BudgetCounterStatus
-	lastAuthor map[string]string // work item → agent of its last author run
+	lastAuthor map[string]authorRun // work item → its last author run
 	taskLevel  map[string]verdict
 }
 
@@ -88,7 +88,7 @@ func (s *Scheduler) loadSnapshot(ctx context.Context) (*snapshot, error) {
 		runningByAgent: map[string][]*v1alpha1.Task{},
 		runningByQueue: map[string]int{},
 		counters:       map[string]v1alpha1.BudgetCounterStatus{},
-		lastAuthor:     map[string]string{},
+		lastAuthor:     map[string]authorRun{},
 		taskLevel:      map[string]verdict{},
 	}
 	var agents []*v1alpha1.Agent
@@ -184,7 +184,7 @@ func (sn *snapshot) check(t *v1alpha1.Task, a *v1alpha1.Agent) (verdict, error) 
 	if resolved == nil {
 		return verdict{row: rowHarness, reason: ReasonNoCapableAgent}, nil
 	}
-	if ok, err := sn.antiAffinity(t, ts, a); err != nil || !ok {
+	if ok, err := sn.antiAffinity(t, ts, a, resolved.Name); err != nil || !ok {
 		return verdict{row: rowAntiAffinity, reason: ReasonAntiAffinity}, err
 	}
 	if slices.Contains(requiredLabels(t), LabelLocalStack) {
@@ -366,13 +366,15 @@ func resolveHarness(ts *catalog.CompiledTaskSpec, t *v1alpha1.Task, a *v1alpha1.
 }
 
 // antiAffinity is row 8: a reviewer task skips the agent that ran the work item's last
-// author run, unless no other agent could take it and it has waited AntiAffinityWait.
-func (sn *snapshot) antiAffinity(t *v1alpha1.Task, ts *catalog.CompiledTaskSpec, a *v1alpha1.Agent) (bool, error) {
-	if ts == nil || ts.Spec.Spec.Identity != IdentityReviewer {
+// author run when it would run on the same harness (harness is what this lease resolves),
+// unless no other agent could take it and it has waited AntiAffinityWait. AntiAffinityOff
+// turns the row off.
+func (sn *snapshot) antiAffinity(t *v1alpha1.Task, ts *catalog.CompiledTaskSpec, a *v1alpha1.Agent, harness string) (bool, error) {
+	if sn.s.opts.AntiAffinityWait < 0 || ts == nil || ts.Spec.Spec.Identity != IdentityReviewer {
 		return true, nil
 	}
-	author, err := sn.lastAuthorAgent(t.Metadata.WorkItem)
-	if err != nil || author != a.Metadata.Name {
+	author, err := sn.lastAuthorRun(t.Metadata.WorkItem)
+	if err != nil || author.agent != a.Metadata.Name || author.harness != harness {
 		return err == nil, err
 	}
 	held := sn.s.heldSince
@@ -409,8 +411,12 @@ func (sn *snapshot) otherCapable(t *v1alpha1.Task, ts *catalog.CompiledTaskSpec,
 	return false, nil
 }
 
-// lastAuthorAgent is the agent of the work item's most recent run of an author task.
-func (sn *snapshot) lastAuthorAgent(workItem string) (string, error) {
+// authorRun is the agent and the harness of a work item's last author run ("" when unknown).
+type authorRun struct{ agent, harness string }
+
+// lastAuthorRun is the work item's most recent run of an author task. Its harness is the one
+// the run reported in its result, else the one its task was last leased with.
+func (sn *snapshot) lastAuthorRun(workItem string) (authorRun, error) {
 	if a, ok := sn.lastAuthor[workItem]; ok {
 		return a, nil
 	}
@@ -418,9 +424,10 @@ func (sn *snapshot) lastAuthorAgent(workItem string) (string, error) {
 	if _, err := sn.s.d.Store.List(sn.ctx, v1alpha1.KindTask, store.ListOptions{
 		Field: map[string]string{store.FieldTaskWorkItem: workItem},
 	}, &tasks); err != nil {
-		return "", fmt.Errorf("list tasks of %s: %w", workItem, err)
+		return authorRun{}, fmt.Errorf("list tasks of %s: %w", workItem, err)
 	}
 	var last *v1alpha1.Run
+	var lastTask *v1alpha1.Task
 	for _, t := range tasks {
 		ts := sn.cat.TaskSpecs[t.Spec.TaskSpec.Name]
 		if ts == nil || ts.Spec.Spec.Identity != IdentityAuthor {
@@ -430,20 +437,26 @@ func (sn *snapshot) lastAuthorAgent(workItem string) (string, error) {
 		if _, err := sn.s.d.Store.List(sn.ctx, v1alpha1.KindRun, store.ListOptions{
 			Field: map[string]string{store.FieldRunTask: t.Metadata.ID},
 		}, &runs); err != nil {
-			return "", fmt.Errorf("list runs of %s: %w", t.Metadata.ID, err)
+			return authorRun{}, fmt.Errorf("list runs of %s: %w", t.Metadata.ID, err)
 		}
 		for _, r := range runs {
 			if last == nil || runStart(r).After(runStart(last)) {
-				last = r
+				last, lastTask = r, t
 			}
 		}
 	}
-	agent := ""
+	var author authorRun
 	if last != nil {
-		agent = last.Spec.Agent
+		author.agent = last.Spec.Agent
+		switch {
+		case last.Status != nil && last.Status.Result != nil && last.Status.Result.Harness != nil:
+			author.harness = last.Status.Result.Harness.Name
+		case lastTask.Spec.Harness != nil && lastTask.Spec.Harness.Resolved != nil:
+			author.harness = lastTask.Spec.Harness.Resolved.Name
+		}
 	}
-	sn.lastAuthor[workItem] = agent
-	return agent, nil
+	sn.lastAuthor[workItem] = author
+	return author, nil
 }
 
 func runStart(r *v1alpha1.Run) time.Time {
