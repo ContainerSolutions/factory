@@ -1,0 +1,7 @@
+lisa-selfreview:
+Pass 1 (of 1), on 77cd591:
+- CORE-TEST-001 must-fix 725db9303127: runner.go exec: the hard deadline (failed{limit}), the down budget after the outcome event and the no-time-left refusal had no test.
+- CORE-TEST-002 must-fix 2727616d6683: TestRunnerOutcomes' not-gzip case asserted only the status, not the transcript note.
+- FACTORY-LOG-001 should-fix 8d02ee3599f4: wsRun.failed logged the error at Warn; an invalid-result error quotes the VM's Result.
+- nit 90685df6271d (run-dir-left-on-early-failure): runs/<task>/ stayed when PrepareBundle failed.
+All four fixed in the next commit.
