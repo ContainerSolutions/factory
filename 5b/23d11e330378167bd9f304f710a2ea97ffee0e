@@ -1,2 +1,7 @@
 lisa-addressed:
 Self-review pass 1 fixes: one lockedWriter per driver for every tart run (CORE-CONC-001); tart run's PATH without an empty element when PATH is unset; withStderr caps the VM's stderr line at 256 bytes and quotes it; Exec's doc; UNVERIFIED item 5 (tart exec argv passthrough); errorlint in Put (os.Stat error wrapped with %w).
+
+lisa-design:
+- Names are ws-tsk_<...> (not any ws-*): Phase 0's ws-1, ws-2, ws-gw must never be listed or destroyed by the orphan cleanup.
+- Cancel signals the remote by a pid file (tart exec forwards no signal; Tart 2.41.1 Exec.swift).
+- The tart driver has its own Runner (Cmd with Env and separate stdout/stderr), reusing host.StartCmd for process groups and host.Extract for Get; host.Env.TartBin is exported for PR 3.
