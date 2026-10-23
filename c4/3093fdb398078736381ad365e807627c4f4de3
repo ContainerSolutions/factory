@@ -1,0 +1,2 @@
+lisa-selfreview:
+Pass 1 (lenient, final): approve, no findings. Checked against core + repo/factory rules: no permissions/effects/identity/hosts change (FACTORY-CAT-002 not triggered); no secrets (admin@example.com/password are local-dev's demo values, owner-approved); render goldens regenerated (CORE-GEN-001); the two environments stay equal (TestWorkspace); rules test 66/66; validate 0 errors, 23 warnings as on main. Up/down scripts pass bash -n.
