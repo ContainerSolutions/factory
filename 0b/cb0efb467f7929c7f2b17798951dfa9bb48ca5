@@ -1,0 +1,4 @@
+lisa-selfreview:
+Pass 1 (lenient, final): one must-fix found and fixed before the commit was pushed: CORE-TEST-001, the Result-harness branch of lastAuthorRun had no test; added the table case "8 anti-affinity/author's result names the harness" (fails if that branch is removed).
+Deferred (nit): a heldSince entry for a review held on one harness stays until the task leaves Pending if a later pass resolves another harness; harmless (the hold is re-evaluated each pass, the map is cleared by Refresh).
+Deferred (nit): the reviewer's harness is the one row 7 resolves now, not a stale spec.harness.resolved from an earlier lease of the same task (the lease overwrites it with this resolution).
