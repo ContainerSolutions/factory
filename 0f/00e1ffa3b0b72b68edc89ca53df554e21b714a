@@ -1,0 +1,5 @@
+lisa-selfreview:
+Pass 1 (final, lenient; one pass per the PoC rules): approve. No blocker or must-fix.
+Deferred:
+- should-fix CORE-DOC-001: design/workstreams/dispatcher-core/LLD/cel-and-expressions.md lists the CEL environment's functions and doesn't mention the two-variable comprehensions. Left for the workstream that owns the LLD (no LLD for this phase).
+- nit CORE-STYLE-001: a bad versions entry's error reads "inputs.versions: spec.versions.API: ..." (the input field, then the Task field from Task.Validate, which the check reuses).
