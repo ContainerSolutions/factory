@@ -148,6 +148,9 @@ type Options struct {
 	Transcripts TranscriptStore
 	// Stack brings the local stack up; nil: tasks that need one fail with stack-error.
 	Stack Stack
+	// Environment brings up a task's spec.environment (the VM workspace's envrun); nil on the
+	// host, where such a task's environment is skipped with a warning.
+	Environment Environment
 	// Environ is the owner's environment, reduced to the allow-list for the harness.
 	// Default: os.Environ.
 	Environ func() []string
@@ -166,9 +169,9 @@ type Options struct {
 	// BotName and BotEmail are the commit author set in the writable checkout.
 	BotName, BotEmail string
 	// OnStep, when set, is called after each step that ran with its name, its duration and
-	// its error (nil on success): workspace, credentials, clone, stack, skills, schema,
-	// prompt, environment, prepare, harness, repair (only after an invalid Result) and
-	// finish (its error is the transcript's). The error is redacted with the run's redactor
+	// its error (nil on success): workspace, credentials, clone, stack, environment (only for
+	// a task that declares one), skills, schema, prompt, env, prepare, harness, repair (only
+	// after an invalid Result) and finish (its error is the transcript's). The error is redacted with the run's redactor
 	// (its tokens and anything shaped like one): its Error() is the redacted text, and it
 	// unwraps to the step's own error, so errors.Is and errors.As still match. An error
 	// unwrapped from it is the original, unredacted: report the error OnStep gets, not one
@@ -336,6 +339,8 @@ type run struct {
 	protocols string   // GIT_ALLOW_PROTOCOL
 	stackUp   bool
 	stackEnv  map[string]string
+	envUp     bool              // Environment.Up was called
+	envVars   map[string]string // what it returned
 	adapter   harness.Adapter
 	harnessed bool // the harness was started
 	prompt    string
@@ -413,20 +418,26 @@ func (r *run) execute(ctx context.Context) stepResult {
 	}
 	r.adapter = ad
 
-	steps := []struct {
+	type step struct {
 		name   string
 		reason string
 		fn     func(context.Context) error
-	}{
+	}
+	steps := []step{
 		{"workspace", runner.ReasonHarnessError, r.makeWorkspace},
 		{"credentials", runner.ReasonHarnessError, r.startCredentials},
 		{"clone", runner.ReasonHarnessError, r.cloneRepos},
 		{"stack", runner.ReasonStackError, r.stackUpIfNeeded},
-		{"skills", runner.ReasonHarnessError, r.materialiseSkills},
-		{"schema", runner.ReasonHarnessError, r.prepareSchema},
-		{"prompt", runner.ReasonHarnessError, r.renderPrompt},
-		{"environment", runner.ReasonHarnessError, r.buildEnv},
 	}
+	if needsEnvironment(r.task) {
+		steps = append(steps, step{"environment", runner.ReasonEnvironmentError, r.environmentUp})
+	}
+	steps = append(steps,
+		step{"skills", runner.ReasonHarnessError, r.materialiseSkills},
+		step{"schema", runner.ReasonHarnessError, r.prepareSchema},
+		step{"prompt", runner.ReasonHarnessError, r.renderPrompt},
+		step{"env", runner.ReasonHarnessError, r.buildEnv},
+	)
 	for _, s := range steps {
 		t0 := r.p.clk.Now()
 		err := s.fn(ctx)
@@ -533,7 +544,8 @@ func (r *run) finish(parent context.Context, s stepResult) runner.Outcome {
 	// A step that failed because a limit or a rate limit cancelled it (the clone was
 	// cancelled by the wall-clock timer) ended for that reason.
 	if cause := r.mon.stopped(); cause != nil && s.status == runner.StatusFailed &&
-		(s.reason == runner.ReasonHarnessError || s.reason == runner.ReasonStackError || s.reason == runner.ReasonCancelled) {
+		(s.reason == runner.ReasonHarnessError || s.reason == runner.ReasonStackError ||
+			s.reason == runner.ReasonEnvironmentError || s.reason == runner.ReasonCancelled) {
 		s = stepFromCause(cause)
 	}
 	if parent.Err() != nil && r.result == nil {
@@ -591,9 +603,17 @@ func (r *run) harnessInfo(u v1alpha1.Usage) *v1alpha1.ResultHarness {
 	}
 }
 
-// cleanup always runs: stack down, the credential socket closed, the workspace removed
-// (run-pipeline.md §Steps 12), except a Root, which is kept for whoever collects out/.
+// cleanup always runs: the environment and the stack down, the credential socket closed, the
+// workspace removed (run-pipeline.md §Steps 12), except a Root, which is kept for whoever
+// collects out/.
 func (r *run) cleanup(parent context.Context) {
+	if r.envUp {
+		// The Environment owns its budget (envrun's DownTimeout, which vmrun shortens after a
+		// signal): no deadline here.
+		if err := r.p.o.Environment.Down(context.WithoutCancel(parent)); err != nil {
+			r.log.Warn("environment down failed", "err", r.red.String(err.Error()))
+		}
+	}
 	if r.stackUp {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), StackDownTimeout)
 		if err := r.p.o.Stack.Down(ctx); err != nil {

@@ -12,13 +12,16 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/compliance-framework/factory/internal/agent/envrun"
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/agent/runner"
+	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
@@ -41,9 +44,9 @@ const (
 	DefaultStateDir = "/var/lib/factory-agent/run"
 )
 
-// setupFailReason is the reason of a run whose system setup failed. Seam (P1 phase 3, PR 7):
-// the environment runner adds runner.ReasonEnvironmentError, which this becomes.
-const setupFailReason = runner.ReasonHarnessError
+// signalDownTimeout bounds the environment's down after a first SIGTERM (or SIGINT), when
+// --down-timeout is longer.
+const signalDownTimeout = 30 * time.Second
 
 // deps are mainWith's injectable dependencies; the zero value is production (Main).
 type deps struct {
@@ -114,21 +117,23 @@ func mainWith(ctx context.Context, args []string, stdout, stderr io.Writer, d de
 		defer signal.Stop(ch)
 		sigs = ch
 	}
-	stop := watchSignals(sigs, cancel, log)
+	guard := &downGuard{timeout: min(o.downTimeout, signalDownTimeout), log: log}
+	stop := watchSignals(sigs, cancel, guard, log)
 	defer stop()
 
-	r := &vm{o: o, d: d, b: b, log: log, ev: ev, out: filepath.Join(o.work, runbundle.OutDir)}
+	r := &vm{o: o, d: d, b: b, log: log, ev: ev, guard: guard, out: filepath.Join(o.work, runbundle.OutDir)}
 	return r.run(runCtx)
 }
 
 // vm is one run in the VM.
 type vm struct {
-	o   *options
-	d   deps
-	b   *runbundle.Bundle
-	log *slog.Logger
-	ev  *events
-	out string // <work>/out
+	o     *options
+	d     deps
+	b     *runbundle.Bundle
+	log   *slog.Logger
+	ev    *events
+	guard *downGuard
+	out   string // <work>/out
 
 	transcript *transcriptFile
 	reported   bool // the outcome was reported
@@ -147,7 +152,7 @@ func (r *vm) run(ctx context.Context) int {
 	}
 	env, err := sys.Setup(ctx, r.b, r.o.proxy, r.o.setup)
 	if err != nil {
-		return r.fail(ctx, setupFailReason, err)
+		return r.fail(ctx, runner.ReasonEnvironmentError, err)
 	}
 	job := JobFromBundle(r.b, r.d.clock.Now(), r.o.remaining)
 	adapters, err := r.d.adapters(r.b, adapterOptions{Binaries: r.o.bins, Clock: r.d.clock})
@@ -155,12 +160,16 @@ func (r *vm) run(ctx context.Context) int {
 		return r.fail(ctx, runner.ReasonHarnessError, fmt.Errorf("adapters: %w", err))
 	}
 	r.transcript = &transcriptFile{FileTranscript: pipeline.FileTranscript{Path: filepath.Join(r.out, runbundle.TranscriptFile)}}
-	// Seam (P1 phase 3, PR 7): the environment runner becomes Options.Environment here, its
-	// Down bounded by --down-timeout and the signals (downGuard).
+	envr, err := envrun.New(envrun.Options{StateDir: r.o.state, DownTimeout: r.o.downTimeout, Clock: r.d.clock, Logger: r.log,
+		OnStep: r.ev.step, Redact: pipeline.RedactShapes})
+	if err != nil {
+		return r.fail(ctx, runner.ReasonEnvironmentError, err)
+	}
+	r.guard.env = envr
 	p, err := pipeline.New(pipeline.Options{
 		Root: r.o.work, GitAuth: pipeline.GitAuthGateway, Env: env, Adapters: adapters, AgentBinary: r.d.agentBinary,
 		Prompts: pipeline.BundlePrompts{B: r.b}, Schemas: pipeline.BundleSchemas{B: r.b}, Skills: pipeline.BundleSkills(r.b),
-		Transcripts: r.transcript, Clock: r.d.clock, Logger: r.log,
+		Transcripts: r.transcript, Environment: r.guard, Clock: r.d.clock, Logger: r.log,
 		OnStep: r.ev.step, Finished: r.onFinished,
 	})
 	if err != nil {
@@ -233,11 +242,63 @@ func (t *transcriptFile) Store(ctx context.Context, job *runner.Job, gz []byte) 
 	return ref, err
 }
 
+// downGuard is the pipeline's Environment: envrun's, with its Down bounded by the signals
+// (workspace-run.md §Exit codes and signals). After a first signal Down gets at most timeout
+// (min(--down-timeout, 30s)); a second one cancels a running Down, or skips it.
+type downGuard struct {
+	env     pipeline.Environment
+	timeout time.Duration
+	log     *slog.Logger
+
+	mu      sync.Mutex
+	signals int
+	cancel  context.CancelFunc // the running Down's, nil when none runs
+}
+
+// Up implements pipeline.Environment.
+func (g *downGuard) Up(ctx context.Context, ws harness.Workspace, t v1alpha1.Task) (map[string]string, error) {
+	return g.env.Up(ctx, ws, t)
+}
+
+// Down implements pipeline.Environment, its context derived from the budget when it's called.
+func (g *downGuard) Down(ctx context.Context) error {
+	g.mu.Lock()
+	if g.signals >= 2 {
+		g.mu.Unlock()
+		g.log.Warn("a second signal: skipping the environment's down")
+		return nil
+	}
+	var cancel context.CancelFunc
+	if g.signals == 1 {
+		ctx, cancel = context.WithTimeout(ctx, g.timeout)
+	} else {
+		ctx, cancel = context.WithCancel(ctx)
+	}
+	g.cancel = cancel
+	g.mu.Unlock()
+	defer func() {
+		g.mu.Lock()
+		g.cancel = nil
+		g.mu.Unlock()
+		cancel()
+	}()
+	return g.env.Down(ctx)
+}
+
+// signalled records the n-th signal: the second cancels a running Down.
+func (g *downGuard) signalled(n int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.signals = n
+	if n >= 2 && g.cancel != nil {
+		g.cancel()
+	}
+}
+
 // watchSignals cancels the run on the first SIGTERM or SIGINT: the pipeline ends
-// failed{cancelled} and the outcome is still written. A second one is logged. Seam (P1
-// phase 3, PR 7): with an environment, it skips (or cancels) the environment's down. stop
-// ends the watch.
-func watchSignals(sigs <-chan os.Signal, cancel context.CancelFunc, log *slog.Logger) (stop func()) {
+// failed{cancelled} and the outcome is still written, and the environment's down gets a
+// shorter budget. A second one skips (or cancels) the environment's down. stop ends the watch.
+func watchSignals(sigs <-chan os.Signal, cancel context.CancelFunc, guard *downGuard, log *slog.Logger) (stop func()) {
 	done := make(chan struct{})
 	go func() {
 		n := 0
@@ -250,12 +311,13 @@ func watchSignals(sigs <-chan os.Signal, cancel context.CancelFunc, log *slog.Lo
 					return
 				}
 				n++
+				guard.signalled(n)
 				if n == 1 {
 					log.Warn("cancelling the run", "signal", s.String())
 					cancel()
 					continue
 				}
-				log.Warn("a second signal: the run is already cancelled", "signal", s.String())
+				log.Warn("a second signal: the run is already cancelled, the environment's down is skipped", "signal", s.String())
 			}
 		}
 	}()

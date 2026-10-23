@@ -502,7 +502,7 @@ func TestRunOutcomes(t *testing.T) {
 				r.t.Fatal(err)
 			}
 			return fake.Script{}
-		}, status: runner.StatusFailed, reason: setupFailReason, check: func(t *testing.T, r *vmRig, o runbundle.Outcome) {
+		}, status: runner.StatusFailed, reason: runner.ReasonEnvironmentError, check: func(t *testing.T, r *vmRig, o runbundle.Outcome) {
 			if o.Result == nil || !strings.Contains(o.Result.Summary, "the state dir") || len(r.adapter.Prepared()) != 0 {
 				t.Errorf("result %+v, prepared %d", o.Result, len(r.adapter.Prepared()))
 			}
