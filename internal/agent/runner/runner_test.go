@@ -104,3 +104,21 @@ func TestStub(t *testing.T) {
 		t.Errorf("Func = %+v", out)
 	}
 }
+
+func TestStatusesReasons(t *testing.T) {
+	for name, set := range map[string][]string{"Statuses": Statuses(), "Reasons": Reasons()} {
+		seen := map[string]bool{}
+		for _, v := range set {
+			if v == "" || seen[v] {
+				t.Errorf("%s has %q empty or twice", name, v)
+			}
+			seen[v] = true
+		}
+	}
+	if s := Statuses(); len(s) != 5 || s[4] != StatusThrottled {
+		t.Errorf("Statuses() = %v", s)
+	}
+	if r := Reasons(); len(r) != 5 || r[4] != ReasonCancelled {
+		t.Errorf("Reasons() = %v", r)
+	}
+}
