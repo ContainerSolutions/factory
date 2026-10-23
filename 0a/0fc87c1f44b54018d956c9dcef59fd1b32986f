@@ -1,0 +1,8 @@
+lisa-selfreview:
+Pass 1 of 1 (lenient; PoC: one pass). Rules: ccf-review core, go, repo/factory.
+- must-fix CORE-CONC-001 tart.go Start: tart run's log writer was a new lockedWriter per VM, so concurrent VMs wrote to the shared Config.Log unserialised. FIX.
+- should-fix empty-path-element tart.go Start: an empty PATH made tart run's PATH end in ':' (the cwd). FIX (one line).
+- should-fix FACTORY-LOG-001 tart.go withStderr: VM-controlled stderr line (up to 8 KiB) in errors. FIX: cap at 256 bytes.
+- should-fix unverified-argv-passthrough supervise.md: the UNVERIFIED list lacked tart exec's argv passthrough (the sh -c scripts). FIX.
+- nit exec-doc-overpromises workspace.go Driver.Exec doc. FIX (wording).
+- should-fix CORE-DUP-001 lockedWriter duplicates host's unexported one. DEFERRED: exporting a 10-line type from host isn't worth the API.
