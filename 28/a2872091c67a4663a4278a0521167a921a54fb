@@ -1,0 +1,5 @@
+lisa-addressed:
+Pass 1 fixes:
+- bbce3033ba54: envrun.script reads the output through an os.Pipe until its last writer closes it (outputGrace bounds the wait); TestUpLeavesABackgroundCommand.
+- 52fac0e4758a: TestRunEnvironmentWallClockLimit (pipeline).
+- e9aac0f9b542: TestDownGuard (vmrun).
