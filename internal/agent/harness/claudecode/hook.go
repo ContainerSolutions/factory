@@ -38,7 +38,8 @@ type hookInput struct {
 //
 // It fails closed: unreadable input or arguments block the call. It is a second layer that
 // guards against mistakes and injected instructions: what a Bash command writes or reads is
-// bounded by the OS sandbox (sandbox.go), and the token scopes stay the boundary.
+// bounded by the OS sandbox (sandbox.go) or, under harness.IsolationVM, by the VM and its
+// gateway, and the token scopes stay the boundary.
 func HookMain(args []string, stdin io.Reader, stderr io.Writer) int {
 	deny := func(format string, a ...any) int {
 		fmt.Fprintf(stderr, "factory: "+format+"\n", a...)
@@ -108,12 +109,17 @@ func checkToolCall(in hookInput, roots []string) string {
 }
 
 // within reports whether p is one of roots or under one, with symlinks in both resolved as
-// far as they exist (a link in out/ to the checkout doesn't let a write through).
+// far as they exist (a link in out/ to the checkout doesn't let a write through). A root of
+// / (IsolationVM's writable workspace) holds every path.
 func within(p string, roots []string) bool {
 	rp := resolve(p)
 	return slices.ContainsFunc(roots, func(r string) bool {
 		rr := resolve(r)
-		return rp == rr || strings.HasPrefix(rp, rr+string(filepath.Separator))
+		prefix := rr
+		if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+			prefix += string(filepath.Separator)
+		}
+		return rp == rr || strings.HasPrefix(rp, prefix)
 	})
 }
 

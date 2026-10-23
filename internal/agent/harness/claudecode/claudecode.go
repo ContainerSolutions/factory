@@ -16,6 +16,12 @@
 // whole process group when its context ends. Repair resumes the same session with the
 // validation problems.
 //
+// Under harness.IsolationVM (`factory-agent run` in a VM workspace, workspace-run.md
+// §Harnesses under IsolationVM) the VM is the boundary: there is no Probe and no OS sandbox,
+// the settings keep only the plugins, the effort and the PreToolUse hook, CLAUDE_CONFIG_DIR is
+// a scratch directory of the workspace's HOME, and the credential is harness.Placeholder,
+// which the gateway outside the VM replaces with the real one.
+//
 // Every claude flag, file, settings key and event name the adapter relies on is in flags.go,
 // each marked UNVERIFIED until `make smoke-claude` runs on a maintainer machine.
 package claudecode
@@ -82,6 +88,15 @@ type Options struct {
 	KillGrace time.Duration
 	// Throttle is the wait on a rate limit without a reset. Default: DefaultThrottle.
 	Throttle time.Duration
+	// Isolation is what bounds the run's commands. IsolationSandbox (the zero value) is the
+	// owner's host: claude's OS sandbox and the owner's login, as above. IsolationVM is a VM
+	// workspace (workspace-run.md §Harnesses under IsolationVM): no Probe, no OS sandbox, a
+	// scratch CLAUDE_CONFIG_DIR, and a placeholder credential the gateway replaces;
+	// Config.ConfigDir and the GOOS, LookPath and Environ options aren't used.
+	Isolation harness.Isolation
+	// Getuid is the run's user id: under IsolationVM, a root run sets IS_SANDBOX. Default:
+	// os.Getuid.
+	Getuid func() int
 }
 
 // Adapter is the claude-code harness adapter. It keeps no per-run state in memory (the
@@ -118,6 +133,9 @@ func New(o Options) *Adapter {
 	if o.Throttle <= 0 {
 		o.Throttle = DefaultThrottle
 	}
+	if o.Getuid == nil {
+		o.Getuid = os.Getuid
+	}
 	return &Adapter{o: o}
 }
 
@@ -139,6 +157,12 @@ func (a *Adapter) Capabilities() v1alpha1.AdapterCapabilities {
 // auth mode comes from variables being set and files existing. Without the sandbox the
 // harness isn't offered, so the worker takes no claude-code task.
 func (a *Adapter) Probe(ctx context.Context, cfg config.Harness) (v1alpha1.HarnessOffer, error) {
+	if vm, err := a.vm(); err != nil || vm {
+		if err == nil {
+			err = errors.New("claude-code: Probe doesn't run in a VM workspace")
+		}
+		return v1alpha1.HarnessOffer{}, err
+	}
 	if err := a.sandboxSupport(); err != nil {
 		return v1alpha1.HarnessOffer{}, err
 	}
@@ -170,6 +194,18 @@ func (a *Adapter) Probe(ctx context.Context, cfg config.Harness) (v1alpha1.Harne
 		Name: Name, Version: version, Auth: auth,
 		Models: slices.Clone(cfg.Models), DefaultModel: cfg.Default, ReasoningEffort: efforts,
 	}, nil
+}
+
+// vm reports whether the adapter runs under IsolationVM; an unknown Isolation is an error,
+// never a run without its sandbox.
+func (a *Adapter) vm() (bool, error) {
+	switch a.o.Isolation {
+	case harness.IsolationSandbox:
+		return false, nil
+	case harness.IsolationVM:
+		return true, nil
+	}
+	return false, fmt.Errorf("claude-code: unknown isolation %s", a.o.Isolation)
 }
 
 // checkConfigDir: the dedicated config dir is an absolute, existing directory.

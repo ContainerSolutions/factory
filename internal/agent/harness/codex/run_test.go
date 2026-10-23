@@ -132,7 +132,12 @@ func TestWorkDirFor(t *testing.T) {
 			t.Errorf("%s: workDirFor = %q, want %q", tt.name, got, tt.want)
 		}
 	}
-	a := New(Options{})
+	// No codex to fall back on: if Run ever stops refusing, it fails fast instead of running
+	// the real codex on PATH.
+	a := New(Options{Binary: filepath.Join(t.TempDir(), "no-codex"), Environ: func() []string {
+		t.Error("Run read the worker's environment")
+		return nil
+	}})
 	if _, err := a.Run(context.Background(), roNoOut, task("", ""), "p", &harnesstest.Recorder{}); err == nil {
 		t.Error("Run without a writable directory succeeded")
 	}

@@ -43,15 +43,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
 )
 
 const (
 	// RunToken is a run token in the API's shape (rtk_ and 43 base64url characters) for tests.
 	RunToken = "rtk_fakegatewayRunTokenNeverInTheWorkspace01234"
-	// DefaultPlaceholder is the placeholder credential the workspace carries
-	// (harness.Placeholder in the LLD's harness section).
-	DefaultPlaceholder = "factory-placeholder-not-a-credential"
+	// DefaultPlaceholder is the placeholder credential the workspace carries.
+	DefaultPlaceholder = harness.Placeholder
 	// DefaultGitHost and DefaultAPIHost are the intercepted GitHub hosts.
 	DefaultGitHost = "github.com"
 	DefaultAPIHost = "api.github.com"

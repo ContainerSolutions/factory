@@ -28,22 +28,43 @@ const (
 	sessionFile = "factory-session.json"
 	// promptFile keeps the run's prompt for a Repair that can't resume.
 	promptFile = "factory-prompt.md"
+	// vmConfigDir is CLAUDE_CONFIG_DIR under IsolationVM: a scratch directory of the run's
+	// HOME, since a VM workspace has no login of the owner's.
+	vmConfigDir = ".claude"
 )
 
 // scratch is the run's scratch directory.
 func scratch(ws harness.Workspace) string { return filepath.Join(ws.Home, scratchDir) }
+
+// vmConfigPath is the run's CLAUDE_CONFIG_DIR under IsolationVM (on the host it is the
+// owner's dedicated Config.ConfigDir).
+func vmConfigPath(ws harness.Workspace) string { return filepath.Join(ws.Home, vmConfigDir) }
+
+// readOnly reports whether the run may not write its primary checkout (there is none, or it
+// is read-only): it then runs without the write tools.
+func readOnly(ws harness.Workspace) bool { return ws.Repo == "" || !ws.RepoWritable }
 
 // Prepare implements harness.Adapter: the OS sandbox must be supported, the dedicated config
 // dir must exist, every plugin directory must have its manifest, and the scratch directory
 // gets the settings file (no marketplace plugin, t's reasoning effort, the sandbox and its
 // permission rules, the PreToolUse hook) and the MCP config (the
 // Effector, with the run's variables passed by name).
+//
+// Under IsolationVM the VM is the sandbox and there is no owner's config dir: neither is
+// checked, the settings have no sandbox block and no permission rules (renderVMSettings),
+// and the scratch CLAUDE_CONFIG_DIR is made.
 func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, t v1alpha1.Task) error {
-	if err := a.sandboxSupport(); err != nil {
-		return err // never a run without the OS sandbox
-	}
-	if err := checkConfigDir(a.o.Config.ConfigDir); err != nil {
+	vm, err := a.vm()
+	if err != nil {
 		return err
+	}
+	if !vm {
+		if err := a.sandboxSupport(); err != nil {
+			return err // never a run on the host without the OS sandbox
+		}
+		if err := checkConfigDir(a.o.Config.ConfigDir); err != nil {
+			return err
+		}
 	}
 	if ws.Home == "" || ws.Bin == "" {
 		return errors.New("claude-code: the workspace has no scratch HOME or bin/")
@@ -62,11 +83,21 @@ func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, t v1alpha1.Ta
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("claude-code: %w", err)
 	}
+	if vm {
+		if err := os.MkdirAll(vmConfigPath(ws), 0o700); err != nil {
+			return fmt.Errorf("claude-code: %w", err)
+		}
+	}
 	effort := ""
 	if h := t.Spec.Harness; h != nil && h.Resolved != nil {
 		effort = h.Resolved.ReasoningEffort
 	}
-	settings, err := renderSettings(ws, effort, clirun.LookupEnv(a.o.Environ(), "HOME"), a.o.Config.ConfigDir)
+	var settings []byte
+	if vm {
+		settings, err = renderVMSettings(ws, effort)
+	} else {
+		settings, err = renderSettings(ws, effort, clirun.LookupEnv(a.o.Environ(), "HOME"), a.o.Config.ConfigDir)
+	}
 	if err != nil {
 		return err
 	}
@@ -118,11 +149,21 @@ func writableRoots(ws harness.Workspace) []string {
 	return roots
 }
 
+// vmWritableRoots are where the PreToolUse hook lets the file tools write under IsolationVM:
+// anywhere (/) when the run may write its checkout, since the VM is the boundary; else
+// writableRoots, as on the host (the write tools are disallowed then anyway).
+func vmWritableRoots(ws harness.Workspace) []string {
+	if readOnly(ws) {
+		return writableRoots(ws)
+	}
+	return []string{string(filepath.Separator)}
+}
+
 // hookCommand is the PreToolUse hook: the workspace's `factory` CLI, quoted for the shell
-// claude runs it with.
-func hookCommand(ws harness.Workspace) string {
+// claude runs it with, letting the file tools write under roots.
+func hookCommand(ws harness.Workspace, roots []string) string {
 	parts := []string{gitcred.ShellQuote(clirun.FactoryCLI(ws)), HookOp, hookEventArg}
-	for _, r := range writableRoots(ws) {
+	for _, r := range roots {
 		parts = append(parts, "--write", gitcred.ShellQuote(r))
 	}
 	return strings.Join(parts, " ")
@@ -132,16 +173,29 @@ func hookCommand(ws harness.Workspace) string {
 // and its permission rules (ownerHome is the worker's HOME, whose credentials stay
 // unreadable), and the PreToolUse hook on the write tools and Bash.
 func renderSettings(ws harness.Workspace, effort, ownerHome, configDir string) ([]byte, error) {
-	sandbox, permissions := sandboxSettings(ws, ownerHome, configDir)
+	s := baseSettings(effort, hookCommand(ws, writableRoots(ws)))
+	s[keySandbox], s[keyPermissions] = sandboxSettings(ws, ownerHome, configDir)
+	return marshalSettings(s)
+}
+
+// renderVMSettings is the --settings file under IsolationVM: no marketplace plugin, the
+// effort and the PreToolUse hook, which keeps its git push and gh write rules (pushes go
+// through `factory push`, other GitHub writes through the Effector) and lets the file tools
+// write vmWritableRoots. No sandbox block and no permission rules: the VM is the boundary.
+func renderVMSettings(ws harness.Workspace, effort string) ([]byte, error) {
+	return marshalSettings(baseSettings(effort, hookCommand(ws, vmWritableRoots(ws))))
+}
+
+// baseSettings are the keys of the settings file in every isolation: no marketplace plugin,
+// the effort when there is one, and the PreToolUse hook (hook) on the write tools and Bash.
+func baseSettings(effort, hook string) map[string]any {
 	s := map[string]any{
 		keyEnabledPlugins: map[string]any{},
-		keySandbox:        sandbox,
-		keyPermissions:    permissions,
 		keyHooks: map[string]any{
 			hookPreToolUse: []any{map[string]any{
 				keyMatcher: hookMatcher,
 				keyHooks: []any{map[string]any{
-					keyHookType: hookTypeCommand, keyHookCommand: hookCommand(ws), keyHookTimeout: hookTimeout,
+					keyHookType: hookTypeCommand, keyHookCommand: hook, keyHookTimeout: hookTimeout,
 				}},
 			}},
 		},
@@ -149,6 +203,10 @@ func renderSettings(ws harness.Workspace, effort, ownerHome, configDir string) (
 	if effort != "" {
 		s[keyEffort] = nativeEffort(effort)
 	}
+	return s
+}
+
+func marshalSettings(s map[string]any) ([]byte, error) {
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("claude-code: settings: %w", err)

@@ -41,6 +41,12 @@ const envAPIKey = "ANTHROPIC_API_KEY"
 // UNVERIFIED (owner to verify with make smoke-claude)
 const envOAuthToken = "CLAUDE_CODE_OAUTH_TOKEN"
 
+// envIsSandbox=1 tells claude it runs in a sandbox it may trust: it refuses
+// bypassPermissions as root without it. Only a root run under IsolationVM sets it (a plain
+// container; the VM runs as admin).
+// UNVERIFIED (owner to verify with make smoke-claude)
+const envIsSandbox = "IS_SANDBOX"
+
 // credentialsFile is where claude stores a subscription login in its config dir when it has
 // no keychain (Linux). Probe only stats it.
 // UNVERIFIED (owner to verify with make smoke-claude)

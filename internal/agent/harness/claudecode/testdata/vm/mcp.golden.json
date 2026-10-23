@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "factory": {
+      "args": [
+        "mcp"
+      ],
+      "command": "$ROOT/bin/factory",
+      "env": {
+        "FACTORY_API": "${FACTORY_API}",
+        "FACTORY_RESULT": "${FACTORY_RESULT}",
+        "FACTORY_RUNTIME": "${FACTORY_RUNTIME}",
+        "GH_TOKEN": "${GH_TOKEN}",
+        "HOME": "${HOME}",
+        "HTTPS_PROXY": "${HTTPS_PROXY}",
+        "NO_PROXY": "${NO_PROXY}",
+        "PATH": "${PATH}",
+        "SSL_CERT_FILE": "${SSL_CERT_FILE}",
+        "TMPDIR": "${TMPDIR}"
+      },
+      "type": "stdio"
+    }
+  }
+}

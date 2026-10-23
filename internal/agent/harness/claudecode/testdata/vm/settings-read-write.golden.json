@@ -1,0 +1,18 @@
+{
+  "effortLevel": "high",
+  "enabledPlugins": {},
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "'$ROOT/bin/factory' claude-hook pre-tool-use --write '/'",
+            "timeout": 30,
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash"
+      }
+    ]
+  }
+}

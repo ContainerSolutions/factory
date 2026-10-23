@@ -1,0 +1,14 @@
+CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+CLAUDE_CODE_OAUTH_TOKEN=factory-placeholder-not-a-credential
+CLAUDE_CONFIG_DIR=$ROOT/home/.claude
+DISABLE_AUTOUPDATER=1
+FACTORY_API=http://dispatcher.factory.internal
+FACTORY_RESULT=$ROOT/out/result.json
+FACTORY_RUNTIME=workspace
+GH_TOKEN=factory-placeholder-not-a-credential
+HOME=$ROOT/home
+HTTPS_PROXY=http://192.168.64.1:3128
+NO_PROXY=localhost,127.0.0.1
+PATH=$ROOT/bin:/usr/bin:/bin
+SSL_CERT_FILE=/var/lib/factory-agent/run/ca-bundle.pem
+TMPDIR=$ROOT/tmp
