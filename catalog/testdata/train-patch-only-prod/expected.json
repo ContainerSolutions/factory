@@ -4,11 +4,47 @@
   "matches": [
     {
       "ruleSet": "dev-release-docs",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "close-on-primary-closed",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
       "rule": "docs-on-release-train",
       "result": "not-matched",
       "inputs": [
         "event",
         "params"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "close-on-primary-closed",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "item"
       ]
     },
     {
@@ -30,7 +66,12 @@
           "taskSpec": "release-docs",
           "queue": "poc",
           "inputs": {
-            "train": "compliance-framework/workflows#123"
+            "train": "compliance-framework/workflows#123",
+            "versions": {
+              "api": "0.21.4",
+              "plugin-aws-s3-policies": "1.1.1",
+              "ui": "0.14.3"
+            }
           },
           "target": {
             "repo": "compliance-framework/docs"
@@ -99,11 +140,38 @@
         "event",
         "params"
       ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "docs-on-release-train",
+      "action": {
+        "set": {
+          "key": "versions",
+          "value": {
+            "api": "0.21.4",
+            "plugin-aws-s3-policies": "1.1.1",
+            "ui": "0.14.3"
+          }
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "event",
+        "params"
+      ]
     }
   ],
   "stateAfter": {
     "manifest": "repos.yaml",
     "release": "drafting",
-    "train": "compliance-framework/workflows#123"
+    "train": "compliance-framework/workflows#123",
+    "versions": {
+      "api": "0.21.4",
+      "plugin-aws-s3-policies": "1.1.1",
+      "ui": "0.14.3"
+    }
   }
 }

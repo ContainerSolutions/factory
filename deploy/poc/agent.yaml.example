@@ -23,8 +23,8 @@ joinTokenFile: ~/.config/factory-agent/join-token
 # githubURL: https://github.com
 
 # Capability labels to advertise. Each is probed at start, and a failing one is dropped with a
-# warning. release-docs needs both; docs-review needs has-local-stack when it verifies against
-# a train.
+# warning. No catalog TaskSpec requires them any more (release-docs and docs-review-verify
+# declare their environment, which a VM workspace brings up).
 labels: [has-local-stack, gif-tooling]
 
 # The local-dev checkout the local stack runs from. Required with has-local-stack.

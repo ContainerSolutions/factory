@@ -1,4 +1,4 @@
-# Task: docs-review for compliance-framework/docs
+# Task: docs-review-verify for compliance-framework/docs
 
 ## Goal
 
@@ -11,7 +11,7 @@ style, versioning and i18n, and post one review per pull request as the reviewer
 - verifyAgainst: train "compliance-framework/workflows#123"
 - checks: "version-accuracy", "versioning", "style", "build"
 - repo: `compliance-framework/docs`, checked out read-only
-- work item: `wi_docs-review-release`
+- work item: `wi_docs-review-verify`
 - pull request: `compliance-framework/docs#50`
 
 ## Use these skills
@@ -28,8 +28,10 @@ style, versioning and i18n, and post one review per pull request as the reviewer
 
 - One review per pull request.
 - Run each check asked above, and only those:
-  - `version-accuracy`: docs-verify against `verifyAgainst` on the stack the factory brought
-    up (`factory-agent stack env`, `factory-agent stack wait`); never start or stop a stack.
+  - `version-accuracy`: docs-verify against `verifyAgainst` on the running stack: the
+    workspace's environment is up before you start, at those versions
+    (`$FACTORY_VERSION_<COMPONENT>`), with the UI at `$FACTORY_STACK_URL` and the API at
+    `$FACTORY_STACK_API`. Never bring it down. You may use Docker.
   - `versioning`: `instances.yaml` stays valid, one version per minor line, and released
     lines the change doesn't document are untouched.
   - `style`: the docs repo's `STYLE.md`, through the docs-style checklist.

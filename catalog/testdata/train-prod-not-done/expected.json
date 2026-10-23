@@ -4,11 +4,47 @@
   "matches": [
     {
       "ruleSet": "dev-release-docs",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "close-on-primary-closed",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
       "rule": "docs-on-release-train",
       "result": "not-matched",
       "inputs": [
         "event",
         "params"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "close-on-primary-closed",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "item"
       ]
     },
     {

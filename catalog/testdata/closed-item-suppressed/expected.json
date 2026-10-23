@@ -1,0 +1,146 @@
+{
+  "event": "factory-run-after-close",
+  "workItem": "wi-epic",
+  "matches": [
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-human-review",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "record-merge-outcome",
+      "priority": 100,
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "record-review-outcome",
+      "priority": 100,
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "record-release-docs-outcome",
+      "priority": 100,
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "record-release-docs-repos",
+      "priority": 100,
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "record-release-review-outcome",
+      "priority": 100,
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "review-whole-stack",
+      "priority": 50,
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "announce-ptbr-live",
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "build-single",
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "build-stack-next",
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "build-stack-start",
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "escalate-needs-human",
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "fix-stack-review",
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-docs-human-review",
+      "rule": "escalate-needs-human",
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "announce-release-docs",
+      "result": "suppressed-by-final",
+      "inputs": []
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "escalate-needs-human",
+      "result": "suppressed-by-final",
+      "inputs": []
+    }
+  ],
+  "decisions": [],
+  "stateAfter": {
+    "lifecycle": "closed",
+    "plan": [
+      {
+        "dependsOn": [],
+        "issue": "compliance-framework/docs#71",
+        "title": "Enable Docusaurus i18n with pt-BR"
+      },
+      {
+        "dependsOn": [
+          "compliance-framework/docs#71"
+        ],
+        "issue": "compliance-framework/docs#72",
+        "title": "PT-BR glossary"
+      }
+    ],
+    "review": "running",
+    "stackNext": 0,
+    "stackTotal": 2
+  }
+}

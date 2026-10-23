@@ -9,7 +9,7 @@
     "facts": {
       "run": {
         "id": "run-review-3",
-        "spec": "docs-review",
+        "spec": "docs-review-verify",
         "outcome": "changes-requested",
         "status": "done",
         "inputs": {

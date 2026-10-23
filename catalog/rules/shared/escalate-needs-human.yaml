@@ -1,7 +1,8 @@
 # The shared safety net (10 §Rules, human PRs: "an escalate-needs-human rule"; catalog-poc LLD
 # §Dev and prod RuleSets): every RuleSet selects the shared pack. A needs-human or blocked
-# outcome, or a third changes-requested review, labels the work item's primary object
-# needs-human and comments the needs-human Template there. A merge run that ends pending (it
+# outcome, or a third changes-requested review (docs-review, or docs-review-verify for a
+# release-docs PR), labels the work item's primary object needs-human and comments the
+# needs-human Template there. A merge run that ends pending (it
 # waits on the next PR's check or approval) doesn't escalate: re-dispatching it is the merge
 # rules' job (see merge-whole-stack's note; catalog/testdata/merge-pending-no-escalation).
 kind: Rule
@@ -10,7 +11,8 @@ spec:
   on: [factory.run.completed]
   where: >
     run.outcome in ['needs-human', 'blocked'] ||
-    (run.spec == 'docs-review' && run.outcome == 'changes-requested' && item.count('docs-review') >= 3)
+    (run.spec in ['docs-review', 'docs-review-verify'] && run.outcome == 'changes-requested' &&
+     item.count('docs-review') + item.count('docs-review-verify') >= 3)
   actions:
     - effect: { op: label.add, target: primary, labels: [needs-human] }
     - notify: { template: needs-human, to: [{ item: primary }] }

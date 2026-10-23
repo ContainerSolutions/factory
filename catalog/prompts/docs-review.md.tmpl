@@ -53,8 +53,10 @@ style, versioning and i18n, and post one review per pull request as the reviewer
 {{- else if eq . "build" }}
   - `build`: the PR's build check; if it can't be read, say so (don't install dependencies).
 {{- else if eq . "version-accuracy" }}
-  - `version-accuracy`: docs-verify against `verifyAgainst` on the stack the factory brought
-    up (`factory-agent stack env`, `factory-agent stack wait`); never start or stop a stack.
+  - `version-accuracy`: docs-verify against `verifyAgainst` on the running stack: the
+    workspace's environment is up before you start, at those versions
+    (`$FACTORY_VERSION_<COMPONENT>`), with the UI at `$FACTORY_STACK_URL` and the API at
+    `$FACTORY_STACK_API`. Never bring it down. You may use Docker.
 {{- else if eq . "versioning" }}
   - `versioning`: `instances.yaml` stays valid, one version per minor line, and released
     lines the change doesn't document are untouched.

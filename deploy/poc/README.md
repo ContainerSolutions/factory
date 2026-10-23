@@ -192,7 +192,7 @@ For each agent owner, on their machine (rollout.md §Agent onboarding). The owne
    - `has-local-stack`: Docker running with at least 8 GB of memory, compose v2, and a `local-dev` checkout (with its `.env`) set as `localDev`.
    - `gif-tooling`: `npm install -g playwright && npx playwright install chromium`, plus `brew install gifski vhs ffmpeg`.
 
-   release-docs needs both labels. docs-review needs `has-local-stack` when it verifies against a train.
+   No TaskSpec requires them any more: release-docs and docs-review-verify declare their environment (local-dev's showcase), which a VM workspace (`factory-agent supervise`) brings up.
 5. **Harness logins**, once, into dedicated config dirs. You run these; the factory never does.
    - Codex: `CODEX_HOME=~/.factory-agent/codex-home codex login --device-auth`.
    - Claude Code: `CLAUDE_CONFIG_DIR=~/.factory-agent/claude claude`, then `/login` once. The alternative is `claude setup-token`, with `CLAUDE_CODE_OAUTH_TOKEN` in the worker's environment.
@@ -271,8 +271,8 @@ jq '{event: (. + {id: "preview"})}' deploy/poc/events/mock-train.json | curl -s 
 What you should see (the UI's board and work-item pages, or `GET /api/v1/workitems` and `/api/v1/tasks`):
 
 1. A work item linked to `workflows#132`, with state `release: drafting`, `manifest: repos.mock.yaml` and `train: …#132`.
-2. A `release-docs` task for `compliance-framework/mock-docs`. It stays `Pending` with reason `no-capable-agent` until an agent offers codex `gpt-5*` or `gpt-6*`, `has-local-stack` and `gif-tooling`. The agent brings the stack up at the train's versions and opens a PR on mock-docs.
-3. A `docs-review` task (claude-code, reviewer identity). Anti-affinity keeps a review off the agent that wrote the PR. With a single agent it waits **10 minutes** (`scheduler.DefaultAntiAffinityWait`) before the author's own agent may take it.
+2. A `release-docs` task for `compliance-framework/mock-docs`. It stays `Pending` with reason `no-capable-agent` until an agent offers codex `gpt-5*` or `gpt-6*`. Its VM workspace brings local-dev's showcase up at the train's versions, and the agent opens a PR on mock-docs.
+3. A `docs-review-verify` task (claude-code, reviewer identity, with the same environment). Anti-affinity keeps a review off the agent that wrote the PR. With a single agent it waits **10 minutes** (`scheduler.DefaultAntiAffinityWait`) before the author's own agent may take it.
 4. On changes requested, `implement` (codex, mode address-review) pushes a fix, and the review runs again, at most 3 implement runs per item. The 3rd changes-requested, or a `needs-human` or `blocked` outcome, escalates.
 5. **It ends at the reviewer's approval.** `merge-release-docs` is excluded in every RuleSet until RUN-S4-T01. A human merge announces nothing, because `announce-release-docs` fires only after a factory merge run.
 

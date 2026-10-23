@@ -12,7 +12,7 @@ spec:
     issue:  { type: string }                      # for mode new: the sub-issue, owner/repo#N
     base:   { type: string, default: main }       # branch to stack on
   instructions: { template: prompts/implement.md.tmpl, headless: true }
-  skills: [{ source: ccf-skills, ref: v0.8.0, use: [lisa, resolve, docs-style] }]   # lisa one-shot; stack ops via the Effector
+  skills: [{ source: ccf-skills, ref: v0.9.0, use: [lisa, resolve, docs-style] }]   # lisa one-shot; stack ops via the Effector
   harness: { default: { name: codex, config: { model: "gpt-{5,6}*", reasoningEffort: medium } } }
   workspace: { repos: [{ ref: "=task.target.repo + '@' + inputs.base", mode: rw }] }
   identity: author

@@ -14,4 +14,4 @@ spec:
   defaults: { trainManifest: repos.mock.yaml, docsRepo: compliance-framework/mock-docs }
   overrides:
     docs-on-release-train: { allowDryRun: true }
-  stateKeys: [release, train, manifest, repos, review, merge]
+  stateKeys: [release, train, manifest, repos, versions, review, merge, lifecycle]

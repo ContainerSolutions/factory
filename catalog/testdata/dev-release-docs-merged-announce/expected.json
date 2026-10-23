@@ -4,6 +4,33 @@
   "matches": [
     {
       "ruleSet": "dev-docs-epic",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
       "rule": "record-merge-outcome",
       "priority": 100,
       "result": "matched",
@@ -102,6 +129,14 @@
       "result": "not-matched",
       "inputs": [
         "item"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
+      "rule": "build-single",
+      "result": "not-matched",
+      "inputs": [
+        "run"
       ]
     },
     {

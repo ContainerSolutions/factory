@@ -1,0 +1,24 @@
+# A closed work item (close-on-primary-closed) runs no more rules: final, and above every other
+# rule's priority, so it suppresses all of them (suppressed-by-final). Its on lists every event
+# type the catalog's rules listen on: a Rule that listens on a new one must add it here.
+kind: Rule
+metadata: { name: closed-gate, labels: { pack: shared } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on:
+    - factory.run.completed
+    - factory.workitem.resynced
+    - deploy.succeeded
+    - issue.opened
+    - issue.closed
+    - pr.opened
+    - pr.updated
+    - pr.ready_for_review
+    - pr.review.submitted
+    - pr.checks.completed
+    - pr.merged
+    - pr.closed
+  priority: 1000
+  final: true
+  where: "has(item.state.lifecycle) && item.state.lifecycle == 'closed'"
+  actions: []

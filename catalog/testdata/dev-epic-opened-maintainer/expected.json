@@ -4,6 +4,24 @@
   "matches": [
     {
       "ruleSet": "dev-docs-epic",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "dev-release-docs",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "dev-docs-epic",
       "rule": "plan-maintainer-epics",
       "result": "matched",
       "inputs": [

@@ -1,0 +1,80 @@
+{
+  "event": "gh-201/0",
+  "workItem": "wi-epic",
+  "matches": [
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-human-review",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "closed-gate",
+      "priority": 1000,
+      "result": "not-matched",
+      "inputs": [
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-epic",
+      "rule": "close-on-primary-closed",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-docs-human-review",
+      "rule": "close-on-primary-closed",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "item"
+      ]
+    },
+    {
+      "ruleSet": "poc-release-docs",
+      "rule": "close-on-primary-closed",
+      "result": "not-matched",
+      "inputs": [
+        "event",
+        "item"
+      ]
+    }
+  ],
+  "decisions": [],
+  "stateAfter": {
+    "plan": [
+      {
+        "dependsOn": [],
+        "issue": "compliance-framework/docs#71",
+        "title": "Enable Docusaurus i18n with pt-BR"
+      },
+      {
+        "dependsOn": [
+          "compliance-framework/docs#71"
+        ],
+        "issue": "compliance-framework/docs#72",
+        "title": "PT-BR glossary"
+      }
+    ],
+    "review": "running",
+    "stackNext": 0,
+    "stackTotal": 2
+  }
+}
