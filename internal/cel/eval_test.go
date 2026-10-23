@@ -161,13 +161,15 @@ func TestEvalValue(t *testing.T) {
 }
 
 // TestTwoVarComprehensions builds a map from a list (ext.TwoVarComprehensions), as
-// docs-on-release-train builds release-docs' versions from a train event's repos.
+// docs-on-release-train builds release-docs' versions from a train event's repos, with an
+// optional index (cel.OptionalTypes) for the key test.
 func TestTwoVarComprehensions(t *testing.T) {
 	env := newTestEnv(t)
 	a := Activation{Event: map[string]any{"train": map[string]any{"repos": []any{
 		map[string]any{"name": "api", "versions": map[string]any{".": "0.4.1"}},
 		map[string]any{"name": "ui", "versions": map[string]any{}},
 		map[string]any{"name": "agent", "versions": map[string]any{".": "0.2.0", "sub": "1.0.0"}},
+		map[string]any{"name": "helm-charts", "versions": map[string]any{"charts/ccf": "3.0.0"}},
 	}}}}
 	tests := []struct {
 		name string
@@ -175,6 +177,8 @@ func TestTwoVarComprehensions(t *testing.T) {
 		want any
 	}{
 		{"transformMapEntry", "event.train.repos.filter(r, '.' in r.versions).transformMapEntry(i, r, {r.name: r.versions['.']})",
+			map[string]any{"api": "0.4.1", "agent": "0.2.0"}},
+		{"transformMapEntry with an optional key test", "event.train.repos.transformMapEntry(i, r, r.versions[?'.'].hasValue(), {r.name: r.versions['.']})",
 			map[string]any{"api": "0.4.1", "agent": "0.2.0"}},
 		{"transformMapEntry of none", "event.train.repos.filter(r, 'x' in r.versions).transformMapEntry(i, r, {r.name: r.versions['x']})",
 			map[string]any{}},
