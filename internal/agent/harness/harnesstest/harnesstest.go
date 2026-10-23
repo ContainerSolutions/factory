@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,7 +24,9 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/compliance-framework/factory/internal/agent/harness/fake"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
+	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
@@ -248,6 +251,31 @@ func (e *E2E) Job(h v1alpha1.HarnessResolved, outcomes []string) *runner.Job {
 		AgentToken: func() string { return AgentToken },
 		StartedAt:  time.Now(),
 	}
+}
+
+// GatewayCA stands in for the gateway CA's public half in a Bundle.
+const GatewayCA = "-----BEGIN CERTIFICATE-----\nZmFrZS1nYXRld2F5LWNh\n-----END CERTIFICATE-----\n"
+
+// CodexAccount is the account a Bundle of a codex task names.
+var CodexAccount = runbundle.CodexAccount{AccountID: "acct_test", UserID: "user_test", PlanType: "pro"}
+
+// Bundle writes the run bundle of Job(h, outcomes) with pipeline.PrepareBundle, against the
+// dispatcher and the git server, into a new directory under the test's TempDir, and returns
+// the directory and the job. The bundle has GatewayCA, the default dispatcher URL and, for a
+// codex task, CodexAccount.
+func (e *E2E) Bundle(h v1alpha1.HarnessResolved, outcomes []string) (string, *runner.Job) {
+	e.t.Helper()
+	job := e.Job(h, outcomes)
+	x := pipeline.BundleExtras{CA: []byte(GatewayCA)}
+	if h.Name == "codex" {
+		acct := CodexAccount
+		x.Codex = &acct
+	}
+	dir := filepath.Join(e.t.TempDir(), "bundle")
+	if err := e.Pipeline(&fake.Adapter{}).PrepareBundle(context.Background(), job, dir, x); err != nil {
+		e.t.Fatalf("PrepareBundle: %v", err)
+	}
+	return dir, job
 }
 
 // Transcript is the uploaded transcript's lines; the run must have uploaded exactly one.

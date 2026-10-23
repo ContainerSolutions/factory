@@ -579,8 +579,10 @@ func checkSizes(files map[string][]byte) error {
 	return nil
 }
 
-// parseContext decodes a context file and checks its index, its content's cap and that no
-// string in it is shaped like a token.
+// parseContext decodes a context file and checks its index and its content's cap. Its
+// strings aren't shape-scanned: the content is untrusted provider text, where a token-shaped
+// example in an issue body is no credential of the run's (PrepareBundle checks the job's real
+// tokens instead).
 func parseContext(name string, data []byte) (apiclient.TaskContext, error) {
 	var tc apiclient.TaskContext
 	if err := json.Unmarshal(data, &tc); err != nil {
@@ -591,9 +593,6 @@ func parseContext(name string, data []byte) (apiclient.TaskContext, error) {
 	}
 	if len(tc.Content) > MaxContextBytes {
 		return tc, invalid(name, "its content is over %d bytes", MaxContextBytes)
-	}
-	if err := scanTokens(reflect.ValueOf(tc), name); err != nil {
-		return tc, err
 	}
 	return tc, nil
 }

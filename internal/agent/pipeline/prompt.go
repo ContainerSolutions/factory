@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
@@ -35,10 +36,12 @@ func Preamble(taskID, taskSpec string) string {
 	return fmt.Sprintf(preamble, taskID, taskSpec)
 }
 
-// maxPrompt bounds the rendered prompt and each context item fetched.
+// maxPrompt bounds the rendered prompt and maxContext each context item fetched: runbundle's
+// bounds, so an oversize item fails here, on the host, never in runbundle.Write or the VM's
+// Read.
 const (
-	maxPrompt  = 1 << 20
-	maxContext = 4 << 20
+	maxPrompt  = runbundle.MaxPromptBytes
+	maxContext = runbundle.MaxContextBytes
 )
 
 // contextItem is one fetched context item.
@@ -60,16 +63,10 @@ func (r *run) renderPrompt(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(raw) > maxPrompt {
-		return fmt.Errorf("the prompt is over %d bytes", maxPrompt)
+	if err := checkPrompt(r.task, raw); err != nil {
+		return err
 	}
 	body := string(raw)
-	if p := r.task.Spec.Prompt; p != nil && p.Digest != "" {
-		sum := sha256.Sum256(raw)
-		if got := "sha256:" + hex.EncodeToString(sum[:]); got != p.Digest {
-			return fmt.Errorf("the prompt's digest is %s, the task says %s", got, p.Digest)
-		}
-	}
 
 	var items []contextItem
 	for i, c := range r.task.Spec.Context {
@@ -95,8 +92,8 @@ func (r *run) renderPrompt(ctx context.Context) error {
 		case gone:
 			it.gone = true
 		default:
-			if len(tc.Content) > maxContext {
-				return fmt.Errorf("context item %d is over %d bytes", i, maxContext)
+			if err := checkContext(i, tc); err != nil {
+				return err
 			}
 			it.content = tc.Content
 			if tc.Trust != "" {
@@ -109,6 +106,29 @@ func (r *run) renderPrompt(ctx context.Context) error {
 	r.ws.Preamble = Preamble(r.id, r.task.Spec.TaskSpec.Name)
 	r.prompt = buildPrompt(r.ws.Preamble, body, items, r.ws.Root)
 	return r.writeTickets(items)
+}
+
+// checkPrompt refuses a rendered template over maxPrompt or whose digest isn't the task's
+// spec.prompt.digest.
+func checkPrompt(t v1alpha1.Task, raw []byte) error {
+	if len(raw) > maxPrompt {
+		return fmt.Errorf("the prompt is over %d bytes", maxPrompt)
+	}
+	if p := t.Spec.Prompt; p != nil && p.Digest != "" {
+		sum := sha256.Sum256(raw)
+		if got := "sha256:" + hex.EncodeToString(sum[:]); got != p.Digest {
+			return fmt.Errorf("the prompt's digest is %s, the task says %s", got, p.Digest)
+		}
+	}
+	return nil
+}
+
+// checkContext refuses a context item whose content is over maxContext.
+func checkContext(i int, tc apiclient.TaskContext) error {
+	if len(tc.Content) > maxContext {
+		return fmt.Errorf("context item %d is over %d bytes", i, maxContext)
+	}
+	return nil
 }
 
 // buildPrompt is the preamble, the rendered template, then the context items: untrusted
