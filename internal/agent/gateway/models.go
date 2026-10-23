@@ -77,21 +77,18 @@ func (l ChatGPTLogin) MarshalJSON() ([]byte, error) { return json.Marshal(l.Stri
 // MarshalText is the redacted form (slog's text handler, encoding/xml, map keys).
 func (l ChatGPTLogin) MarshalText() ([]byte, error) { return []byte(l.String()), nil }
 
-// modelMethods are the methods the model hosts take, exactly as sent (Go keeps a method's case):
-// any other (TRACE and TRACK, which echo the request back, in any case) is api-write.
-var modelMethods = map[string]bool{
-	http.MethodGet: true, http.MethodHead: true, http.MethodPost: true, http.MethodPut: true,
-	http.MethodPatch: true, http.MethodDelete: true, http.MethodOptions: true,
-}
-
 // routeCredentials is the class's rule and the headers to set after the carriers are stripped:
 // the model hosts' (anthropicRoute, chatgptRoute), else routeIntercepted's Authorization. It answers a refusal
 // itself and returns ok false then.
 func (g *Gateway) routeCredentials(w http.ResponseWriter, r *http.Request, d policy.Decision, rec *Record) (http.Header, bool) {
-	if (d.Class == policy.Anthropic || d.Class == policy.ChatGPT) && !modelMethods[r.Method] {
-		// Before a credential is read: TRACE reflects the request, the injected header included.
-		rec.Status, rec.Refusal = writeRefusal(w, policy.CodeAPIWrite, "")
-		return nil, false
+	if d.Class == policy.Anthropic || d.Class == policy.ChatGPT {
+		// Before a credential is read: TRACE reflects the request, the injected header included,
+		// and a path off the host's list could read the owner's data with it.
+		carrier := hasHeader(r, "Authorization") || hasHeader(r, "X-Api-Key")
+		if c := policy.DecideModel(d.Target.Host, r.Method, r.URL, carrier); c != "" {
+			rec.Status, rec.Refusal = writeRefusal(w, c, "")
+			return nil, false
+		}
 	}
 	switch d.Class {
 	case policy.Anthropic:

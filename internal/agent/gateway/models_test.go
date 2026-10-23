@@ -37,9 +37,9 @@ func chatgptFrom(l ChatGPTLogin, err error) func(context.Context) (ChatGPTLogin,
 	return func(context.Context) (ChatGPTLogin, error) { return l, err }
 }
 
-// modelUpstream answers "ok", or 401 on /401.
+// modelUpstream answers "ok", or 401 on a path ending in /401.
 func modelUpstream(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/401" {
+	if strings.HasSuffix(r.URL.Path, "/401") {
 		http.Error(w, "expired", http.StatusUnauthorized)
 		return
 	}
@@ -66,7 +66,8 @@ const (
 
 // TestAnthropicRoutes: the presence rule in both modes on every Anthropic host. A request with
 // either carrier gets the gateway's credential in the gateway's form, every carrier stripped;
-// one without goes without; no credential with a carrier is no-login.
+// one without goes without; no credential with a carrier is no-login. Only api.anthropic.com
+// takes /v1/messages with a carrier: on the other hosts it is model-path.
 func TestAnthropicRoutes(t *testing.T) {
 	type want struct {
 		status        int
@@ -107,22 +108,26 @@ func TestAnthropicRoutes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e, got := startIntercept(t, modelUpstream, func(c *Config) { c.Anthropic = tt.auth })
 			for _, host := range policy.AnthropicHosts() {
+				w := tt.want
+				if host != "api.anthropic.com" && len(tt.headers) > 0 {
+					w = want{403, policy.CodeModelPath, "", "", "", tt.want.cli}
+				}
 				before := len(got.all())
 				status, code, rec := e.call(t, host, req(host, "/v1/messages", tt.headers...))
-				if status != tt.want.status || code != tt.want.code {
-					t.Fatalf("%s: got %d %s, want %d %s", host, status, code, tt.want.status, tt.want.code)
+				if status != w.status || code != w.code {
+					t.Fatalf("%s: got %d %s, want %d %s", host, status, code, w.status, w.code)
 				}
-				if rec.Injected != tt.want.injected || rec.Client != tt.want.cli || rec.Refusal != tt.want.code {
+				if rec.Injected != w.injected || rec.Client != w.cli || rec.Refusal != w.code {
 					t.Errorf("%s: record %+v", host, rec)
 				}
-				if tt.want.code != "" {
+				if w.code != "" {
 					if len(got.all()) != before {
 						t.Errorf("%s: a refused request reached the upstream", host)
 					}
 					continue
 				}
 				r := got.all()[before]
-				if a, k := r.Header.Get("Authorization"), r.Header.Get("X-Api-Key"); a != tt.want.auth || k != tt.want.key {
+				if a, k := r.Header.Get("Authorization"), r.Header.Get("X-Api-Key"); a != w.auth || k != w.key {
 					t.Errorf("%s: upstream got Authorization %q, X-Api-Key %q", host, a, k)
 				}
 			}
@@ -149,21 +154,25 @@ func TestChatGPTRoutes(t *testing.T) {
 			headers: []string{phBearer, "ChatGPT-Account-Id: vm-account\r\n", "chatgpt-account-id: vm-account-2\r\n", "Cookie: __oailb=lb; _cfuvid=u; session=header-secret\r\n"},
 			status:  200, auth: "Bearer " + accessTok, account: accountID, cookie: "__oailb=lb; _cfuvid=u",
 			injected: InjectedChatGPT, client: ClientPlaceholder},
-		{name: "a credential in the VM", login: login, path: "/backend-api/x", headers: []string{realAuth, phKey},
+		{name: "a credential in the VM", login: login, path: "/backend-api/codex/models", headers: []string{realAuth, phKey},
 			status: 200, auth: "Bearer " + accessTok, account: accountID, injected: InjectedChatGPT, client: ClientOther},
-		{name: "no Authorization", login: login, path: "/backend-api/x", headers: []string{phKey, "Cookie: session=header-secret\r\n"},
+		{name: "no Authorization", login: login, path: "/backend-api/codex/models", headers: []string{phKey, "Cookie: session=header-secret\r\n"},
 			status: 200, account: accountID, client: ClientPlaceholder},
-		{name: "an upstream 401 is passed on", login: login, path: "/401", headers: []string{phBearer},
+		{name: "an upstream 401 is passed on", login: login, path: "/backend-api/codex/401", headers: []string{phBearer},
 			status: 401, auth: "Bearer " + accessTok, account: accountID, injected: InjectedChatGPT, client: ClientPlaceholder},
 		{name: "a stale token with an error", login: chatgptFrom(ChatGPTLogin{AccessToken: accessTok}, errors.New("store: stale")),
-			path: "/backend-api/x", headers: []string{phBearer}, status: 200, auth: "Bearer " + accessTok,
+			path: "/backend-api/codex/models", headers: []string{phBearer}, status: 200, auth: "Bearer " + accessTok,
 			injected: InjectedChatGPT, client: ClientPlaceholder},
-		{name: "no login", login: chatgptFrom(ChatGPTLogin{AccountID: accountID}, errors.New("store: none")), path: "/backend-api/x",
+		{name: "no login", login: chatgptFrom(ChatGPTLogin{AccountID: accountID}, errors.New("store: none")), path: "/backend-api/codex/models",
 			headers: []string{phBearer}, status: 503, code: policy.CodeNoLogin, client: ClientPlaceholder},
-		{name: "no login, no Authorization", login: chatgptFrom(ChatGPTLogin{}, nil), path: "/backend-api/x",
+		{name: "no login, no Authorization", login: chatgptFrom(ChatGPTLogin{}, nil), path: "/backend-api/codex/models",
 			status: 503, code: policy.CodeNoLogin, client: ClientNone},
-		{name: "not configured", path: "/backend-api/x", headers: []string{phBearer, "Cookie: _cfuvid=u\r\n"},
+		{name: "not configured", path: "/backend-api/codex/models", headers: []string{phBearer, "Cookie: _cfuvid=u\r\n"},
 			status: 200, cookie: "_cfuvid=u", client: ClientPlaceholder},
+		{name: "a path off the list", login: login, path: "/backend-api/conversations", headers: []string{phBearer},
+			status: 403, code: policy.CodeModelPath, client: ClientPlaceholder},
+		{name: "a path off the list, no Authorization", login: login, path: "/backend-api/conversations",
+			status: 403, code: policy.CodeModelPath, client: ClientNone},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -236,16 +245,76 @@ func TestModelMethodsRefused(t *testing.T) {
 				}
 			})
 		}
+		path := map[string]string{"api.anthropic.com": "/v1/messages", policy.ChatGPTHost: "/backend-api/codex/responses"}[host]
+		if path == "" {
+			continue // no path takes the login there (TestModelPathRefused)
+		}
 		t.Run(host+" allowed", func(t *testing.T) {
 			e, got := startIntercept(t, modelUpstream, cfg)
 			for i, m := range []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"} { // not HEAD: roundTrip would wait for a body
-				raw := m + " /v1/messages HTTP/1.1\r\nHost: " + host + "\r\n" + phBearer + "Content-Length: 0\r\n\r\n"
+				raw := m + " " + path + " HTTP/1.1\r\nHost: " + host + "\r\n" + phBearer + "Content-Length: 0\r\n\r\n"
 				if status, code, _ := e.call(t, host, raw); status != http.StatusOK || code != "" {
 					t.Errorf("%s: got %d %s", m, status, code)
 				}
 				if all := got.all(); len(all) != i+1 || all[i].Header.Get("Authorization") == "" {
 					t.Errorf("%s: the upstream didn't get the credential", m)
 				}
+			}
+		})
+	}
+}
+
+// TestModelPathRefused: a request that would get the owner's login on a path off its host's
+// list is refused before the login is read, never reaching the upstream; an Anthropic request
+// without a carrier keeps going without a credential.
+func TestModelPathRefused(t *testing.T) {
+	echo := func(w http.ResponseWriter, r *http.Request) { _ = r.Write(w) }
+	var reads atomic.Int32
+	cfg := func(c *Config) {
+		c.Anthropic = func(context.Context) (AnthropicAuth, error) {
+			reads.Add(1)
+			return AnthropicAuth{OAuthToken: oauthTok}, nil
+		}
+		c.ChatGPT = func(context.Context) (ChatGPTLogin, error) {
+			reads.Add(1)
+			return ChatGPTLogin{AccessToken: accessTok, AccountID: accountID}, nil
+		}
+	}
+	tests := []struct {
+		host, path string
+		headers    []string
+		code       policy.Code
+	}{
+		{policy.ChatGPTHost, "/backend-api/conversations", []string{phBearer}, policy.CodeModelPath},
+		{policy.ChatGPTHost, "/backend-api/conversation/c1", nil, policy.CodeModelPath},
+		{policy.ChatGPTHost, "/backend-api/codex/../memories", []string{phBearer}, policy.CodeBadPath},
+		{"api.anthropic.com", "/v1/files/x/content", []string{phKey}, policy.CodeModelPath},
+		{"api.anthropic.com", "/v1/messages/batches", []string{phBearer}, policy.CodeModelPath},
+		{"api.anthropic.com", "/api/oauth/claude_cli/create_api_key", []string{phBearer}, policy.CodeModelPath},
+		{"api.anthropic.com", "/v1/m%65ssages", []string{phBearer}, policy.CodeBadPath},
+		{"claude.ai", "/api/organizations", []string{phBearer}, policy.CodeModelPath},
+		{"claude.ai", "/api/event_logging/v2/batch", nil, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.host+tt.path, func(t *testing.T) {
+			reads.Store(0)
+			e, got := startIntercept(t, echo, cfg)
+			status, code, rec := e.call(t, tt.host, req(tt.host, tt.path, tt.headers...))
+			if code != tt.code || rec.Refusal != tt.code || rec.Injected != "" {
+				t.Fatalf("got %d %s, record %+v, want %s", status, code, rec, tt.code)
+			}
+			if n := reads.Load(); n != 0 {
+				t.Errorf("the login was read %d times", n)
+			}
+			n := len(got.all())
+			if tt.code != "" {
+				if status != tt.code.Status() || n != 0 {
+					t.Errorf("got %d, the upstream reached %d times", status, n)
+				}
+				return
+			}
+			if status != http.StatusOK || n != 1 || got.all()[0].Header.Get("Authorization") != "" {
+				t.Errorf("got %d, %d upstream requests, want one without a credential", status, n)
 			}
 		})
 	}

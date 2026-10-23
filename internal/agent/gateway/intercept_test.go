@@ -128,14 +128,24 @@ func TestIntercept(t *testing.T) {
 				t.Fatalf("handshake: %v", err)
 			}
 			hostHeader := strings.ToUpper(host) + ".:443" // normalised to the CONNECT's host
-			status, _, body := roundTrip(t, tc, bufio.NewReader(tc), "GET /p/x?q=query-secret HTTP/1.1\r\nHost: "+hostHeader+
-				"\r\nAuthorization: Bearer sk-live-secret-token\r\nX-Api-Key: header-secret\r\n"+
-				"Proxy-Authorization: Basic header-secret\r\nCookie: __oailb=lb; session=header-secret\r\n\r\n")
+			// The model hosts take a carrier only on their path lists; the other Anthropic hosts
+			// have none, so they get the carrier-free form.
+			path, carriers := "/p/x", "Authorization: Bearer sk-live-secret-token\r\nX-Api-Key: header-secret\r\n"
+			switch {
+			case host == "api.anthropic.com":
+				path = "/v1/models"
+			case host == policy.ChatGPTHost:
+				path = "/backend-api/codex/models"
+			case policy.ClassOf(host) == policy.Anthropic:
+				carriers = ""
+			}
+			status, _, body := roundTrip(t, tc, bufio.NewReader(tc), "GET "+path+"?q=query-secret HTTP/1.1\r\nHost: "+hostHeader+
+				"\r\n"+carriers+"Proxy-Authorization: Basic header-secret\r\nCookie: __oailb=lb; session=header-secret\r\n\r\n")
 			if status != http.StatusOK || body != "ok" {
 				t.Fatalf("got %d %q", status, body)
 			}
 			r := got.all()[i]
-			if r.Host != host || r.URL.Path != "/p/x" || r.URL.RawQuery != "q=query-secret" {
+			if r.Host != host || r.URL.Path != path || r.URL.RawQuery != "q=query-secret" {
 				t.Errorf("upstream got Host %q, %s", r.Host, r.URL)
 			}
 			for _, k := range policy.CarrierHeaders() {
@@ -153,7 +163,7 @@ func TestIntercept(t *testing.T) {
 				t.Errorf("CONNECT record %+v", conn)
 			}
 			if rec.Mode != ModeIntercept || rec.Status != http.StatusOK || rec.Host != host ||
-				rec.Port != 443 || rec.Path != "/p/x" || rec.Down != 2 || rec.Refusal != "" {
+				rec.Port != 443 || rec.Path != path || rec.Down != 2 || rec.Refusal != "" {
 				t.Errorf("request record %+v", rec)
 			}
 		})

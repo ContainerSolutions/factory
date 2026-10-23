@@ -1,8 +1,8 @@
 // Package policy holds the workspace gateway's decisions as data (gateway.md): the host
 // classes and what a CONNECT or a plain HTTP request to each gets, the egress check (the
 // task's mode and allow list, the deny table, the open addresses), the github.com,
-// api.github.com (with the GraphQL read check) and dispatcher request rules, the refusal codes
-// and bodies, and the cookie filter of the model hosts.
+// api.github.com (with the GraphQL read check), dispatcher and model host (methods and path
+// lists) request rules, the refusal codes and bodies, and the cookie filter of the model hosts.
 //
 // It is pure, like internal/rules: no network, no I/O, no clock and no goroutines. The
 // gateway package resolves names, reads the agent host's interface addresses and dials; this

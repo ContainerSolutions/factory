@@ -21,6 +21,7 @@ const (
 	CodeWebWrite         Code = "web-write"
 	CodeAPIWrite         Code = "api-write"
 	CodeDispatcherRoute  Code = "dispatcher-route"
+	CodeModelPath        Code = "model-path"
 	CodeEgressNotAllowed Code = "egress-not-allowed"
 	CodeEgressDenied     Code = "egress-denied"
 	CodeResolve          Code = "resolve"
@@ -61,6 +62,7 @@ var refusals = map[Code]refusal{
 	CodeWebWrite:         {http.StatusForbidden, "refused: github.com takes only GET and HEAD outside git"},
 	CodeAPIWrite:         {http.StatusForbidden, "refused: api.github.com is read-only for workspaces"},
 	CodeDispatcherRoute:  {http.StatusForbidden, "refused: the dispatcher route is not open to workspaces"},
+	CodeModelPath:        {http.StatusForbidden, "refused: this path on a model host is not open to workspaces"},
 	CodeEgressNotAllowed: {http.StatusForbidden, "refused: the task's egress policy does not allow this host"},
 	CodeEgressDenied:     {http.StatusForbidden, ""},
 	CodeResolve:          {http.StatusBadGateway, "the destination's name does not resolve"},
@@ -75,7 +77,7 @@ func Codes() []Code {
 	return []Code{
 		CodeNotProxy, CodeBadPath, CodeHostMismatch, CodeBadTarget, CodePort, CodePlainHTTP,
 		CodePlainOnly, CodeAuthHost, CodePushRefused, CodeWebWrite, CodeAPIWrite,
-		CodeDispatcherRoute, CodeEgressNotAllowed, CodeEgressDenied, CodeResolve, CodeUpstream,
+		CodeDispatcherRoute, CodeModelPath, CodeEgressNotAllowed, CodeEgressDenied, CodeResolve, CodeUpstream,
 		CodeTimeout, CodeClosing, CodeNoLogin, CodeSNIMismatch, CodeNotTLS, CodePeer,
 	}
 }
