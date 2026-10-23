@@ -924,6 +924,7 @@ func TestInitRootBeforeVMs(t *testing.T) {
 var harnessLineREs = []*regexp.Regexp{
 	regexp.MustCompile(`^#`),
 	regexp.MustCompile(`^(CLAUDE_CODE|CODEX)_(VERSION|SHA256)=[A-Za-z0-9.-]+$`),
+	regexp.MustCompile(`^CODEX_CODE_MODE_HOST_SHA256=[0-9a-f]{64}$`),
 	regexp.MustCompile(`^echo "== harness CLIs \(installed, never run\)"$`),
 	regexp.MustCompile(`^CLAUDE_CODE_DIR=/usr/local/lib/node_modules/@anthropic-ai/claude-code$`),
 	regexp.MustCompile(`^CLAUDE_CODE_NATIVE_DIR=/usr/local/lib/node_modules/@anthropic-ai/claude-code/node_modules/@anthropic-ai/claude-code-linux-arm64$`),
@@ -944,6 +945,14 @@ var harnessLineREs = []*regexp.Regexp{
 	regexp.MustCompile(`^tar -xzf "\$TMP/codex\.tar\.gz" -C "\$TMP/codex" --no-same-owner$`),
 	regexp.MustCompile(`^sudo install -m 0755 "\$TMP/codex/codex-aarch64-unknown-linux-musl" /usr/local/bin/codex$`),
 	regexp.MustCompile(`^echo "\$CODEX_SHA256" \| sudo tee /var/lib/factory/codex\.tar\.sha256 >/dev/null$`),
+	// codex's code-mode host, installed beside it the same way.
+	regexp.MustCompile(`^\[ -x /usr/local/bin/codex-code-mode-host \] \|\| \{ echo "[^"$` + "`" + `]*" >&2; exit 1; \}$`),
+	regexp.MustCompile(`^if \[ "\$\(cat /var/lib/factory/codex-code-mode-host\.tar\.sha256 2>/dev/null \|\| true\)" != "\$CODEX_CODE_MODE_HOST_SHA256" \] \|\| \[ ! -x /usr/local/bin/codex-code-mode-host \]; then$`),
+	regexp.MustCompile(`^fetch "https://github\.com/openai/codex/releases/download/\$CODEX_VERSION/codex-code-mode-host-aarch64-unknown-linux-musl\.tar\.gz" "\$CODEX_CODE_MODE_HOST_SHA256" "\$TMP/codex-code-mode-host\.tar\.gz"$`),
+	regexp.MustCompile(`^mkdir "\$TMP/codex-code-mode-host"$`),
+	regexp.MustCompile(`^tar -xzf "\$TMP/codex-code-mode-host\.tar\.gz" -C "\$TMP/codex-code-mode-host" --no-same-owner$`),
+	regexp.MustCompile(`^sudo install -m 0755 "\$TMP/codex-code-mode-host/codex-code-mode-host-aarch64-unknown-linux-musl" /usr/local/bin/codex-code-mode-host$`),
+	regexp.MustCompile(`^echo "\$CODEX_CODE_MODE_HOST_SHA256" \| sudo tee /var/lib/factory/codex-code-mode-host\.tar\.sha256 >/dev/null$`),
 }
 
 var harnessRE = regexp.MustCompile(`(?i)claude|codex`)
@@ -986,12 +995,12 @@ func TestProvisionScript(t *testing.T) {
 	if bad := harnessLines(string(provisionScript)); len(bad) > 0 {
 		t.Errorf("provision/base.sh names claude or codex outside the install lines and existence checks:\n%s", strings.Join(bad, "\n"))
 	}
-	for _, l := range []string{"claude --version", "/usr/local/bin/codex --help", `[ -x /usr/local/bin/codex ] && codex login`, `"$(command -v claude)" -p hi`, "x=claude; $x", `"$CLAUDE_CODE_DIR/bin/claude.exe" --version`, `claude_code_installed && "$CLAUDE_CODE_NATIVE_DIR/claude" -p hi`} {
+	for _, l := range []string{"claude --version", "/usr/local/bin/codex --help", `[ -x /usr/local/bin/codex ] && codex login`, `"$(command -v claude)" -p hi`, "x=claude; $x", `"$CLAUDE_CODE_DIR/bin/claude.exe" --version`, `claude_code_installed && "$CLAUDE_CODE_NATIVE_DIR/claude" -p hi`, "/usr/local/bin/codex-code-mode-host --help", `[ -x /usr/local/bin/codex-code-mode-host ] && codex-code-mode-host`} {
 		if bad := harnessLines(string(provisionScript) + l + "\n"); len(bad) != 1 {
 			t.Errorf("the check misses %q", l)
 		}
 	}
-	for _, w := range []string{"set -euo pipefail", "KIND_VERSION=v0.33.0", "KUBECTL_VERSION=v1.37.1", "CODEX_SHA256=a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4", `main "$@" </dev/null`,
+	for _, w := range []string{"set -euo pipefail", "KIND_VERSION=v0.33.0", "KUBECTL_VERSION=v1.37.1", "CODEX_SHA256=a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4", "CODEX_CODE_MODE_HOST_SHA256=284356aefb197f00b76b912efdfdbae8ccf3ea1f89b976dde064b7ccb43214ef", `main "$@" </dev/null`,
 		"GH_PR_REVIEW_VERSION=v1.6.2", "GH_PR_REVIEW_SHA256=fea079f78e7224200d23de847b6210134ccec1a4d2dcff96ca8ca4ce1060fdde",
 		"GH_STACK_VERSION=v0.2.0", "GH_STACK_SHA256=d29684746f337a580667605b34877e5624792bcc390e61473a050bd4839557bf",
 		"ispinned: true",
