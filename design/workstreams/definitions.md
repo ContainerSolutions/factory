@@ -399,7 +399,7 @@ Use the `fake` provider from contracts.md in tests.
 
 **Goal.** `factory-agent`: a registered worker that runs leased tasks with Codex or Claude Code, under the owner's local login.
 **Owns:** `internal/agent/`, `cmd/factory-agent`.
-**LLD:** [worker.md](agent/LLD/worker.md), [run-pipeline.md](agent/LLD/run-pipeline.md), [harness-adapters.md](agent/LLD/harness-adapters.md), [effector.md](agent/LLD/effector.md), [local-stack.md](agent/LLD/local-stack.md), [workspace-host.md](agent/LLD/workspace-host.md), [workspace-run.md](agent/LLD/workspace-run.md), [gateway.md](agent/LLD/gateway.md).
+**LLD:** [worker.md](agent/LLD/worker.md), [run-pipeline.md](agent/LLD/run-pipeline.md), [harness-adapters.md](agent/LLD/harness-adapters.md), [effector.md](agent/LLD/effector.md), [local-stack.md](agent/LLD/local-stack.md), [workspace-host.md](agent/LLD/workspace-host.md), [workspace-run.md](agent/LLD/workspace-run.md), [gateway.md](agent/LLD/gateway.md), [supervise.md](agent/LLD/supervise.md).
 
 ### AGT-S1-T01 `feat(agent): worker registration and lease loop`
 

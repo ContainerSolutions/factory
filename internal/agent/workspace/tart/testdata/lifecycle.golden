@@ -1,0 +1,15 @@
+tart clone factory-agent-warm ws-tsk_0123456789abcdef0123
+tart set ws-tsk_0123456789abcdef0123 --cpu 6 --memory 8192
+PATH=/usr/local/libexec/factory-agent:/usr/bin:/bin tart run ws-tsk_0123456789abcdef0123 --no-graphics --net-softnet-block=0.0.0.0/0 --net-softnet-allow=@host &
+tart exec ws-tsk_0123456789abcdef0123 true
+tart exec ws-tsk_0123456789abcdef0123 true
+tart exec ws-tsk_0123456789abcdef0123 true
+tart exec ws-tsk_0123456789abcdef0123 ip -4 route show default
+tart exec ws-tsk_0123456789abcdef0123 ip -4 route get 192.168.96.33
+tart exec -i ws-tsk_0123456789abcdef0123 sudo -n sh -c set -eu; rm -rf "$0"; mkdir -p "$0"; tar -xf - -C "$0" --no-same-owner; chown -R root:root "$0"; chmod -R a+rX,a-w "$0" /run/factory <stdin
+tart exec ws-tsk_0123456789abcdef0123 sh -c echo $$ > "$0" && exec "$@" /tmp/factory-exec-1.pid factory-agent run --bundle /run/factory &
+tart exec ws-tsk_0123456789abcdef0123 sudo -n tar -czf - -C /work/out .
+tart list --format json
+tart list --format json
+tart stop ws-tsk_0123456789abcdef0123
+tart delete ws-tsk_0123456789abcdef0123

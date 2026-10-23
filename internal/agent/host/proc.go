@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -48,11 +49,17 @@ func (ExecRunner) RunInput(ctx context.Context, in io.Reader, out io.Writer, nam
 func (ExecRunner) Start(_ context.Context, out io.Writer, name string, args ...string) (Process, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Stdout, cmd.Stderr = out, out
+	return StartCmd(cmd)
+}
+
+// StartCmd starts cmd, which must not be tied to a context, in its own process group, and
+// returns it as a Process (the tart workspace driver's tart run and tart exec use it too).
+func StartCmd(cmd *exec.Cmd) (Process, error) {
 	// the output pipe can outlive the process when a child keeps it open.
 	cmd.WaitDelay = 10 * time.Second
 	ownGroup(cmd)
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
+		return nil, fmt.Errorf("%s: %w", filepath.Base(cmd.Path), err)
 	}
 	p := &execProcess{cmd: cmd, done: make(chan struct{})}
 	go func() { p.err = cmd.Wait(); close(p.done) }()
