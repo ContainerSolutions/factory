@@ -1,0 +1,70 @@
+# calls
+sudo -n install -d -m 0755 $T/root/usr/local/share/ca-certificates
+sudo -n install -m 0644 $T/state/system/factory-gateway.crt $T/root/usr/local/share/ca-certificates/.factory-gateway.crt.factory-tmp
+sudo -n mv -f $T/root/usr/local/share/ca-certificates/.factory-gateway.crt.factory-tmp $T/root/usr/local/share/ca-certificates/factory-gateway.crt
+sudo -n update-ca-certificates
+sudo -n cat -- $T/root/etc/docker/daemon.json
+sudo -n install -d -m 0755 $T/root/etc/docker
+sudo -n install -m 0600 $T/state/system/daemon.json $T/root/etc/docker/.daemon.json.factory-tmp
+sudo -n mv -f $T/root/etc/docker/.daemon.json.factory-tmp $T/root/etc/docker/daemon.json
+sudo -n systemctl restart docker
+sudo -n docker info
+sudo -n docker info
+sudo -n docker info
+# env
+CURL_CA_BUNDLE=$T/state/ca-bundle.pem
+DOCKER_CONFIG=$T/state/docker
+FACTORY_RUNTIME=workspace
+GH_TOKEN=factory-placeholder-not-a-credential
+GIT_SSL_CAINFO=$T/state/ca-bundle.pem
+HTTPS_PROXY=http://192.168.64.1:3128
+HTTP_PROXY=http://192.168.64.1:3128
+NODE_EXTRA_CA_CERTS=$T/bundle/gateway/ca.pem
+NO_PROXY=localhost,127.0.0.1,::1,.localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local,internal.example.com
+REQUESTS_CA_BUNDLE=$T/state/ca-bundle.pem
+SSL_CERT_FILE=$T/state/ca-bundle.pem
+XDG_DATA_HOME=/home/admin/.local/share
+http_proxy=http://192.168.64.1:3128
+https_proxy=http://192.168.64.1:3128
+no_proxy=localhost,127.0.0.1,::1,.localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local,internal.example.com
+# files
+== root/etc/docker/daemon.json 0600
+{
+  "log-driver": "journald",
+  "proxies": {
+    "http-proxy": "http://192.168.64.1:3128",
+    "https-proxy": "http://192.168.64.1:3128",
+    "no-proxy": "localhost,127.0.0.1,::1,.localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local,internal.example.com"
+  }
+}
+== root/etc/ssl/certs/ca-certificates.crt 0644
+-----BEGIN CERTIFICATE-----
+c3lzdGVtLXJvb3Q=
+-----END CERTIFICATE-----
+== root/usr/local/share/ca-certificates/factory-gateway.crt 0644
+-----BEGIN CERTIFICATE-----
+MIIBdzCCAR2gAwIBAgIBATAKBggqhkjOPQQDAjAiMSAwHgYDVQQDExdmYWN0b3J5
+IHRlc3QgZ2F0ZXdheSBDQTAgFw0yNjAxMDEwMDAwMDBaGA8yMTAwMDEwMTAwMDAw
+MFowIjEgMB4GA1UEAxMXZmFjdG9yeSB0ZXN0IGdhdGV3YXkgQ0EwWTATBgcqhkjO
+PQIBBggqhkjOPQMBBwNCAAQFjX3ZvAx5u+sl5EV8f02S5uzQBcxoaX4YojdH7CUT
+ZXIT0HtOSHMTIzo4Bzg06TNaGnBgE73/GHmN5kULeSg4o0IwQDAOBgNVHQ8BAf8E
+BAMCAQYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU+D0q7vBPAFMBpfMRkxEn
+E3X9IfowCgYIKoZIzj0EAwIDSAAwRQIhALKpsDD5VVHsU26ckqH46/gY/BalnpuP
+woiDYu8naGLxAiBeo3+VEj1A4DEj7Z2t1pMNKzMD/piHfDvgEFjZF923qw==
+-----END CERTIFICATE-----
+== state/ca-bundle.pem 0600
+-----BEGIN CERTIFICATE-----
+c3lzdGVtLXJvb3Q=
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIIBdzCCAR2gAwIBAgIBATAKBggqhkjOPQQDAjAiMSAwHgYDVQQDExdmYWN0b3J5
+IHRlc3QgZ2F0ZXdheSBDQTAgFw0yNjAxMDEwMDAwMDBaGA8yMTAwMDEwMTAwMDAw
+MFowIjEgMB4GA1UEAxMXZmFjdG9yeSB0ZXN0IGdhdGV3YXkgQ0EwWTATBgcqhkjO
+PQIBBggqhkjOPQMBBwNCAAQFjX3ZvAx5u+sl5EV8f02S5uzQBcxoaX4YojdH7CUT
+ZXIT0HtOSHMTIzo4Bzg06TNaGnBgE73/GHmN5kULeSg4o0IwQDAOBgNVHQ8BAf8E
+BAMCAQYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU+D0q7vBPAFMBpfMRkxEn
+E3X9IfowCgYIKoZIzj0EAwIDSAAwRQIhALKpsDD5VVHsU26ckqH46/gY/BalnpuP
+woiDYu8naGLxAiBeo3+VEj1A4DEj7Z2t1pMNKzMD/piHfDvgEFjZF923qw==
+-----END CERTIFICATE-----
+== state/docker/config.json 0600
+{}
