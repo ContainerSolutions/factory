@@ -358,6 +358,35 @@ func TestCancelKillsTheGroup(t *testing.T) {
 	}
 }
 
+// A command up leaves running (a server started with &) keeps running and writing to the log
+// after up returns: the log's pipe stays open for it.
+func TestUpLeavesABackgroundCommand(t *testing.T) {
+	t.Parallel()
+	g := newRig(t)
+	g.r.grace = 50 * time.Millisecond
+	e := &v1alpha1.Environment{Up: "(sleep 1; echo late output; echo alive > bg.out) &\necho up done\n"}
+	start := time.Now()
+	if _, err := g.r.Up(context.Background(), g.ws, task(e, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 900*time.Millisecond {
+		t.Errorf("Up waited %s for its background command", d)
+	}
+	for deadline := time.Now().Add(20 * time.Second); g.file("bg.out") == "" && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	}
+	if g.file("bg.out") != "alive\n" {
+		t.Fatal("the background command died")
+	}
+	for deadline := time.Now().Add(5 * time.Second); !strings.Contains(g.log(), "late output\n") && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	}
+	if log := g.log(); !strings.Contains(log, "up done\n") || !strings.Contains(log, "late output\n") {
+		t.Errorf("the log:\n%s", log)
+	}
+	if err := g.r.Down(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The log is capped (MaxLog, lowered here), ended by one [truncated] line.
 func TestLogCap(t *testing.T) {
 	t.Parallel()

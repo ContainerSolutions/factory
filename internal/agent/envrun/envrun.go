@@ -6,8 +6,8 @@ package envrun
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -45,6 +45,7 @@ const (
 	readyInterval = 2 * time.Second  // between two rounds of ready checks
 	readyRequest  = 10 * time.Second // bounds one ready request
 	killGrace     = 5 * time.Second  // a cancelled script's group gets SIGKILL this long after SIGTERM
+	outputGrace   = 5 * time.Second  // how long a script's output is waited for after it exits
 	bash          = "/bin/bash"
 )
 
@@ -73,7 +74,8 @@ type Options struct {
 type Runner struct {
 	o      Options
 	client *http.Client
-	maxLog int64 // MaxLog; tests lower it
+	maxLog int64         // MaxLog; tests lower it
+	grace  time.Duration // outputGrace; tests lower it
 
 	mu   sync.Mutex
 	root string   // the workspace root: the scripts' working directory
@@ -113,7 +115,7 @@ func New(o Options) (*Runner, error) {
 		Transport:     tr,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	return &Runner{o: o, client: client, maxLog: MaxLog}, nil
+	return &Runner{o: o, client: client, maxLog: MaxLog, grace: outputGrace}, nil
 }
 
 // Up implements pipeline.Environment: it writes the scripts, runs setup and up in ws.Root, and
@@ -218,31 +220,47 @@ func (r *Runner) step(name string, fn func() error) error {
 
 // script runs one script as `bash --noprofile --norc -eo pipefail <file>` in its own process
 // group, its output in the log. Cancelling ctx sends the group SIGTERM, then SIGKILL after
-// killGrace. A command the script leaves running (a server started with &) keeps running,
-// but should redirect its own output: the log's pipe is closed killGrace after the script
-// exits.
+// killGrace. A command the script leaves running (a server started with &) keeps running and
+// keeps writing to the log: the output is a pipe the runner reads until its last writer
+// closes it, waiting for it at most outputGrace after the script exits.
 func (r *Runner) script(ctx context.Context, name, path string) error {
 	r.mu.Lock()
 	root, env, lw := r.root, r.env, r.log
 	r.mu.Unlock()
 	lw.begin(name)
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("%s: the output pipe: %w", name, err)
+	}
 	cmd := exec.CommandContext(ctx, bash, "--noprofile", "--norc", "-eo", "pipefail", path)
 	cmd.Dir, cmd.Env = root, env
-	cmd.Stdout, cmd.Stderr = lw, lw
+	cmd.Stdout, cmd.Stderr = pw, pw // a file, so Wait doesn't wait for (or close) the copy
 	inOwnGroup(cmd)
 	cmd.Cancel = func() error { return terminateGroup(cmd.Process.Pid) }
 	cmd.WaitDelay = killGrace
-	if err := cmd.Start(); err != nil {
+	err = cmd.Start()
+	_ = pw.Close() // the script and what it starts hold the write end
+	if err != nil {
+		_ = pr.Close()
 		return fmt.Errorf("%s: start: %w", name, err)
 	}
-	err := cmd.Wait()
+	copied := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(lw, pr)
+		_ = pr.Close()
+		close(copied)
+	}()
+	err = cmd.Wait()
 	if ctx.Err() != nil {
 		_ = killGroup(cmd.Process.Pid)
 	}
-	tail := lw.end()
-	if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Success() {
-		err = nil // the script exited 0; a command it left running held the output open
+	grace := time.NewTimer(r.grace) // an I/O bound, not a decision: the real clock
+	select {
+	case <-copied:
+	case <-grace.C:
 	}
+	grace.Stop()
+	tail := lw.end()
 	if err == nil {
 		return nil
 	}

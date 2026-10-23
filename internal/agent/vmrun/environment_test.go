@@ -2,6 +2,7 @@ package vmrun
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -153,5 +154,48 @@ func TestRunEnvironment(t *testing.T) {
 			}
 			scanOutputs(t, r)
 		})
+	}
+}
+
+// deadlineEnv is an Environment whose Down records that it ran and its context's deadline.
+type deadlineEnv struct {
+	called   bool
+	deadline time.Time
+	has      bool
+}
+
+func (*deadlineEnv) Up(context.Context, harness.Workspace, v1alpha1.Task) (map[string]string, error) {
+	return nil, nil
+}
+
+func (e *deadlineEnv) Down(ctx context.Context) error {
+	e.called = true
+	e.deadline, e.has = ctx.Deadline()
+	return nil
+}
+
+// downGuard leaves Down's budget to the Environment until a signal; after the first it bounds
+// Down by its timeout; after the second it skips Down.
+func TestDownGuard(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		signals          int
+		called, deadline bool
+	}{{0, true, false}, {1, true, true}, {2, false, false}} {
+		env := &deadlineEnv{}
+		g := &downGuard{env: env, timeout: time.Minute, log: slog.New(slog.DiscardHandler)}
+		for n := 1; n <= tt.signals; n++ {
+			g.signalled(n)
+		}
+		start := time.Now()
+		if err := g.Down(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if env.called != tt.called || env.has != tt.deadline {
+			t.Errorf("%d signals: Down called %v, with a deadline %v", tt.signals, env.called, env.has)
+		}
+		if tt.deadline && (env.deadline.Before(start.Add(59*time.Second)) || env.deadline.After(time.Now().Add(time.Minute))) {
+			t.Errorf("%d signals: the deadline %v, want a minute from %v", tt.signals, env.deadline, start)
+		}
 	}
 }

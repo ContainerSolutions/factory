@@ -16,6 +16,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/compliance-framework/factory/internal/clock"
 )
 
 // recordEnv is an Environment that records its calls in a shared log and the environment Up got.
@@ -183,4 +184,51 @@ func TestRunEnvironmentGatewayMode(t *testing.T) {
 			}
 		})
 	}
+}
+
+// blockEnv is an Environment whose Up blocks until its context ends.
+type blockEnv struct{ started chan struct{} }
+
+func (e blockEnv) Up(ctx context.Context, _ harness.Workspace, _ v1alpha1.Task) (map[string]string, error) {
+	close(e.started)
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (blockEnv) Down(context.Context) error { return nil }
+
+// A limit that cancels the environment step (the wall clock) ends the run for that reason, not
+// environment-error.
+func TestRunEnvironmentWallClockLimit(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	clk := clock.NewFake(time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC))
+	f.opts.Clock = clk
+	env := blockEnv{started: make(chan struct{})}
+	f.opts.Environment = env
+	task := f.task()
+	task.Spec.Environment = &v1alpha1.Environment{Up: "sleep 3600\n"}
+	done := make(chan runner.Outcome, 1)
+	go func() {
+		out, err := f.pipeline().Run(context.Background(), f.job(task, clk.Now()), &sink{})
+		if err != nil {
+			t.Error(err)
+		}
+		done <- out
+	}()
+	select {
+	case <-env.started:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the environment didn't start")
+	}
+	clk.Advance(16 * time.Minute)
+	select {
+	case out := <-done:
+		if out.Status != runner.StatusFailed || out.Reason != runner.ReasonLimit {
+			t.Errorf("outcome %+v %+v", out, out.Result)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the wall-clock limit didn't stop the environment")
+	}
+	f.checkClean("")
 }
