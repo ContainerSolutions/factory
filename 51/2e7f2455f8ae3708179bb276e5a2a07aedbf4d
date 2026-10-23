@@ -1,0 +1,2 @@
+lisa-selfreview:
+pass 1/1 (lenient): approve. Deferred should-fix CORE-DUP-001: the bundle path is two constants, workspace.BundleDir and vmrun.DefaultBundle (pre-existing duplication; workspace and vmrun don't import each other); both now carry a comment naming the other. No blocker/must-fix.
