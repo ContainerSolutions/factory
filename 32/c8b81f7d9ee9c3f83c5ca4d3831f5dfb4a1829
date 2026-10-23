@@ -1,0 +1,4 @@
+lisa-selfreview:
+pass 1 (lenient, the only pass): approve, no blocker/must-fix.
+Checked: CORE-DUP-001 (/opt/ms-playwright in base.sh and vmrun.PlaywrightBrowsersPath: TestProvisionScript asserts the script carries the constant); FACTORY-IDEM-001 (each section skips what is installed: @playwright/test by its package.json version, browsers by Playwright's own install marker, vhs and gifski by sha256 markers under /var/lib/factory; a node bump's rm -rf of /usr/local/lib/node reinstalls Playwright); CORE-TEST-001 (setup goldens carry the two variables); CORE-DOC-001 (workspace-host.md and workspace-run.md tables).
+Deferred (not fixed, noted in the PR body): ttyd comes from Ubuntu's archive (1.7.4), not a release pin; gcc/libc6-dev stay in the base after gifski's build; Playwright's browser downloads aren't sha256-pinned (Playwright's CDN, as Playwright installs them); no real base build was run here (owner's make tart-up).
