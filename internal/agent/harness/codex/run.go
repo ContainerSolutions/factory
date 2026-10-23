@@ -54,11 +54,32 @@ func workDirFor(ws harness.Workspace) string {
 	return ws.Out
 }
 
+// vmWorkDir is where codex runs under IsolationVM: the pipeline's WorkDir, else the
+// workspace root. workDirFor's out/ isn't needed there: there is no sandbox whose writable
+// roots the cwd would join.
+func vmWorkDir(ws harness.Workspace) string {
+	if ws.WorkDir != "" {
+		return ws.WorkDir
+	}
+	return ws.Root
+}
+
 // Run implements harness.Adapter: `codex exec --json` on the prompt (stdin) with the task's
 // resolved model and effort, in the workspace-write sandbox from workDirFor's directory.
+// Under IsolationVM it runs danger-full-access from vmWorkDir's.
 func (a *Adapter) Run(ctx context.Context, ws harness.Workspace, t v1alpha1.Task, prompt string, sink harness.EventSink) (harness.Raw, error) {
+	vm, err := a.vm()
+	if err != nil {
+		return harness.Raw{}, err
+	}
 	s := session{Sandbox: sandboxWorkspaceWrite, WorkDir: workDirFor(ws), Model: a.o.Config.Default}
-	if s.WorkDir == "" {
+	switch {
+	case vm:
+		s.Sandbox, s.WorkDir = sandboxDangerFullAccess, vmWorkDir(ws)
+		if s.WorkDir == "" {
+			return harness.Raw{}, errors.New("codex: the workspace has neither a work dir nor a root to run in")
+		}
+	case s.WorkDir == "":
 		return harness.Raw{}, errors.New("codex: the workspace has neither a writable checkout nor out/ to run in")
 	}
 	if h := t.Spec.Harness; h != nil && h.Resolved != nil {
@@ -81,8 +102,12 @@ func (a *Adapter) Run(ctx context.Context, ws harness.Workspace, t v1alpha1.Task
 
 // Repair implements harness.Adapter: the same session resumed (`codex exec resume <thread>`)
 // with the problems, asking for a valid Result only. Without a thread to resume, a new exec
-// gets the original prompt followed by the problems.
+// gets the original prompt followed by the problems. The sandbox and working directory are
+// the Run's, from the session record.
 func (a *Adapter) Repair(ctx context.Context, ws harness.Workspace, problems []string, sink harness.EventSink) (harness.Raw, error) {
+	if _, err := a.vm(); err != nil {
+		return harness.Raw{}, err
+	}
 	home := codexHome(ws)
 	s, err := readSession(home)
 	if err != nil {
