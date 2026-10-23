@@ -88,6 +88,9 @@ func (e *Env) BaseVMName() string {
 	return BaseVMPrefix + nameUnsafeRE.ReplaceAllString(strings.TrimPrefix(e.AgentVersion, "v"), "_")
 }
 
+// TartBin is the tart the VM steps run, which the tart workspace driver runs too.
+func (e *Env) TartBin(ctx context.Context) string { return e.tartBin(ctx) }
+
 // tartBin is the tart the VM steps run, chosen as the tart step's check chooses: the state
 // dir's when it is the pin, else PATH's.
 func (e *Env) tartBin(ctx context.Context) string {
