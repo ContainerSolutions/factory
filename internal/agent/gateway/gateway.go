@@ -4,14 +4,17 @@
 // upstream through one egress dialer (resolve once, check every address, dial the literals), and
 // writes one egress record per request. Every decision is the pure policy package's.
 //
-// This is the proxy core (P1 phase 4, PR 3), with the tunnels' ClientHello peek. TLS
-// interception is PR 5's, the GitHub and dispatcher routes PR 7's and the model credentials PR
-// 8's: until then a CONNECT to an intercepted host is refused (upstream) and the dispatcher's
-// route is closed (dispatcher-route), so nothing reaches a credentialed host without its rules.
+// A CONNECT to an intercepted host is TLS-terminated with the agent host's CA (package ca), and
+// each request inside it is forwarded to that host over TLS with every credential carrier
+// stripped; a WebSocket upgrade passes through. The GitHub and dispatcher routes and the model
+// credentials are later phase 4 PRs': until then nothing injects a credential and the
+// dispatcher's route is closed (dispatcher-route).
 package gateway
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log"
@@ -22,18 +25,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/compliance-framework/factory/internal/agent/gateway/ca"
 	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
-// Config configures a Gateway. Later phase 4 PRs add the CA, the git credentials, the run token
-// and the dispatcher, and the model logins (gateway.md, API).
+// Config configures a Gateway. Later phase 4 PRs add the git credentials, the run token and the
+// dispatcher, and the model logins (gateway.md, API).
 type Config struct {
 	// TaskID and RunID identify the workspace; both required.
 	TaskID, RunID string
 	// Clients are the VM's exact addresses (IPv4-mapped ones unmapped): any other peer is closed
 	// at accept. Required.
 	Clients []netip.Addr
+	// CA signs the leaves of the intercepted hosts; required.
+	CA *ca.CA
+	// UpstreamRoots verifies the intercepted hosts' upstreams; default the system roots.
+	UpstreamRoots *x509.CertPool
 	// Egress is the task's mode and allow list, extra denied prefixes and open addresses.
 	Egress policy.Egress
 	// Sink receives the egress log; required.
@@ -100,9 +108,15 @@ type Gateway struct {
 	// once; New sets the constants, tests lower them.
 	peekTimeout time.Duration
 	maxConns    int
-	dialer      *net.Dialer
-	forward     *http.Transport
-	srv         *http.Server
+	// upstreamPort is the port an intercepted host's upstream is dialled on: 443, which tests
+	// change to their TLS server's.
+	upstreamPort uint16
+	dialer       *net.Dialer
+	forward      *http.Transport // plain HTTP to ordinary hosts
+	upstream     *http.Transport // TLS to the intercepted hosts
+	srv          *http.Server
+	inner        *http.Server // the requests inside intercepted tunnels
+	queue        *connQueue   // inner's listener
 
 	ctx    context.Context // every request's base; Close cancels it
 	cancel context.CancelFunc
@@ -129,6 +143,8 @@ func New(cfg Config) (*Gateway, error) {
 		return nil, &ConfigError{Field: "Clients"}
 	case cfg.Sink == nil:
 		return nil, &ConfigError{Field: "Sink"}
+	case cfg.CA == nil:
+		return nil, &ConfigError{Field: "CA"}
 	}
 	clients := map[netip.Addr]bool{}
 	for i, a := range cfg.Clients {
@@ -156,6 +172,7 @@ func New(cfg Config) (*Gateway, error) {
 		cfg: cfg, clients: clients, clk: cfg.Clock,
 		log:   cfg.Logger.With("task", cfg.TaskID, "run", cfg.RunID),
 		conns: map[*trackedConn]struct{}{}, peekTimeout: peekTimeout, maxConns: maxConns,
+		upstreamPort: policy.InterceptPort, queue: newConnQueue(),
 	}
 	g.ifaces = &hostAddrs{read: net.InterfaceAddrs, clk: cfg.Clock, log: g.log}
 	g.ctx, g.cancel = context.WithCancel(context.Background())
@@ -165,11 +182,32 @@ func New(cfg Config) (*Gateway, error) {
 		ResponseHeaderTimeout: responseHeaderTimeout, IdleConnTimeout: idleTimeout,
 		MaxIdleConnsPerHost: 16,
 	}
+	// HTTP/1.1 only (a custom TLS config and no ForceAttemptHTTP2), so an upgrade is never sent
+	// over h2.
+	g.upstream = &http.Transport{
+		Proxy: nil, DialContext: g.dialEgress, ForceAttemptHTTP2: false, DisableCompression: true,
+		TLSClientConfig:     &tls.Config{RootCAs: cfg.UpstreamRoots, MinVersion: tls.VersionTLS12},
+		TLSHandshakeTimeout: tlsHandshakeTimeout, ResponseHeaderTimeout: responseHeaderTimeout,
+		IdleConnTimeout: idleTimeout, MaxIdleConnsPerHost: 16,
+	}
 	g.srv = &http.Server{
 		Handler: http.HandlerFunc(g.handle), ReadHeaderTimeout: readHeaderTimeout,
 		MaxHeaderBytes: maxHeaderBytes, IdleTimeout: idleTimeout,
 		BaseContext: func(net.Listener) context.Context { return g.ctx },
 		ErrorLog:    log.New(discard{}, "", 0),
+	}
+	g.inner = &http.Server{
+		Handler: http.HandlerFunc(g.interceptRequest), ReadHeaderTimeout: readHeaderTimeout,
+		MaxHeaderBytes: maxHeaderBytes, IdleTimeout: idleTimeout,
+		BaseContext: func(net.Listener) context.Context { return g.ctx },
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			if ic, ok := c.(*interceptConn); ok {
+				return context.WithValue(ctx, decisionKey{}, ic.d)
+			}
+			return ctx
+		},
+		DisableGeneralOptionsHandler: true, // OPTIONS * reaches the handler: not-proxy
+		ErrorLog:                     log.New(discard{}, "", 0),
 	}
 	return g, nil
 }
@@ -208,6 +246,12 @@ func (g *Gateway) Serve(ctx context.Context, ln net.Listener) error {
 	g.ln = &listener{Listener: ln, g: g}
 	g.mu.Unlock()
 
+	if g.hold() {
+		go func() {
+			defer g.wg.Done()
+			_ = g.inner.Serve(g.queue) // until Close
+		}()
+	}
 	stop := context.AfterFunc(ctx, func() { _ = g.Close() })
 	defer stop()
 	err = g.srv.Serve(g.ln)
@@ -246,8 +290,11 @@ func (g *Gateway) Close() error {
 		}
 		g.cancel()
 		_ = g.srv.Close()
+		_ = g.inner.Close()
+		_ = g.queue.Close()
 		g.wg.Wait()
 		g.forward.CloseIdleConnections()
+		g.upstream.CloseIdleConnections()
 
 		g.mu.Lock()
 		g.done = true

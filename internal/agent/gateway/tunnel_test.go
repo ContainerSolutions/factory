@@ -110,7 +110,7 @@ func TestPeekHello(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			g, err := New(Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2"), Sink: &sink{t: t},
+			g, err := New(Config{TaskID: "t", RunID: "r", Clients: addrs("192.168.64.2"), Sink: &sink{t: t}, CA: testCA(t),
 				Egress: policy.Egress{Mode: tt.mode, AllowHosts: []string{"*.example.com"}}})
 			if err != nil {
 				t.Fatal(err)
@@ -189,7 +189,7 @@ func TestDenyByDefault(t *testing.T) {
 		{"CONNECT nope.test:" + p, policy.CodeEgressNotAllowed},
 		{"CONNECT 127.0.0.1:" + p, policy.CodeEgressNotAllowed}, // an IP literal never matches
 		{"GET http://nope.test:" + p + "/", policy.CodeEgressNotAllowed},
-		{"CONNECT api.anthropic.com:443", policy.CodeUpstream}, // its own route: interception is PR 5's
+		{"CONNECT api.anthropic.com:8443", policy.CodePort}, // its own route: the mode doesn't apply
 	}
 	for _, tt := range tests {
 		t.Run(strings.ReplaceAll(tt.raw, p, "PORT"), func(t *testing.T) {
