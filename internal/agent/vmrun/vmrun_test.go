@@ -621,7 +621,7 @@ func TestRunOutcomeNotWritten(t *testing.T) {
 // Usage errors are exit 2, before the bundle is read.
 func TestRunUsage(t *testing.T) {
 	t.Parallel()
-	ok := []string{"--proxy", "http://192.168.64.1:3128", "--bundle", "/run/factory", "--work", "/work", "--state-dir", "/var/lib/factory-agent/run"}
+	ok := []string{"--proxy", "http://192.168.64.1:3128", "--bundle", "/var/lib/factory/run", "--work", "/work", "--state-dir", "/var/lib/factory-agent/run"}
 	for _, tt := range []struct {
 		name string
 		args []string
@@ -634,11 +634,11 @@ func TestRunUsage(t *testing.T) {
 		{"the state dir in the work dir", append(slices.Clone(ok), "--state-dir", "/work/state"), "must not overlap"},
 		{"the work dir in the state dir", append(slices.Clone(ok), "--work", "/var/lib/factory-agent/run/w"), "must not overlap"},
 		{"the bundle in the work dir", append(slices.Clone(ok), "--bundle", "/work/b"), "--bundle must not be in --work"},
-		{"the work dir in the bundle", append(slices.Clone(ok), "--work", "/run/factory/w"), "--work must not be in --bundle"},
-		{"the work dir is the bundle", append(slices.Clone(ok), "--work", "/run/factory"), "--bundle must not be in --work"},
-		{"the state dir in the bundle", append(slices.Clone(ok), "--state-dir", "/run/factory/s"), "--bundle and --state-dir must not overlap"},
-		{"the state dir contains the bundle", append(slices.Clone(ok), "--state-dir", "/run"), "--bundle and --state-dir must not overlap"},
-		{"the state dir is the bundle", append(slices.Clone(ok), "--state-dir", "/run/factory/"), "--bundle and --state-dir must not overlap"},
+		{"the work dir in the bundle", append(slices.Clone(ok), "--work", "/var/lib/factory/run/w"), "--work must not be in --bundle"},
+		{"the work dir is the bundle", append(slices.Clone(ok), "--work", "/var/lib/factory/run"), "--bundle must not be in --work"},
+		{"the state dir in the bundle", append(slices.Clone(ok), "--state-dir", "/var/lib/factory/run/s"), "--bundle and --state-dir must not overlap"},
+		{"the state dir contains the bundle", append(slices.Clone(ok), "--state-dir", "/var/lib/factory"), "--bundle and --state-dir must not overlap"},
+		{"the state dir is the bundle", append(slices.Clone(ok), "--state-dir", "/var/lib/factory/run/"), "--bundle and --state-dir must not overlap"},
 		{"a zero remaining", append(slices.Clone(ok), "--remaining", "0s"), "--remaining 0s must be positive"},
 		{"a negative remaining", append(slices.Clone(ok), "--remaining", "-1s"), "--remaining -1s must be positive"},
 		{"a remaining that isn't a duration", append(slices.Clone(ok), "--remaining", "soon"), "-remaining"},

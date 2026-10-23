@@ -132,13 +132,14 @@ process inside it is privileged only inside that VM.
     6–10 s), then reads the VM's default route: that's the gateway address (Softnet's host IP
     on the VM's /29);
   - `Put`/`Get`: a tar stream over `tart exec -i`. The bundle lands read-only at
-    `/run/factory`;
+    `/var/lib/factory/run` (the root disk: `/run` is a `noexec` tmpfs, and skills execute from
+    the bundle);
   - `Exec`: `tart exec ws-<run> factory-agent run`;
   - `Destroy`: `tart stop`, then `tart delete`.
 - **The `kata` driver** drives `nerdctl`:
   - `Create` + `Start`: `nerdctl run -d --runtime io.containerd.kata.v2 --privileged
     --security-opt privileged-without-host-devices --cpus … --memory … --network ws-<run>
-    -v <bundle>:/run/factory:ro`, with the agent host's iptables making the gateway the only
+    -v <bundle>:/var/lib/factory/run:ro`, with the agent host's iptables making the gateway the only
     route out;
   - `Exec`: `nerdctl exec`;
   - `Destroy`: `nerdctl rm -f`, plus the network.
@@ -186,7 +187,7 @@ process inside it is privileged only inside that VM.
     `/dev/loop*` nodes, which `privileged-without-host-devices` leaves out.
 
   The LLM and local-dev use it like any Docker host.
-- **The run bundle** (`/run/factory`, read-only). The supervisor writes it before the run starts,
+- **The run bundle** (`/var/lib/factory/run`, read-only). The supervisor writes it before the run starts,
   so the workspace needs no dispatcher credential to set itself up. It holds:
   - the Task (the compiled spec);
   - the rendered prompt and context items;
