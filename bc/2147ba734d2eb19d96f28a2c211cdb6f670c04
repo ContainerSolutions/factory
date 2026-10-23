@@ -1,0 +1,2 @@
+lisa-addressed:
+Self-review pass 1 fixed: TestRunnerDeadlines (no time left, overrun on a fake clock, down budget); the not-gzip case checks the note and no token; wsRun.failed logs the reason at Warn and the error at Debug; release is deferred after freshRunDir and calls the driver only once Create was attempted.
