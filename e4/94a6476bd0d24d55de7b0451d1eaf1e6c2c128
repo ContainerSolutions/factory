@@ -1,0 +1,7 @@
+lisa-selfreview:
+Pass 1 (single pass, PoC; rules core,go,repo/factory): approve, no blocker or must-fix.
+- CORE-SEC-001/FACTORY-CRED-001 checked: records hold only classes (Injected, Client); AnthropicAuth and ChatGPTLogin redact under every fmt verb and slog (TestModelLoginsRedact); assertNoSecrets covers every model test's records and logs.
+- Lead's lesson (#122 checkGraphQL): the model routes inspect only header presence, never a body; every carrier is deleted (all values, any case) before the gateway's own are set, and ChatGPT-Account-Id is Set (every VM value replaced; tested with two spellings).
+- routes.go left untouched except one doc-comment line, so #122's checkGraphQL fix restacks cleanly.
+- Deferred (should-fix): a provider error is logged at warn on every request while it lasts (noisy with a stale store, never a value).
+- Question for reviewers: with Config.ChatGPT set and no access token, every chatgpt.com request is no-login, also those without Authorization (the LLD's no-login row read literally).
