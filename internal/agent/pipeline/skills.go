@@ -44,8 +44,9 @@ func (p *Pipeline) skillsURL(source string) string {
 
 // SkillSource gives a run its materialised skills (workspace-run.md §Sources): dir is the
 // workspace's Skills directory (the plugin directories) and list the selected skills, their
-// Dir absolute under dir. dst is the workspace's own skills/ directory, which a source that
-// fetches fills; a source with the skills elsewhere returns that directory instead.
+// Dir absolute under dir. dst is the path of the workspace's own skills/, which the pipeline
+// creates only for FetchSkills: another source that fills it creates it (0700) and returns
+// it; a source with the skills elsewhere returns that directory instead.
 type SkillSource interface {
 	Skills(ctx context.Context, job *runner.Job, dst string) (dir string, list []harness.Skill, err error)
 }
@@ -90,8 +91,7 @@ func (s PrebuiltSkills) Skills(context.Context, *runner.Job, string) (string, []
 // into skills/, as plugin directories (run-pipeline.md §Steps 5); any other source gives the
 // directory and the list itself.
 func (r *run) materialiseSkills(ctx context.Context) error {
-	switch r.p.o.Skills.(type) {
-	case FetchSkills, *FetchSkills:
+	if r.p.fetchesSkills() {
 		list, err := r.p.skillFetcher(r.git, r.ws.Root, r.ws.Tmp).fetch(ctx, r.task.Spec.Skills, r.ws.Skills)
 		r.ws.SkillList = append(r.ws.SkillList, list...)
 		return err
@@ -102,6 +102,16 @@ func (r *run) materialiseSkills(ctx context.Context) error {
 	}
 	r.ws.Skills, r.ws.SkillList = dir, list
 	return nil
+}
+
+// fetchesSkills reports whether the pipeline's SkillSource is FetchSkills (a value or a
+// pointer): the run fetches the skills into the workspace's skills/ itself.
+func (p *Pipeline) fetchesSkills() bool {
+	switch p.o.Skills.(type) {
+	case FetchSkills, *FetchSkills:
+		return true
+	}
+	return false
 }
 
 // skillFetcher fetches pinned skills repos and materialises their selected skills, with no

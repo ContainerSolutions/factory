@@ -2,8 +2,9 @@
 // turns one leased Task into a harness run and the run into a validated Result. It
 // implements runner.Runner, so the worker's lease loop drives it.
 //
-// For each job it creates a scratch workspace (0700, always removed), starts an in-memory git
-// credential helper (package gitcred) for the task's repos, clones them, materialises the
+// For each job it creates a scratch workspace (0700, always removed; or the exact Root, kept),
+// starts an in-memory git credential helper (package gitcred) for the task's repos (or, in
+// gateway mode, none: git goes through the gateway's proxy), clones them, materialises the
 // pinned skills, renders the prompt (the headless preamble, the rendered template from the
 // API, and the context items fenced with their trust level), builds the harness's
 // environment from an allow-list, runs the harness through its harness.Adapter under the
@@ -16,11 +17,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,10 +66,54 @@ type Stack interface {
 	Down(ctx context.Context) error
 }
 
-// Options configure a Pipeline. WorkRoot and Adapters are required.
+// GitAuth is how the run's git authenticates to the git host (workspace-run.md §Gateway mode).
+type GitAuth int
+
+const (
+	// GitAuthHelper, the zero value (the host), answers git from the job's credentials through
+	// the in-memory credential helper (package gitcred) on a Unix socket.
+	GitAuthHelper GitAuth = iota
+	// GitAuthGateway (the VM workspace) has no credential helper: no socket and no helper
+	// config. git reaches the git host through the gateway (HTTPS_PROXY in Options.Env), which
+	// adds the credential for the repo in the path. The job carries no credential: Run refuses
+	// one that does (GatewayCredentialError) before any step.
+	GitAuthGateway
+)
+
+// String implements fmt.Stringer.
+func (a GitAuth) String() string {
+	switch a {
+	case GitAuthHelper:
+		return "helper"
+	case GitAuthGateway:
+		return "gateway"
+	}
+	return "GitAuth(" + strconv.Itoa(int(a)) + ")"
+}
+
+// Options configure a Pipeline. Adapters and exactly one of WorkRoot and Root are required.
 type Options struct {
-	// WorkRoot holds the per-task workspaces (workRoot/<taskID>/).
+	// WorkRoot holds the per-task workspaces (workRoot/<taskID>/), each removed after its
+	// run (the host).
 	WorkRoot string
+	// Root is the exact workspace root, instead of WorkRoot (the VM workspace: /work). It must
+	// be absolute, and empty or absent when a run starts (its parent must exist); the run lays
+	// its tree directly in it and cleanup never removes it, so out/ survives the run. One run
+	// at a time: a second finds it non-empty and fails its workspace step.
+	Root string
+	// GitAuth is how the run's git authenticates. Default: GitAuthHelper.
+	GitAuth GitAuth
+	// Env is added to the environment that the pipeline's own git and the harness share,
+	// after the owner's allow-list (so it wins over Environ) and before the pipeline's own
+	// variables: the gateway's proxies (HTTP_PROXY, HTTPS_PROXY, NO_PROXY, either case) and CA
+	// (SSL_CERT_FILE, GIT_SSL_CAINFO, NODE_EXTRA_CA_CERTS, …), a GH_TOKEN placeholder,
+	// DOCKER_CONFIG. New refuses a variable the pipeline sets itself (HOME, TMPDIR, the XDG
+	// and PATH ones, the GIT_* and GCM_* ones of the git setup, the credential socket and the
+	// FACTORY_* ones of the harness's environment, every FACTORY_STACK_* one), and one that
+	// could add a credential helper or change what git or the shell runs: every GIT_* name
+	// but GIT_SSL_CAINFO and GIT_SSL_CAPATH, SSH_ASKPASS, LD_*, DYLD_*, BASH_ENV and ENV. On
+	// the host it is usually empty.
+	Env map[string]string
 	// Adapters are the harness adapters by harness name (task.harness.resolved.name).
 	Adapters map[string]harness.Adapter
 	// AgentBinary is the factory-agent executable: the credential helper and the `factory`
@@ -109,7 +156,7 @@ type Options struct {
 	// Logger logs the pipeline's steps; never a token. Default: discard.
 	Logger *slog.Logger
 	// KeepWorkspace keeps the workspace after the run (debugging): it is logged, not
-	// removed. The credential socket is removed anyway.
+	// removed. The credential socket is removed anyway. A Root is always kept.
 	KeepWorkspace bool
 	// TranscriptLimit caps the gzipped transcript. Default: DefaultTranscriptLimit.
 	TranscriptLimit int64
@@ -148,12 +195,23 @@ var _ runner.Runner = (*Pipeline)(nil)
 
 // New checks the options and fills in the defaults.
 func New(o Options) (*Pipeline, error) {
-	if o.WorkRoot == "" {
-		return nil, errors.New("pipeline: WorkRoot is required")
-	}
-	if !filepath.IsAbs(o.WorkRoot) {
+	switch {
+	case o.WorkRoot == "" && o.Root == "":
+		return nil, errors.New("pipeline: WorkRoot or Root is required")
+	case o.WorkRoot != "" && o.Root != "":
+		return nil, errors.New("pipeline: WorkRoot and Root are exclusive")
+	case o.Root != "" && !filepath.IsAbs(o.Root):
+		return nil, fmt.Errorf("pipeline: Root %q must be absolute", o.Root)
+	case o.WorkRoot != "" && !filepath.IsAbs(o.WorkRoot):
 		return nil, fmt.Errorf("pipeline: WorkRoot %q must be absolute", o.WorkRoot)
 	}
+	if o.GitAuth != GitAuthHelper && o.GitAuth != GitAuthGateway {
+		return nil, fmt.Errorf("pipeline: unknown GitAuth %v", o.GitAuth)
+	}
+	if err := checkEnv(o.Env); err != nil {
+		return nil, fmt.Errorf("pipeline: Env: %w", err)
+	}
+	o.Env = maps.Clone(o.Env)
 	if len(o.Adapters) == 0 {
 		return nil, errors.New("pipeline: no harness adapters")
 	}
@@ -297,8 +355,54 @@ func failed(reason string, err error) stepResult {
 	return stepResult{status: runner.StatusFailed, reason: reason, err: err}
 }
 
+// GatewayCredentialError is a gateway-mode run's refusal of a job that carries a credential:
+// in a VM workspace every credential lives in the gateway, never in the job. Field names the
+// field (Lease.GitCredential.Token, Git.Reads[0].Token, AgentToken, …), never its value.
+type GatewayCredentialError struct{ Field string }
+
+func (e *GatewayCredentialError) Error() string {
+	return "gateway mode: the job carries a credential in " + e.Field
+}
+
+// jobCredential is the first credential field the job sets, or "" when it carries none: the
+// lease's git and read tokens, the current ones in Git, the agent token and the dispatcher
+// client (authenticated as the agent).
+func jobCredential(job *runner.Job) string {
+	if job.Lease.GitCredential.Token != "" {
+		return "Lease.GitCredential.Token"
+	}
+	for i, c := range job.Lease.ReadCredentials {
+		if c.Token != "" {
+			return fmt.Sprintf("Lease.ReadCredentials[%d].Token", i)
+		}
+	}
+	if job.Git != nil {
+		if job.Git.Get().Token != "" {
+			return "Git.Token"
+		}
+		for i, c := range job.Git.Reads() {
+			if c.Token != "" {
+				return fmt.Sprintf("Git.Reads[%d].Token", i)
+			}
+		}
+	}
+	if job.AgentToken != nil {
+		return "AgentToken"
+	}
+	if job.API != nil {
+		return "API"
+	}
+	return ""
+}
+
 // execute runs the steps up to the validated Result.
 func (r *run) execute(ctx context.Context) stepResult {
+	// Before any step: a gateway-mode job holds no credential (workspace-run.md §Gateway mode).
+	if r.p.o.GitAuth == GitAuthGateway {
+		if f := jobCredential(r.job); f != "" {
+			return failed(runner.ReasonHarnessError, &GatewayCredentialError{Field: f})
+		}
+	}
 	h := r.task.Spec.Harness
 	if h == nil || h.Resolved == nil || h.Resolved.Name == "" {
 		return failed(runner.ReasonHarnessError, errors.New("the task has no resolved harness"))
@@ -492,7 +596,7 @@ func (r *run) harnessInfo(u v1alpha1.Usage) *v1alpha1.ResultHarness {
 }
 
 // cleanup always runs: stack down, the credential socket closed, the workspace removed
-// (run-pipeline.md §Steps 12).
+// (run-pipeline.md §Steps 12), except a Root, which is kept for whoever collects out/.
 func (r *run) cleanup(parent context.Context) {
 	if r.stackUp {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), StackDownTimeout)
@@ -507,7 +611,7 @@ func (r *run) cleanup(parent context.Context) {
 		}
 		r.creds = nil
 	}
-	if r.ws.Root == "" {
+	if r.ws.Root == "" || r.p.o.Root != "" {
 		return
 	}
 	if r.p.o.KeepWorkspace {

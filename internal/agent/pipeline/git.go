@@ -96,18 +96,21 @@ func credentialEntries(base *url.URL, creds *runner.Credentials) gitcred.Entries
 }
 
 // startCredentials starts the in-memory credential helper and the git runner that uses it
-// (run-pipeline.md §Steps 2).
+// (run-pipeline.md §Steps 2). With GitAuthGateway there is no helper to start
+// (workspace-run.md §Gateway mode): only the git runner, whose git goes through the gateway.
 func (r *run) startCredentials(context.Context) error {
 	base, err := r.cloneBase()
 	if err != nil {
 		return err
 	}
 	r.base = base
-	srv, err := gitcred.Listen(r.p.o.SocketDir, credentialEntries(base, r.job.Git))
-	if err != nil {
-		return err
+	if r.p.o.GitAuth != GitAuthGateway {
+		srv, err := gitcred.Listen(r.p.o.SocketDir, credentialEntries(base, r.job.Git))
+		if err != nil {
+			return err
+		}
+		r.creds = srv
 	}
-	r.creds = srv
 	protos, err := r.allowedProtocols()
 	if err != nil {
 		return err

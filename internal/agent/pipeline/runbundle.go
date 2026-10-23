@@ -42,10 +42,14 @@ type BundleExtras struct {
 // bundle any of whose bytes hold one of the job's real secrets (checkSecrets); and, unless
 // ctx is done, calls runbundle.Write, which refuses an existing dir. No token reaches the
 // bundle. Its errors name the step that failed and are redacted as the host steps' are; a
-// caller fails the run with harness-error, as the matching host step would.
+// caller fails the run with harness-error, as the matching host step would. It refuses a
+// workspace pipeline (Root or GitAuthGateway): the bundle is made on the host.
 func (p *Pipeline) PrepareBundle(ctx context.Context, job *runner.Job, dir string, x BundleExtras) (err error) {
 	red := newRedactor(job)
 	defer func() { err = red.Error(err) }()
+	if p.o.Root != "" || p.o.GitAuth != GitAuthHelper {
+		return errors.New("PrepareBundle runs on the host: it needs a pipeline with WorkRoot and GitAuthHelper")
+	}
 	task := job.Lease.Task
 	id := task.Metadata.ID
 	if !taskIDRE.MatchString(id) || strings.Contains(id, "..") {
