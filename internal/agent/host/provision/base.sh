@@ -60,10 +60,10 @@ CODEX_VERSION=rust-v0.163.0
 CODEX_SHA256=a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4
 # codex's code-mode host, from the same release. The sha256 is
 # codex-code-mode-host-aarch64-unknown-linux-musl.tar.gz's digest in GitHub's releases API.
-# Code mode (feature code_mode_host, on by default) runs the model's tool calls through it: with
-# it missing, every tool call fails. codex looks for it next to its own executable
-# (install-context's code_mode_host_program: std::env::current_exe's directory, canonicalized),
-# so it goes beside /usr/local/bin/codex.
+# Code mode (feature code_mode_host, on by default) runs the model's tool calls through it when
+# the model's tool mode is code mode, and without it those calls fail closed. codex looks for
+# it next to its own executable (install-context's code_mode_host_program: current_exe's
+# directory, canonicalized), so it goes beside /usr/local/bin/codex.
 CODEX_CODE_MODE_HOST_SHA256=284356aefb197f00b76b912efdfdbae8ccf3ea1f89b976dde064b7ccb43214ef
 
 # The gh extensions the worker's base tooling needs (worker.md, deploy/poc/README.md). They are
