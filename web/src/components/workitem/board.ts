@@ -40,11 +40,19 @@ export const RUNNING_VALUES: readonly string[] = [
 ];
 
 /**
+ * The work item's primary issue or PR was closed: the `lifecycle: closed` value the catalog's
+ * close rule sets. A closed item has no more work, so it is done whatever its other values say.
+ */
+export const CLOSED_VALUE = 'closed';
+
+/**
  * A terminal result. `merged`: the merge outcome; `published`: announce-release-docs
  * (`release`); `approved`: the docs-review outcome; `no-docs-change`: the release-docs outcome
- * for a release that needs no docs; `triaged`, `duplicate`, `not-actionable`: the triage outcomes.
+ * for a release that needs no docs; `triaged`, `duplicate`, `not-actionable`: the triage outcomes;
+ * `closed`: the primary issue or PR was closed (`lifecycle`, see CLOSED_VALUE).
  */
 export const DONE_VALUES: readonly string[] = [
+  CLOSED_VALUE,
   'merged',
   'published',
   'approved',
@@ -93,9 +101,11 @@ export function stateOf(item: WorkItem): Record<string, unknown> {
 }
 
 /**
- * The lane a work item belongs in: needs-human for any needs-human value or a pending approval;
- * running for any running value; done for at least one done value and no needs-human, running or
- * open value; waiting otherwise. Values in no vocabulary don't count.
+ * The lane a work item belongs in: done for a closed value, whatever else is set (a closed item
+ * has no more work, so stale needs-human, running or open values and pending approvals don't
+ * count); needs-human for any needs-human value or a pending approval; running for any running
+ * value; done for at least one done value and no needs-human, running or open value; waiting
+ * otherwise. Values in no vocabulary don't count.
  */
 export function laneOf(item: WorkItem): LaneId {
   const values = Object.values(stateOf(item)).filter(
@@ -103,6 +113,7 @@ export function laneOf(item: WorkItem): LaneId {
   );
   const any = (vocabulary: readonly string[]) =>
     values.some((v) => vocabulary.includes(v));
+  if (values.includes(CLOSED_VALUE)) return 'done';
   const pending = (item.status?.approvals ?? []).some(
     (a) => a.phase === 'Pending',
   );
