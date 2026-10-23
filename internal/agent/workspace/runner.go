@@ -193,6 +193,7 @@ type wsRun struct {
 	log      *slog.Logger
 
 	extra      []string // the model logins' secrets: redacted too
+	created    bool     // Create was called: release destroys (or stops) the workspace
 	egress     *egressLog
 	gatewayOn  bool   // the gateway served: its records belong in the transcript
 	transcript []byte // the VM's transcript, sanitised; nil when it has none
@@ -203,7 +204,9 @@ func (w *wsRun) redact(s string) string { return pipeline.Redact(w.job, s, w.ext
 
 // failed is a failed Outcome with the pipeline's failed Result, its summary redacted.
 func (w *wsRun) failed(reason string, err error) runner.Outcome {
-	w.log.Warn("workspace run failed", "reason", reason, "err", w.redact(err.Error()))
+	// The error can quote the VM's Result: untrusted text, at debug only.
+	w.log.Warn("workspace run failed", "reason", reason)
+	w.log.Debug("workspace run failed", "reason", reason, "err", w.redact(err.Error()))
 	res := pipeline.FailedResult(w.id, reason, err, w.redact)
 	return runner.Outcome{Status: runner.StatusFailed, Reason: reason, Result: &res}
 }
@@ -230,6 +233,7 @@ func (w *wsRun) execute(ctx context.Context) runner.Outcome {
 	if err := w.freshRunDir(); err != nil {
 		return w.failed(runner.ReasonHarnessError, fmt.Errorf("the run directory: %w", err))
 	}
+	defer w.release(ctx)
 	bundle := filepath.Join(w.runDir, "bundle")
 	if err := w.r.o.Pipeline.PrepareBundle(ctx, w.job, bundle, pipeline.BundleExtras{CA: gwCA.CertPEM(), Codex: acct}); err != nil {
 		if ctx.Err() != nil {
@@ -239,7 +243,7 @@ func (w *wsRun) execute(ctx context.Context) runner.Outcome {
 	}
 
 	d := w.r.o.Driver
-	defer w.release(ctx)
+	w.created = true
 	if err := d.Create(ctx, w.name, w.r.o.Spec.WithDefaults()); err != nil {
 		return w.stepFailed(ctx, "create", err)
 	}
@@ -328,11 +332,17 @@ func (w *wsRun) freshRunDir() error {
 	return os.Mkdir(w.runDir, 0o700)
 }
 
-// release destroys the workspace (or stops it with KeepWorkspace) and removes runs/<task>/
-// (kept with KeepWorkspace), on a context the run's cancel doesn't end.
+// release destroys the workspace once Create was called (or stops it with KeepWorkspace) and
+// removes runs/<task>/ (kept with KeepWorkspace), on a context the run's cancel doesn't end.
 func (w *wsRun) release(parent context.Context) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), releaseTimeout)
 	defer cancel()
+	if !w.created {
+		if !w.r.o.KeepWorkspace {
+			_ = os.RemoveAll(w.runDir)
+		}
+		return
+	}
 	if w.r.o.KeepWorkspace {
 		if err := w.r.o.Driver.Stop(ctx, w.name); err != nil {
 			w.log.Error("stopping the workspace failed", "err", w.redact(err.Error()))

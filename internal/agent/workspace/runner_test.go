@@ -27,6 +27,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/compliance-framework/factory/internal/clock"
 )
 
 // TestMain answers `fx git-credential`: PrepareBundle's skills fetch runs the test binary as
@@ -441,18 +442,22 @@ func TestRunnerOutcomes(t *testing.T) {
 			}
 			writeOutcome(r.t, out, o)
 			return nil
-		}, func(t *testing.T, out runner.Outcome) {
-			if out.Status != runner.StatusDone || out.TranscriptRef == "" {
-				t.Errorf("outcome %+v", out)
-			}
-		}},
+		}, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			r := newRig(t, v1alpha1.HarnessResolved{Name: fake.Name, Model: "m"}, tt.script)
 			out := r.run(context.Background())
-			tt.check(t, out)
+			if tt.check != nil {
+				tt.check(t, out)
+			} else { // the transcript that isn't gzip: a note instead of its bytes
+				text, types := r.uploaded()
+				if out.Status != runner.StatusDone || out.TranscriptRef == "" || !slices.Equal(types, []string{TranscriptNote}) ||
+					!strings.Contains(text, "not gzip") || strings.Contains(text, harnesstest.GitToken) {
+					t.Errorf("outcome %+v, transcript %s", out, text)
+				}
+			}
 			if out.Result != nil && strings.Contains(out.Result.Summary, harnesstest.GitToken) {
 				t.Errorf("summary %q", out.Result.Summary)
 			}
@@ -560,6 +565,53 @@ func TestRunnerLogins(t *testing.T) {
 		}
 		if manifest.Codex == nil || *manifest.Codex != (runbundle.CodexAccount{AccountID: "acct_1", UserID: "user_1", PlanType: "pro"}) {
 			t.Errorf("the bundle's codex account %+v", manifest.Codex)
+		}
+	})
+}
+
+// The supervisor's own clock: no time left refuses the run; past the wall clock plus Overrun
+// the run is stopped (failed{limit}); a run that doesn't exit DownBudget after its outcome
+// event is stopped and its outcome collected anyway.
+func TestRunnerDeadlines(t *testing.T) {
+	t.Parallel()
+	block := func(ctx context.Context, _ *rig, _ string, _ *runbundle.Encoder) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	t.Run("no time left", func(t *testing.T) {
+		t.Parallel()
+		r := newRig(t, v1alpha1.HarnessResolved{Name: fake.Name, Model: "m"}, block)
+		r.job.StartedAt = time.Now().Add(-11 * time.Minute)
+		wantFailed(runner.ReasonLimit, "no wall clock left")(t, r.run(context.Background()))
+		if got := r.driver.Calls(); slices.Contains(got, "exec") || got[len(got)-1] != "destroy" {
+			t.Errorf("driver calls %v", got)
+		}
+	})
+	t.Run("overrun", func(t *testing.T) {
+		t.Parallel()
+		clk := clock.NewFake(time.Now())
+		r := newRig(t, v1alpha1.HarnessResolved{Name: fake.Name, Model: "m"}, func(ctx context.Context, r *rig, out string, enc *runbundle.Encoder) error {
+			clk.Advance(10*time.Minute + DefaultOverrun) // the VM never ends on its own
+			return block(ctx, r, out, enc)
+		})
+		r.job.StartedAt = clk.Now()
+		r.opts.Clock = clk
+		wantFailed(runner.ReasonLimit, "past the task's wall clock")(t, r.run(context.Background()))
+	})
+	t.Run("down budget", func(t *testing.T) {
+		t.Parallel()
+		o := runbundle.Outcome{Status: runner.StatusDone, Result: doneResult()}
+		r := newRig(t, v1alpha1.HarnessResolved{Name: fake.Name, Model: "m"}, func(ctx context.Context, r *rig, out string, enc *runbundle.Encoder) error {
+			writeOutcome(r.t, out, o)
+			if err := enc.Encode(runbundle.OutcomeEvent(o)); err != nil {
+				return err
+			}
+			<-ctx.Done() // a hung down
+			return ctx.Err()
+		})
+		r.opts.DownBudget = 50 * time.Millisecond
+		if out := r.run(context.Background()); out.Status != runner.StatusDone || out.Result == nil {
+			t.Errorf("outcome %+v", out)
 		}
 	})
 }
