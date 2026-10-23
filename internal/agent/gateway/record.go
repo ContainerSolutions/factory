@@ -39,8 +39,8 @@ type Record struct {
 	Port     uint16
 	Path     string // the URL path only, cut at 512 bytes; empty for CONNECT and tunnels
 	Status   int    // the status the client got; 0 for a connection closed without one
-	Injected string // the credential the gateway added: git:<owner>/<repo>, github-api, dispatcher-token or ""
-	Client   string // the VM's carriers (none, placeholder, other): classified by PR 8, "" here
+	Injected string // the credential class added (Injected* constants, git:<owner>/<repo>) or ""
+	Client   string // the VM's carriers: ClientNone, ClientPlaceholder or ClientOther; "" at accept
 	Refusal  policy.Code
 	Up, Down int64 // bytes from the client and to it (bodies, or a tunnel's streams)
 	Duration time.Duration
@@ -87,7 +87,7 @@ func cutPath(p string) string {
 
 // newRecord starts r's record.
 func (g *Gateway) newRecord(r *http.Request, mode Mode, start time.Time) Record {
-	rec := Record{At: start, Mode: mode, Method: r.Method}
+	rec := Record{At: start, Mode: mode, Method: r.Method, Client: classifyClient(r)}
 	if r.Method != http.MethodConnect {
 		rec.Path = cutPath(r.URL.Path)
 	}
@@ -99,6 +99,9 @@ func (g *Gateway) finish(rec Record) {
 	rec.Duration = g.clk.Now().Sub(rec.At)
 	if rec.Refusal != "" {
 		g.log.Info("gateway: refused", "refusal", rec.Refusal, "mode", rec.Mode)
+	}
+	if rec.Client == ClientOther { // without the host or path, which the VM chose
+		g.log.Warn("gateway: the VM sent a credential in a carrier", "mode", rec.Mode, "injected", rec.Injected)
 	}
 	g.log.Debug("gateway: request", "mode", rec.Mode, "method", rec.Method, "host", rec.Host,
 		"port", rec.Port, "status", rec.Status, "refusal", rec.Refusal, "up", rec.Up, "down", rec.Down)

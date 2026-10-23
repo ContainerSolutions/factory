@@ -10,7 +10,10 @@
 // (Basic), with every repo that isn't rw fail-closed to the two fetch forms, and api.github.com
 // the task token on reads (GET, HEAD, and POST /graphql when the document only queries). The
 // dispatcher's name serves only POST effects, over its own transport, with
-// Config.DispatcherToken. The model credentials are a later phase 4 PR's.
+// Config.DispatcherToken. The Anthropic hosts get Config.Anthropic's credential when the VM sent
+// a carrier, and chatgpt.com Config.ChatGPT's account id and, with Authorization, its access
+// token; the model hosts keep only the infrastructure cookies. Every record classifies the VM's
+// carriers (none, placeholder, other) and names the credential class added, never a value.
 package gateway
 
 import (
@@ -34,7 +37,7 @@ import (
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
-// Config configures a Gateway. A later phase 4 PR adds the model logins (gateway.md, API).
+// Config configures a Gateway (gateway.md, API).
 type Config struct {
 	// TaskID and RunID identify the workspace; both required.
 	TaskID, RunID string
@@ -53,6 +56,16 @@ type Config struct {
 	// required. For the PoC it is the worker's agent token (worker.Token); the lease's run token
 	// (#101) when that lands. "" sends the request without one.
 	DispatcherToken func() string
+	// Anthropic returns the Claude credential (exactly one of its fields) the Anthropic hosts
+	// get, read on every request that carried a carrier, so the supervisor hands it in from its
+	// login store; nil: none (a codex task's gateway). A value returned with an error is still
+	// used; none is no-login. The gateway logs its error, which must never hold a credential.
+	Anthropic func(ctx context.Context) (AnthropicAuth, error)
+	// ChatGPT returns the codex login chatgpt.com gets, read on every request; nil: none (a
+	// claude task's gateway). A token returned with an error is still sent (its 401 shows in the
+	// record); no token is no-login. The PoC doesn't refresh it: the owner re-imports the login.
+	// The gateway logs its error, which must never hold a credential.
+	ChatGPT func(ctx context.Context) (ChatGPTLogin, error)
 	// UpstreamRoots verifies the intercepted hosts' upstreams, and an https dispatcher; default
 	// the system roots.
 	UpstreamRoots *x509.CertPool

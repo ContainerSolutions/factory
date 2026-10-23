@@ -26,6 +26,7 @@ func TestRefusals(t *testing.T) {
 		{CodeWebWrite, 403, "refused: github.com takes only GET and HEAD outside git"},
 		{CodeAPIWrite, 403, "refused: api.github.com is read-only for workspaces"},
 		{CodeDispatcherRoute, 403, "refused: the dispatcher route is not open to workspaces"},
+		{CodeModelPath, 403, "refused: this path on a model host is not open to workspaces"},
 		{CodeEgressNotAllowed, 403, "refused: the task's egress policy does not allow this host"},
 		{CodeEgressDenied, 403, "refused: the destination is a denied address (private)"},
 		{CodeResolve, 502, "the destination's name does not resolve"},

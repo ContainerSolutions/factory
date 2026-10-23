@@ -68,8 +68,8 @@ type decisionKey struct{}
 // interceptRequest serves one request inside an intercepted tunnel: origin form only
 // (not-proxy), its Host normalised and checked against the CONNECT (host-mismatch), every
 // credential carrier stripped and the class's cookie rule applied, the class's route rule and
-// credential (routeIntercepted), then forwarded to the CONNECT's host over TLS through the
-// egress dialer. A WebSocket upgrade passes through.
+// credentials (routeCredentials), then forwarded to the CONNECT's host over TLS through the
+// egress dialer. A WebSocket upgrade passes through, with the same credentials.
 func (g *Gateway) interceptRequest(w http.ResponseWriter, r *http.Request) {
 	if !g.hold() {
 		writeRefusal(w, policy.CodeClosing, "")
@@ -90,22 +90,22 @@ func (g *Gateway) interceptRequest(w http.ResponseWriter, r *http.Request) {
 	case policy.CheckHost(r.Host, d.Target.Host) != "":
 		rec.Status, rec.Refusal = writeRefusal(w, policy.CodeHostMismatch, "")
 	default:
-		if auth, ok := g.routeIntercepted(w, r, d, &rec); ok {
-			g.forwardIntercepted(w, r, d, &rec, auth)
+		if set, ok := g.routeCredentials(w, r, d, &rec); ok {
+			g.forwardIntercepted(w, r, d, &rec, set)
 		}
 	}
 }
 
 // forwardIntercepted sends r to https://<the CONNECT's host> through g.upstream, with every
-// carrier stripped, the class's cookie rule applied and auth, when set, as its Authorization.
-func (g *Gateway) forwardIntercepted(w http.ResponseWriter, r *http.Request, d policy.Decision, rec *Record, auth string) {
+// carrier stripped, the class's cookie rule applied and then set's headers (the credentials).
+func (g *Gateway) forwardIntercepted(w http.ResponseWriter, r *http.Request, d policy.Decision, rec *Record, set http.Header) {
 	host := net.JoinHostPort(d.Target.Host, strconv.Itoa(int(g.upstreamPort)))
 	g.proxy(w, r, rec, g.upstream, func(out *http.Request) {
 		out.URL = &url.URL{Scheme: "https", Host: host, Path: r.URL.Path, RawPath: r.URL.RawPath, RawQuery: r.URL.RawQuery}
 		out.Host = d.Target.Host
 		stripCarriers(out, d.Class)
-		if auth != "" {
-			out.Header.Set("Authorization", auth)
+		for k, vs := range set {
+			out.Header[k] = vs
 		}
 	})
 }
