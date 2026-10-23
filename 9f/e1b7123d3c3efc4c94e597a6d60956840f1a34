@@ -1,0 +1,2 @@
+lisa-addressed:
+Self-review pass 1 fixed: workspace-host.md's harnesses row now lists the code-mode host (CORE-DOC-001); base.sh's comment says tool calls fail closed only in code mode (CORE-STYLE-001).

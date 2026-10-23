@@ -1,0 +1,5 @@
+lisa-selfreview:
+Pass 1 (of 1, PoC): verdict request_changes on two small findings, both fixed in the next commit.
+- CORE-DOC-001 should-fix (d063b96e3a42): design/workstreams/agent/LLD/workspace-host.md's harnesses row listed only the codex binary; add the code-mode host.
+- CORE-STYLE-001 nit: base.sh's pin comment said every tool call fails without the host; codex only fails closed when the model's tool mode is code mode (direct mode falls back).
+Checked and clean: idempotency (sha-recorded skip, same as codex's), every download through fetch's sha256 check, no line runs codex or the host (TestProvisionScript's allow-list plus two new negative cases), bash -n, build, lint, gofmt.
