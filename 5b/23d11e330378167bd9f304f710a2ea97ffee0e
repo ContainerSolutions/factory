@@ -1,0 +1,2 @@
+lisa-addressed:
+Self-review pass 1 fixes: one lockedWriter per driver for every tart run (CORE-CONC-001); tart run's PATH without an empty element when PATH is unset; withStderr caps the VM's stderr line at 256 bytes and quotes it; Exec's doc; UNVERIFIED item 5 (tart exec argv passthrough); errorlint in Put (os.Stat error wrapped with %w).
