@@ -1,0 +1,6 @@
+lisa-selfreview:
+Pass 1 (strict), ccf-review packs core,go,repo/factory:
+- must-fix bbce3033ba54 envrun.script: a server started with & by up dies of SIGPIPE once Wait closes the Go-managed output pipe (killGrace after the script exits). -> fix
+- must-fix 52fac0e4758a CORE-TEST-001 finish(): a limit cancelling the environment step -> failed{limit} has no test. -> fix
+- must-fix e9aac0f9b542 CORE-TEST-001 downGuard: the first signal's min(--down-timeout, 30s) bound has no test. -> fix
+- should-fix ce5445ec3cad CORE-DUP-001 envrun/proc_{unix,other}.go copy clirun's process-group helpers. -> dismissed: the repo keeps these unexported per package (host, clirun); exporting clirun's would make envrun import a harness-internal package for 20 lines.
