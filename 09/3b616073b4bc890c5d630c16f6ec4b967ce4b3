@@ -1,0 +1,2 @@
+lisa-addressed:
+705dacb61955 (SIGHUP clamp untested) and the --stub-result hint nit fixed in this commit.
