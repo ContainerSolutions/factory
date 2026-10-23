@@ -95,7 +95,7 @@ func newRunner(cfg *config.Config, o runnerOptions) (runner.Runner, error) {
 	}
 	po, err := hostPipelineOptions(cfg, o)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w; pass --stub-result <result.json> to run against a development dispatcher", err)
 	}
 	po.KeepWorkspace = o.KeepWorkspace
 	home := o.Home
@@ -115,7 +115,7 @@ func hostPipelineOptions(cfg *config.Config, o runnerOptions) (pipeline.Options,
 	for _, name := range slices.Sorted(maps.Keys(cfg.Harnesses)) {
 		mk, ok := harnessAdapters[name]
 		if !ok {
-			return pipeline.Options{}, fmt.Errorf("no harness adapter for %s; pass --stub-result <result.json> to run against a development dispatcher", name)
+			return pipeline.Options{}, fmt.Errorf("no harness adapter for %s", name)
 		}
 		adapters[name] = mk(cfg.Harnesses[name])
 	}

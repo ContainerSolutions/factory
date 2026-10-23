@@ -313,6 +313,13 @@ func (l *leaseDispatcher) serve(w http.ResponseWriter, r *http.Request) {
 		l.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodPatch && strings.HasPrefix(p, "/agents/"):
+		var u apiclient.AgentUpdate
+		_ = json.Unmarshal(body, &u)
+		if u.Lending != nil {
+			l.mu.Lock()
+			l.lending = append(l.lending, *u.Lending)
+			l.mu.Unlock()
+		}
 		reply(http.StatusOK, v1alpha1.Agent{})
 	case r.Method == http.MethodDelete && strings.HasPrefix(p, "/agents/"):
 		w.WriteHeader(http.StatusNoContent)
@@ -320,6 +327,12 @@ func (l *leaseDispatcher) serve(w http.ResponseWriter, r *http.Request) {
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		l.next.ServeHTTP(w, r)
 	}
+}
+
+func (l *leaseDispatcher) lendings() []v1alpha1.Lending {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.lending)
 }
 
 func (l *leaseDispatcher) completed() []apiclient.CompleteRequest {
@@ -330,7 +343,7 @@ func (l *leaseDispatcher) completed() []apiclient.CompleteRequest {
 
 // One lease through supervise: registration, the orphan cleanup, the task in a workspace on
 // the fake driver behind the gateway, the result completed and the transcript uploaded, then
-// a drain.
+// a SIGHUP reload and a drain.
 func TestSuperviseOneLease(t *testing.T) {
 	e := harnesstest.NewE2E(t, "tsk_sup1", "Write the intro.\n")
 	lease := e.Job(v1alpha1.HarnessResolved{Name: "codex", Model: "gpt-5-codex"}, []string{"pr-opened"}).Lease
@@ -353,6 +366,12 @@ func TestSuperviseOneLease(t *testing.T) {
 		code <- runSupervise(context.Background(), s.args("--warm-base", "my-warm", "--log-level", "debug"), errOut, s.deps)
 	}()
 	waitUntil(t, "the completion", func() bool { return len(disp.completed()) == 1 })
+	// SIGHUP: the reloaded lending keeps maxConcurrent at 1.
+	if err := os.WriteFile(s.cfg, bytes.Replace(mustRead(t, s.cfg), []byte("queues: [poc]"), []byte("queues: [poc]\n  maxConcurrent: 3"), 1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sigs <- syscall.SIGHUP
+	waitUntil(t, "the lending PATCH", func() bool { return len(disp.lendings()) == 2 })
 	sigs <- syscall.SIGTERM
 	select {
 	case c := <-code:
@@ -374,11 +393,8 @@ func TestSuperviseOneLease(t *testing.T) {
 	if s.driver.cfg.WarmBase != "my-warm" || s.driver.cfg.Bin == "" {
 		t.Errorf("driver config %+v", s.driver.cfg)
 	}
-	disp.mu.Lock()
-	lending := slices.Clone(disp.lending)
-	disp.mu.Unlock()
-	if len(lending) != 1 || lending[0].MaxConcurrent != 1 {
-		t.Errorf("registered lending %+v, want maxConcurrent 1", lending)
+	if l := disp.lendings(); len(l) != 2 || l[0].MaxConcurrent != 1 || l[1].MaxConcurrent != 1 || len(l[1].Queues) != 1 {
+		t.Errorf("registered and reloaded lending %+v, want maxConcurrent 1", l)
 	}
 	if types := e.TranscriptTypes(); !slices.Equal(types, []string{"assistant"}) {
 		t.Errorf("transcript types %q", types)
