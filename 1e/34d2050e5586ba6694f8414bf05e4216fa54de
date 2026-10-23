@@ -1,0 +1,8 @@
+lisa-selfreview:
+Pass 1 (final, lenient; one pass per the PoC rules): approve. No blocker or must-fix.
+Deferred:
+- should-fix CORE-DUP-001: the environment block is written twice (release-docs, docs-review-verify); the catalog has no include. TestWorkspace fails when the two differ.
+- should-fix: docs-on-release-train's versions map isn't capped; a train releasing more than 50 repos would make the release-docs dispatch ErrInvalidDispatch (repos.yaml lists 7 repos today).
+- nit: without versions, start_showcase runs local-dev's file pins while showcase-kind resolves CCF_IMAGES=latest (local-dev's own behaviour in the P1 §4 sequence).
+Questions:
+- build-single: the implement PR for the epic may close the epic issue ("Closes #70"); when it merges, closed-gate suppresses the merge run's record-merge-outcome/announce-ptbr-live. No effect today (merge-whole-stack is excluded, human merges announce nothing).
