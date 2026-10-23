@@ -1,0 +1,7 @@
+lisa-selfreview:
+Pass 1 (ccf-review rules, core/go/repo-factory):
+- must-fix bf5dd19d2958 CORE-INPUT-001 DecideGitHubAPI: GET/HEAD /graphql passed unchecked (a GraphQL-over-GET mutation would carry the task token if GitHub honoured it).
+- should-fix c7b2630926f7 lexGraphQL: the value token "v" equalled a name, so a string in a definition's head was accepted.
+- should-fix a43b844c1e78 CORE-DOC-001 policy package doc didn't list the new rules.
+- nit 1932fbc5b49a checkGraphQL: Header.Del(Transfer-Encoding) was a no-op.
+All four fixed in the next commit; nothing deferred.
