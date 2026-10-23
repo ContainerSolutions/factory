@@ -1,0 +1,5 @@
+lisa-addressed:
+ccf-review finding e8010627cb60 (must-fix, accepted): a second supervise destroyed the first's live workspace VM in its orphan cleanup and let two supervisors run tasks at once.
+Fix: newRunner takes host.LockSupervise (exclusive non-blocking flock on <host Env.StateDir()>/supervise.lock, ignoring --state-dir) after host check passes (so the dir exists) and before the driver is built and destroyOrphans runs; held until runSupervise returns (process life). Held -> exit 1, "another factory-agent supervise is running". lockHost and LockSupervise share lockFile.
+Test: TestSuperviseRefusals/another_supervise holds the lock, runSupervise exits 1, the driver is never built or called. Bounded by a 5s context: with the lock mutated out, the test fails in 5s (code 0, ws-tsk_live destroyed) rather than hanging.
+supervise.md: new step 3, the rest renumbered.
