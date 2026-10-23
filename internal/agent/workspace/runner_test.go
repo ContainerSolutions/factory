@@ -367,7 +367,7 @@ func TestRunnerSuccess(t *testing.T) {
 	if want := []string{"assistant", "", TranscriptNote, "factory.egress"}; !slices.Equal(types, want) {
 		t.Errorf("transcript types %q, want %q", types, want)
 	}
-	if !strings.Contains(text, `"mode":"accept"`) || !strings.Contains(text, `"forgedEgress":1`) {
+	if !strings.Contains(text, `"mode":"accept"`) || !strings.Contains(text, `"forgedLines":1`) {
 		t.Errorf("transcript %s", text)
 	}
 	if _, err := os.Stat(filepath.Join(r.state, "runs", wsTaskID)); !errors.Is(err, os.ErrNotExist) {
@@ -375,6 +375,82 @@ func TestRunnerSuccess(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(r.state, "gateway-ca")); err != nil {
 		t.Errorf("no gateway CA: %v", err)
+	}
+}
+
+// The VM's progress events are rebuilt on the host: its Data and an unknown Kind never reach the
+// sink, and the message is redacted and cut.
+func TestRunnerProgressRebuilt(t *testing.T) {
+	t.Parallel()
+	finish := finishWith(runbundle.Outcome{Status: runner.StatusDone, Result: doneResult()})
+	r := newRig(t, v1alpha1.HarnessResolved{Name: fake.Name, Model: "m"}, func(ctx context.Context, r *rig, out string, enc *runbundle.Encoder) error {
+		for _, p := range []v1alpha1.ProgressEvent{
+			{Kind: "<script>", Message: strings.Repeat("x", 2000), Data: map[string]any{"leak": harnesstest.GitToken}},
+			{Kind: "tool", Message: "ran ls", Data: map[string]any{"blob": strings.Repeat("y", 4000)}},
+		} {
+			if err := enc.Encode(runbundle.Event{Type: runbundle.EventProgress, Progress: &p}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return finish(ctx, r, out, enc)
+	})
+	if out := r.run(context.Background()); out.Status != runner.StatusDone {
+		t.Fatalf("outcome %+v", out)
+	}
+	if len(r.sink.progress) != 3 {
+		t.Fatalf("progress %+v", r.sink.progress)
+	}
+	for i, want := range []string{"message", "tool", "message"} {
+		p := r.sink.progress[i]
+		if p.Kind != want || p.Data != nil || len(p.Message) > 500 || p.At.IsZero() {
+			t.Errorf("progress %d: kind %q, data %v, message %d bytes, at %v", i, p.Kind, p.Data, len(p.Message), p.At)
+		}
+	}
+	if b, _ := json.Marshal(r.sink.progress); bytes.Contains(b, []byte(harnesstest.GitToken)) || bytes.Contains(b, []byte("yyyy")) {
+		t.Errorf("progress %s", b)
+	}
+}
+
+// readTranscript drops a VM line holding a host-only type under any case of its "type" key and
+// stores the line it checked.
+func TestReadTranscriptHostOnlyTypes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name, line string
+		forged     bool
+		want       string // the kept line's "type", as an exact-key reader sees it
+	}{
+		{name: "a VM line", line: `{"type":"assistant","text":"hi"}`, want: "assistant"},
+		{name: "egress", line: `{"type":"factory.egress","host":"forged.example"}`, forged: true},
+		{name: "egress, a cased duplicate key", line: `{"type":"factory.egress","TYPE":"x","host":"forged.example"}`, forged: true},
+		{name: "egress, a cased key only", line: `{"Type":"factory.egress","host":"forged.example"}`, forged: true},
+		{name: "egress, escaped", line: `{"type":"factory\u002eegress","host":"forged.example"}`, forged: true},
+		{name: "the runner's note", line: `{"tYpE":"factory.workspace-transcript","host":"forged.example"}`, forged: true},
+		{name: "egress dropped count", line: `{"type":"factory.egress-dropped","dropped":1,"host":"forged.example"}`, forged: true},
+		{name: "an exact duplicate key: the last one is stored", line: `{"type":"factory.egress","type":"x","host":"h"}`, want: "x"},
+		{name: "not an object", line: `["factory.egress"]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out := t.TempDir()
+			writeTranscript(t, out, tt.line)
+			var lines []map[string]any
+			for _, l := range bytes.Split(bytes.TrimSpace(readTranscript(out)), []byte("\n")) {
+				var m map[string]any
+				_ = json.Unmarshal(l, &m)
+				lines = append(lines, m)
+			}
+			if tt.forged {
+				if len(lines) != 1 || lines[0]["type"] != TranscriptNote || lines[0]["forgedLines"] != 1.0 {
+					t.Errorf("lines %v, want only the note with forgedLines 1", lines)
+				}
+				return
+			}
+			if len(lines) != 1 || (tt.want != "" && lines[0]["type"] != tt.want) {
+				t.Errorf("lines %v, want one of type %q", lines, tt.want)
+			}
+		})
 	}
 }
 

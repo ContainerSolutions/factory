@@ -17,7 +17,7 @@ import (
 type loginDeps struct {
 	// Home is the owner's home (the state dir and ~/.codex); default os.UserHomeDir.
 	Home func() (string, error)
-	// Stdin is where `login claude` reads the token; default os.Stdin.
+	// Stdin is where `login claude` reads setup-token's output; default os.Stdin.
 	Stdin io.Reader
 }
 
@@ -34,7 +34,10 @@ func loginCommand() command {
 func loginUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: factory-agent login <claude|codex> [flags]   (supervise.md)
 
-  claude                 reads the token on stdin: claude setup-token | factory-agent login claude
+  claude                 reads claude setup-token's output on stdin and stores the one token in it.
+                         Run claude setup-token on its own (it is interactive), copy what it
+                         prints, then: pbpaste | factory-agent login claude
+                         (the token stays out of argv and the shell history)
   codex [--auth-json p]  imports codex's ChatGPT login (default ~/.codex/auth.json)
 
 Each goes to <state-dir>/logins/{claude,codex}.json (0600, in a 0700 directory); the
@@ -42,7 +45,7 @@ workspace gateway adds it to the model hosts' requests. --state-dir defaults to 
 `)
 }
 
-// maxStdinToken bounds what login claude reads on stdin.
+// maxStdinToken bounds what login claude reads on stdin (setup-token's output, pasted).
 const maxStdinToken = 64 << 10
 
 func runLogin(args []string, stdout, stderr io.Writer, d loginDeps) int {
@@ -105,7 +108,11 @@ func runLogin(args []string, stdout, stderr io.Writer, d loginDeps) int {
 		if len(b) > maxStdinToken {
 			return fail(fmt.Errorf("stdin is over %d bytes", maxStdinToken))
 		}
-		if err := store.SaveClaude(string(b)); err != nil {
+		tok, err := login.ClaudeToken(string(b))
+		if err != nil {
+			return fail(err)
+		}
+		if err := store.SaveClaude(tok); err != nil {
 			return fail(err)
 		}
 		fmt.Fprintln(stdout, "stored the claude login in", filepath.Join(store.Path, login.ClaudeFile))

@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -54,8 +55,33 @@ type codexFile struct {
 	PlanType     string `json:"planType"`
 }
 
-// SaveClaude stores token, the output of `claude setup-token`: one line, surrounding white
-// space trimmed.
+// claudeTokenRE is the shape of `claude setup-token`'s long-lived OAuth token.
+var claudeTokenRE = regexp.MustCompile(`sk-ant-oat[A-Za-z0-9_-]+`)
+
+// ClaudeToken is the one OAuth token in text: what `claude setup-token` printed around it
+// (prose, a URL, terminal escapes), as pasted. A token repeated is one; none, or two different
+// ones, is an error that names neither.
+func ClaudeToken(text string) (string, error) {
+	var tok string
+	for _, m := range claudeTokenRE.FindAllString(text, -1) {
+		switch {
+		case tok == "":
+			tok = m
+		case m != tok:
+			return "", errors.New("login claude: the input holds more than one OAuth token; paste only setup-token's")
+		}
+	}
+	if tok == "" {
+		if strings.TrimSpace(text) == "" {
+			return "", errors.New("login claude: the input is empty")
+		}
+		return "", errors.New("login claude: the input holds no OAuth token from claude setup-token")
+	}
+	return tok, nil
+}
+
+// SaveClaude stores token, the one ClaudeToken found in `claude setup-token`'s output: one
+// line, surrounding white space trimmed.
 func (s Store) SaveClaude(token string) error {
 	token = strings.TrimSpace(token)
 	switch {

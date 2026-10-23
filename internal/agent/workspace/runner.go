@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +29,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/agent/runner"
+	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
@@ -296,7 +298,7 @@ func (w *wsRun) loadLogins(name string) (modelLogins, *runbundle.CodexAccount, e
 	case config.HarnessClaudeCode:
 		tok, err := store.Claude()
 		if err != nil {
-			return modelLogins{}, nil, fmt.Errorf("the claude login (run `claude setup-token | factory-agent login claude`): %w", err)
+			return modelLogins{}, nil, fmt.Errorf("the claude login (run `claude setup-token`, copy its token, then `pbpaste | factory-agent login claude`): %w", err)
 		}
 		w.extra = append(w.extra, tok)
 		return modelLogins{anthropic: func(context.Context) (gateway.AnthropicAuth, error) {
@@ -457,8 +459,8 @@ func (w *wsRun) exec(ctx context.Context, proxy string, remaining time.Duration)
 	return err, context.Cause(execCtx)
 }
 
-// relay decodes the VM's events into the sink: progress (redacted, cut, stamped now) and
-// usage; steps go to the log at debug (VM text). outcome is called once, at the outcome
+// relay decodes the VM's events into the sink: progress (rebuilt: a known kind, the message
+// redacted and cut, stamped now, no data) and usage; steps go to the log at debug (VM text). outcome is called once, at the outcome
 // event. It drains r to the end, so Exec never blocks on it.
 func (w *wsRun) relay(ctx context.Context, r io.Reader, outcome func()) {
 	defer func() { _, _ = io.Copy(io.Discard, r) }()
@@ -480,10 +482,18 @@ func (w *wsRun) relay(ctx context.Context, r io.Reader, outcome func()) {
 		}
 		switch e.Type {
 		case runbundle.EventProgress:
-			p := *e.Progress
-			p.At = w.r.clk.Now().UTC()
-			p.Message = truncate(w.redact(p.Message), harness.MaxSummary)
-			w.sink.Progress(p)
+			// Rebuilt on the host: a known kind, the message redacted and cut, no Data.
+			kind := e.Progress.Kind
+			switch kind {
+			case harness.KindTurn, harness.KindTool, harness.KindMessage, harness.KindError:
+			default:
+				kind = harness.KindMessage
+			}
+			w.sink.Progress(v1alpha1.ProgressEvent{
+				At:      w.r.clk.Now().UTC(),
+				Kind:    kind,
+				Message: truncate(w.redact(e.Progress.Message), harness.MaxSummary),
+			})
 		case runbundle.EventUsage:
 			w.sink.Usage(runbundle.RunnerUsage(*e.Usage))
 		case runbundle.EventStep:
@@ -595,12 +605,40 @@ func (w *wsRun) finish(ctx context.Context, out runner.Outcome) runner.Outcome {
 }
 
 // TranscriptNote is the transcript line the runner writes about the VM's transcript: lines it
-// dropped (over the line cap, or a factory.egress line the VM forged) or why it has none.
+// dropped (over the line cap, or a host-only line the VM forged) or why it has none.
 const TranscriptNote = "factory.workspace-transcript"
+
+// hostOnlyTypes are the transcript line types only the host writes: the gateway's and the
+// runner's. A VM line with one of them, under any case of the "type" key, is dropped.
+var hostOnlyTypes = []string{gateway.RecordType, egressDroppedType, TranscriptNote}
+
+// egressDroppedType is egressLog's count of the records it dropped.
+const egressDroppedType = "factory.egress-dropped"
+
+// vmLine is a VM transcript line as uploaded: a JSON object re-marshalled from its decoded keys
+// (so what was checked is what is stored), any other line as it is (StoreTranscript wraps a
+// non-JSON one); forged when a key that EqualFolds "type" holds a host-only type.
+func vmLine(line []byte) (out []byte, forged bool) {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(line, &m) != nil || m == nil {
+		return line, false
+	}
+	for k, v := range m {
+		var t string
+		if strings.EqualFold(k, "type") && json.Unmarshal(v, &t) == nil && slices.Contains(hostOnlyTypes, t) {
+			return nil, true
+		}
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return line, false
+	}
+	return append(b, '\n'), false
+}
 
 // readTranscript reads the VM's out/transcript.jsonl.gz (untrusted): a regular file inside
 // out/, gunzipped up to maxTranscriptRaw, without lines over maxTranscriptLine and without
-// factory.egress lines (only the gateway writes those). What it dropped, or why it read
+// host-only lines (vmLine: only the gateway and the runner write those). What it dropped, or why it read
 // nothing, is a TranscriptNote line at the end. The redaction and the cap are StoreTranscript's.
 func readTranscript(outDir string) []byte {
 	note := func(m map[string]any) []byte {
@@ -642,14 +680,11 @@ func readTranscript(outDir string) []byte {
 			continue
 		}
 		if len(bytes.TrimSpace(line)) > 0 {
-			var head struct {
-				Type string `json:"type"`
-			}
-			if json.Unmarshal(line, &head) == nil && head.Type == gateway.RecordType {
+			if l, bad := vmLine(line); bad {
 				forged++
 			} else {
-				buf.Write(line)
-				if line[len(line)-1] != '\n' {
+				buf.Write(l)
+				if l[len(l)-1] != '\n' {
 					buf.WriteByte('\n')
 				}
 			}
@@ -658,7 +693,7 @@ func readTranscript(outDir string) []byte {
 			if !errors.Is(err, io.EOF) {
 				m := map[string]any{"error": "the transcript is truncated or corrupt"}
 				if long+forged > 0 {
-					m["droppedLines"], m["forgedEgress"] = long, forged
+					m["droppedLines"], m["forgedLines"] = long, forged
 				}
 				buf.Write(note(m))
 				return buf.Bytes()
@@ -667,7 +702,7 @@ func readTranscript(outDir string) []byte {
 		}
 	}
 	if long+forged > 0 {
-		buf.Write(note(map[string]any{"droppedLines": long, "forgedEgress": forged}))
+		buf.Write(note(map[string]any{"droppedLines": long, "forgedLines": forged}))
 	}
 	return buf.Bytes()
 }
@@ -700,7 +735,7 @@ func (l *egressLog) part() []byte {
 	defer l.mu.Unlock()
 	b := bytes.Join(l.lines, nil)
 	if l.dropped > 0 {
-		b = append(b, []byte(`{"type":"factory.egress-dropped","dropped":`+strconv.Itoa(l.dropped)+"}\n")...)
+		b = append(b, []byte(`{"type":"`+egressDroppedType+`","dropped":`+strconv.Itoa(l.dropped)+"}\n")...)
 	}
 	return b
 }

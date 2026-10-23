@@ -39,6 +39,22 @@ func TestLogin(t *testing.T) {
 			}
 		}},
 		{name: "claude, empty stdin", args: []string{"claude"}, code: 1, err: "empty"},
+		{name: "claude, setup-token's output pasted", args: []string{"claude"},
+			stdin: "Welcome to Claude Code\n\nBrowser didn't open? Use the url below:\nhttps://claude.ai/oauth/authorize?code=true\n\n" +
+				"\x1b[32m✓\x1b[39m Long-lived authentication token created successfully!\n\nYour OAuth token (valid for 1 year):\n\n\x1b[1msk-ant-oat01-abc_DEF-123\x1b[22m\n\n" +
+				"Store this token securely. You won't be able to see it again.\n\nUse this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>\n",
+			check: func(t *testing.T, s login.Store) {
+				if tok, err := s.Claude(); err != nil || tok != "sk-ant-oat01-abc_DEF-123" {
+					t.Errorf("claude login: %v", err)
+				}
+			}},
+		{name: "claude, the token twice", args: []string{"claude"}, stdin: "sk-ant-oat01-abc\nagain: sk-ant-oat01-abc.\n", check: func(t *testing.T, s login.Store) {
+			if tok, err := s.Claude(); err != nil || tok != "sk-ant-oat01-abc" {
+				t.Errorf("claude login: %v", err)
+			}
+		}},
+		{name: "claude, no token", args: []string{"claude"}, stdin: "Welcome to Claude Code\nsk-ant-api03-key\n", code: 1, err: "no OAuth token"},
+		{name: "claude, two tokens", args: []string{"claude"}, stdin: "sk-ant-oat01-abc\nsk-ant-oat01-xyz\n", code: 1, err: "more than one"},
 		{name: "claude with --auth-json", args: []string{"claude", "--auth-json", "x"}, code: 2, err: "codex's"},
 		{name: "codex, the default auth.json", args: []string{"codex"}, home: func(t *testing.T, home string) {
 			if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o700); err != nil {
