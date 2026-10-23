@@ -2,3 +2,6 @@ lisa-selfreview:
 Pass 1 (lenient, final): one must-fix found and fixed before the commit was pushed: CORE-TEST-001, the Result-harness branch of lastAuthorRun had no test; added the table case "8 anti-affinity/author's result names the harness" (fails if that branch is removed).
 Deferred (nit): a heldSince entry for a review held on one harness stays until the task leaves Pending if a later pass resolves another harness; harmless (the hold is re-evaluated each pass, the map is cleared by Refresh).
 Deferred (nit): the reviewer's harness is the one row 7 resolves now, not a stale spec.harness.resolved from an earlier lease of the same task (the lease overwrites it with this resolution).
+
+lisa-design:
+Owner decision (2026-10-23): keep anti-affinity, but per harness and with a configurable wait. Same harness = harness names equal (claude-code vs codex). Author harness: Run.status.result.harness.name, else the author task's spec.harness.resolved.name; reviewer harness: row 7's resolution for this agent. Unknown author harness holds nothing. --anti-affinity-wait 0 maps to scheduler.AntiAffinityOff (-1), because Options' zero means default. No contract change: both fields exist today.
