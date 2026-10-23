@@ -111,7 +111,7 @@ func TestLifecycle(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bundle, "skills", "p", "run.sh"), []byte("#!/bin/sh\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.Put(ctx, ws, bundle, "/run/factory"); err != nil {
+	if err := d.Put(ctx, ws, bundle, "/var/lib/factory/run"); err != nil {
 		t.Fatal(err)
 	}
 	wantPut := []string{`bundle.json 600 uid=0 "{}"`, `skills/ 700 uid=0 ""`, `skills/p/ 700 uid=0 ""`, `skills/p/run.sh 700 uid=0 "#!/bin/sh\n"`}
@@ -120,7 +120,7 @@ func TestLifecycle(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if err := d.Exec(ctx, ws, []string{"factory-agent", "run", "--bundle", "/run/factory"}, nil, &stdout, &stderr); err != nil {
+	if err := d.Exec(ctx, ws, []string{"factory-agent", "run", "--bundle", "/var/lib/factory/run"}, nil, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	if stdout.String() != `{"type":"start"}`+"\n" || stderr.String() != "log line\n" {
@@ -160,7 +160,7 @@ func TestNames(t *testing.T) {
 		errs := []error{
 			d.Create(ctx, name, workspace.Spec{}),
 			func() error { _, err := d.Start(ctx, name); return err }(),
-			d.Put(ctx, name, t.TempDir(), "/run/factory"),
+			d.Put(ctx, name, t.TempDir(), "/var/lib/factory/run"),
 			d.Exec(ctx, name, []string{"true"}, nil, io.Discard, io.Discard),
 			d.Get(ctx, name, "/work/out", filepath.Join(t.TempDir(), "out")),
 			d.Stop(ctx, name),
@@ -352,11 +352,11 @@ func TestPutRefuses(t *testing.T) {
 		if err := os.Symlink("/etc/passwd", filepath.Join(src, "x")); err != nil {
 			t.Fatal(err)
 		}
-		if err := started(t, newFake()).Put(ctx, ws, src, "/run/factory"); err == nil || !strings.Contains(err.Error(), "only directories and regular files") {
+		if err := started(t, newFake()).Put(ctx, ws, src, "/var/lib/factory/run"); err == nil || !strings.Contains(err.Error(), "only directories and regular files") {
 			t.Fatalf("err %v", err)
 		}
 	})
-	for _, dst := range []string{"/", "run/factory", "/run/../etc", "/run/factory/", ""} {
+	for _, dst := range []string{"/", "var/lib/factory/run", "/var/lib/factory/../etc", "/var/lib/factory/run/", ""} {
 		t.Run("dst "+dst, func(t *testing.T) {
 			f := newFake()
 			if err := started(t, f).Put(ctx, ws, t.TempDir(), dst); err == nil || len(f.calls) != 0 {
@@ -368,7 +368,7 @@ func TestPutRefuses(t *testing.T) {
 		f := newFake()
 		d := started(t, f)
 		f.fail, f.failErr = "sudo -n sh", "tar: write error"
-		if err := d.Put(ctx, ws, t.TempDir(), "/run/factory"); err == nil || !strings.Contains(err.Error(), "tar: write error") {
+		if err := d.Put(ctx, ws, t.TempDir(), "/var/lib/factory/run"); err == nil || !strings.Contains(err.Error(), "tar: write error") {
 			t.Fatalf("err %v", err)
 		}
 	})

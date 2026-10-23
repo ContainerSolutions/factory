@@ -37,9 +37,10 @@ const (
 	ExitOutcome = 4
 )
 
-// The flags' defaults.
+// The flags' defaults. DefaultBundle is workspace.BundleDir, on the root disk: the bundle's
+// skills hold executables and /run is a noexec tmpfs.
 const (
-	DefaultBundle   = "/run/factory"
+	DefaultBundle   = "/var/lib/factory/run"
 	DefaultWork     = "/work"
 	DefaultStateDir = "/var/lib/factory-agent/run"
 )

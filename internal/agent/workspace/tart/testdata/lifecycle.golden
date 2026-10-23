@@ -6,8 +6,8 @@ tart exec ws-tsk_0123456789abcdef0123 true
 tart exec ws-tsk_0123456789abcdef0123 true
 tart exec ws-tsk_0123456789abcdef0123 ip -4 route show default
 tart exec ws-tsk_0123456789abcdef0123 ip -4 route get 192.168.96.33
-tart exec -i ws-tsk_0123456789abcdef0123 sudo -n sh -c set -eu; rm -rf "$0"; mkdir -p "$0"; tar -xf - -C "$0" --no-same-owner; chown -R root:root "$0"; chmod -R a+rX,a-w "$0" /run/factory <stdin
-tart exec ws-tsk_0123456789abcdef0123 sh -c echo $$ > "$0" && exec "$@" /tmp/factory-exec-1.pid factory-agent run --bundle /run/factory &
+tart exec -i ws-tsk_0123456789abcdef0123 sudo -n sh -c set -eu; rm -rf "$0"; mkdir -p "$0"; tar -xf - -C "$0" --no-same-owner; chown -R root:root "$0"; chmod -R a+rX,a-w "$0" /var/lib/factory/run <stdin
+tart exec ws-tsk_0123456789abcdef0123 sh -c echo $$ > "$0" && exec "$@" /tmp/factory-exec-1.pid factory-agent run --bundle /var/lib/factory/run &
 tart exec ws-tsk_0123456789abcdef0123 sudo -n tar -czf - -C /work/out .
 tart list --format json
 tart list --format json

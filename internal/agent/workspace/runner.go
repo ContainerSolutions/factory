@@ -35,8 +35,9 @@ import (
 
 // The workspace runner's fixed places (supervise.md, "The workspace runner").
 const (
-	// BundleDir is where Put lays the run bundle in the VM.
-	BundleDir = "/run/factory"
+	// BundleDir is where Put lays the run bundle in the VM: on the root disk, since the
+	// bundle's skills hold executables and /run is a noexec tmpfs. vmrun.DefaultBundle agrees.
+	BundleDir = "/var/lib/factory/run"
 	// VMOutDir is factory-agent run's out/ in the VM (--work /work).
 	VMOutDir = "/work/out"
 	// GatewayPort is the gateway's port on the VM's gateway address: the pf anchor's.

@@ -19,7 +19,7 @@ A new package that imports only `internal/apis/v1alpha1`, `internal/apiclient` (
 ### Layout
 
 ```
-/run/factory/
+/var/lib/factory/run/
   bundle.json          runbundle.Manifest
   task.json            the v1alpha1.Task from the lease (never the Lease: no credential)
   prompt.md            GET /tasks/{id}/prompt, byte-exact (the VM re-checks spec.prompt.digest)
@@ -29,6 +29,8 @@ A new package that imports only `internal/apis/v1alpha1`, `internal/apiclient` (
   gateway/ca.pem       the agent host's gateway CA (the public half; Decision 9)
   codex/account.json   runbundle.CodexAccount, only when the task's harness is codex
 ```
+
+The bundle lives on the VM's root disk, not under `/run`: Ubuntu mounts `/run` as a `noexec` tmpfs, and the skills' scripts (`ccfr`, `lib/lisa`, …) must execute from it.
 
 The VM's outputs are under the workspace root's `out/`: `/work/out/{outcome.json,transcript.jsonl.gz,environment.log}` (`runbundle.OutcomeFile`, `TranscriptFile`, `EnvironmentLog`).
 
@@ -69,7 +71,7 @@ func (m Manifest) Validate() error
 ### Rules
 
 - **No token field anywhere.** `GitAccess` is the lease's `gitCredential` and `readCredentials` without their `token`; `task.json` is the Task, which by contract carries no credential (the lease carries them beside it). `CodexAccount` holds identifiers, not credentials (P1 §5). A test walks every exported type of the package with reflection and fails on a field named `*Token*`, `*Secret*`, `*Key*` or `*Password*`. At run time `Write` and `Read` scan every string of the manifest and `task.json` for token shapes and refuse a match (naming the field, never the value); the scan covers the external type (`v1alpha1.Task`) the name walk stops at. A match refuses the bundle, so the shapes are the real tokens', between non-identifier boundaries, and a repo `acme/sk-platform` or a host `sk-registry.example.com` passes: GitHub's `gh[opsur]_` (36+ alphanumerics) and `github_pat_` (82+), Anthropic's `sk-ant-` and OpenAI's `sk-proj-`/`sk-svcacct-`/`sk-admin-` keys (80+) and legacy `sk-` (48), the factory's `rtk_`, `enr_` and `arf_` (exactly 43 base64url characters) and `agt_<id>.<43>`, a JWT, a `Bearer`/`Basic` credential and a private key block. A context file's content is not shape-scanned: it is untrusted provider text, where a token-shaped example in an issue body is no credential of the run's, and refusing the bundle over it would only make runs fail. `PrepareBundle` checks every byte it writes for the job's real tokens instead ([below](#pipelinepreparebundle-host-side)).
-- **`Write`** refuses an existing `dir` (the supervisor writes each run's bundle once), removes a leftover `dir.tmp`, writes everything into `dir.tmp` (directories 0700, files 0600, a skill's executable files 0700, as the pipeline's `materialise` does), fsyncs the files, then renames `dir.tmp` to `dir`. A failure removes `dir.tmp`. The driver's `Put` copies the tree to `/run/factory`, owned by root and read-only to everyone (files 0444, directories and executable files 0555), so the run's user, `admin`, can read it and not change it (phase 5).
+- **`Write`** refuses an existing `dir` (the supervisor writes each run's bundle once), removes a leftover `dir.tmp`, writes everything into `dir.tmp` (directories 0700, files 0600, a skill's executable files 0700, as the pipeline's `materialise` does), fsyncs the files, then renames `dir.tmp` to `dir`. A failure removes `dir.tmp`. The driver's `Put` copies the tree to `/var/lib/factory/run`, owned by root and read-only to everyone (files 0444, directories and executable files 0555), so the run's user, `admin`, can read it and not change it (phase 5).
 - **`Read`** opens the bundle through an `os.Root`, so no manifest path leaves it, reads `bundle.json`, `task.json`, the prompt, the context files and the schema, each capped at the bound the pipeline applies to it on the host (the prompt 1 MiB, `maxPrompt`; a context item 4 MiB, `maxContext`; the schema 1 MiB, `maxSchema`; `bundle.json` and `task.json` 1 MiB), and runs `Validate`. `Write` refuses the same sizes, so an oversize item fails on the host before a VM exists, never in it. It doesn't read the skills: they were bounded when they were materialised (run-pipeline.md §Skills: 50 MB and 5,000 entries per plugin).
 - **`Validate`** checks: `Version == 1`; `RunID` starts with `run_` (a `rtk_` value is refused by name: it's the run token's prefix); `TaskID` and `LeaseID` are set and `TaskID` is `task.json`'s; `Dispatcher` is an absolute `http`/`https` URL without user info, query or fragment; every file path is relative, clean and without `..`; each `Context` index is a non-repo item of the Task's `spec.context`, listed once, with a `File` exactly when it isn't `Gone`; each `Skills` entry's `Dir` is under `skills/` and names one plugin; `Gateway.NoProxy` entries are hosts (`v1alpha1.ValidateHost`) or CIDRs; `Codex` is set exactly when `spec.harness.resolved.name` is `codex`, with all three fields non-empty. Every failure is a `*runbundle.ValidationError{Field, Message}`.
 - **The outcome** (`outcome.go`): the wire `Outcome{Status, Reason, ThrottledUntil, Result, Transcript}`, where `Transcript` is the transcript's file name under `out/` (or empty). `Validate` checks `Status` and `Reason` against `runner.Statuses()` and `runner.Reasons()` (the one list of each), and allows `ThrottledUntil` only on a throttled outcome. `WriteOutcome` writes through a temp file and a rename. `ReadOutcome(outDir, now)` refuses an `outDir` that isn't a real directory (a symlink included) and an `outcome.json` that isn't a regular file with one link (opened `O_NONBLOCK`, then fstat'd, so a FIFO can't block it), caps it at 2 MiB (`MaxOutcomeBytes`), validates it and clamps its throttle (`ClampThrottle`; [trust model](#trust-model)).
@@ -80,7 +82,7 @@ func (m Manifest) Validate() error
 `cmd/factory-agent/run.go` (one line in `main.go`) calls `vmrun.Main(ctx, args, stdout, stderr) int`.
 
 ```
-factory-agent run --proxy http://<gateway>:<port> [--bundle /run/factory] [--work /work]
+factory-agent run --proxy http://<gateway>:<port> [--bundle /var/lib/factory/run] [--work /work]
   [--state-dir /var/lib/factory-agent/run] [--remaining 54m10s] [--system-setup on|off]
   [--down-timeout 3m] [--log-level info] [--log-format json|text] [--harness-bin codex=/path (hidden)]
 ```
@@ -163,7 +165,7 @@ type TranscriptStore interface {
 ```
 
 - `renderPrompt` keeps the digest check against `spec.prompt.digest`, the preamble, the fencing and the tickets; only the two GETs move behind `PromptSource`. `APIPrompts` is today's code; `BundlePrompts` serves the bundle's files (a `Gone` item is the 404 case).
-- `FetchSkills` is today's `skillsTree`/`fetchTree`/`materialise`, moved behind the interface with the cache and its per-entry lock (the `skillFetcher` extraction). The fetch needs the run's git (its credential helper, its environment), so the pipeline runs it itself: `materialiseSkills` recognises `FetchSkills` (a value or a pointer) and runs the `skillFetcher`, and `FetchSkills.Skills` called on its own is an error. `PrebuiltSkills` returns the bundle's `skills/` and the manifest's list as they are; the workspace's `Skills` is then `/run/factory/skills`, read-only, which both adapters only read (codex copies the skill folders into its `CODEX_HOME`).
+- `FetchSkills` is today's `skillsTree`/`fetchTree`/`materialise`, moved behind the interface with the cache and its per-entry lock (the `skillFetcher` extraction). The fetch needs the run's git (its credential helper, its environment), so the pipeline runs it itself: `materialiseSkills` recognises `FetchSkills` (a value or a pointer) and runs the `skillFetcher`, and `FetchSkills.Skills` called on its own is an error. `PrebuiltSkills` returns the bundle's `skills/` and the manifest's list as they are; the workspace's `Skills` is then `/var/lib/factory/run/skills`, read-only, which both adapters only read (codex copies the skill folders into its `CODEX_HOME`).
 - `buildTranscript`'s redaction and 20 MB cap stay shared; only the upload moves behind `TranscriptStore`. `APITranscripts` is today's `PUT /runs/{id}/transcript`; `FileTranscript` writes the gzip to its path (atomically) and returns an empty ref, since the supervisor uploads. The VM's redactor knows no run token (it has none), so only the patterns apply; the supervisor redacts again with the real ones ([trust model](#trust-model)).
 
 ### Gateway mode
