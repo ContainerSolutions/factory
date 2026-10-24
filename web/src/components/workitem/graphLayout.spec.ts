@@ -2,7 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { workItemDetails } from '@/mocks/workitems';
 import { graphOf, withoutIdle } from './graph';
 import type { GraphAction, WorkItemGraph } from './graph';
-import { ACT_W, LANE_Y, R, layoutGraph, rowY } from './graphLayout';
+import {
+  ACT_W,
+  COL_W,
+  LANE_Y,
+  PAD,
+  R,
+  TASK_GAP,
+  TASK_TRAIL,
+  TASK_W,
+  layoutGraph,
+  rowY,
+} from './graphLayout';
 
 const byName = (name: string) =>
   workItemDetails.find((d) => d.workItem.metadata.name === name)!;
@@ -133,5 +144,88 @@ describe('layoutGraph', () => {
     expect(inferred!.d).toContain(`V ${rowY(2) - 5}`);
     expect(inferred!.d.split(' ').filter((t) => t === 'V')).toHaveLength(1);
     expect(inferred!.d).not.toMatch(new RegExp(`V ${LANE_Y}`));
+  });
+
+  describe('packing into slots', () => {
+    const build = byName('wi_01JAC0BUILDSINGLE0000000000');
+
+    it("packs Gustavo's item into fewer slots, each moved event beside its cause", () => {
+      const { g, l } = rows(build);
+      const at = (i: number) => {
+        const p = l.events.get(g.events[i]!.key)!;
+        return [g.events[i]!.type, p.slot, p.row];
+      };
+      const task = (spec: string) =>
+        [...l.tasks.entries()].find(([k]) =>
+          g.events.some((e) =>
+            e.actions.some(
+              (a) => a.taskNode?.key === k && a.taskNode.spec === spec,
+            ),
+          ),
+        )![1];
+      expect(at(0)).toEqual(['issue.opened', 0, 0]);
+      // Beside set plan, under the plan-epic task (which sits in slot 1).
+      expect(task('plan-epic')).toMatchObject({ slot: 1, row: 1 });
+      expect(at(1)).toEqual(['issue.commented', 1, 2]);
+      // Right after the plan-epic task.
+      expect(at(2)).toEqual(['factory.run.completed', 2, 1]);
+      // Right after the build-single sets (slot 2).
+      expect(at(3)).toEqual(['issue.commented', 3, 2]);
+      expect(task('implement')).toMatchObject({ slot: 3, row: 5 });
+      expect(at(4)).toEqual(['pr.opened', 4, 5]);
+      // pr.opened holds slot 4 on row 5: one slot right, and down a row so its line is free.
+      expect(at(5)).toEqual(['factory.run.completed', 5, 6]);
+      // One column per event (and a task column beside each dispatch) took far more room.
+      const before =
+        2 * PAD +
+        g.events.reduce(
+          (w, e) =>
+            w +
+            COL_W +
+            (e.actions.some((a) => a.taskNode)
+              ? TASK_GAP + TASK_W + TASK_TRAIL
+              : 0),
+          0,
+        );
+      expect(l.width).toBeLessThan(before - COL_W);
+      // Seven slots (the review task in the last), where today drew six columns and four task
+      // columns.
+      expect(Math.max(...[...l.tasks.values()].map((t) => t.slot)) + 1).toBe(7);
+      // And its arrows are still straight where they were.
+      expect(
+        l.links
+          .filter((k) => k.cause !== 'tracking')
+          .map((k) => [k.cause, k.straight]),
+      ).toEqual([
+        ['task', true],
+        ['run', true],
+        ['task', true],
+        ['run', false],
+        ['effect', true],
+        ['task', true],
+      ]);
+    });
+
+    it('bumps an event one slot right when its slot is taken on its row', () => {
+      const { g, l } = rows(build);
+      const opened = l.events.get(g.events[4]!.key)!;
+      const done = l.events.get(g.events[5]!.key)!;
+      // Both are caused by the implement task (slot 3, row 5).
+      expect(opened).toMatchObject({ slot: 4, row: 5 });
+      expect(done.slot).toBe(opened.slot + 1);
+    });
+
+    it.each(workItemDetails.map((d) => [d.workItem.metadata.name, d]))(
+      'keeps every event right of its cause in %s',
+      (_, detail) => {
+        const { g, l } = rows(detail);
+        for (const k of g.links) {
+          const from = l.actions.get(k.from) ?? l.tasks.get(k.from);
+          const to = l.events.get(k.to) ?? l.tasks.get(k.to);
+          if (!from || !to) continue;
+          expect(to.slot, `${k.from} -> ${k.to}`).toBeGreaterThan(from.slot);
+        }
+      },
+    );
   });
 });

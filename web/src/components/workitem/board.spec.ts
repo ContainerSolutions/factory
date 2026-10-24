@@ -254,10 +254,10 @@ describe('facets and matches', () => {
   });
 
   it.each([
-    [{ ...NO_FILTERS }, 9],
+    [{ ...NO_FILTERS }, 10],
     [{ ...NO_FILTERS, ruleSet: 'docs' }, 4],
     [{ ...NO_FILTERS, provider: 'slack-ccf' }, 1],
-    [{ ...NO_FILTERS, repo: 'compliance-framework/docs' }, 6],
+    [{ ...NO_FILTERS, repo: 'compliance-framework/docs' }, 7],
     [{ ...NO_FILTERS, ruleSet: 'docs', taskSpec: 'triage' }, 3],
     [{ ...NO_FILTERS, ruleSet: 'nope' }, 0],
   ])('%o matches %i work items', (filters, want) => {
@@ -287,7 +287,11 @@ describe('boardLanes', () => {
       ],
       [
         'waiting',
-        ['compliance-framework/docs#91', 'compliance-framework/ui#88'],
+        [
+          'compliance-framework/docs#95',
+          'compliance-framework/docs#91',
+          'compliance-framework/ui#88',
+        ],
         0,
       ],
       ['done', ['compliance-framework/docs#40'], 1],

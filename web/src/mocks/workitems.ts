@@ -1084,12 +1084,238 @@ const epicDetail: Detail = {
   effects: [],
 };
 
+// The shape of wi_d235e0c50568b22418e5 as it ran further: the plan, its tracking comment, the
+// plan's completion setting up a single build (and its tracking comment), implement opening a
+// PR, and the implement completion dispatching the review, which waits for an agent.
+const BUILD = 'wi_01JAC0BUILDSINGLE0000000000';
+const bsRef = 'compliance-framework/docs#95';
+const bsObject: Schemas['ObjectRef'] = {
+  provider: 'github-public',
+  kind: 'issue',
+  ref: bsRef,
+};
+const bsOpened = event(
+  'gh-docs-95-opened',
+  'issue.opened',
+  '2026-10-20T10:00:00Z',
+  bsRef,
+  'gusfcarvalho',
+  { title: 'Epic: document the catalog dry run', labels: ['epic'] },
+);
+bsOpened.data.object = bsObject;
+function bsTracking(id: string, time: string): Schemas['Event'] {
+  const e = event(id, 'issue.commented', time, bsRef, 'ccf-factory');
+  e.data.actor = pipelinePROpened.data.actor;
+  e.data.object = bsObject;
+  return e;
+}
+const bsTrack1 = bsTracking('gh-docs-95-tracking-1', '2026-10-20T10:00:04Z');
+function bsTask(
+  id: string,
+  createdAt: string,
+  provenance: { event: string; rule: string },
+  taskSpec: string,
+  status: Schemas['Task']['status'],
+): Schemas['Task'] {
+  return {
+    ...exampleTask,
+    metadata: {
+      ...exampleTask.metadata,
+      id,
+      workItem: BUILD,
+      provenance: {
+        ...provenance,
+        ruleSet: 'docs-epic',
+        catalogSHA: CATALOG_SHA,
+      },
+      createdAt,
+    },
+    spec: {
+      ...exampleTask.spec,
+      taskSpec: { name: taskSpec },
+      queue: 'poc',
+      inputs: { issue: bsRef },
+    },
+    status,
+  };
+}
+const bsPlanTask = bsTask(
+  'tsk_01JAC0BUILDSINGLEPLAN00000',
+  '2026-10-20T10:00:01Z',
+  { event: bsOpened.id, rule: 'plan-epic' },
+  'plan-epic',
+  { phase: 'Succeeded', agent: 'agt_gusfcarvalho-mbp-01', attempts: 1 },
+);
+const bsPlanRun = pipelineRun(
+  'run_01JAC0BUILDSINGLEPLAN0000',
+  bsPlanTask.metadata.id,
+  1,
+  '2026-10-20T10:00:30Z',
+  '2026-10-20T10:08:00Z',
+  'completed',
+  {
+    outcome: 'planned',
+    summary: 'One PR is enough: build it as a single change.',
+  },
+);
+function bsCompleted(
+  id: string,
+  time: string,
+  run: string,
+  spec: string,
+  outcome: string,
+): Schemas['Event'] {
+  const e = runCompleted(id, time, run, spec, outcome);
+  e.data.object = bsObject;
+  return e;
+}
+const bsPlanned = bsCompleted(
+  'run-completed-plan-epic-95',
+  '2026-10-20T10:08:10Z',
+  bsPlanRun.metadata.name,
+  'plan-epic',
+  'planned',
+);
+const bsTrack2 = bsTracking('gh-docs-95-tracking-2', '2026-10-20T10:08:15Z');
+const bsImplementTask = bsTask(
+  'tsk_01JAC0BUILDSINGLEIMPL00000',
+  '2026-10-20T10:08:11Z',
+  { event: bsPlanned.id, rule: 'build-single' },
+  'implement',
+  { phase: 'Succeeded', agent: 'agt_gusfcarvalho-mbp-01', attempts: 1 },
+);
+const bsImplementRun = pipelineRun(
+  'run_01JAC0BUILDSINGLEIMPL0000',
+  bsImplementTask.metadata.id,
+  1,
+  '2026-10-20T10:08:40Z',
+  '2026-10-20T10:25:00Z',
+  'completed',
+  {
+    outcome: 'pr-opened',
+    summary: 'Opened compliance-framework/docs#96.',
+    data: { pr: 'compliance-framework/docs#96' },
+  },
+);
+const bsPROpened = event(
+  'gh-docs-96-opened',
+  'pr.opened',
+  '2026-10-20T10:24:55Z',
+  'compliance-framework/docs#96',
+  'ccf-factory',
+  { title: 'docs: the catalog dry run' },
+);
+bsPROpened.data.actor = pipelinePROpened.data.actor;
+bsPROpened.data.effect = `${bsImplementTask.metadata.id}/pr.open/1`;
+const bsImplemented = bsCompleted(
+  'run-completed-implement-95',
+  '2026-10-20T10:25:10Z',
+  bsImplementRun.metadata.name,
+  'implement',
+  'pr-opened',
+);
+const bsReviewTask = bsTask(
+  'tsk_01JAC0BUILDSINGLEREVIEW000',
+  '2026-10-20T10:25:11Z',
+  { event: bsImplemented.id, rule: 'review-built' },
+  'docs-review',
+  {
+    phase: 'Pending',
+    agent: null,
+    attempts: 0,
+    reason: 'anti-affinity: waiting for an agent other than the author',
+  },
+);
+const buildDetail: Detail = {
+  workItem: item(
+    BUILD,
+    '2026-10-20T10:00:00Z',
+    [
+      { provider: 'github-public', ref: bsRef, kind: 'issue', primary: true },
+      {
+        provider: 'github-public',
+        ref: 'compliance-framework/docs#96',
+        kind: 'pr',
+      },
+    ],
+    {
+      state: { plan: 'single', stage: 'review', stackNext: 1, stackTotal: 1 },
+      counters: { 'plan-epic': 1, implement: 1 },
+      decisions: [
+        {
+          at: '2026-10-20T10:00:01Z',
+          event: bsOpened.id,
+          ruleSet: 'docs-epic',
+          rule: 'plan-epic',
+          fired: true,
+          rails: [{ rail: 'run-cap', verdict: 'allowed' }],
+          actions: ['dispatch plan-epic → poc', 'set plan'],
+        },
+        {
+          at: '2026-10-20T10:08:11Z',
+          event: bsPlanned.id,
+          ruleSet: 'docs-epic',
+          rule: 'build-single',
+          fired: true,
+          inputs: { 'run.outcome': 'planned' },
+          rails: [{ rail: 'run-cap', verdict: 'allowed' }],
+          actions: [
+            'set stage',
+            'set stackNext',
+            'set stackTotal',
+            'dispatch implement → poc',
+          ],
+        },
+        {
+          at: '2026-10-20T10:25:11Z',
+          event: bsImplemented.id,
+          ruleSet: 'docs-epic',
+          rule: 'review-built',
+          fired: true,
+          inputs: { 'run.outcome': 'pr-opened' },
+          rails: [{ rail: 'run-cap', verdict: 'allowed' }],
+          actions: ['dispatch docs-review → poc'],
+        },
+      ],
+      reporter: { id: 'github-public:gusfcarvalho', tier: 'maintainer' },
+    },
+  ),
+  events: [bsOpened, bsTrack1, bsPlanned, bsTrack2, bsPROpened, bsImplemented],
+  tasks: [bsPlanTask, bsImplementTask, bsReviewTask],
+  runs: [bsPlanRun, bsImplementRun],
+  effects: [
+    {
+      kind: 'Effect',
+      metadata: {
+        name: 'eff_01JAC0BUILDSINGLEPROPEN000',
+        createdAt: '2026-10-20T10:24:50Z',
+      },
+      spec: {
+        task: bsImplementTask.metadata.id,
+        op: 'pr.open',
+        target: {
+          provider: 'github-public',
+          kind: 'pr',
+          ref: 'compliance-framework/docs#96',
+        },
+        idempotencyKey: `${bsImplementTask.metadata.id}/pr.open/1`,
+        identity: 'author',
+      },
+      status: {
+        at: '2026-10-20T10:24:52Z',
+        result: { url: 'https://github.com/compliance-framework/docs/pull/96' },
+      },
+    },
+  ],
+};
+
 function bare(workItem: WorkItem): Detail {
   return { workItem, events: [], tasks: [], runs: [], effects: [] };
 }
 
 /** The mock work items and their timelines, most recently updated first. */
 export const workItemDetails: readonly Detail[] = [
+  buildDetail,
   epicDetail,
   releaseDetail,
   escalatedDetail,
