@@ -16,8 +16,38 @@ const DETERMINISTIC = new Set([
   'notify',
   'cancel',
   'link',
+  'debounce',
   'requestApproval',
 ]);
+
+/** A `Decision.actions` entry, split: its kind and what it acted on. */
+export interface ActionSummary {
+  kind: string;
+  /** The rest of the summary: `plan-epic → poc`, a state key, a template, an op, a ref. */
+  subject: string;
+}
+
+/**
+ * Splits a decision's action summary (`rules.ActionIntent.String()`: `dispatch plan-epic → poc`,
+ * `set plan`, `notify <template>`, `cancel <spec>`, `link <ref>`, `effect <op>`,
+ * `debounce <key>`) into its kind, the first word, and its subject, the rest. A bare kind has no
+ * subject. `unsupported requestApproval`, how the engine records a requestApproval, is one.
+ */
+export function parseAction(summary: string): ActionSummary {
+  const s = summary.trim();
+  const i = s.search(/\s/);
+  const kind = i < 0 ? s : s.slice(0, i);
+  const subject = i < 0 ? '' : s.slice(i + 1).trim();
+  if (kind === 'unsupported' && subject === 'requestApproval') {
+    return { kind: 'requestApproval', subject: '' };
+  }
+  return { kind, subject };
+}
+
+/** The TaskSpec a dispatch summary names: `plan-epic` of `plan-epic → poc`. */
+export function dispatchSpec(subject: string): string {
+  return subject.split('→')[0]!.trim();
+}
 
 /** The label of an Effect a rule made: the rule's name (controllers.LabelRule). */
 export const LABEL_RULE = 'factory.ccf.dev/rule';
@@ -33,7 +63,7 @@ export const IN_FLIGHT = new Set([
 /** One action a fired decision took, joined to what it created. */
 export interface GraphAction {
   key: string;
-  /** The action's kind, as `Decision.actions` names it: dispatch, effect, set, … */
+  /** The action's kind, the first word of its `Decision.actions` summary: dispatch, effect, set, … */
   kind: string;
   deterministic: boolean;
   /** The decision's index in `workItem.status.decisions`. */
@@ -41,7 +71,10 @@ export interface GraphAction {
   decision: Decision;
   /** `<RuleSet>/<rule>`, the arrow's label. */
   rule: string;
-  /** What it acted on: the TaskSpec of a dispatch, the op and target of an effect. */
+  /**
+   * What it acted on: the TaskSpec of a dispatch, the op and target of an effect, else the rest
+   * of its summary (a state key, a template, a ref).
+   */
   subject: string;
   /** Its current state, as text: a task phase, applied/failed, an approval phase, a rail verdict. */
   state: string;
@@ -183,10 +216,9 @@ export function graphOf(detail: Detail): WorkItemGraph {
     const node = byId.get(decision.event)!;
     const tasks = tasksOf(decision, detail.tasks);
     const ruleEffects = ruleEffectsOf(decision, detail.effects);
-    let dispatches = 0;
-    let effects = 0;
     const held = railState(decision);
-    (decision.actions ?? []).forEach((kind, j) => {
+    (decision.actions ?? []).forEach((summary, j) => {
+      const { kind, subject } = parseAction(summary);
       const action: GraphAction = {
         key: `action/${decisionIndex}/${j}`,
         kind,
@@ -194,13 +226,19 @@ export function graphOf(detail: Detail): WorkItemGraph {
         decisionIndex,
         decision,
         rule: `${decision.ruleSet ?? '?'}/${decision.rule ?? '?'}`,
-        subject: '',
+        subject,
         state: held ?? 'done',
         runs: [],
         taskEffects: [],
       };
       if (kind === 'dispatch') {
-        const task = tasks[dispatches++];
+        // The first task left that the summary's TaskSpec names (any, for a bare kind).
+        const spec = dispatchSpec(subject);
+        action.subject = spec;
+        const i = tasks.findIndex(
+          (t) => !spec || t.spec.taskSpec.name === spec,
+        );
+        const task = i < 0 ? undefined : tasks.splice(i, 1)[0];
         if (task) {
           action.task = task;
           action.subject = task.spec.taskSpec.name;
@@ -213,7 +251,11 @@ export function graphOf(detail: Detail): WorkItemGraph {
           );
         } else action.state = held ?? 'no task';
       } else if (kind === 'effect') {
-        const effect = ruleEffects[effects++];
+        // The first rule effect left with the summary's op (any, for a bare kind).
+        const i = ruleEffects.findIndex(
+          (e) => !subject || e.spec.op === subject,
+        );
+        const effect = i < 0 ? undefined : ruleEffects.splice(i, 1)[0];
         if (effect) {
           action.effect = effect;
           action.subject = effectSubject(effect);

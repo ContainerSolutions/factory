@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Schemas } from '@/api/client';
-import { examples } from '@/mocks/examples';
-import { workItemDetails } from '@/mocks/workitems';
+import { example, workItemDetails } from '@/mocks/workitems';
 import { graphOf } from './graph';
 import { catalogSHAFor, eventRows, timelineOf, unattached } from './timeline';
-
-const example = examples.get('getWorkItem') as Schemas['WorkItemDetail'];
 
 describe('timelineOf', () => {
   it('merges the example by time, oldest first', () => {

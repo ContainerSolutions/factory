@@ -15,7 +15,7 @@ const decision: Schemas['Decision'] = {
     { rail: 'run-cap', verdict: 'suppressed', reason: 'ran 3 of 3 times' },
     { rail: 'budget', verdict: 'allowed' },
   ],
-  actions: ['dispatch'],
+  actions: ['dispatch triage → triage'],
 };
 
 let wrapper: VueWrapper | undefined;

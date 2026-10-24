@@ -3,7 +3,7 @@ import { API_BASE, type Schemas } from '@/api/client';
 import type { StreamEventMap, StreamEventName } from '@/api/stream';
 import { examples } from './examples';
 import { backOnline } from './pools';
-import { liveRun } from './workitems';
+import { liveRun, summarised } from './workitems';
 
 /** One frame of the mock stream, and how long to wait before sending it. */
 export interface MockFrame {
@@ -49,7 +49,11 @@ function progress(
  * offline mock agent comes back: what the pools view shows arriving.
  */
 export const streamFrames: readonly MockFrame[] = [
-  ...((examples.get('streamEvents') ?? []) as MockFrame[]),
+  ...((examples.get('streamEvents') ?? []) as MockFrame[]).map((f) =>
+    f.event === 'workitem.updated'
+      ? { ...f, data: summarised(f.data as Schemas['WorkItem']) }
+      : f,
+  ),
   progress('500', {
     at: '2026-10-19T11:58:00Z',
     kind: 'tool',

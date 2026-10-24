@@ -3,12 +3,10 @@ import { mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
 import { createMemoryHistory } from 'vue-router';
 import type { Schemas } from '@/api/client';
-import { examples } from '@/mocks/examples';
-import { workItemDetails } from '@/mocks/workitems';
+import { example, workItemDetails } from '@/mocks/workitems';
 import { createAppRouter } from '@/router';
 import WorkItemTimeline from './WorkItemTimeline.vue';
 
-const example = examples.get('getWorkItem') as Schemas['WorkItemDetail'];
 const byName = (name: string) =>
   workItemDetails.find((d) => d.workItem.metadata.name === name)!;
 const pipeline = byName('wi_01JAC0PIPELINE0000000000000');
@@ -93,7 +91,7 @@ describe('WorkItemTimeline', () => {
     const actions = decision.findAll('[data-testid="timeline-action"]');
     expect(actions.map((a) => a.find('span').text())).toEqual([
       'dispatch · implement',
-      'notify',
+      'notify · implement-started',
     ]);
     expect(actions[0]!.text()).toContain(
       'attempt 1 on agt_gusfcarvalho-mbp-01',
