@@ -1,14 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
-import type { Schemas } from '@/api/client';
-import { examples } from '@/mocks/examples';
-import { workItemDetails } from '@/mocks/workitems';
+import { example, workItemDetails } from '@/mocks/workitems';
 import WorkItemGraph from './WorkItemGraph.vue';
 
 const pipeline = workItemDetails.find(
   (d) => d.workItem.metadata.name === 'wi_01JAC0PIPELINE0000000000000',
 )!;
-const example = examples.get('getWorkItem') as Schemas['WorkItemDetail'];
 
 describe('WorkItemGraph', () => {
   it('draws events, actions with their rule, state and shape, and the links', () => {

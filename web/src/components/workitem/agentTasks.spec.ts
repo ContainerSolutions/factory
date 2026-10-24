@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Schemas } from '@/api/client';
-import { examples } from '@/mocks/examples';
-import { workItemDetails } from '@/mocks/workitems';
+import { example, workItemDetails } from '@/mocks/workitems';
 import { llmTasksOf } from './agentTasks';
 
 const pipeline = workItemDetails.find(
   (d) => d.workItem.metadata.name === 'wi_01JAC0PIPELINE0000000000000',
 )!;
-const example = examples.get('getWorkItem') as Schemas['WorkItemDetail'];
 
 describe('llmTasksOf', () => {
   it('lists every task in order, with its runs, state and what it produced', () => {

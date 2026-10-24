@@ -1,15 +1,65 @@
 import { describe, expect, it } from 'vitest';
-import type { Schemas } from '@/api/client';
-import { examples } from '@/mocks/examples';
-import { workItemDetails } from '@/mocks/workitems';
-import { graphOf } from './graph';
+import { example, workItemDetails } from '@/mocks/workitems';
+import { graphOf, parseAction } from './graph';
 
-const example = examples.get('getWorkItem') as Schemas['WorkItemDetail'];
 const byName = (name: string) =>
   workItemDetails.find((d) => d.workItem.metadata.name === name)!;
 const pipeline = byName('wi_01JAC0PIPELINE0000000000000');
 
+describe('parseAction', () => {
+  it.each([
+    ['dispatch plan-epic → poc', 'dispatch', 'plan-epic → poc'],
+    ['set plan', 'set', 'plan'],
+    ['notify needs-human', 'notify', 'needs-human'],
+    ['cancel implement', 'cancel', 'implement'],
+    [
+      'link compliance-framework/docs#78',
+      'link',
+      'compliance-framework/docs#78',
+    ],
+    ['effect label.add', 'effect', 'label.add'],
+    ['debounce review', 'debounce', 'review'],
+    ['unsupported requestApproval', 'requestApproval', ''],
+    // An older record's bare kind.
+    ['dispatch', 'dispatch', ''],
+  ])('splits %j', (summary, kind, subject) => {
+    expect(parseAction(summary)).toEqual({ kind, subject });
+  });
+});
+
 describe('graphOf', () => {
+  it('joins a real-format decision to its task, runs and run-completed event', () => {
+    const g = graphOf(pipeline);
+    const triage = g.events[0]!.actions[0]!;
+    expect(pipeline.workItem.status!.decisions![0]!.actions![0]).toBe(
+      'dispatch triage → default',
+    );
+    expect([triage.kind, triage.subject, triage.task?.metadata.id]).toEqual([
+      'dispatch',
+      'triage',
+      'tsk_01JAC0PIPELINETRIAGE0000000',
+    ]);
+    expect(triage.runs.map((r) => r.metadata.name)).toEqual([
+      'run_01JAC0PIPELINETRIAGE000000',
+    ]);
+    expect(g.links.filter((l) => l.from === triage.key)).toEqual([
+      {
+        from: triage.key,
+        to: 'event/factory/run-completed-triage-77',
+        inferred: false,
+      },
+    ]);
+  });
+
+  it("takes a dispatch's TaskSpec from its summary when no task matched", () => {
+    const g = graphOf(byName('wi_01JAC0ESCALATED0000000000000'));
+    expect(g.events[0]!.actions[0]).toMatchObject({
+      kind: 'dispatch',
+      subject: 'implement',
+      deterministic: false,
+    });
+  });
+
   it('lays out one column per event, in time order, with its fired actions', () => {
     const g = graphOf(pipeline);
     expect(g.events.map((e) => [e.column, e.type])).toEqual([
@@ -38,7 +88,7 @@ describe('graphOf', () => {
           'Succeeded',
           false,
         ],
-        ['set', 'docs/triage-outside-issues', '', 'done', true],
+        ['set', 'docs/triage-outside-issues', 'triage', 'done', true],
         [
           'effect',
           'docs/docs/label-docs',
@@ -55,7 +105,13 @@ describe('graphOf', () => {
           'Succeeded',
           false,
         ],
-        ['notify', 'docs/implement-promoted', '', 'done', true],
+        [
+          'notify',
+          'docs/implement-promoted',
+          'implement-started',
+          'done',
+          true,
+        ],
       ],
       [
         [
@@ -132,7 +188,7 @@ describe('graphOf', () => {
               ruleSet: 'r',
               rule: 'x',
               fired: true,
-              actions: ['requestApproval'],
+              actions: ['unsupported requestApproval'],
             },
             {
               at: '2026-10-16T10:00:00Z',

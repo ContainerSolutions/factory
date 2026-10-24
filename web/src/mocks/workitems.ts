@@ -5,8 +5,35 @@ import { examples } from './examples';
 type WorkItem = Schemas['WorkItem'];
 type Detail = Schemas['WorkItemDetail'];
 
-// The contract's own example: a running triage on compliance-framework/docs#42.
-const example = examples.get('getWorkItem') as Detail;
+// The contract's examples record the triage decision's actions as bare kinds; the engine records
+// each as its summary (rules.ActionIntent.String()), so the mocks do too.
+const EXAMPLE_ACTIONS: Record<string, string> = {
+  dispatch: 'dispatch triage → triage',
+  set: 'set triage',
+};
+
+/** The contract example's work item, its decisions' actions as the engine records them. */
+export function summarised(workItem: WorkItem): WorkItem {
+  const status = workItem.status;
+  if (!status?.decisions) return workItem;
+  return {
+    ...workItem,
+    status: {
+      ...status,
+      decisions: status.decisions.map((d) => ({
+        ...d,
+        actions: d.actions?.map((a) => EXAMPLE_ACTIONS[a] ?? a),
+      })),
+    },
+  };
+}
+
+// The contract's own example (a running triage on compliance-framework/docs#42), summarised.
+const contractExample = examples.get('getWorkItem') as Detail;
+export const example: Detail = {
+  ...contractExample,
+  workItem: summarised(contractExample.workItem),
+};
 const exampleTask = example.tasks[0]!;
 const exampleRun = example.runs[0]!;
 const exampleEffect = example.effects[0]!;
@@ -99,7 +126,7 @@ const escalated = item(
             reason: 'implement ran 3 of 3 times',
           },
         ],
-        actions: ['dispatch'],
+        actions: ['dispatch implement → default'],
       },
       {
         at: '2026-10-17T14:02:01Z',
@@ -112,7 +139,7 @@ const escalated = item(
           'run.outcome': 'needs-human',
         },
         rails: [{ rail: 'effects-allowed', verdict: 'allowed' }],
-        actions: ['effect', 'notify'],
+        actions: ['effect label.add', 'notify needs-human'],
       },
     ],
     reporter: { id: 'github-public:gusfcarvalho', tier: 'maintainer' },
@@ -213,7 +240,7 @@ const approval = item(
         fired: true,
         inputs: { 'event.labels': ['epic'] },
         rails: [{ rail: 'run-cap', verdict: 'allowed' }],
-        actions: ['dispatch', 'set'],
+        actions: ['dispatch plan-epic → default', 'set stackTotal'],
       },
     ],
   },
@@ -243,7 +270,7 @@ const waiting = item(
         fired: true,
         inputs: { 'actor.tier': 'contributor' },
         rails: [{ rail: 'run-cap', verdict: 'allowed' }],
-        actions: ['dispatch', 'set'],
+        actions: ['dispatch triage → default', 'set triage'],
       },
     ],
     reporter: { id: 'github-public:octocat', tier: 'contributor' },
@@ -284,7 +311,7 @@ const release = item(
             reason: 'queue default is at its daily budget',
           },
         ],
-        actions: ['dispatch', 'set'],
+        actions: ['dispatch release-docs → default', 'set release'],
       },
     ],
   },
@@ -385,7 +412,7 @@ const doneRecent = item(
         fired: true,
         inputs: { 'item.pr.checks.state': 'success' },
         rails: [{ rail: 'run-cap', verdict: 'allowed' }],
-        actions: ['dispatch'],
+        actions: ['dispatch merge → default'],
       },
     ],
   },
@@ -414,7 +441,7 @@ const doneOld = item(
         rule: 'merge-approved',
         fired: true,
         rails: [{ rail: 'run-cap', verdict: 'allowed' }],
-        actions: ['dispatch'],
+        actions: ['dispatch merge → default'],
       },
     ],
   },
@@ -671,7 +698,7 @@ const pipeline = item(
         fired: true,
         inputs: { 'actor.tier': 'contributor', 'actor.isBot': false },
         rails: [{ rail: 'run-cap', verdict: 'allowed' }],
-        actions: ['dispatch', 'set'],
+        actions: ['dispatch triage → default', 'set triage'],
       },
       {
         at: '2026-10-18T08:00:01Z',
@@ -680,7 +707,7 @@ const pipeline = item(
         rule: 'docs/label-docs',
         fired: true,
         rails: [{ rail: 'effects-allowed', verdict: 'allowed' }],
-        actions: ['effect'],
+        actions: ['effect label.add'],
       },
       {
         at: '2026-10-18T08:00:01Z',
@@ -699,7 +726,7 @@ const pipeline = item(
         fired: true,
         inputs: { 'run.spec': 'triage', 'run.outcome': 'promote' },
         rails: [{ rail: 'run-cap', verdict: 'allowed' }],
-        actions: ['dispatch', 'notify'],
+        actions: ['dispatch implement → default', 'notify implement-started'],
       },
       {
         at: '2026-10-18T08:06:01Z',
@@ -718,7 +745,7 @@ const pipeline = item(
         fired: true,
         inputs: { 'actor.isFactory': true },
         rails: [{ rail: 'run-cap', verdict: 'allowed' }],
-        actions: ['dispatch'],
+        actions: ['dispatch docs-review → default'],
       },
       {
         at: '2026-10-18T08:31:01Z',
@@ -736,7 +763,7 @@ const pipeline = item(
         fired: true,
         inputs: { 'actor.isFactory': true },
         rails: [{ rail: 'effects-allowed', verdict: 'allowed' }],
-        actions: ['effect'],
+        actions: ['effect label.add'],
       },
     ],
     reporter: { id: 'github-public:octocat', tier: 'contributor' },
