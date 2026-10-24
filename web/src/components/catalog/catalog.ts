@@ -1,4 +1,5 @@
 import type { Schemas } from '@/api/client';
+import type { ListItem } from '@/components/shared/list';
 
 type LabelSelector = Schemas['LabelSelector'];
 type RuleSet = Schemas['RuleSet'];
@@ -372,4 +373,117 @@ export function fileUsers(
   }
   for (const names of Object.values(out)) names.sort();
   return out;
+}
+
+/** A provider's labels as `k=v, k=v`. */
+export function providerLabelsText(p: Schemas['Provider']): string {
+  return Object.entries(p.metadata.labels ?? {})
+    .map(([k, v]) => `${k}=${v}`)
+    .join(', ');
+}
+
+/** What a provider watches: its orgs and channels, or everything it can see. */
+export function providerScopeText(p: Schemas['Provider']): string {
+  const s = p.spec.scope;
+  return (
+    [
+      ...(s?.orgs ?? []).map((o) => `org ${o}`),
+      ...(s?.channels ?? []).map((c) => `#${c}`),
+    ].join(', ') || 'everything it can see'
+  );
+}
+
+const HEALTH_TONE: Record<
+  Schemas['ProviderHealth']['status'],
+  'success' | 'warn' | 'danger' | 'neutral'
+> = {
+  ok: 'success',
+  degraded: 'warn',
+  down: 'danger',
+  unknown: 'neutral',
+};
+
+/** The pill tone of a provider's health. */
+export function providerHealthTone(
+  status: Schemas['ProviderHealth']['status'],
+): 'success' | 'warn' | 'danger' | 'neutral' {
+  return HEALTH_TONE[status] ?? 'neutral';
+}
+
+/** The entries of every list + detail catalog tab, from the loaded catalog. */
+export interface CatalogLists {
+  taskspecs: ListItem[];
+  rules: ListItem[];
+  rulesets: ListItem[];
+  templates: ListItem[];
+  providers: ListItem[];
+  queues: ListItem[];
+  groups: ListItem[];
+}
+
+/** The id of a queue's or pool's entry: `Queue/<name>`, `Pool/<name>` (they may share names). */
+export function queuePoolId(o: Schemas['Queue'] | Schemas['Pool']): string {
+  return `${o.kind}/${o.metadata.name}`;
+}
+
+/**
+ * Each tab's entries: a TaskSpec by its default harness, a rule by its triggers, a RuleSet by
+ * the rules it selects, a template by the providers it has a body for, a provider by its type
+ * and health, a queue by its pool, a pool by its mode, a group by its member sources.
+ */
+export function catalogLists(c: {
+  taskSpecs: readonly Schemas['TaskSpec'][];
+  rules: readonly Rule[];
+  ruleSets: readonly RuleSet[];
+  templates: readonly Schemas['Template'][];
+  providers: readonly Schemas['ProviderView'][];
+  queues: readonly Schemas['Queue'][];
+  pools: readonly Schemas['Pool'][];
+  groups: readonly Schemas['Group'][];
+}): CatalogLists {
+  const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+  return {
+    taskspecs: c.taskSpecs.map((t) => ({
+      id: t.metadata.name,
+      label: t.metadata.name,
+      secondary: harnessText(t.spec.harness?.default) || 'the agent picks',
+    })),
+    rules: c.rules.map((r) => ({
+      id: r.metadata.name,
+      label: r.metadata.name,
+      secondary: `on ${r.spec.on.join(', ')}`,
+    })),
+    rulesets: c.ruleSets.map((rs) => ({
+      id: rs.metadata.name,
+      label: rs.metadata.name,
+      secondary: plural(selectRules(rs, c.rules).rules.length, 'rule'),
+    })),
+    templates: c.templates.map((t) => ({
+      id: t.metadata.name,
+      label: t.metadata.name,
+      secondary: Object.keys(t.spec.bodies).sort().join(', '),
+    })),
+    providers: c.providers.map((v) => ({
+      id: v.provider.metadata.name,
+      label: v.provider.metadata.name,
+      secondary: `${v.provider.spec.type} · ${v.health.status}`,
+    })),
+    queues: [
+      ...c.queues.map((q) => ({
+        id: queuePoolId(q),
+        label: q.metadata.name,
+        secondary: `queue on ${q.spec.pool}`,
+      })),
+      ...c.pools.map((p) => ({
+        id: queuePoolId(p),
+        label: p.metadata.name,
+        secondary: `pool, ${p.spec.mode}`,
+      })),
+    ],
+    groups: c.groups.map((g) => ({
+      id: g.metadata.name,
+      label: g.metadata.name,
+      secondary: plural(g.spec.members.length, 'member source'),
+    })),
+  };
 }

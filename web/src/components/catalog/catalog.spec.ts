@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { Schemas } from '@/api/client';
 import { examples } from '@/mocks/examples';
 import { providerViews, rules, ruleSets } from '@/mocks/catalog';
+import { poolViews, queueViews } from '@/mocks/pools';
 import {
   actionKinds,
+  catalogLists,
   decisionOf,
   eventLabel,
   formatSelector,
@@ -348,5 +350,35 @@ describe('TaskSpec text', () => {
         ts('c', {}),
       ]),
     ).toEqual({ 'prompts/x': ['a', 'b'], 'schemas/s': ['b'] });
+  });
+});
+
+describe('catalogLists', () => {
+  it('names each object and says what it is, in a few words', () => {
+    const lists = catalogLists({
+      taskSpecs: [],
+      rules,
+      ruleSets,
+      templates: [],
+      providers: providerViews,
+      queues: queueViews.slice(0, 1).map((v) => v.queue),
+      pools: poolViews.slice(1).map((v) => v.pool),
+      groups: [],
+    });
+    expect(lists.rules[0]).toEqual({
+      id: 'triage-outside-issues',
+      label: 'triage-outside-issues',
+      secondary: 'on issue.opened',
+    });
+    expect(lists.rulesets.map((r) => [r.id, r.secondary])).toEqual([
+      ['docs', '3 rules'],
+      ['api', '2 rules'],
+    ]);
+    expect(lists.providers[1]!.secondary).toBe('github · degraded');
+    // A queue and a pool may share a name: the id carries the kind.
+    expect(lists.queues.map((q) => [q.id, q.secondary])).toEqual([
+      ['Queue/review', 'queue on maintainer-agents'],
+      ['Pool/ci-ephemeral', 'pool, ephemeral'],
+    ]);
   });
 });

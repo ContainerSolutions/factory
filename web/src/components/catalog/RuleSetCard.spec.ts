@@ -25,30 +25,44 @@ describe('RuleSetCard', () => {
     );
   });
 
-  it('lists each selected rule with how it was picked and its effective params', () => {
+  it('lists the selected rules and opens one, with how it was picked and its params after merging', async () => {
     const wrapper = mountCard(ruleSets[0]!);
-    const selected = wrapper.findAll('[data-testid="selected-rule"]');
-    expect(
-      selected.map((r) => r.get('[data-testid="rule-name"]').text()),
-    ).toEqual(['docs/label-docs', 'merge-approved', 'triage-outside-issues']);
-    const merge = selected[1]!;
-    expect(merge.text()).toContain('by ref');
-    expect(merge.text()).toContain('final');
-    expect(merge.get('[data-testid="rule-actions"]').text()).toBe('effect');
-    expect(
-      JSON.parse(merge.get('[aria-label="Params of merge-approved"]').text()),
-    ).toEqual({ mergeMethod: 'rebase', minApprovals: 2 });
-    const triage = selected[2]!;
-    expect(triage.text()).toContain('by selector');
+    const items = () => wrapper.findAll('[data-testid="list-item"]');
+    expect(items().map((b) => b.find('span').text())).toEqual([
+      'docs/label-docs',
+      'merge-approved',
+      'triage-outside-issues',
+    ]);
+    // The first is open by default; with no params, it says so.
+    expect(items()[0]!.attributes('aria-current')).toBe('true');
+    const shown = () => wrapper.get('[data-testid="selected-rule"]');
+    expect(shown().get('[data-testid="rule"] h3').text()).toBe(
+      'docs/label-docs',
+    );
+    expect(shown().text()).toContain('by inline');
+    expect(shown().get('[data-testid="rule-params"]').text()).toContain('none');
+
+    await items()[1]!.trigger('click');
+    expect(items()[1]!.attributes('aria-current')).toBe('true');
+    expect(items()[0]!.attributes('aria-current')).toBeUndefined();
+    expect(shown().text()).toContain('by ref');
+    expect(shown().text()).toContain('final');
+    expect(shown().get('[data-testid="rule-actions"]').text()).toContain(
+      'effect',
+    );
+    const params = shown().get('[aria-label="Params of merge-approved"]');
+    expect(params.text()).toContain('mergeMethod: rebase');
+    expect(params.text()).toContain('minApprovals: 2');
+
+    await items()[2]!.trigger('click');
+    expect(shown().text()).toContain('by selector');
     // `where` is CEL from the catalog: shown as text.
-    expect(triage.text()).toContain(
+    expect(shown().get('[data-testid="rule-where"]').text()).toBe(
       "actor.tier != 'maintainer' && !actor.isBot",
     );
-    expect(triage.get('[data-testid="rule-actions"]').text()).toBe(
-      'dispatch, set',
-    );
-    // No params, no params block.
-    expect(selected[0]!.find('[aria-label^="Params"]').exists()).toBe(false);
+    expect(
+      shown().get('[aria-label="Params of triage-outside-issues"]').text(),
+    ).toContain('harness: claude-code');
   });
 
   it('matches providers by expressions and the type label', () => {
