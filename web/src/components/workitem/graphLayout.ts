@@ -1,5 +1,15 @@
 import type { GraphCause, WorkItemGraph } from './graph';
 
+/** Which cause an event lines up with first: what is recorded, then the tracking guess, then the rest. */
+const CAUSE_RANK: Record<GraphCause, number> = {
+  task: 0,
+  run: 0,
+  effect: 0,
+  notify: 0,
+  tracking: 1,
+  inferred: 2,
+};
+
 /** The graph's geometry, in SVG units. */
 export const PAD = 16;
 export const COL_W = 248;
@@ -86,11 +96,14 @@ interface Cells {
 /**
  * Lays the graph out on a grid: a column per event, in time order (wider when it holds a task),
  * and rows. An event with no cause sits on the top row. An event something caused sits on the
- * row of the source of its first incoming link (in row order), so the arrow is one straight
- * horizontal line; when that line would cross a box or a circle, the event moves down to the
- * first row where it doesn't, and the arrow drops down the source's gutter to it. Its actions
- * stack on the rows below it, each task beside its dispatch. Any other link is routed: up the
- * gutter after its source, along a lane above every row, and down just before its target.
+ * row of one incoming link's source, so that arrow is one straight horizontal line: the most
+ * certain cause (recorded, then tracking, then inferred), then one whose line is free on its own
+ * row, then the highest row. When the line would cross a box or a circle, the event moves down
+ * to the first row where it doesn't, and the arrow drops down the source's gutter to it. Its
+ * actions stack on the rows below it, each task beside its dispatch. Any other link into the
+ * event goes up or down its source's gutter and straight along the event's row when that row is
+ * free between them; else it is routed up the gutter, along a lane above every row, and down
+ * just before its target.
  */
 export function layoutGraph(graph: WorkItemGraph): GraphLayout {
   const xs: number[] = [];
@@ -138,7 +151,18 @@ export function layoutGraph(graph: WorkItemGraph): GraphLayout {
     const incoming = graph.links
       .map((l, i) => ({ l, i, s: source(l.from) }))
       .filter((x) => x.l.to === e.key && x.s && x.s.column < e.column)
-      .sort((a, b) => a.s!.row - b.s!.row || a.i - b.i);
+      .map((x) => ({
+        ...x,
+        rank: CAUSE_RANK[x.l.cause],
+        blocked: free(x.s!.row, x.s!.column, x.s!.task, e.column) ? 0 : 1,
+      }))
+      .sort(
+        (a, b) =>
+          a.rank - b.rank ||
+          a.blocked - b.blocked ||
+          a.s!.row - b.s!.row ||
+          a.i - b.i,
+      );
     const first = incoming[0];
     if (first) {
       const s = first.s!;
@@ -204,19 +228,23 @@ export function layoutGraph(graph: WorkItemGraph): GraphLayout {
     const ex = t.cx - R - 2;
     const gx = x1 + GUTTER;
     const c = CORNER;
-    if (aligned.get(l.to) === i) {
-      if (t.cy === y1) {
-        return [{ ...base, d: `M ${x1} ${y1} H ${ex}`, straight: true }];
-      }
-      // Down the source's gutter, then straight along the event's row.
+    const onRow =
+      aligned.get(l.to) === i ||
+      (s.column < t.column && free(t.row, s.column, s.task, t.column));
+    if (onRow && t.cy === y1) {
+      return [{ ...base, d: `M ${x1} ${y1} H ${ex}`, straight: true }];
+    }
+    if (onRow) {
+      // Down (or up) the source's gutter, then straight along the event's row.
+      const dir = t.cy > y1 ? 1 : -1;
       return [
         {
           ...base,
           d: [
             `M ${x1} ${y1}`,
             `H ${gx - c}`,
-            `Q ${gx} ${y1}, ${gx} ${y1 + c}`,
-            `V ${t.cy - c}`,
+            `Q ${gx} ${y1}, ${gx} ${y1 + dir * c}`,
+            `V ${t.cy - dir * c}`,
             `Q ${gx} ${t.cy}, ${gx + c} ${t.cy}`,
             `H ${ex}`,
           ].join(' '),

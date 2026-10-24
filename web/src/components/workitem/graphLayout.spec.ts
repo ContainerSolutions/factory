@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { workItemDetails } from '@/mocks/workitems';
 import { graphOf } from './graph';
-import { layoutGraph, rowY } from './graphLayout';
+import type { GraphAction, WorkItemGraph } from './graph';
+import { ACT_W, LANE_Y, R, layoutGraph, rowY } from './graphLayout';
 
 const byName = (name: string) =>
   workItemDetails.find((d) => d.workItem.metadata.name === name)!;
@@ -59,26 +60,76 @@ describe('layoutGraph', () => {
       ['factory.run.completed', 1],
       ['issue.commented', 3],
       ['pr.opened', 2],
-      // From the implement task (row 2): pr.opened, issue.commented and the label effect sit
-      // on rows 2–4 in between, so it goes down to row 5.
-      ['pr.labeled', 5],
-      ['factory.run.completed', 6],
+      // Beside the label effect that caused it (pr.opened's second action).
+      ['pr.labeled', 4],
+      // From the implement task (row 2): pr.opened, issue.commented, the label effect and
+      // pr.labeled sit on rows 2–4 in between, so it goes down to row 5.
+      ['factory.run.completed', 5],
     ]);
     const pushed = l.links.filter((k) => k.cause === 'run' && !k.straight);
     expect(pushed).toHaveLength(1);
     // Down the task's gutter, then straight along the event's row.
-    expect(pushed[0]!.d).toMatch(new RegExp(` H \\S+$`));
-    expect(pushed[0]!.d).toContain(`V ${rowY(6) - 5}`);
+    expect(pushed[0]!.d).toMatch(/ H \S+$/);
+    expect(pushed[0]!.d).toContain(`V ${rowY(5) - 5}`);
   });
 
-  it('routes the second link into an event, and keeps an uncaused event on top', () => {
+  it('keeps an uncaused event on the top row, and routes a link only when its row is blocked', () => {
     const { l, g } = rows(pipeline);
+    expect(l.events.get(g.events[0]!.key)!.row).toBe(0);
     const labeled = g.events[4]!.key;
     const into = l.links.filter((k) => k.to === labeled);
-    expect(into.map((k) => k.straight)).toEqual([false, false]);
-    // The second, from the label effect, runs in the lanes above every row.
-    expect(into[1]!.d).toMatch(/V 1\d(\.\d+)? /);
-    expect(l.events.get(g.events[0]!.key)!.row).toBe(0);
-    expect(l.height).toBeGreaterThan(rowY(6));
+    // The label effect's arrow is straight; the implement task's would cross the label effect,
+    // so it runs in the lanes above every row.
+    expect(into.map((k) => [k.from.split('/')[0], k.straight])).toEqual([
+      ['task', false],
+      ['action', true],
+    ]);
+    expect(into[0]!.d).toMatch(/V 1\d(\.\d+)? /);
+    expect(l.height).toBeGreaterThan(rowY(5));
+  });
+
+  it('aligns with the recorded cause over an inferred one, which takes the gutter', () => {
+    const action = (key: string): GraphAction =>
+      ({ key, kind: 'set' }) as GraphAction;
+    const g: WorkItemGraph = {
+      events: [
+        {
+          key: 'event/a',
+          id: 'a',
+          type: 'issue.opened',
+          column: 0,
+          actions: [action('action/0/0'), action('action/0/1')],
+        },
+        {
+          key: 'event/b',
+          id: 'b',
+          type: 'issue.commented',
+          column: 1,
+          actions: [],
+        },
+      ],
+      links: [
+        {
+          from: 'action/0/0',
+          to: 'event/b',
+          inferred: true,
+          cause: 'inferred',
+        },
+        { from: 'action/0/1', to: 'event/b', inferred: false, cause: 'notify' },
+      ],
+    };
+    const l = layoutGraph(g);
+    // The notify (row 2) wins over the inferred link from the higher row 1.
+    expect(l.events.get('event/b')!.row).toBe(2);
+    const [inferred, notify] = l.links;
+    expect(notify!.straight).toBe(true);
+    expect(notify!.d).toBe(
+      `M ${l.actions.get('action/0/1')!.x + ACT_W} ${rowY(2)} H ${l.events.get('event/b')!.cx - R - 2}`,
+    );
+    // Down its gutter from row 1 to row 2 and straight on: no lane above the rows.
+    expect(inferred!.straight).toBe(false);
+    expect(inferred!.d).toContain(`V ${rowY(2) - 5}`);
+    expect(inferred!.d.split(' ').filter((t) => t === 'V')).toHaveLength(1);
+    expect(inferred!.d).not.toMatch(new RegExp(`V ${LANE_Y}`));
   });
 });
