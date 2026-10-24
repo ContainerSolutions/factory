@@ -10,9 +10,9 @@ import WorkItemView from './WorkItemView.vue';
 
 let mounted: VueWrapper | undefined;
 
-async function mountItem(id: string) {
+async function mountItem(id: string, query = '') {
   const { wrapper, router } = await mountWithApp(WorkItemView, {
-    path: `/workitems/${id}`,
+    path: `/workitems/${id}${query}`,
     props: { id },
     attachTo: document.body,
   });
@@ -29,21 +29,60 @@ const dialog = () =>
   document.body.querySelector<HTMLElement>('[role="dialog"]');
 
 describe('WorkItemView', () => {
-  it('shows the header and the timeline', async () => {
+  it('shows the header and the graph, with tabs for the tasks and the timeline', async () => {
     const { wrapper } = await mountItem('wi_01JAB3J9T1D2E3F4G5H6J7K8LM');
     expect(wrapper.get('h1').text()).toBe('compliance-framework/docs#42');
     expect(wrapper.get('[data-testid="lane"]').text()).toBe('Running');
-    expect(
-      wrapper
-        .findAll('[data-testid="timeline-entry"]')
-        .map((e) => e.attributes('data-kind')),
-    ).toEqual(['event', 'decision', 'task', 'run', 'effect']);
+    expect(wrapper.findAll('[role="tab"]').map((t) => t.text())).toEqual([
+      'Graph',
+      'LLM tasks1',
+      'Timeline',
+    ]);
+    expect(wrapper.get('[role="tabpanel"]').attributes('aria-labelledby')).toBe(
+      'workitem-tab-graph',
+    );
+    expect(wrapper.findAll('[data-testid="graph-action"]')).toHaveLength(2);
     expect(wrapper.get('nav a').attributes('href')).toBe('/');
     expect(dialog()).toBeNull();
   });
 
+  it('switches tabs through the URL', async () => {
+    const { wrapper, router } = await mountItem(
+      'wi_01JAB3J9T1D2E3F4G5H6J7K8LM',
+    );
+    await wrapper.get('[data-tab="tasks"]').trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.query.tab).toBe('tasks');
+    expect(wrapper.findAll('[data-testid="llm-task"]')).toHaveLength(1);
+    await wrapper
+      .get('[data-tab="tasks"]')
+      .trigger('keydown', { key: 'ArrowRight' });
+    await flushPromises();
+    expect(router.currentRoute.value.query.tab).toBe('timeline');
+    expect(wrapper.findAll('[data-testid="timeline-event"]')).toHaveLength(1);
+  });
+
+  it("opens an event of the graph in the timeline, and an action's why", async () => {
+    const { wrapper, router } = await mountItem(
+      'wi_01JAC0PIPELINE0000000000000',
+    );
+    await wrapper.findAll('[data-testid="graph-action"]')[3]!.trigger('click');
+    await flushPromises();
+    expect(dialog()!.getAttribute('aria-label')).toBe(
+      'Why: docs / implement-promoted',
+    );
+    await wrapper.findAll('[data-testid="graph-event"]')[0]!.trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.query.tab).toBe('timeline');
+    const first = wrapper.findAll('[data-testid="timeline-event"]')[0]!;
+    expect(first.get('button').attributes('aria-expanded')).toBe('true');
+  });
+
   it('opens the "why" panel of a decision, with the catalog SHA from its task', async () => {
-    const { wrapper } = await mountItem('wi_01JAB3J9T1D2E3F4G5H6J7K8LM');
+    const { wrapper } = await mountItem(
+      'wi_01JAB3J9T1D2E3F4G5H6J7K8LM',
+      '?tab=timeline',
+    );
     await wrapper.get('button[aria-haspopup="dialog"]').trigger('click');
     await flushPromises();
     const why = dialog()!;
@@ -58,7 +97,10 @@ describe('WorkItemView', () => {
   });
 
   it('opens the panel of the decision clicked', async () => {
-    const { wrapper } = await mountItem('wi_01JAC0ESCALATED0000000000000');
+    const { wrapper } = await mountItem(
+      'wi_01JAC0ESCALATED0000000000000',
+      '?tab=timeline',
+    );
     const buttons = wrapper.findAll('button[aria-haspopup="dialog"]');
     await buttons[1]!.trigger('click');
     await flushPromises();

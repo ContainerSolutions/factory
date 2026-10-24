@@ -420,6 +420,360 @@ const doneOld = item(
   },
 );
 
+// A docs issue the factory triaged, implemented as a PR and is now reviewing: every link the
+// work-item graph draws (dispatch → run → factory.run.completed, and an inferred PR event).
+const PIPELINE = 'wi_01JAC0PIPELINE0000000000000';
+const pipelineOpened = event(
+  'gh-docs-77-opened',
+  'issue.opened',
+  '2026-10-18T08:00:00Z',
+  'compliance-framework/docs#77',
+  'octocat',
+  { title: 'Document the OSCAL --profile flag' },
+);
+pipelineOpened.data.actor = {
+  id: 'github-public:octocat',
+  tier: 'contributor',
+};
+pipelineOpened.data.object = {
+  provider: 'github-public',
+  kind: 'issue',
+  ref: 'compliance-framework/docs#77',
+};
+const pipelinePROpened = event(
+  'gh-docs-78-opened',
+  'pr.opened',
+  '2026-10-18T08:31:00Z',
+  'compliance-framework/docs#78',
+  'ccf-factory',
+  { title: 'docs: the OSCAL --profile flag' },
+);
+pipelinePROpened.data.actor = {
+  id: 'github-public:ccf-factory[bot]',
+  tier: 'bot',
+  isBot: true,
+  isFactory: true,
+};
+
+function runCompleted(
+  id: string,
+  time: string,
+  run: string,
+  spec: string,
+  outcome: string,
+): Schemas['Event'] {
+  return {
+    kind: 'Event',
+    id: `factory/${id}`,
+    source: 'factory',
+    type: 'factory.run.completed',
+    subject: run,
+    time,
+    data: {
+      provider: 'factory',
+      object: {
+        provider: 'github-public',
+        kind: 'issue',
+        ref: 'compliance-framework/docs#77',
+      },
+      facts: { run: { id: run, spec, outcome, status: 'done' } },
+    },
+  };
+}
+
+function pipelineTask(
+  id: string,
+  createdAt: string,
+  provenance: { event: string; rule: string },
+  taskSpec: string,
+  inputs: Record<string, unknown>,
+  status: Schemas['Task']['status'],
+): Schemas['Task'] {
+  return {
+    ...exampleTask,
+    metadata: {
+      ...exampleTask.metadata,
+      id,
+      workItem: PIPELINE,
+      provenance: { ...provenance, ruleSet: 'docs', catalogSHA: CATALOG_SHA },
+      createdAt,
+    },
+    spec: {
+      ...exampleTask.spec,
+      taskSpec: { name: taskSpec },
+      queue: 'default',
+      inputs,
+    },
+    status,
+  };
+}
+
+function pipelineRun(
+  name: string,
+  task: string,
+  attempt: number,
+  startedAt: string,
+  endedAt: string | undefined,
+  end: NonNullable<Schemas['Run']['status']>['end'],
+  result?: Partial<Schemas['Result']>,
+): Schemas['Run'] {
+  return {
+    kind: 'Run',
+    metadata: { name, createdAt: startedAt },
+    spec: {
+      task,
+      attempt,
+      agent: 'agt_gusfcarvalho-mbp-01',
+      owner: 'github-public:gusfcarvalho',
+    },
+    status: {
+      startedAt,
+      ...(endedAt ? { endedAt } : {}),
+      ...(end ? { end } : {}),
+      ...(result
+        ? {
+            result: {
+              ...exampleRun.status!.result!,
+              artifacts: [],
+              task,
+              ...result,
+            } as Schemas['Result'],
+          }
+        : {}),
+      transcriptRef: endedAt ? `transcripts/${name}.jsonl.gz` : undefined,
+    },
+  };
+}
+
+const triageTask = pipelineTask(
+  'tsk_01JAC0PIPELINETRIAGE0000000',
+  '2026-10-18T08:00:01Z',
+  { event: pipelineOpened.id, rule: 'triage-outside-issues' },
+  'triage',
+  { issue: 'compliance-framework/docs#77' },
+  { phase: 'Succeeded', agent: 'agt_gusfcarvalho-mbp-01', attempts: 1 },
+);
+const triageRun = pipelineRun(
+  'run_01JAC0PIPELINETRIAGE000000',
+  triageTask.metadata.id,
+  1,
+  '2026-10-18T08:00:30Z',
+  '2026-10-18T08:05:58Z',
+  'completed',
+  {
+    outcome: 'promote',
+    summary: 'A small, well-scoped docs change: promote it to implement.',
+  },
+);
+const triageDone = runCompleted(
+  'run-completed-triage-77',
+  '2026-10-18T08:06:00Z',
+  triageRun.metadata.name,
+  'triage',
+  'promote',
+);
+const implementTask = pipelineTask(
+  'tsk_01JAC0PIPELINEIMPLEMENT0000',
+  '2026-10-18T08:06:01Z',
+  { event: triageDone.id, rule: 'implement-promoted' },
+  'implement',
+  { mode: 'new', target: 'pr', issue: 'compliance-framework/docs#77' },
+  { phase: 'Succeeded', agent: 'agt_gusfcarvalho-mbp-01', attempts: 2 },
+);
+const implementFailed = pipelineRun(
+  'run_01JAC0PIPELINEIMPLEMENT01',
+  implementTask.metadata.id,
+  1,
+  '2026-10-18T08:06:30Z',
+  '2026-10-18T08:10:00Z',
+  'failed',
+);
+const implementRun = pipelineRun(
+  'run_01JAC0PIPELINEIMPLEMENT02',
+  implementTask.metadata.id,
+  2,
+  '2026-10-18T08:11:00Z',
+  '2026-10-18T08:31:20Z',
+  'completed',
+  {
+    outcome: 'pr-opened',
+    summary: 'Opened compliance-framework/docs#78 documenting --profile.',
+    data: {
+      pr: 'compliance-framework/docs#78',
+      branch: `factory/${PIPELINE}/0`,
+    },
+    artifacts: [
+      {
+        kind: 'pr',
+        url: 'https://github.com/compliance-framework/docs/pull/78',
+      },
+    ],
+  },
+);
+const implementDone = runCompleted(
+  'run-completed-implement-77',
+  '2026-10-18T08:31:30Z',
+  implementRun.metadata.name,
+  'implement',
+  'pr-opened',
+);
+const reviewTask = pipelineTask(
+  'tsk_01JAC0PIPELINEREVIEW0000000',
+  '2026-10-18T08:31:01Z',
+  { event: pipelinePROpened.id, rule: 'review-factory-prs' },
+  'docs-review',
+  { mode: 'review', target: 'pr' },
+  {
+    phase: 'Pending',
+    agent: null,
+    attempts: 0,
+    reason: 'anti-affinity: waiting for an agent other than the author',
+  },
+);
+
+const pipeline = item(
+  PIPELINE,
+  '2026-10-18T08:00:00Z',
+  [
+    {
+      provider: 'github-public',
+      ref: 'compliance-framework/docs#77',
+      kind: 'issue',
+      primary: true,
+    },
+    {
+      provider: 'github-public',
+      ref: 'compliance-framework/docs#78',
+      kind: 'pr',
+    },
+  ],
+  {
+    state: { triage: 'promoted', review: 'running' },
+    counters: { triage: 1, implement: 2 },
+    decisions: [
+      {
+        at: '2026-10-18T08:00:01Z',
+        event: pipelineOpened.id,
+        ruleSet: 'docs',
+        rule: 'triage-outside-issues',
+        fired: true,
+        inputs: { 'actor.tier': 'contributor', 'actor.isBot': false },
+        rails: [{ rail: 'run-cap', verdict: 'allowed' }],
+        actions: ['dispatch', 'set'],
+      },
+      {
+        at: '2026-10-18T08:00:01Z',
+        event: pipelineOpened.id,
+        ruleSet: 'docs',
+        rule: 'docs/label-docs',
+        fired: true,
+        rails: [{ rail: 'effects-allowed', verdict: 'allowed' }],
+        actions: ['effect'],
+      },
+      {
+        at: '2026-10-18T08:00:01Z',
+        event: pipelineOpened.id,
+        ruleSet: 'docs',
+        rule: 'triage-maintainer-issues',
+        fired: false,
+        inputs: { 'actor.tier': 'contributor' },
+        reason: 'where is false',
+      },
+      {
+        at: '2026-10-18T08:06:01Z',
+        event: triageDone.id,
+        ruleSet: 'docs',
+        rule: 'implement-promoted',
+        fired: true,
+        inputs: { 'run.spec': 'triage', 'run.outcome': 'promote' },
+        rails: [{ rail: 'run-cap', verdict: 'allowed' }],
+        actions: ['dispatch', 'notify'],
+      },
+      {
+        at: '2026-10-18T08:06:01Z',
+        event: triageDone.id,
+        ruleSet: 'docs',
+        rule: 'escalate-needs-human',
+        fired: false,
+        inputs: { 'run.outcome': 'promote' },
+        reason: 'where is false',
+      },
+      {
+        at: '2026-10-18T08:31:01Z',
+        event: pipelinePROpened.id,
+        ruleSet: 'docs',
+        rule: 'review-factory-prs',
+        fired: true,
+        inputs: { 'actor.isFactory': true },
+        rails: [{ rail: 'run-cap', verdict: 'allowed' }],
+        actions: ['dispatch'],
+      },
+      {
+        at: '2026-10-18T08:31:01Z',
+        event: pipelinePROpened.id,
+        ruleSet: 'api',
+        rule: 'review-factory-prs',
+        fired: false,
+        reason: 'already fired through RuleSet docs',
+      },
+    ],
+    reporter: { id: 'github-public:octocat', tier: 'contributor' },
+  },
+);
+
+const pipelineDetail: Detail = {
+  workItem: pipeline,
+  events: [pipelineOpened, triageDone, pipelinePROpened, implementDone],
+  tasks: [triageTask, implementTask, reviewTask],
+  runs: [triageRun, implementFailed, implementRun],
+  effects: [
+    {
+      kind: 'Effect',
+      metadata: {
+        name: 'eff_01JAC0PIPELINELABEL0000000',
+        createdAt: '2026-10-18T08:00:02Z',
+        labels: { 'factory.ccf.dev/rule': 'docs/label-docs' },
+      },
+      spec: {
+        // A rule's own effect has no task (the field is empty).
+        task: '',
+        op: 'label.add',
+        target: {
+          provider: 'github-public',
+          kind: 'issue',
+          ref: 'compliance-framework/docs#77',
+        },
+        idempotencyKey: `evt/${pipelineOpened.id}/docs/label-docs/0`,
+        identity: 'triager',
+        request: { labels: ['area/docs'] },
+      },
+      status: { at: '2026-10-18T08:00:02Z', result: {} },
+    },
+    {
+      kind: 'Effect',
+      metadata: {
+        name: 'eff_01JAC0PIPELINEPROPEN000000',
+        createdAt: '2026-10-18T08:30:50Z',
+      },
+      spec: {
+        task: implementTask.metadata.id,
+        op: 'pr.open',
+        target: {
+          provider: 'github-public',
+          kind: 'pr',
+          ref: 'compliance-framework/docs#78',
+        },
+        idempotencyKey: `${implementTask.metadata.id}/pr.open/1`,
+        identity: 'author',
+      },
+      status: {
+        at: '2026-10-18T08:30:55Z',
+        result: { url: 'https://github.com/compliance-framework/docs/pull/78' },
+      },
+    },
+  ],
+};
+
 function bare(workItem: WorkItem): Detail {
   return { workItem, events: [], tasks: [], runs: [], effects: [] };
 }
@@ -428,6 +782,7 @@ function bare(workItem: WorkItem): Detail {
 export const workItemDetails: readonly Detail[] = [
   releaseDetail,
   escalatedDetail,
+  pipelineDetail,
   bare(doneRecent),
   bare(approval),
   example,

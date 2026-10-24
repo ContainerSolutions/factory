@@ -32,7 +32,11 @@ describe('BoardView', () => {
       ],
       [
         'lane-running',
-        ['platform/release-notes#7', 'compliance-framework/docs#42'],
+        [
+          'platform/release-notes#7',
+          'compliance-framework/docs#77',
+          'compliance-framework/docs#42',
+        ],
       ],
       ['lane-waiting', ['compliance-framework/ui#88']],
       ['lane-done', ['compliance-framework/docs#40']],
@@ -48,7 +52,10 @@ describe('BoardView', () => {
     });
     expect(lanes(wrapper)).toEqual([
       ['lane-needs-human', []],
-      ['lane-running', ['compliance-framework/docs#42']],
+      [
+        'lane-running',
+        ['compliance-framework/docs#77', 'compliance-framework/docs#42'],
+      ],
       ['lane-waiting', []],
       ['lane-done', ['compliance-framework/docs#40']],
     ]);
@@ -91,7 +98,7 @@ describe('BoardView', () => {
       .find((b) => b.text() === 'Load more')!;
     await more.trigger('click');
     await flushPromises();
-    expect(wrapper.findAll('[data-testid="workitem-card"]')).toHaveLength(6);
+    expect(wrapper.findAll('[data-testid="workitem-card"]')).toHaveLength(7);
     expect(
       wrapper.findAll('button').some((b) => b.text() === 'Load more'),
     ).toBe(false);
@@ -123,6 +130,7 @@ describe('BoardView', () => {
       'lane-running',
       [
         'platform/release-notes#7',
+        'compliance-framework/docs#77',
         'compliance-framework/docs#42',
         'compliance-framework/ui#88',
       ],
