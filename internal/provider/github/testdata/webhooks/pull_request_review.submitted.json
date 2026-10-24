@@ -70,7 +70,7 @@
       "user_view_type": "public",
       "site_admin": false
     },
-    "body": "Two claims don't match v1.4.0: see the inline comments.",
+    "body": "Two claims don't match v1.4.0: see the inline comments.\n\n<!-- factory:effect tsk_01JAB3RVW0000000000000000%2Freview%2F1 -->",
     "commit_id": "f00df00df00df00df00df00df00df00df00df00d",
     "submitted_at": "2026-10-16T11:00:00Z",
     "state": "CHANGES_REQUESTED",

@@ -162,6 +162,9 @@ func TestNormaliseRows(t *testing.T) {
 		refs  []string
 		facts map[string]any // checked with reflect.DeepEqual on each event's facts, key by key
 		actor v1alpha1.Actor
+		// effect is Data.Effect: set from a marker only on the event that creates the object,
+		// and only when one of the factory's Apps wrote it.
+		effect string
 	}
 	anyone := func(login string, bot bool) v1alpha1.Actor {
 		return v1alpha1.Actor{ID: prov + ":" + login, Tier: "anyone", IsBot: bot}
@@ -183,6 +186,9 @@ func TestNormaliseRows(t *testing.T) {
 		"issues.opened": {typ: v1alpha1.EventIssueOpened, refs: []string{docs + "#42"}, actor: anyone("someone", false), facts: map[string]any{
 			"issue": map[string]any{"title": "Broken link", "labels": []any{}, "body": "github://" + docs + "/issues/42#body"},
 		}},
+		// The author App opened it: its marker names the effect (percent-decoded).
+		"issues.opened-factory": {typ: v1alpha1.EventIssueOpened, refs: []string{docs + "#42"}, actor: factory("ccf-factory[bot]", "author"),
+			effect: "evt/github-public/gh-epic-57/plan-epic/0"},
 		"issues.opened-maintainer": {typ: v1alpha1.EventIssueOpened, refs: []string{docs + "#70"},
 			actor: v1alpha1.Actor{ID: prov + ":admin", Tier: "maintainer"}, facts: map[string]any{
 				"issue": map[string]any{"title": "Add i18n with a PT-BR translation", "labels": []any{}, "body": "Translate the docs to PT-BR, one PR per section."},
@@ -207,11 +213,18 @@ func TestNormaliseRows(t *testing.T) {
 		}},
 		"issue_comment.created-pr": {typ: v1alpha1.EventIssueCommented, refs: []string{docs + "#57"},
 			actor: v1alpha1.Actor{ID: prov + ":admin", Tier: "maintainer"}, facts: map[string]any{"text": "/factory approve implement"}},
+		"issue_comment.created-factory": {typ: v1alpha1.EventIssueCommented, refs: []string{docs + "#57"}, actor: factory("ccf-factory[bot]", "author"),
+			facts: map[string]any{"text": "github://" + docs + "/issues/57#comment-3401113333"}, effect: "tsk_01JAB3K7Q2M8V9W4XYZ5N6P7RS/pr.comment/1"},
 		"pull_request.opened": {typ: v1alpha1.EventPROpened, refs: []string{docs + "#88"},
 			actor: v1alpha1.Actor{ID: prov + ":carol", Tier: "contributor"}, facts: map[string]any{
 				"pr": map[string]any{"draft": false, "head": "c4r01c4r01c4r01c4r01c4r01c4r01c4r01c4r0", "base": "main"},
 			}},
-		"pull_request.opened-factory":   {typ: v1alpha1.EventPROpened, refs: []string{docs + "#57"}, actor: factory("ccf-factory[bot]", "author")},
+		"pull_request.opened-factory": {typ: v1alpha1.EventPROpened, refs: []string{docs + "#57"}, actor: factory("ccf-factory[bot]", "author"),
+			effect: "tsk_01JAB3K7Q2M8V9W4XYZ5N6P7RS/pr.open/1"},
+		// The same marker in carol's PR body: forgeable, so ignored.
+		"pull_request.opened-forged-marker": {typ: v1alpha1.EventPROpened, refs: []string{docs + "#88"},
+			actor: v1alpha1.Actor{ID: prov + ":carol", Tier: "contributor"}},
+		// A push to the factory's PR: the body keeps pr.open's marker, but the push isn't that effect.
 		"pull_request.synchronize":      {typ: v1alpha1.EventPRUpdated, refs: []string{docs + "#57"}, actor: factory("ccf-factory[bot]", "author")},
 		"pull_request.ready_for_review": {typ: v1alpha1.EventPRReadyForReview, refs: []string{docs + "#88"}},
 		"pull_request.labeled":          {typ: v1alpha1.EventPRLabeled, refs: []string{docs + "#88"}, facts: map[string]any{"label": "documentation"}},
@@ -220,7 +233,7 @@ func TestNormaliseRows(t *testing.T) {
 		"pull_request_review.submitted": {typ: v1alpha1.EventPRReviewSubmitted, refs: []string{docs + "#90"},
 			actor: factory("ccf-factory-reviewer[bot]", "reviewer"), facts: map[string]any{
 				"review": map[string]any{"state": "changes_requested", "commit": "f00df00df00df00df00df00df00df00df00df00d"},
-			}},
+			}, effect: "tsk_01JAB3RVW0000000000000000/review/1"},
 		"pull_request_review.submitted-approved": {typ: v1alpha1.EventPRReviewSubmitted, refs: []string{docs + "#88"}, facts: map[string]any{
 			"review": map[string]any{"state": "approved", "commit": "c4r01c4r01c4r01c4r01c4r01c4r01c4r01c4r0"},
 		}},
@@ -280,6 +293,9 @@ func TestNormaliseRows(t *testing.T) {
 				}
 				if w.actor.ID != "" && !reflect.DeepEqual(*ev.Data.Actor, w.actor) {
 					t.Errorf("actor = %+v, want %+v", *ev.Data.Actor, w.actor)
+				}
+				if ev.Data.Effect != w.effect {
+					t.Errorf("effect = %q, want %q", ev.Data.Effect, w.effect)
 				}
 				for k, v := range w.facts {
 					if !reflect.DeepEqual(ev.Data.Facts[k], v) {
