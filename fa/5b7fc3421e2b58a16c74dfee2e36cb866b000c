@@ -1,0 +1,2 @@
+lisa-addressed:
+- ccf-review Must-fix 4e143a97add2 (CatalogView reload left the open prompt/schema on "Loading…"): the store bumps filesVersion when loadFiles drops the contents; CatalogView's watch depends on it, so the shown file is fetched again; loadFile drops a response that started before the latest loadFiles. Specs: CatalogView reload shows the prompt again; the store drops a stale fetch.
