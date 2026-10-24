@@ -1,0 +1,6 @@
+lisa-design:
+- No new npm dependency: hand-written tokenisers in shared/highlight.ts (CEL, Go text/template with Markdown headings, JSON) and a JSON-to-YAML writer that emits tokens directly (block style, literal blocks for multi-line text, quotes where YAML would read a string back differently; round-trip tested with js-yaml, a devDependency only). CodeBlock renders tokens as text spans via v-for, never v-html.
+- Tabs are a shared TabList (WAI-ARIA tabs, automatic activation, roving tabindex) so UI-2's work-item tabs reuse it. The tab and the picked file live in the route query (?tab=prompts&file=...), so TaskSpec cards link to their prompt and schema.
+- File contents load on demand, cached per path in the store, cleared on reload; the list loads with the catalog. "Used by" is derived client-side from the TaskSpecs' instructions.template and output.schema.
+- TaskSpecTable is folded into TaskSpecCard (one card per spec). Group and Template are now fetched in full (DETAIL_KINDS) for their cards and YAML; Providers keep using GET /providers. The dry-run panel stays below the tabs.
+- Prompts are shown as the raw template highlighted, not rendered Markdown: rendering would need a sanitising renderer (a dependency) and the template's actions would be lost.
