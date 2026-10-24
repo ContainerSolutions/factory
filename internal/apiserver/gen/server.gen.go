@@ -86,6 +86,24 @@ func (e ActionIntentType) Valid() bool {
 	}
 }
 
+// Defines values for CatalogFileKind.
+const (
+	CatalogFileKindPrompt CatalogFileKind = "prompt"
+	CatalogFileKindSchema CatalogFileKind = "schema"
+)
+
+// Valid indicates whether the value is a known member of the CatalogFileKind enum.
+func (e CatalogFileKind) Valid() bool {
+	switch e {
+	case CatalogFileKindPrompt:
+		return true
+	case CatalogFileKindSchema:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CatalogKind.
 const (
 	CatalogKindGroup    CatalogKind = "Group"
@@ -382,6 +400,36 @@ type CatalogError struct {
 	File    *string `json:"file,omitempty"`
 	Line    *int    `json:"line,omitempty"`
 	Message string  `json:"message"`
+}
+
+// CatalogFile One prompt or schema file, as the catalog holds it.
+type CatalogFile struct {
+	// Content The file's text, unrendered.
+	Content string `json:"content"`
+
+	// Digest `sha256:<hex>` of the content (a prompt's is its `spec.prompt.digest`).
+	Digest string `json:"digest"`
+
+	// Kind `prompt` is a template under `prompts/`; `schema` a JSON Schema under `schemas/`.
+	Kind CatalogFileKind `json:"kind"`
+	Path string          `json:"path"`
+}
+
+// CatalogFileKind `prompt` is a template under `prompts/`; `schema` a JSON Schema under `schemas/`.
+type CatalogFileKind string
+
+// CatalogFileList The catalog's prompt and schema files.
+type CatalogFileList struct {
+	Items []CatalogFileRef `json:"items"`
+}
+
+// CatalogFileRef One prompt or schema file of the catalog.
+type CatalogFileRef struct {
+	// Kind `prompt` is a template under `prompts/`; `schema` a JSON Schema under `schemas/`.
+	Kind CatalogFileKind `json:"kind"`
+
+	// Path The catalog-relative path, as TaskSpecs reference it.
+	Path string `json:"path"`
 }
 
 // CatalogKind A config kind.
@@ -1330,6 +1378,12 @@ type LoginParams struct {
 	ReturnTo *string `form:"returnTo,omitempty" json:"returnTo,omitempty"`
 }
 
+// GetCatalogFileParams defines parameters for GetCatalogFile.
+type GetCatalogFileParams struct {
+	// Path The file's catalog-relative path, e.g. `prompts/implement.md.tmpl`.
+	Path string `form:"path" json:"path"`
+}
+
 // ListEnrollmentsParams defines parameters for ListEnrollments.
 type ListEnrollmentsParams struct {
 	// Cursor The `nextCursor` of the previous page. Opaque.
@@ -1808,6 +1862,12 @@ type ServerInterface interface {
 	// Evaluate an event against the catalog
 	// (POST /catalog/dry-run)
 	DryRunCatalog(ctx echo.Context) error
+	// Get one prompt or schema file of the catalog
+	// (GET /catalog/file)
+	GetCatalogFile(ctx echo.Context, params GetCatalogFileParams) error
+	// List the catalog's prompt and schema files
+	// (GET /catalog/files)
+	ListCatalogFiles(ctx echo.Context) error
 	// Get one catalog object
 	// (GET /catalog/{kind}/{name})
 	GetCatalogObject(ctx echo.Context, kind CatalogKind, name string) error
@@ -2099,6 +2159,41 @@ func (w *ServerInterfaceWrapper) DryRunCatalog(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.DryRunCatalog(ctx)
+	return err
+}
+
+// GetCatalogFile converts echo context to params.
+func (w *ServerInterfaceWrapper) GetCatalogFile(ctx echo.Context) error {
+	var err error
+
+	ctx.Set(string(UiSessionScopes), []string{})
+
+	ctx.Set(string(CliTokenScopes), []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetCatalogFileParams
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", ctx.QueryParams(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter path: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.GetCatalogFile(ctx, params)
+	return err
+}
+
+// ListCatalogFiles converts echo context to params.
+func (w *ServerInterfaceWrapper) ListCatalogFiles(ctx echo.Context) error {
+	var err error
+
+	ctx.Set(string(UiSessionScopes), []string{})
+
+	ctx.Set(string(CliTokenScopes), []string{})
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ListCatalogFiles(ctx)
 	return err
 }
 
@@ -2733,6 +2828,8 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 	router.GET(options.BaseURL+"/auth/me", wrapper.GetMe, options.OperationMiddlewares["getMe"]...)
 	router.GET(options.BaseURL+"/catalog", wrapper.GetCatalog, options.OperationMiddlewares["getCatalog"]...)
 	router.POST(options.BaseURL+"/catalog/dry-run", wrapper.DryRunCatalog, options.OperationMiddlewares["dryRunCatalog"]...)
+	router.GET(options.BaseURL+"/catalog/file", wrapper.GetCatalogFile, options.OperationMiddlewares["getCatalogFile"]...)
+	router.GET(options.BaseURL+"/catalog/files", wrapper.ListCatalogFiles, options.OperationMiddlewares["listCatalogFiles"]...)
 	router.GET(options.BaseURL+"/catalog/:kind/:name", wrapper.GetCatalogObject, options.OperationMiddlewares["getCatalogObject"]...)
 	router.POST(options.BaseURL+"/commands", wrapper.PostCommand, options.OperationMiddlewares["postCommand"]...)
 	router.GET(options.BaseURL+"/enrollments", wrapper.ListEnrollments, options.OperationMiddlewares["listEnrollments"]...)
@@ -3619,6 +3716,147 @@ type DryRunCatalogdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response DryRunCatalogdefaultApplicationProblemPlusJSONResponse) VisitDryRunCatalogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCatalogFileRequestObject struct {
+	Params GetCatalogFileParams
+}
+
+type GetCatalogFileResponseObject interface {
+	VisitGetCatalogFileResponse(w http.ResponseWriter) error
+}
+
+type GetCatalogFile200JSONResponse CatalogFile
+
+func (response GetCatalogFile200JSONResponse) VisitGetCatalogFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCatalogFile400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response GetCatalogFile400ApplicationProblemPlusJSONResponse) VisitGetCatalogFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCatalogFile401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetCatalogFile401ApplicationProblemPlusJSONResponse) VisitGetCatalogFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCatalogFile404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetCatalogFile404ApplicationProblemPlusJSONResponse) VisitGetCatalogFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCatalogFiledefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetCatalogFiledefaultApplicationProblemPlusJSONResponse) VisitGetCatalogFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCatalogFilesRequestObject struct {
+}
+
+type ListCatalogFilesResponseObject interface {
+	VisitListCatalogFilesResponse(w http.ResponseWriter) error
+}
+
+type ListCatalogFiles200JSONResponse CatalogFileList
+
+func (response ListCatalogFiles200JSONResponse) VisitListCatalogFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCatalogFiles401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListCatalogFiles401ApplicationProblemPlusJSONResponse) VisitListCatalogFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCatalogFilesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListCatalogFilesdefaultApplicationProblemPlusJSONResponse) VisitListCatalogFilesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -5759,6 +5997,12 @@ type StrictServerInterface interface {
 	// Evaluate an event against the catalog
 	// (POST /catalog/dry-run)
 	DryRunCatalog(ctx context.Context, request DryRunCatalogRequestObject) (DryRunCatalogResponseObject, error)
+	// Get one prompt or schema file of the catalog
+	// (GET /catalog/file)
+	GetCatalogFile(ctx context.Context, request GetCatalogFileRequestObject) (GetCatalogFileResponseObject, error)
+	// List the catalog's prompt and schema files
+	// (GET /catalog/files)
+	ListCatalogFiles(ctx context.Context, request ListCatalogFilesRequestObject) (ListCatalogFilesResponseObject, error)
 	// Get one catalog object
 	// (GET /catalog/{kind}/{name})
 	GetCatalogObject(ctx context.Context, request GetCatalogObjectRequestObject) (GetCatalogObjectResponseObject, error)
@@ -6143,6 +6387,54 @@ func (sh *strictHandler) DryRunCatalog(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(DryRunCatalogResponseObject); ok {
 		return validResponse.VisitDryRunCatalogResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetCatalogFile operation middleware
+func (sh *strictHandler) GetCatalogFile(ctx echo.Context, params GetCatalogFileParams) error {
+	var request GetCatalogFileRequestObject
+
+	request.Params = params
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCatalogFile(ctx.Request().Context(), request.(GetCatalogFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCatalogFile")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetCatalogFileResponseObject); ok {
+		return validResponse.VisitGetCatalogFileResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ListCatalogFiles operation middleware
+func (sh *strictHandler) ListCatalogFiles(ctx echo.Context) error {
+	var request ListCatalogFilesRequestObject
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCatalogFiles(ctx.Request().Context(), request.(ListCatalogFilesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCatalogFiles")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ListCatalogFilesResponseObject); ok {
+		return validResponse.VisitListCatalogFilesResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

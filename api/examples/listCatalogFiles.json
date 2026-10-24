@@ -1,0 +1,8 @@
+{
+  "items": [
+    { "path": "prompts/implement.md.tmpl", "kind": "prompt" },
+    { "path": "prompts/triage.md.tmpl", "kind": "prompt" },
+    { "path": "schemas/results/implement.json", "kind": "schema" },
+    { "path": "schemas/results/triage.json", "kind": "schema" }
+  ]
+}

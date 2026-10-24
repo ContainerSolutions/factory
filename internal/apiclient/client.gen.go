@@ -87,6 +87,24 @@ func (e ActionIntentType) Valid() bool {
 	}
 }
 
+// Defines values for CatalogFileKind.
+const (
+	CatalogFileKindPrompt CatalogFileKind = "prompt"
+	CatalogFileKindSchema CatalogFileKind = "schema"
+)
+
+// Valid indicates whether the value is a known member of the CatalogFileKind enum.
+func (e CatalogFileKind) Valid() bool {
+	switch e {
+	case CatalogFileKindPrompt:
+		return true
+	case CatalogFileKindSchema:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CatalogKind.
 const (
 	CatalogKindGroup    CatalogKind = "Group"
@@ -383,6 +401,36 @@ type CatalogError struct {
 	File    *string `json:"file,omitempty"`
 	Line    *int    `json:"line,omitempty"`
 	Message string  `json:"message"`
+}
+
+// CatalogFile One prompt or schema file, as the catalog holds it.
+type CatalogFile struct {
+	// Content The file's text, unrendered.
+	Content string `json:"content"`
+
+	// Digest `sha256:<hex>` of the content (a prompt's is its `spec.prompt.digest`).
+	Digest string `json:"digest"`
+
+	// Kind `prompt` is a template under `prompts/`; `schema` a JSON Schema under `schemas/`.
+	Kind CatalogFileKind `json:"kind"`
+	Path string          `json:"path"`
+}
+
+// CatalogFileKind `prompt` is a template under `prompts/`; `schema` a JSON Schema under `schemas/`.
+type CatalogFileKind string
+
+// CatalogFileList The catalog's prompt and schema files.
+type CatalogFileList struct {
+	Items []CatalogFileRef `json:"items"`
+}
+
+// CatalogFileRef One prompt or schema file of the catalog.
+type CatalogFileRef struct {
+	// Kind `prompt` is a template under `prompts/`; `schema` a JSON Schema under `schemas/`.
+	Kind CatalogFileKind `json:"kind"`
+
+	// Path The catalog-relative path, as TaskSpecs reference it.
+	Path string `json:"path"`
 }
 
 // CatalogKind A config kind.
@@ -1331,6 +1379,12 @@ type LoginParams struct {
 	ReturnTo *string `form:"returnTo,omitempty" json:"returnTo,omitempty"`
 }
 
+// GetCatalogFileParams defines parameters for GetCatalogFile.
+type GetCatalogFileParams struct {
+	// Path The file's catalog-relative path, e.g. `prompts/implement.md.tmpl`.
+	Path string `form:"path" json:"path"`
+}
+
 // ListEnrollmentsParams defines parameters for ListEnrollments.
 type ListEnrollmentsParams struct {
 	// Cursor The `nextCursor` of the previous page. Opaque.
@@ -1886,6 +1940,12 @@ type ClientInterface interface {
 
 	DryRunCatalog(ctx context.Context, body DryRunCatalogJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetCatalogFile request
+	GetCatalogFile(ctx context.Context, params *GetCatalogFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListCatalogFiles request
+	ListCatalogFiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetCatalogObject request
 	GetCatalogObject(ctx context.Context, kind CatalogKind, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2138,6 +2198,30 @@ func (c *Client) DryRunCatalogWithBody(ctx context.Context, contentType string, 
 
 func (c *Client) DryRunCatalog(ctx context.Context, body DryRunCatalogJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDryRunCatalogRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetCatalogFile(ctx context.Context, params *GetCatalogFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetCatalogFileRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListCatalogFiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListCatalogFilesRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -3012,6 +3096,83 @@ func NewDryRunCatalogRequestWithBody(server string, contentType string, body io.
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetCatalogFileRequest generates requests for GetCatalogFile
+func NewGetCatalogFileRequest(server string, params *GetCatalogFileParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/catalog/file")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListCatalogFilesRequest generates requests for ListCatalogFiles
+func NewListCatalogFilesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/catalog/files")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -4250,6 +4411,12 @@ type ClientWithResponsesInterface interface {
 
 	DryRunCatalogWithResponse(ctx context.Context, body DryRunCatalogJSONRequestBody, reqEditors ...RequestEditorFn) (*DryRunCatalogResponse, error)
 
+	// GetCatalogFileWithResponse request
+	GetCatalogFileWithResponse(ctx context.Context, params *GetCatalogFileParams, reqEditors ...RequestEditorFn) (*GetCatalogFileResponse, error)
+
+	// ListCatalogFilesWithResponse request
+	ListCatalogFilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListCatalogFilesResponse, error)
+
 	// GetCatalogObjectWithResponse request
 	GetCatalogObjectWithResponse(ctx context.Context, kind CatalogKind, name string, reqEditors ...RequestEditorFn) (*GetCatalogObjectResponse, error)
 
@@ -4717,6 +4884,72 @@ func (r DryRunCatalogResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r DryRunCatalogResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetCatalogFileResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *CatalogFile
+	ApplicationproblemJSON400     *BadRequest
+	ApplicationproblemJSON401     *Unauthorized
+	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSONDefault *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r GetCatalogFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetCatalogFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetCatalogFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListCatalogFilesResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *CatalogFileList
+	ApplicationproblemJSON401     *Unauthorized
+	ApplicationproblemJSONDefault *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r ListCatalogFilesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListCatalogFilesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListCatalogFilesResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5634,6 +5867,24 @@ func (c *ClientWithResponses) DryRunCatalogWithResponse(ctx context.Context, bod
 	return ParseDryRunCatalogResponse(rsp)
 }
 
+// GetCatalogFileWithResponse request returning *GetCatalogFileResponse
+func (c *ClientWithResponses) GetCatalogFileWithResponse(ctx context.Context, params *GetCatalogFileParams, reqEditors ...RequestEditorFn) (*GetCatalogFileResponse, error) {
+	rsp, err := c.GetCatalogFile(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetCatalogFileResponse(rsp)
+}
+
+// ListCatalogFilesWithResponse request returning *ListCatalogFilesResponse
+func (c *ClientWithResponses) ListCatalogFilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListCatalogFilesResponse, error) {
+	rsp, err := c.ListCatalogFiles(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListCatalogFilesResponse(rsp)
+}
+
 // GetCatalogObjectWithResponse request returning *GetCatalogObjectResponse
 func (c *ClientWithResponses) GetCatalogObjectWithResponse(ctx context.Context, kind CatalogKind, name string, reqEditors ...RequestEditorFn) (*GetCatalogObjectResponse, error) {
 	rsp, err := c.GetCatalogObject(ctx, kind, name, reqEditors...)
@@ -6405,6 +6656,100 @@ func ParseDryRunCatalogResponse(rsp *http.Response) (*DryRunCatalogResponse, err
 			return nil, err
 		}
 		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetCatalogFileResponse parses an HTTP response from a GetCatalogFileWithResponse call
+func ParseGetCatalogFileResponse(rsp *http.Response) (*GetCatalogFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetCatalogFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CatalogFile
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListCatalogFilesResponse parses an HTTP response from a ListCatalogFilesWithResponse call
+func ParseListCatalogFilesResponse(rsp *http.Response) (*ListCatalogFilesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListCatalogFilesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CatalogFileList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error

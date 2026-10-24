@@ -393,6 +393,19 @@ func TestContract(t *testing.T) {
 	if ts, err := gco.JSON200.AsTaskSpec(); err != nil || ts.Metadata.Name != "implement" || ts.Kind != v1alpha1.KindTaskSpec {
 		t.Errorf("catalog object %+v %v", ts, err)
 	}
+	// catalog files: stubs until UI-1b, so a reader gets a 501 problem.
+	lcf, err := e.c.ListCatalogFilesWithResponse(ctx, session(gus))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "listCatalogFiles", lcf.HTTPResponse, lcf.Body, http.StatusNotImplemented, CodeNotImplemented)
+	sh.check("listCatalogFiles", lcf.HTTPResponse, lcf.Body, http.StatusNotImplemented)
+	gcf, err := e.c.GetCatalogFileWithResponse(ctx, &apiclient.GetCatalogFileParams{Path: "prompts/implement.md.tmpl"}, session(gus))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "getCatalogFile", gcf.HTTPResponse, gcf.Body, http.StatusNotImplemented, CodeNotImplemented)
+	sh.check("getCatalogFile", gcf.HTTPResponse, gcf.Body, http.StatusNotImplemented)
 	dr, err := e.c.DryRunCatalogWithResponse(ctx, apiclient.DryRunRequest{Event: v1alpha1.Event{
 		ID: "github-public/gh-1/0", Source: ghProvider, Type: "issue.opened", Time: t0,
 		Data: v1alpha1.EventData{

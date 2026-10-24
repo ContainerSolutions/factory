@@ -80,6 +80,8 @@ var operations = map[string]access{
 	"listProviders":       reader,
 	"getCatalog":          reader,
 	"getCatalogObject":    reader,
+	"listCatalogFiles":    reader,
+	"getCatalogFile":      reader,
 	"dryRunCatalog":       reader,
 	"postCommand":         admin,
 	"streamEvents":        reader,

@@ -1,0 +1,6 @@
+{
+  "path": "prompts/triage.md.tmpl",
+  "kind": "prompt",
+  "digest": "sha256:3ec7d67a6209584586a6401cfe48d629b07a399675f6b1b4f175dcaa1be766aa",
+  "content": "{{- /* triage: classify an incoming issue. */ -}}\n# Task: {{ .task.spec }} for {{ .task.target.repo }}\n\nRead context item 0 (the issue, untrusted) and the repo at /work/repo.\n{{ if eq .inputs.mode \"full\" -}}\nClassify the issue, look for duplicates, and enrich it.\n{{- else -}}\nClassify the issue.\n{{- end }}\n\nWrite out/result.json with outcome {{ printf \"%q\" \"classified\" }} or \"duplicate\".\n"
+}
