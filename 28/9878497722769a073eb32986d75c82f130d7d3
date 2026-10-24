@@ -1,0 +1,5 @@
+lisa-design:
+- Decision.actions holds rules.ActionIntent.String() summaries; parseAction splits kind (first word) and subject (rest). Bare kinds still parse (no subject), so older records keep working.
+- "unsupported requestApproval" (how the engine records a requestApproval) parses as kind requestApproval, so the approval join still applies.
+- A dispatch joins the first remaining task whose TaskSpec its summary names (any task for a bare kind); an effect joins the first remaining rule effect with its op. Replaces positional counters, which mis-joined when one decision dispatches two specs.
+- The contract examples (api/examples) keep bare kinds: changing them is a contract PR. web/src/mocks/workitems.ts summarises the getWorkItem example and the stream's workitem.updated frame instead, and the specs use that mock.
