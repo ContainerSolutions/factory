@@ -4,3 +4,6 @@ lisa-design:
 - File contents load on demand, cached per path in the store, cleared on reload; the list loads with the catalog. "Used by" is derived client-side from the TaskSpecs' instructions.template and output.schema.
 - TaskSpecTable is folded into TaskSpecCard (one card per spec). Group and Template are now fetched in full (DETAIL_KINDS) for their cards and YAML; Providers keep using GET /providers. The dry-run panel stays below the tabs.
 - Prompts are shown as the raw template highlighted, not rendered Markdown: rendering would need a sanitising renderer (a dependency) and the template's actions would be lost.
+
+lisa-selfreview:
+- pass 1 (core + vue-app concerns): no blocking findings. Checked: no v-html (all catalog text through CodeBlock spans or mustache), tabs keyboard-accessible with aria-selected/controls/labelledby, pill text alongside colour, YAML writer round-trips through js-yaml, mocks serve the new routes so dev:mock shows every tab (checked in a browser), bundle: initial index 123 KB gzip, CatalogView chunk 18 KB gzip.
