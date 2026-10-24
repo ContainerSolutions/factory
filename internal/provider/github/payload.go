@@ -47,16 +47,18 @@ type ghPullRequest struct {
 	Base struct {
 		Ref string `json:"ref"`
 	} `json:"base"`
-	User              ghUser `json:"user"`
-	AuthorAssociation string `json:"author_association"`
+	Body              *string `json:"body"`
+	User              ghUser  `json:"user"`
+	AuthorAssociation string  `json:"author_association"`
 }
 
 type ghReview struct {
-	ID                int64  `json:"id"`
-	State             string `json:"state"`
-	CommitID          string `json:"commit_id"`
-	User              ghUser `json:"user"`
-	AuthorAssociation string `json:"author_association"`
+	ID                int64   `json:"id"`
+	State             string  `json:"state"`
+	CommitID          string  `json:"commit_id"`
+	Body              *string `json:"body"`
+	User              ghUser  `json:"user"`
+	AuthorAssociation string  `json:"author_association"`
 }
 
 // ghChecks is a check_suite or a check_run: both carry a conclusion and the PRs they ran for.

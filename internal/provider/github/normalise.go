@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -28,6 +30,8 @@ type draft struct {
 	obj        v1alpha1.ObjectRef
 	facts      map[string]any
 	contentRef string
+	// effect is the key of the factory effect that created obj (Data.Effect).
+	effect string
 }
 
 // Normalise implements provider.Conn: the mapping table of github-provider.md §Ingress and
@@ -113,6 +117,7 @@ func (c *Conn) Normalise(ctx context.Context, ev provider.RawEvent) ([]v1alpha1.
 				Repo:       repoOf(obj.Ref),
 				ContentRef: d.contentRef,
 				Facts:      facts,
+				Effect:     d.effect,
 				Raw:        slices.Clone(raw.Bytes()),
 			},
 		})
@@ -216,7 +221,15 @@ func (c *Conn) drafts(ctx context.Context, typ v1alpha1.EventType, e *envelope, 
 				facts["train"] = train
 			}
 		}
-		return []draft{{obj: c.ref(provider.KindIssue, fmt.Sprintf("%s#%d", repo, is.Number)), facts: facts, contentRef: ref}}, nil
+		d := draft{obj: c.ref(provider.KindIssue, fmt.Sprintf("%s#%d", repo, is.Number)), facts: facts, contentRef: ref}
+		if typ == v1alpha1.EventIssueOpened {
+			key, err := c.createdBy(ctx, is.User.Login, body)
+			if err != nil {
+				return nil, err
+			}
+			d.effect = key
+		}
+		return []draft{d}, nil
 
 	case v1alpha1.EventIssueCommented:
 		is, cm := e.Issue, e.Comment
@@ -226,7 +239,11 @@ func (c *Conn) drafts(ctx context.Context, typ v1alpha1.EventType, e *envelope, 
 		}
 		ref := fmt.Sprintf("github://%s/issues/%d#comment-%d", repo, is.Number, cm.ID)
 		facts := map[string]any{"text": inline(actor, sameLogin(cm.User.Login, sender), cm.Body, ref)}
-		return []draft{{obj: c.ref(kind, fmt.Sprintf("%s#%d", repo, is.Number)), facts: facts, contentRef: ref}}, nil
+		key, err := c.createdBy(ctx, cm.User.Login, cm.Body)
+		if err != nil {
+			return nil, err
+		}
+		return []draft{{obj: c.ref(kind, fmt.Sprintf("%s#%d", repo, is.Number)), facts: facts, contentRef: ref, effect: key}}, nil
 
 	case v1alpha1.EventPROpened, v1alpha1.EventPRUpdated, v1alpha1.EventPRReadyForReview,
 		v1alpha1.EventPRLabeled, v1alpha1.EventPRMerged, v1alpha1.EventPRClosed:
@@ -235,17 +252,31 @@ func (c *Conn) drafts(ctx context.Context, typ v1alpha1.EventType, e *envelope, 
 		if typ == v1alpha1.EventPRLabeled {
 			facts["label"] = e.Label.Name
 		}
-		return []draft{{
+		d := draft{
 			obj: c.ref(provider.KindPR, fmt.Sprintf("%s#%d", repo, pr.Number)), facts: facts,
 			contentRef: fmt.Sprintf("github://%s/pull/%d#body", repo, pr.Number),
-		}}, nil
+		}
+		// Only the event that creates the PR: its body keeps pr.open's marker, but a later
+		// push or edit wasn't caused by that effect.
+		if typ == v1alpha1.EventPROpened {
+			key, err := c.createdBy(ctx, pr.User.Login, deref(pr.Body))
+			if err != nil {
+				return nil, err
+			}
+			d.effect = key
+		}
+		return []draft{d}, nil
 
 	case v1alpha1.EventPRReviewSubmitted:
 		pr, rv := e.PullRequest, e.Review
 		facts := map[string]any{"review": map[string]any{"state": strings.ToLower(rv.State), "commit": rv.CommitID}}
+		key, err := c.createdBy(ctx, rv.User.Login, deref(rv.Body))
+		if err != nil {
+			return nil, err
+		}
 		return []draft{{
 			obj: c.ref(provider.KindPR, fmt.Sprintf("%s#%d", repo, pr.Number)), facts: facts,
-			contentRef: fmt.Sprintf("github://%s/pull/%d#review-%d", repo, pr.Number, rv.ID),
+			contentRef: fmt.Sprintf("github://%s/pull/%d#review-%d", repo, pr.Number, rv.ID), effect: key,
 		}}, nil
 
 	case v1alpha1.EventPRChecksCompleted:
@@ -279,6 +310,32 @@ func (c *Conn) drafts(ctx context.Context, typ v1alpha1.EventType, e *envelope, 
 		return c.deployDrafts(ctx, repo, e.Deployment, e.DeploymentStatus)
 	}
 	return nil, nil
+}
+
+// effectKeyRE matches an effect marker (effectMarker) and captures its encoded key.
+var effectKeyRE = regexp.MustCompile(`<!-- factory:effect ([^ ]*) -->`)
+
+// createdBy is the key of the factory effect that created an object authored by author with
+// body: its first effect marker, percent-decoded, when author is one of the factory's own
+// Apps, as the effects' replay lookup requires; "" otherwise. Anyone can paste a marker, so
+// one in someone else's text is ignored, as is one that doesn't decode.
+func (c *Conn) createdBy(ctx context.Context, author, body string) (string, error) {
+	m := effectKeyRE.FindStringSubmatch(body)
+	if m == nil || author == "" {
+		return "", nil
+	}
+	bots, err := c.factoryBots(ctx)
+	if err != nil {
+		return "", err
+	}
+	if _, ok := bots[strings.ToLower(author)]; !ok {
+		return "", nil
+	}
+	key, err := url.PathUnescape(m[1])
+	if err != nil {
+		return "", nil
+	}
+	return key, nil
 }
 
 func (c *Conn) ref(kind, ref string) v1alpha1.ObjectRef {
