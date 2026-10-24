@@ -1,0 +1,2 @@
+lisa-design:
+- The ref-and-time heuristic gives an event one guess at most: among the candidates, the cause closest before it (the latest effect time or run start) wins; ties keep the first. Events already linked (exact or tracking) are claimed and get no guess. Tracking links are unchanged: they still come from every set/link action of the latest decision.
