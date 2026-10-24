@@ -1,0 +1,4 @@
+lisa-design:
+- data.effect is set on issue.opened, issue.commented (a created comment), pr.opened and pr.review.submitted only: the events whose object is new. pr.updated, pr.ready_for_review, labels, closes and merges never get it, though the PR body keeps pr.open's marker.
+- The author check is the replay lookup's: the object's author (issue/PR/comment/review user, not the sender) must be one of the factory's Apps' bot logins (factoryBots, learned from GET /app). factoryBots is only fetched when the body has a marker. A marker that doesn't percent-decode is ignored, not an error. The first marker is the creator's (pr.update appends the kept ones after the new body).
+- content.go's stripping of factory: markers is untouched; the key goes to Data.Effect, never into facts or content.
