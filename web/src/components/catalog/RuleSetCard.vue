@@ -1,21 +1,24 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { Schemas } from '@/api/client';
-import CodeBlock from '@/components/shared/CodeBlock.vue';
-import JsonViewer from '@/components/shared/JsonViewer.vue';
+import ListDetail from '@/components/shared/ListDetail.vue';
 import ObjectYaml from '@/components/shared/ObjectYaml.vue';
 import StatusPill from '@/components/shared/StatusPill.vue';
-import { tokenizeCEL } from '@/components/shared/highlight';
+import { pickItem, type ListItem } from '@/components/shared/list';
 import { budgetText } from '@/components/pools/pools';
+import RuleCard from './RuleCard.vue';
 import {
-  actionKinds,
   formatSelector,
   matchesSelector,
   providerLabels,
   selectRules,
 } from './catalog';
 
-/** One RuleSet: where it applies, how it selects rules, and each selected rule with its params. */
+/**
+ * One RuleSet: where it applies, how it selects rules, and its selected rules as a list; the
+ * picked one (the first by default) shows as its rule, with its params after the RuleSet's
+ * defaults and overrides.
+ */
 const props = defineProps<{
   ruleSet: Schemas['RuleSet'];
   rules: Schemas['Rule'][];
@@ -57,6 +60,20 @@ const selectionText = computed(() => {
     .join('; ');
 });
 const budget = computed(() => budgetText(spec.value.budget));
+
+const ruleItems = computed<ListItem[]>(() =>
+  selection.value.rules.map((r) => ({
+    id: r.name,
+    label: r.name,
+    secondary: `on ${r.spec.on.join(', ')}`,
+  })),
+);
+const picked = ref('');
+watch(name, () => (picked.value = ''));
+const ruleShown = computed(() => pickItem(ruleItems.value, picked.value));
+const shownRule = computed(() =>
+  selection.value.rules.find((r) => r.name === ruleShown.value),
+);
 </script>
 
 <template>
@@ -103,63 +120,40 @@ const budget = computed(() => budgetText(spec.value.budget));
     <h4 class="mt-4 mb-2 text-sm font-semibold">
       Selected rules ({{ selection.rules.length }})
     </h4>
-    <ul v-if="selection.rules.length" class="flex flex-col gap-3">
-      <li
-        v-for="rule in selection.rules"
-        :key="rule.name"
-        class="rounded-md border border-ccf-200 p-3 dark:border-ccf-800"
-        data-testid="selected-rule"
-      >
-        <div class="mb-1 flex flex-wrap items-center gap-2">
-          <span class="font-mono text-sm font-medium" data-testid="rule-name">{{
-            rule.name
-          }}</span>
+    <ListDetail
+      v-if="selection.rules.length"
+      :items="ruleItems"
+      :selected="ruleShown"
+      :label="`Rules of RuleSet ${name}`"
+      @select="picked = $event"
+    >
+      <div v-if="shownRule" data-testid="selected-rule">
+        <div class="mb-2 flex flex-wrap items-center gap-2 text-xs">
+          <span class="text-ccf-600 dark:text-ccf-400">Selected</span>
           <StatusPill
-            v-for="via in rule.via"
+            v-for="via in shownRule.via"
             :key="via"
             :label="`by ${via}`"
             tone="neutral"
           />
-          <StatusPill v-if="rule.spec.final" label="final" tone="warn" />
         </div>
-        <dl class="kv-grid gap-x-4 gap-y-1 text-sm">
-          <dt class="text-ccf-600 dark:text-ccf-400">On</dt>
-          <dd class="font-mono text-xs leading-5">
-            {{ rule.spec.on.join(', ') }}
-          </dd>
-          <template v-if="rule.spec.where">
-            <dt class="text-ccf-600 dark:text-ccf-400">Where</dt>
-            <dd>
-              <CodeBlock
-                :tokens="tokenizeCEL(rule.spec.where)"
-                :label="`Where of ${rule.name}`"
-                inline
-              />
-            </dd>
-          </template>
-          <template v-if="rule.spec.priority !== undefined">
-            <dt class="text-ccf-600 dark:text-ccf-400">Priority</dt>
-            <dd>{{ rule.spec.priority }}</dd>
-          </template>
-          <dt class="text-ccf-600 dark:text-ccf-400">Actions</dt>
-          <dd data-testid="rule-actions">
-            {{ actionKinds(rule.spec.actions).join(', ') || 'none' }}
-          </dd>
-        </dl>
-        <template v-if="Object.keys(rule.params).length">
-          <h5 class="mt-2 mb-1 text-xs font-semibold">
-            Params after defaults and overrides
-          </h5>
-          <JsonViewer :value="rule.params" :label="`Params of ${rule.name}`" />
-        </template>
         <p
-          v-if="rule.unknownOverrides.length"
-          class="mt-1 text-xs text-red-700 dark:text-red-300"
+          v-if="shownRule.unknownOverrides.length"
+          class="mb-2 text-xs text-red-700 dark:text-red-300"
         >
-          Overrides undeclared params: {{ rule.unknownOverrides.join(', ') }}
+          Overrides undeclared params:
+          {{ shownRule.unknownOverrides.join(', ') }}
         </p>
-      </li>
-    </ul>
+        <RuleCard
+          :rule="{
+            kind: 'Rule',
+            metadata: { name: shownRule.name, labels: shownRule.labels },
+            spec: shownRule.spec,
+          }"
+          :params="shownRule.params"
+        />
+      </div>
+    </ListDetail>
     <p v-else class="text-sm text-ccf-500 dark:text-ccf-400">
       Selects no rules.
     </p>

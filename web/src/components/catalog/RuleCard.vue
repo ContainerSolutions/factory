@@ -7,8 +7,14 @@ import StatusPill from '@/components/shared/StatusPill.vue';
 import { tokenizeCEL, yamlTokens } from '@/components/shared/highlight';
 import { formatSelector } from './catalog';
 
-/** One standalone Rule as written: on, where (CEL), params and each action. */
-const props = defineProps<{ rule: Schemas['Rule'] }>();
+/**
+ * One Rule: on, where (CEL), params and each action. As written, or, given `params`, as a RuleSet
+ * runs it: its params after the RuleSet's defaults and overrides, shown even when there are none.
+ */
+const props = defineProps<{
+  rule: Schemas['Rule'];
+  params?: Record<string, unknown>;
+}>();
 
 const spec = computed(() => props.rule.spec);
 const name = computed(() => props.rule.metadata.name);
@@ -57,7 +63,21 @@ const actions = computed(() =>
         />
         <span v-else>always</span>
       </dd>
-      <template v-if="spec.params && Object.keys(spec.params).length">
+      <template v-if="params">
+        <dt class="text-ccf-600 dark:text-ccf-400">Params</dt>
+        <dd data-testid="rule-params">
+          <p class="mb-1 text-xs text-ccf-600 dark:text-ccf-400">
+            after the RuleSet's defaults and overrides
+          </p>
+          <CodeBlock
+            v-if="Object.keys(params).length"
+            :tokens="yamlTokens(params)"
+            :label="`Params of ${name}`"
+          />
+          <span v-else>none</span>
+        </dd>
+      </template>
+      <template v-else-if="spec.params && Object.keys(spec.params).length">
         <dt class="text-ccf-600 dark:text-ccf-400">Params</dt>
         <dd data-testid="rule-params">
           <CodeBlock

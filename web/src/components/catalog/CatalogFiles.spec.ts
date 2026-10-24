@@ -34,8 +34,14 @@ function mountFiles(
 describe('CatalogFiles', () => {
   it('lists the files and picks one', async () => {
     const wrapper = mountFiles({});
-    const buttons = wrapper.findAll('[data-testid="catalog-file"]');
-    expect(buttons.map((b) => b.text())).toEqual(files.map((f) => f.path));
+    const buttons = wrapper.findAll('[data-testid="list-item"]');
+    expect(buttons.map((b) => b.find('span').text())).toEqual(
+      files.map((f) => f.path),
+    );
+    // The secondary line says which TaskSpecs use it.
+    expect(
+      buttons.map((b) => b.get('[data-testid="list-item-secondary"]').text()),
+    ).toEqual(['unused', 'used by triage']);
     expect(wrapper.find('[data-testid="catalog-file-view"]').exists()).toBe(
       false,
     );
@@ -58,7 +64,7 @@ describe('CatalogFiles', () => {
     await modes[1]!.trigger('click');
     expect(modes[1]!.attributes('aria-pressed')).toBe('true');
     expect(wrapper.find('[data-testid="markdown"]').exists()).toBe(false);
-    expect(wrapper.find('[aria-current="true"]').text()).toBe(
+    expect(wrapper.find('[aria-current="true"] span').text()).toBe(
       'prompts/triage.md.tmpl',
     );
     expect(

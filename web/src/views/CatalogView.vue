@@ -5,14 +5,20 @@ import CatalogFiles from '@/components/catalog/CatalogFiles.vue';
 import CatalogStatus from '@/components/catalog/CatalogStatus.vue';
 import DryRunPanel from '@/components/catalog/DryRunPanel.vue';
 import GroupCard from '@/components/catalog/GroupCard.vue';
-import ProviderTable from '@/components/catalog/ProviderTable.vue';
-import QueuesAndPools from '@/components/catalog/QueuesAndPools.vue';
+import ProviderCard from '@/components/catalog/ProviderCard.vue';
+import QueuePoolCard from '@/components/catalog/QueuePoolCard.vue';
 import RuleCard from '@/components/catalog/RuleCard.vue';
 import RuleSetCard from '@/components/catalog/RuleSetCard.vue';
 import TaskSpecCard from '@/components/catalog/TaskSpecCard.vue';
 import TemplateCard from '@/components/catalog/TemplateCard.vue';
-import { fileUsers } from '@/components/catalog/catalog';
-import ObjectYaml from '@/components/shared/ObjectYaml.vue';
+import {
+  catalogLists,
+  fileUsers,
+  queuePoolId,
+  type CatalogLists,
+} from '@/components/catalog/catalog';
+import ListDetail from '@/components/shared/ListDetail.vue';
+import { pickItem } from '@/components/shared/list';
 import PageHeader from '@/components/shared/PageHeader.vue';
 import TabList from '@/components/shared/TabList.vue';
 import { pickTab, tabPanelAttrs, type Tab } from '@/components/shared/tabs';
@@ -47,15 +53,78 @@ const tabs = computed<Tab[]>(() => [
   { id: 'schemas', label: 'Result Schemas', count: schemas.value.length },
 ]);
 
-/** The tab and the picked file live in the URL (?tab=prompts&file=…), so links can open them. */
+/**
+ * The tab and the picked object live in the URL (?tab=rules&item=…, ?tab=prompts&file=…), so
+ * links can open them.
+ */
 const tab = computed(() => pickTab(tabs.value, route.query.tab));
 const file = computed(() =>
   typeof route.query.file === 'string' ? route.query.file : '',
 );
 
 function selectTab(id: string): void {
-  router.replace({ query: { ...route.query, tab: id, file: undefined } });
+  router.replace({
+    query: { ...route.query, tab: id, file: undefined, item: undefined },
+  });
 }
+
+/** Each object tab's list, and the entry shown on it: the one in the URL, else the first. */
+const lists = computed(() =>
+  catalogLists({
+    taskSpecs: store.taskSpecs,
+    rules: store.rules,
+    ruleSets: store.ruleSets,
+    templates: store.templates,
+    providers: store.providers,
+    queues: store.queues,
+    pools: store.pools,
+    groups: store.groups,
+  }),
+);
+const listed = computed(() =>
+  tab.value in lists.value ? lists.value[tab.value as keyof CatalogLists] : [],
+);
+const item = computed(() => pickItem(listed.value, route.query.item));
+
+function selectItem(id: string): void {
+  router.replace({ query: { ...route.query, item: id } });
+}
+
+const byName = <T extends { metadata: { name: string } }>(
+  objects: readonly T[],
+): T | undefined => objects.find((o) => o.metadata.name === item.value);
+const picked = computed(() => ({
+  taskspecs: byName(store.taskSpecs),
+  rules: byName(store.rules),
+  rulesets: byName(store.ruleSets),
+  templates: byName(store.templates),
+  groups: byName(store.groups),
+}));
+const shownProvider = computed(() =>
+  store.providers.find((v) => v.provider.metadata.name === item.value),
+);
+const shownQueuePool = computed(() =>
+  [...store.queues, ...store.pools].find((o) => queuePoolId(o) === item.value),
+);
+
+const LIST_LABEL: Record<string, string> = {
+  taskspecs: 'TaskSpecs',
+  rules: 'Rules',
+  rulesets: 'RuleSets',
+  templates: 'Templates',
+  providers: 'Providers',
+  queues: 'Queues and pools',
+  groups: 'Groups',
+};
+const EMPTY: Record<string, string> = {
+  taskspecs: 'No TaskSpecs.',
+  rules: 'No Rules.',
+  rulesets: 'No RuleSets.',
+  templates: 'No Templates.',
+  providers: 'No providers.',
+  queues: 'No queues or pools.',
+  groups: 'No Groups.',
+};
 
 function selectFile(path: string): void {
   router.replace({ query: { ...route.query, file: path } });
@@ -161,18 +230,62 @@ async function reload(): Promise<void> {
     />
 
     <section
-      v-if="tab === 'taskspecs'"
-      v-bind="tabPanelAttrs('catalog', 'taskspecs')"
+      v-if="tab in LIST_LABEL"
+      v-bind="tabPanelAttrs('catalog', tab)"
       class="mb-8"
     >
-      <div v-if="store.taskSpecs.length" class="grid gap-4 xl:grid-cols-2">
+      <Message
+        v-if="tab === 'providers' && store.providersError"
+        severity="error"
+        class="mb-4"
+        role="alert"
+      >
+        Couldn't load the providers: {{ store.providersError }}
+      </Message>
+      <ListDetail
+        v-if="listed.length"
+        :items="listed"
+        :selected="item"
+        :label="LIST_LABEL[tab]!"
+        @select="selectItem"
+      >
         <TaskSpecCard
-          v-for="t in store.taskSpecs"
-          :key="t.metadata.name"
-          :task-spec="t"
+          v-if="tab === 'taskspecs' && picked.taskspecs"
+          :task-spec="picked.taskspecs"
         />
-      </div>
-      <p v-else class="text-sm text-ccf-500 dark:text-ccf-400">No TaskSpecs.</p>
+        <RuleCard
+          v-else-if="tab === 'rules' && picked.rules"
+          :rule="picked.rules"
+        />
+        <RuleSetCard
+          v-else-if="tab === 'rulesets' && picked.rulesets"
+          :rule-set="picked.rulesets"
+          :rules="store.rules"
+          :providers="providerObjects"
+        />
+        <TemplateCard
+          v-else-if="tab === 'templates' && picked.templates"
+          :template="picked.templates"
+        />
+        <ProviderCard
+          v-else-if="tab === 'providers' && shownProvider"
+          :view="shownProvider"
+        />
+        <QueuePoolCard
+          v-else-if="tab === 'queues' && shownQueuePool"
+          :object="shownQueuePool"
+        />
+        <GroupCard
+          v-else-if="tab === 'groups' && picked.groups"
+          :group="picked.groups"
+        />
+      </ListDetail>
+      <p
+        v-else-if="tab !== 'providers' || store.providersLoaded"
+        class="text-sm text-ccf-500 dark:text-ccf-400"
+      >
+        {{ EMPTY[tab] }}
+      </p>
     </section>
 
     <section
@@ -203,121 +316,6 @@ async function reload(): Promise<void> {
       <p v-else class="text-sm text-ccf-500 dark:text-ccf-400">
         {{ tab === 'prompts' ? 'No prompts.' : 'No result schemas.' }}
       </p>
-    </section>
-
-    <section
-      v-else-if="tab === 'rules'"
-      v-bind="tabPanelAttrs('catalog', 'rules')"
-      class="mb-8"
-    >
-      <div v-if="store.rules.length" class="grid gap-4 xl:grid-cols-2">
-        <RuleCard v-for="r in store.rules" :key="r.metadata.name" :rule="r" />
-      </div>
-      <p v-else class="text-sm text-ccf-500 dark:text-ccf-400">No Rules.</p>
-    </section>
-
-    <section
-      v-else-if="tab === 'rulesets'"
-      v-bind="tabPanelAttrs('catalog', 'rulesets')"
-      class="mb-8"
-    >
-      <div v-if="store.ruleSets.length" class="grid gap-4 xl:grid-cols-2">
-        <RuleSetCard
-          v-for="rs in store.ruleSets"
-          :key="rs.metadata.name"
-          :rule-set="rs"
-          :rules="store.rules"
-          :providers="providerObjects"
-        />
-      </div>
-      <p v-else class="text-sm text-ccf-500 dark:text-ccf-400">No RuleSets.</p>
-    </section>
-
-    <section
-      v-else-if="tab === 'templates'"
-      v-bind="tabPanelAttrs('catalog', 'templates')"
-      class="mb-8"
-    >
-      <div v-if="store.templates.length" class="grid gap-4 xl:grid-cols-2">
-        <TemplateCard
-          v-for="t in store.templates"
-          :key="t.metadata.name"
-          :template="t"
-        />
-      </div>
-      <p v-else class="text-sm text-ccf-500 dark:text-ccf-400">No Templates.</p>
-    </section>
-
-    <section
-      v-else-if="tab === 'providers'"
-      v-bind="tabPanelAttrs('catalog', 'providers')"
-      class="mb-8"
-    >
-      <Message
-        v-if="store.providersError"
-        severity="error"
-        class="mb-4"
-        role="alert"
-      >
-        Couldn't load the providers: {{ store.providersError }}
-      </Message>
-      <template v-if="store.providers.length">
-        <ProviderTable :providers="store.providers" />
-        <ul class="mt-4 flex flex-col gap-2">
-          <li v-for="p in providerObjects" :key="p.metadata.name">
-            <span class="font-mono text-xs font-semibold">{{
-              p.metadata.name
-            }}</span>
-            <ObjectYaml
-              :value="p"
-              :label="`YAML of Provider ${p.metadata.name}`"
-            />
-          </li>
-        </ul>
-      </template>
-      <p
-        v-else-if="store.providersLoaded"
-        class="text-sm text-ccf-500 dark:text-ccf-400"
-      >
-        No providers.
-      </p>
-    </section>
-
-    <section
-      v-else-if="tab === 'queues'"
-      v-bind="tabPanelAttrs('catalog', 'queues')"
-      class="mb-8"
-    >
-      <QueuesAndPools :queues="store.queues" :pools="store.pools" />
-      <ul class="mt-4 flex flex-col gap-2">
-        <li
-          v-for="o in [...store.queues, ...store.pools]"
-          :key="`${o.kind}/${o.metadata.name}`"
-        >
-          <span class="font-mono text-xs font-semibold"
-            >{{ o.kind }} {{ o.metadata.name }}</span
-          >
-          <ObjectYaml
-            :value="o"
-            :label="`YAML of ${o.kind} ${o.metadata.name}`"
-          />
-        </li>
-      </ul>
-    </section>
-
-    <section
-      v-else-if="tab === 'groups'"
-      v-bind="tabPanelAttrs('catalog', 'groups')"
-      class="mb-8"
-    >
-      <div v-if="store.groups.length" class="grid gap-4 xl:grid-cols-2">
-        <GroupCard
-          v-for="g in store.groups"
-          :key="g.metadata.name"
-          :group="g"
-        />
-      </div>
-      <p v-else class="text-sm text-ccf-500 dark:text-ccf-400">No Groups.</p>
     </section>
 
     <DryRunPanel

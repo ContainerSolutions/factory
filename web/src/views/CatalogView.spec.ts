@@ -24,6 +24,15 @@ async function mountCatalog(me = maintainer, path = '/catalog') {
   return Object.assign(wrapper, { router });
 }
 
+// The tab's own list, not a RuleSet's list of rules inside its detail.
+const listed = (wrapper: VueWrapper) =>
+  wrapper
+    .get('[data-testid="list-detail"]')
+    .findAll(':scope > nav [data-testid="list-item"]')
+    .map(
+      (b) => (b.attributes('aria-current') ? '*' : '') + b.find('span').text(),
+    );
+
 async function openTab(wrapper: VueWrapper, label: string): Promise<void> {
   const tab = wrapper
     .findAll('[role="tab"]')
@@ -61,13 +70,15 @@ describe('CatalogView', () => {
     expect(wrapper.get('[role="tabpanel"]').attributes('aria-labelledby')).toBe(
       'catalog-tab-taskspecs',
     );
+    // A list of TaskSpecs, the first one open beside it.
+    expect(listed(wrapper)).toEqual(['*implement', 'review', 'triage']);
     expect(
       wrapper.findAll('[data-testid="taskspec"] h3').map((h) => h.text()),
-    ).toEqual(['implement', 'review', 'triage']);
+    ).toEqual(['implement']);
     expect(wrapper.find('[data-testid="dry-run"]').exists()).toBe(true);
   });
 
-  it.each<[string, string, string[]]>([
+  it.each<[string, string, string[], string]>([
     [
       'Rules',
       '[data-testid="rule"] h3',
@@ -78,33 +89,93 @@ describe('CatalogView', () => {
         'triage-maintainer-issues',
         'triage-outside-issues',
       ],
+      'implement-review-feedback',
     ],
-    ['RuleSets', '[data-testid="ruleset"] h3', ['api', 'docs']],
-    ['Templates', '[data-testid="template"] h3', ['needs-human']],
+    ['RuleSets', '[data-testid="ruleset"] > h3', ['api', 'docs'], 'api'],
+    [
+      'Templates',
+      '[data-testid="template"] h3',
+      ['needs-human'],
+      'needs-human',
+    ],
     [
       'Providers',
-      '[data-testid="provider"] th',
+      '[data-testid="provider"] h3',
       ['github-public', 'github-enterprise', 'slack-ccf'],
+      'github-public',
     ],
     [
       'Queues and Pools',
-      '[data-testid="catalog-pool"] th',
-      ['ci-ephemeral', 'maintainer-agents'],
+      '[data-testid="catalog-queue"] h3',
+      [
+        'default',
+        'nightly',
+        'review',
+        'triage',
+        'ci-ephemeral',
+        'maintainer-agents',
+      ],
+      'Queue default',
     ],
-    ['Groups', '[data-testid="group"] h3', ['maintainers', 'readers']],
-  ])('the %s tab shows its objects', async (label, selector, want) => {
-    const wrapper = await mountCatalog();
-    await openTab(wrapper, label);
-    expect(wrapper.findAll(selector).map((e) => e.text())).toEqual(want);
-    expect(wrapper.find('[data-testid="taskspec"]').exists()).toBe(false);
-    expect(wrapper.router.currentRoute.value.query.tab).toBeTruthy();
+    [
+      'Groups',
+      '[data-testid="group"] h3',
+      ['maintainers', 'readers'],
+      'maintainers',
+    ],
+  ])(
+    'the %s tab lists its objects and shows the first',
+    async (label, selector, names, first) => {
+      const wrapper = await mountCatalog();
+      await openTab(wrapper, label);
+      expect(listed(wrapper)).toEqual(
+        names.map((n, i) => (i === 0 ? `*${n}` : n)),
+      );
+      expect(wrapper.findAll(selector).map((e) => e.text())).toEqual([first]);
+      expect(wrapper.find('[data-testid="taskspec"]').exists()).toBe(false);
+      expect(wrapper.router.currentRoute.value.query.tab).toBeTruthy();
+    },
+  );
+
+  it('keeps the picked object in the URL, and drops it with the tab', async () => {
+    const wrapper = await mountCatalog(maintainer, '/catalog?tab=rules');
+    await wrapper.findAll('[data-testid="list-item"]')[1]!.trigger('click');
+    await flushPromises();
+    expect(wrapper.router.currentRoute.value.query).toEqual({
+      tab: 'rules',
+      item: 'merge-approved',
+    });
+    expect(wrapper.get('[data-testid="rule"] h3').text()).toBe(
+      'merge-approved',
+    );
+    expect(listed(wrapper)[1]).toBe('*merge-approved');
+    await openTab(wrapper, 'Groups');
+    expect(wrapper.router.currentRoute.value.query).toEqual({ tab: 'groups' });
+    mounted!.unmount();
+    // An item the tab doesn't list shows the first.
+    const again = await mountCatalog(
+      maintainer,
+      '/catalog?tab=rules&item=gone',
+    );
+    expect(again.get('[data-testid="rule"] h3').text()).toBe(
+      'implement-review-feedback',
+    );
+  });
+
+  it('opens a pool by its id', async () => {
+    const wrapper = await mountCatalog(
+      maintainer,
+      '/catalog?tab=queues&item=Pool/ci-ephemeral',
+    );
+    expect(wrapper.get('[data-testid="catalog-pool"] h3').text()).toBe(
+      'Pool ci-ephemeral',
+    );
   });
 
   it("opens a TaskSpec's prompt from its card, highlighted", async () => {
-    const wrapper = await mountCatalog();
-    const triage = wrapper
-      .findAll('[data-testid="taskspec"]')
-      .find((c) => c.get('h3').text() === 'triage')!;
+    const wrapper = await mountCatalog(maintainer, '/catalog?item=triage');
+    const triage = wrapper.get('[data-testid="taskspec"]');
+    expect(triage.get('h3').text()).toBe('triage');
     await triage.get('[data-testid="taskspec-prompt"] a').trigger('click');
     await flushPromises();
     expect(wrapper.router.currentRoute.value.query).toEqual({
@@ -126,7 +197,7 @@ describe('CatalogView', () => {
     const view = () => wrapper.get('[data-testid="catalog-file-view"]');
     expect(view().get('h3').text()).toBe('schemas/results/implement.json');
     expect(view().find('pre [data-kind="key"]').text()).toBe('"$schema"');
-    await wrapper.findAll('[data-testid="catalog-file"]')[1]!.trigger('click');
+    await wrapper.findAll('[data-testid="list-item"]')[1]!.trigger('click');
     await flushPromises();
     expect(view().get('h3').text()).toBe('schemas/results/triage.json');
     expect(view().text()).toContain('Used by triage');
@@ -172,7 +243,8 @@ describe('CatalogView', () => {
 
   it('gives readers everything but the controls', async () => {
     const wrapper = await mountCatalog(reader, '/catalog?tab=rulesets');
-    expect(wrapper.findAll('[data-testid="ruleset"]')).toHaveLength(2);
+    expect(listed(wrapper)).toEqual(['*api', 'docs']);
+    expect(wrapper.findAll('[data-testid="ruleset"]')).toHaveLength(1);
     expect(wrapper.find('[data-testid="pause-controls"]').exists()).toBe(false);
     expect(
       wrapper.findAll('button').some((b) => b.text() === 'Resync catalog'),

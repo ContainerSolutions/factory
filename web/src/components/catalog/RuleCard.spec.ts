@@ -39,4 +39,22 @@ describe('RuleCard', () => {
     expect(wrapper.find('[data-testid="rule-params"]').exists()).toBe(false);
     expect(mountRule('merge-approved').text()).toContain('final');
   });
+
+  it.each<[Record<string, unknown>, string]>([
+    [
+      { queue: 'triage', harness: 'claude-code' },
+      'queue: triage\nharness: claude-code',
+    ],
+    [{}, 'none'],
+  ])('shows the params a RuleSet merged, even none: %j', (params, want) => {
+    const wrapper = mount(RuleCard, {
+      props: {
+        rule: rules.find((r) => r.metadata.name === 'review-factory-prs')!,
+        params,
+      },
+    });
+    const dd = wrapper.get('[data-testid="rule-params"]');
+    expect(dd.text()).toContain("after the RuleSet's defaults and overrides");
+    expect(dd.find('pre').exists() ? dd.get('pre').text() : 'none').toBe(want);
+  });
 });

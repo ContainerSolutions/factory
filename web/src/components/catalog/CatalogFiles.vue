@@ -2,7 +2,9 @@
 import { computed, ref } from 'vue';
 import type { Schemas } from '@/api/client';
 import CodeBlock from '@/components/shared/CodeBlock.vue';
+import ListDetail from '@/components/shared/ListDetail.vue';
 import MarkdownView from '@/components/shared/MarkdownView.vue';
+import type { ListItem } from '@/components/shared/list';
 import { tokenizeJSON, tokenizeTemplate } from '@/components/shared/highlight';
 
 /**
@@ -27,6 +29,16 @@ const MODES = [
   { id: 'source', label: 'Source' },
 ] as const;
 
+const items = computed<ListItem[]>(() =>
+  props.files.map((f) => ({
+    id: f.path,
+    label: f.path,
+    secondary: props.usedBy[f.path]?.length
+      ? `used by ${props.usedBy[f.path]!.join(', ')}`
+      : 'unused',
+  })),
+);
+
 const tokens = computed(() => {
   const f = props.file;
   if (!f) return [];
@@ -37,30 +49,13 @@ const tokens = computed(() => {
 </script>
 
 <template>
-  <div
-    class="grid gap-4 lg:grid-cols-[minmax(12rem,max-content)_minmax(0,1fr)]"
+  <ListDetail
+    :items="items"
+    :selected="selected"
+    :label="label"
+    @select="emit('select', $event)"
   >
-    <nav :aria-label="label">
-      <ul class="flex flex-col gap-1 text-sm">
-        <li v-for="f in files" :key="f.path">
-          <button
-            type="button"
-            class="w-full rounded px-2 py-1 text-left font-mono text-xs hover:bg-ccf-100 dark:hover:bg-ccf-800"
-            :class="
-              f.path === selected
-                ? 'bg-ccf-100 font-semibold dark:bg-ccf-800'
-                : ''
-            "
-            :aria-current="f.path === selected ? 'true' : undefined"
-            data-testid="catalog-file"
-            @click="emit('select', f.path)"
-          >
-            {{ f.path }}
-          </button>
-        </li>
-      </ul>
-    </nav>
-    <div v-if="selected" data-testid="catalog-file-view">
+    <div data-testid="catalog-file-view">
       <h3 class="font-mono text-sm font-semibold">{{ selected }}</h3>
       <p
         class="mb-2 text-xs text-ccf-600 dark:text-ccf-400"
@@ -118,5 +113,5 @@ const tokens = computed(() => {
         Loading…
       </p>
     </div>
-  </div>
+  </ListDetail>
 </template>
