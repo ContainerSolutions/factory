@@ -1,0 +1,6 @@
+lisa-design:
+- One shared ListDetail (shared/ListDetail.vue) for every catalog tab, the Prompts/Result Schemas files tab and a RuleSet's selected rules. Its list is buttons with aria-current; it stacks below lg.
+- The object tabs keep their pick in ?item= (the files tabs keep ?file=, which TaskSpec cards already link to). Changing tab drops both. An unknown or missing item shows the first (pickItem).
+- A RuleSet's picked rule keeps its pick in component state (the first by default), not the URL: one level of URL selection is enough for the PoC.
+- Provider and queue/pool tables became one-object cards (ProviderCard, QueuePoolCard) so every tab's detail pane is a card. Queue and pool entries are ids Queue/<name>, Pool/<name>, since a queue and a pool may share a name.
+- RuleCard takes optional merged params: inside a RuleSet it always shows them (none when empty), labelled as after defaults and overrides.
