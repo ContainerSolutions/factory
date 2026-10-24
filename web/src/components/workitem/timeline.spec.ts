@@ -97,9 +97,10 @@ describe('eventRows', () => {
       ],
       [
         'pr.opened',
-        ['review-factory-prs: dispatch'],
+        ['review-factory-prs: dispatch', 'label-factory-prs: effect'],
         ['review-factory-prs: already fired through RuleSet docs'],
       ],
+      ['pr.labeled', [], []],
       ['factory.run.completed', [], []],
     ]);
     expect(rows[0]!.notFired[0]!.index).toBe(2);

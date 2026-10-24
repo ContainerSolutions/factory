@@ -454,6 +454,18 @@ pipelinePROpened.data.actor = {
   isBot: true,
   isFactory: true,
 };
+// The factory's marker on docs#78 names the pr.open effect of the implement task (below).
+pipelinePROpened.data.effect = 'tsk_01JAC0PIPELINEIMPLEMENT0000/pr.open/1';
+// The rule that labels factory PRs did it on docs#78: GitHub's pr.labeled names no effect.
+const pipelinePRLabeled = event(
+  'gh-docs-78-labeled',
+  'pr.labeled',
+  '2026-10-18T08:31:03Z',
+  'compliance-framework/docs#78',
+  'ccf-factory',
+  { label: 'factory' },
+);
+pipelinePRLabeled.data.actor = pipelinePROpened.data.actor;
 
 function runCompleted(
   id: string,
@@ -716,6 +728,16 @@ const pipeline = item(
         fired: false,
         reason: 'already fired through RuleSet docs',
       },
+      {
+        at: '2026-10-18T08:31:01Z',
+        event: pipelinePROpened.id,
+        ruleSet: 'docs',
+        rule: 'label-factory-prs',
+        fired: true,
+        inputs: { 'actor.isFactory': true },
+        rails: [{ rail: 'effects-allowed', verdict: 'allowed' }],
+        actions: ['effect'],
+      },
     ],
     reporter: { id: 'github-public:octocat', tier: 'contributor' },
   },
@@ -723,7 +745,13 @@ const pipeline = item(
 
 const pipelineDetail: Detail = {
   workItem: pipeline,
-  events: [pipelineOpened, triageDone, pipelinePROpened, implementDone],
+  events: [
+    pipelineOpened,
+    triageDone,
+    pipelinePROpened,
+    pipelinePRLabeled,
+    implementDone,
+  ],
   tasks: [triageTask, implementTask, reviewTask],
   runs: [triageRun, implementFailed, implementRun],
   effects: [
@@ -748,6 +776,27 @@ const pipelineDetail: Detail = {
         request: { labels: ['area/docs'] },
       },
       status: { at: '2026-10-18T08:00:02Z', result: {} },
+    },
+    {
+      kind: 'Effect',
+      metadata: {
+        name: 'eff_01JAC0PIPELINELABELPR00000',
+        createdAt: '2026-10-18T08:31:02Z',
+        labels: { 'factory.ccf.dev/rule': 'label-factory-prs' },
+      },
+      spec: {
+        task: '',
+        op: 'label.add',
+        target: {
+          provider: 'github-public',
+          kind: 'pr',
+          ref: 'compliance-framework/docs#78',
+        },
+        idempotencyKey: `evt/${pipelinePROpened.id}/label-factory-prs/0`,
+        identity: 'author',
+        request: { labels: ['factory'] },
+      },
+      status: { at: '2026-10-18T08:31:02Z', result: {} },
     },
     {
       kind: 'Effect',
