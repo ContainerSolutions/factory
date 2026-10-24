@@ -1,0 +1,5 @@
+lisa-design:
+- The grid is slots, not one column per event: an event (circle and its ~170 px label) and its actions take one slot, their tasks the next. Each slot is as wide as what it holds (events/actions 248, tasks only 232, a straight link only 24, empty 0), so the SVG shrinks.
+- Placement, in time order: a caused event tries slots left to right from just right of its source; in each, the row is today's rule (the source's row, pushed down until the straight line through the slots between is free); it goes in the first slot where its cell, its action cells and their task cells are free, else one slot right. An uncaused event takes the leftmost slot on row 0 after the previous uncaused one. Placed straight lines mark their cells, so nothing later lands on them.
+- Alignment source: cause rank, then row, then link order. The "free on its own row" tie-break of #156 is gone: the slot search replaces it.
+- Every gutter (the vertical drop of a pushed arrow, and the climb of a routed one) runs near its source slot's right edge, right of every box and label in that slot, so a task that shares a slot with an event or actions can still drop past them.
