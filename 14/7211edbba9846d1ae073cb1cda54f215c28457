@@ -2,3 +2,6 @@ lisa-design:
 - Files come from catalog.Assets of the live snapshot only (Prompts.Text/Digest, SchemaSources); no disk reads, so the path check is a contract rule, not the only guard against traversal.
 - Path rule: path.Clean(p) == p, no backslash, under prompts/ or schemas/ with a name, at most 512 bytes; anything else is 400 invalid, a valid path the snapshot lacks is 404. The list applies the same rule, so it never lists a file get would refuse.
 - A schema's digest is sha256 of its raw bytes (the catalog stores none for schemas); a prompt's is the catalog's own Prompt.Digest.
+
+lisa-selfreview:
+- pass 1 (core, go): no findings. Checked CORE-SEC-003 (the path never reaches the filesystem; clean-path rule tested with .., //, absolute, backslash, over-long), CORE-SEC-002 (reader policy unchanged from UI-1a), 400/404 problems, list/get consistency.
