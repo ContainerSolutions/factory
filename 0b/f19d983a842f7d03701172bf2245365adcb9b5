@@ -1,0 +1,5 @@
+lisa-design:
+- Layout is a pure function (graphLayout.ts, layoutGraph) over the graph: columns per event as before; rows on a grid. The event circle takes its own row; its actions stack on the rows below it (so the event label never collides with an action box).
+- An event sits on the row of the source of its first incoming link in row order (ties: link order). If the straight line would cross an event, action or task cell in any column between (or the task cell right of an action source), the event moves down to the first free row and the arrow drops down the source's gutter to it. Rows below everything are always free, so the lane fallback only triggers for a backwards link or after MAX_ROW.
+- Any other incoming link is routed: up the source's gutter, along a lane band above all rows, down the gutter just before the target column, into the circle.
+- Events are placed left to right, so a link's crossing check only sees columns already fixed.
