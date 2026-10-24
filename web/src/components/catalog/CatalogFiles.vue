@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import type { Schemas } from '@/api/client';
 import CodeBlock from '@/components/shared/CodeBlock.vue';
+import MarkdownView from '@/components/shared/MarkdownView.vue';
 import { tokenizeJSON, tokenizeTemplate } from '@/components/shared/highlight';
 
 /**
- * The catalog's files of one kind: a list to pick from and the picked file's content, a prompt
- * as its raw template highlighted, a schema as its JSON highlighted, with the TaskSpecs using it.
+ * The catalog's files of one kind: a list to pick from and the picked file's content, with the
+ * TaskSpecs using it. A prompt shows rendered as Markdown (its template actions as text) or, as
+ * its source, the raw template highlighted; a schema as its JSON highlighted.
  */
 const props = defineProps<{
   files: readonly Schemas['CatalogFileRef'][];
@@ -17,6 +19,13 @@ const props = defineProps<{
   label: string;
 }>();
 const emit = defineEmits<{ select: [path: string] }>();
+
+/** How a prompt is shown: rendered Markdown (the default) or its highlighted source. */
+const mode = ref<'rendered' | 'source'>('rendered');
+const MODES = [
+  { id: 'rendered', label: 'Rendered' },
+  { id: 'source', label: 'Source' },
+] as const;
 
 const tokens = computed(() => {
   const f = props.file;
@@ -72,7 +81,37 @@ const tokens = computed(() => {
       >
         Couldn't load {{ selected }}: {{ error }}
       </p>
-      <CodeBlock v-else-if="file" :tokens="tokens" :label="selected" />
+      <template v-else-if="file">
+        <div
+          v-if="file.kind === 'prompt'"
+          role="group"
+          aria-label="Show the prompt"
+          class="mb-2 inline-flex rounded-md border border-ccf-200 text-xs dark:border-ccf-700"
+        >
+          <button
+            v-for="m in MODES"
+            :key="m.id"
+            type="button"
+            class="px-2 py-1 first:rounded-s-md last:rounded-e-md"
+            :class="
+              mode === m.id
+                ? 'bg-ccf-900 text-white dark:bg-ccf-100 dark:text-ccf-900'
+                : 'text-ccf-700 dark:text-ccf-300'
+            "
+            :aria-pressed="mode === m.id"
+            :data-mode="m.id"
+            @click="mode = m.id"
+          >
+            {{ m.label }}
+          </button>
+        </div>
+        <MarkdownView
+          v-if="file.kind === 'prompt' && mode === 'rendered'"
+          :source="file.content"
+          :label="selected"
+        />
+        <CodeBlock v-else :tokens="tokens" :label="selected" />
+      </template>
       <p v-else class="text-sm text-ccf-600 dark:text-ccf-400" role="status">
         Loading…
       </p>

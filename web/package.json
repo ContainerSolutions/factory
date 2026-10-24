@@ -26,6 +26,8 @@
   },
   "dependencies": {
     "@primevue/icons": "4.4.0",
+    "dompurify": "3.4.17",
+    "markdown-it": "15.0.3",
     "openapi-fetch": "0.17.0",
     "pinia": "2.3.1",
     "primevue": "4.4.0",
