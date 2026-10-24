@@ -5,3 +5,6 @@ lisa-design:
 - Clicking an action opens DecisionWhy for its decision (the timeline's panel); clicking an event switches to the Timeline tab and opens that row (focus prop). Tabs reuse UI-1c's TabList; the tab is in ?tab=.
 - Timeline rows are per event; tasks/runs/effects are shown under the action that created them, and anything no action accounts for goes to "Other activity" so nothing is lost from the old flat timeline. The newest row starts open.
 - The mock pipeline work item (wi_01JAC0PIPELINE…) exercises every link; adding it to the list changed the board specs' counts.
+
+lisa-selfreview:
+- pass 1: no blocking findings. Checked: all event/provider text through mustache (SVG <text>/<title>, spans), only https URLs linked (safeURL), every graph node is a keyboard button with an aria-label naming kind, state and rule, state shown as text beside colour, joins covered by graph.spec on the pipeline fixture (reliable and inferred links, retries, rule effect by idempotency key, approval, placeholder event, held rail), dev:mock checked in a browser (Graph and LLM tasks tabs). Deferred (nit): a link can cross a later column's action rectangle; routing around nodes isn't worth it for the PoC.
