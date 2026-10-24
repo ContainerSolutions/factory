@@ -1,0 +1,4 @@
+lisa-design:
+- One base rule in main.css gives every flex and grid item min-width: 0 (utilities still override it), instead of adding min-w-0 to each child by hand: the shrink fix holds for components written later too.
+- Definition lists use one kv-grid utility: fit-content(40%) term track and minmax(0,1fr) value track, terms and values wrap anywhere. Replaces grid-cols-[max-content_1fr] (whose 1fr is minmax(auto,1fr), the overflow cause).
+- StatusPill truncates with an ellipsis (inline-block max-w-full truncate) and carries the whole label as its title; CodeBlock/JsonViewer/transcript pre scroll inside their box (max-w-full overflow-x-auto); tables sit in an overflow-x-auto wrapper.
