@@ -4,3 +4,6 @@ lisa-design:
 - A RuleSet's picked rule keeps its pick in component state (the first by default), not the URL: one level of URL selection is enough for the PoC.
 - Provider and queue/pool tables became one-object cards (ProviderCard, QueuePoolCard) so every tab's detail pane is a card. Queue and pool entries are ids Queue/<name>, Pool/<name>, since a queue and a pool may share a name.
 - RuleCard takes optional merged params: inside a RuleSet it always shows them (none when empty), labelled as after defaults and overrides.
+
+lisa-selfreview:
+- pass 1: checked every tab at 1440/1024 and a 760 px stack; reviewable green (595 tests). No findings.
