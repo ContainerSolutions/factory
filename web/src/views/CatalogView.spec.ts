@@ -145,6 +145,24 @@ describe('CatalogView', () => {
     );
   });
 
+  it('shows the open prompt again after a resync reload', async () => {
+    const wrapper = await mountCatalog(maintainer, '/catalog?tab=prompts');
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === 'Resync catalog')!
+      .trigger('click');
+    await flushPromises();
+    await confirmDialog('Resync');
+    await wrapper
+      .get('[data-testid="resync-requested"] button')
+      .trigger('click');
+    await flushPromises();
+    const view = wrapper.get('[data-testid="catalog-file-view"]');
+    expect(view.get('h3').text()).toBe('prompts/implement.md.tmpl');
+    expect(view.find('pre [data-kind="delim"]').exists()).toBe(true);
+    expect(view.find('[role="status"]').exists()).toBe(false);
+  });
+
   it('gives readers everything but the controls', async () => {
     const wrapper = await mountCatalog(reader, '/catalog?tab=rulesets');
     expect(wrapper.findAll('[data-testid="ruleset"]')).toHaveLength(2);

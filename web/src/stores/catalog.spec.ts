@@ -71,6 +71,14 @@ describe('catalog store', () => {
     });
   });
 
+  it('drops a file fetched before a load', async () => {
+    const store = useCatalogStore();
+    const pending = store.loadFile('prompts/triage.md.tmpl');
+    await store.load({ quiet: true });
+    await pending;
+    expect(store.fileContents).toEqual({});
+  });
+
   it('only fetches the kinds it shows', async () => {
     const fetched: string[] = [];
     server.events.on('request:start', ({ request }) => {

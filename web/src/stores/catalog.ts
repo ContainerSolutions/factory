@@ -66,6 +66,8 @@ export const useCatalogStore = defineStore('catalog', () => {
   /** The files fetched so far, by path, and why the others failed. */
   const fileContents = ref<Record<string, Schemas['CatalogFile']>>({});
   const fileErrors = ref<Record<string, string>>({});
+  /** Bumped when the file contents are dropped (a load): a file fetched before is stale. */
+  const filesVersion = ref(0);
 
   function of<K extends DetailKind>(kind: K) {
     return computed(() => {
@@ -149,6 +151,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   async function loadFiles(): Promise<void> {
     fileContents.value = {};
     fileErrors.value = {};
+    filesVersion.value++;
     try {
       const { data, error, response } = await api.GET('/catalog/files');
       if (data) {
@@ -163,10 +166,13 @@ export const useCatalogStore = defineStore('catalog', () => {
   /** Fetches a file's content (`GET /catalog/file`) unless it is already loaded. */
   async function loadFile(path: string): Promise<void> {
     if (fileContents.value[path]) return;
+    const version = filesVersion.value;
     try {
       const { data, error, response } = await api.GET('/catalog/file', {
         params: { query: { path } },
       });
+      // A load since this request started dropped the old snapshot's files: keep none of it.
+      if (version !== filesVersion.value) return;
       if (data) {
         fileContents.value = { ...fileContents.value, [path]: data };
         const rest = { ...fileErrors.value };
@@ -179,6 +185,7 @@ export const useCatalogStore = defineStore('catalog', () => {
         };
       }
     } catch (e) {
+      if (version !== filesVersion.value) return;
       fileErrors.value = { ...fileErrors.value, [path]: message(e) };
     }
   }
@@ -265,6 +272,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     filesError,
     fileContents,
     fileErrors,
+    filesVersion,
     namesOf,
     load,
     loadFile,

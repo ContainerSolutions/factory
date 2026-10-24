@@ -70,8 +70,9 @@ function shown(files: readonly { path: string }[]): string {
 const promptShown = computed(() => shown(prompts.value));
 const schemaShown = computed(() => shown(schemas.value));
 
+// filesVersion: a reload drops the loaded files, so the shown one is fetched again.
 watch(
-  [tab, promptShown, schemaShown],
+  [tab, promptShown, schemaShown, () => store.filesVersion],
   () => {
     const p =
       tab.value === 'prompts'
