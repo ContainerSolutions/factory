@@ -1,0 +1,7 @@
+lisa-design:
+- A dispatch's task is its own graph node (GraphAction.taskNode), keyed task/<id>. Links now say why (GraphLink.cause: task, run, effect, notify, tracking, inferred); inferred is true for tracking and inferred only.
+- What a task caused (its runs' completions, its effects' named events, the heuristic) is linked from the task node, not the dispatch; a rule's own effect and a notify stay on the action.
+- Notify: data.effect is the rule controller's key evt/<event>/<rule>/<i> plus /<request index> (applier.notify); <i> is the action's index in its decision, so the match is exact (solid) though notify keeps no Effect record.
+- Tracking comment: a factory issue.commented with no data.effect is linked (dashed) from the set/link actions of the latest fired decision at or before it, excluding the event's own decisions. Events linked exactly or as tracking are claimed and the heuristic skips them.
+- Layout: a column with a task is wider by a task sub-column. Links to events leave the node to the right, climb a gutter just after it and run in a lane band above the first action row (6 offsets), entering the event from the left, so they cross no box; a straight arrow joins a dispatch to its task.
+- Clicking a task opens the LLM tasks tab with that task outlined and scrolled to (WorkItemView focusTask → LLMTasks focus), rather than the run page: the tab lists every run.
