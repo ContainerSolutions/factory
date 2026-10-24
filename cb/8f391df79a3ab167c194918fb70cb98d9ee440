@@ -1,0 +1,7 @@
+lisa-design:
+- Idle events are dropped in the Graph tab only (withoutIdle over graphOf): no actions and no incoming link (links start at actions and tasks, so an event never has one going out). Columns are renumbered; the Timeline keeps using the full graph. The "N hidden; see the Timeline" line emits `timeline`, which WorkItemView turns into the tab switch (a button, not a RouterLink: the graph has no router of its own in its specs).
+- Pan/zoom is a transform on one <g> inside a 100%-sized SVG, with the math in panZoom.ts (zoomAt keeps the point under the cursor, clampZoom 0.25–3, fitWidth never above 1×). The viewport's height is min(content height at the fitted zoom, 70vh).
+- Drag: the press is recorded on pointerdown, but setPointerCapture happens only once the pointer has moved 4 px; capturing on the press would retarget the click away from the node. A capture-phase click handler swallows the one click that ends a drag. The corner buttons stop pointerdown so they never start one.
+- Wheel: plain wheel pans (shift+wheel pans sideways), ⌘/Ctrl+wheel and pinch zoom around the cursor, factor exp(-deltaY·0.002) (about 1.2× per mouse-wheel notch). preventDefault in the viewport's own wheel handler, so only over the graph.
+- Keys act only when the viewport itself is focused (target === currentTarget), so a focused node's Enter/Space keep working: + / = and - zoom around the centre, arrows pan 40 px, 0 fits.
+- A new graph (its width changes) is fitted again; a ResizeObserver re-measures the viewport's width when the browser has one.
