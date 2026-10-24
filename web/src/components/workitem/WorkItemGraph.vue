@@ -3,14 +3,15 @@ import { computed } from 'vue';
 import type { Schemas } from '@/api/client';
 import { formatTime, toneOf, type Tone } from '@/components/shared/format';
 import { graphOf, type GraphAction, type GraphTask } from './graph';
+import { ACT_H, ACT_W, R, layoutGraph } from './graphLayout';
 
 /**
  * The work item as a hand-laid graph, left to right in time: a column per event (a circle), the
- * actions its fired decisions took below it (rectangles; dotted when deterministic, solid for a
+ * actions its fired decisions took on the rows below it (rectangles; dotted when deterministic, solid for a
  * dispatch), each arrow labelled with its rule, each dispatch's task beside it (coloured by its
- * phase), and links to what they caused (dashed when inferred). A link to an event leaves its
- * node to the right, climbs in the gutter after it and runs in the lane above the actions, so
- * it crosses no box. Every node is a button: an action opens its decision's "why", a task its
+ * phase), and links to what they caused (dashed when inferred). Each event sits on the row of
+ * what caused it, so that arrow is a straight line (graphLayout.ts lays it out). Every node is a
+ * button: an action opens its decision's "why", a task its
  * entry in the LLM tasks tab, an event its row in the timeline.
  */
 const props = defineProps<{ detail: Schemas['WorkItemDetail'] }>();
@@ -20,153 +21,28 @@ const emit = defineEmits<{
   task: [id: string];
 }>();
 
-const COL_W = 248;
-const PAD = 16;
-const EV_Y = 40;
-const R = 14;
-const ACT_X = 52;
-const ACT_W = 180;
-const ACT_H = 50;
-const ACT_Y = 96;
-const ROW_H = 74;
-const TASK_GAP = 32;
-const TASK_W = 176;
-const TASK_H = 58;
-/** Room after a task for its link's gutter, before the next column. */
-const TASK_TRAIL = 24;
-/** The lanes links to events run in, between the event labels and the first rule label. */
-const LANE_Y = 62;
-const LANES = 6;
-const LANE_STEP = 3.5;
-const GUTTER = 10;
-const CORNER = 5;
-
 const graph = computed(() => graphOf(props.detail));
+const layout = computed(() => layoutGraph(graph.value));
 
-/** Each column's left edge: a column with a task is wider by the task's sub-column. */
-const columns = computed(() => {
-  const xs: number[] = [];
-  let x = PAD;
-  for (const e of graph.value.events) {
-    xs.push(x);
-    x +=
-      COL_W +
-      (e.actions.some((a) => a.taskNode) ? TASK_GAP + TASK_W + TASK_TRAIL : 0);
-  }
-  return { xs, width: x + PAD };
-});
+const width = computed(() => layout.value.width);
+const height = computed(() => layout.value.height);
+const tasks = computed(() =>
+  graph.value.events.flatMap((e) =>
+    e.actions.flatMap((a) =>
+      a.taskNode
+        ? [{ node: a.taskNode, ...layout.value.tasks.get(a.taskNode.key)! }]
+        : [],
+    ),
+  ),
+);
+const links = computed(() => layout.value.links);
 
-function colX(column: number): number {
-  return columns.value.xs[column] ?? PAD;
+function ev(key: string) {
+  return layout.value.events.get(key)!;
 }
-
-interface Box {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
+function act(key: string) {
+  return layout.value.actions.get(key)!;
 }
-
-interface Placed extends Box {
-  action: GraphAction;
-  cx: number;
-}
-
-interface PlacedTask extends Box {
-  node: GraphTask;
-}
-
-const placed = computed(() => {
-  const actions = new Map<string, Placed>();
-  const tasks = new Map<string, PlacedTask>();
-  for (const e of graph.value.events) {
-    const x0 = colX(e.column);
-    e.actions.forEach((action, row) => {
-      const a: Placed = {
-        action,
-        x: x0 + ACT_X,
-        y: ACT_Y + row * ROW_H,
-        w: ACT_W,
-        h: ACT_H,
-        cx: x0 + PAD + R,
-      };
-      actions.set(action.key, a);
-      if (action.taskNode) {
-        tasks.set(action.taskNode.key, {
-          node: action.taskNode,
-          x: a.x + ACT_W + TASK_GAP,
-          y: a.y - (TASK_H - ACT_H) / 2,
-          w: TASK_W,
-          h: TASK_H,
-        });
-      }
-    });
-  }
-  return { actions, tasks };
-});
-
-const tasks = computed(() => [...placed.value.tasks.values()]);
-
-const width = computed(() => columns.value.width);
-const height = computed(() => {
-  const rows = Math.max(0, ...graph.value.events.map((e) => e.actions.length));
-  return ACT_Y + rows * ROW_H + PAD;
-});
-
-const eventX = (column: number) => colX(column) + PAD + R;
-
-function box(key: string): Box | undefined {
-  return placed.value.actions.get(key) ?? placed.value.tasks.get(key);
-}
-
-/** From a node's right edge, up the gutter after it, along a lane, and into the event's left. */
-function toEvent(from: Box, column: number, lane: number): string {
-  const x1 = from.x + from.w;
-  const y1 = from.y + from.h / 2;
-  const ex = eventX(column) - R - 2;
-  const gx = x1 + GUTTER;
-  const ly = LANE_Y + (lane % LANES) * LANE_STEP;
-  if (ex < gx + 24) {
-    const bend = Math.max(40, Math.abs(ex - x1) / 3);
-    return `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${ex - bend} ${EV_Y}, ${ex} ${EV_Y}`;
-  }
-  const c = CORNER;
-  return [
-    `M ${x1} ${y1}`,
-    `H ${gx - c}`,
-    `Q ${gx} ${y1}, ${gx} ${y1 - c}`,
-    `V ${ly + c}`,
-    `Q ${gx} ${ly}, ${gx + c} ${ly}`,
-    `H ${ex - 18}`,
-    `C ${ex - 6} ${ly}, ${ex - 10} ${EV_Y}, ${ex} ${EV_Y}`,
-  ].join(' ');
-}
-
-const links = computed(() => {
-  let lane = 0;
-  return graph.value.links.flatMap((l) => {
-    const from = box(l.from);
-    if (!from) return [];
-    const task = placed.value.tasks.get(l.to);
-    let d: string;
-    if (task) {
-      const y = from.y + from.h / 2;
-      d = `M ${from.x + from.w} ${y} H ${task.x - 2}`;
-    } else {
-      const to = graph.value.events.find((e) => e.key === l.to);
-      if (!to) return [];
-      d = toEvent(from, to.column, lane++);
-    }
-    return [
-      {
-        key: `${l.from}->${l.to}`,
-        d,
-        inferred: l.inferred,
-        cause: l.cause,
-      },
-    ];
-  });
-});
 
 const STATE_TONE: Record<string, Tone> = {
   applied: 'success',
@@ -278,23 +154,23 @@ function activate(e: KeyboardEvent, fn: () => void): void {
             >
               <title>{{ e.id }}</title>
               <circle
-                :cx="eventX(e.column)"
-                :cy="EV_Y"
+                :cx="ev(e.key).cx"
+                :cy="ev(e.key).cy"
                 :r="R"
                 class="fill-white stroke-ccf-700 dark:fill-ccf-900 dark:stroke-ccf-300"
                 stroke-width="2"
               />
               <text
-                :x="eventX(e.column) + R + 6"
-                :y="EV_Y - 2"
+                :x="ev(e.key).cx + R + 6"
+                :y="ev(e.key).cy - 2"
                 class="fill-current text-xs font-semibold"
               >
                 {{ clip(e.type, 26) }}
               </text>
               <text
                 v-if="e.at"
-                :x="eventX(e.column) + R + 6"
-                :y="EV_Y + 12"
+                :x="ev(e.key).cx + R + 6"
+                :y="ev(e.key).cy + 12"
                 class="fill-ccf-500 text-[10px]"
               >
                 {{ formatTime(e.at) }}
@@ -316,23 +192,23 @@ function activate(e: KeyboardEvent, fn: () => void): void {
             >
               <title>{{ actionTitle(a) }} ({{ a.rule }})</title>
               <path
-                :d="`M ${placed.actions.get(a.key)!.cx} ${EV_Y + R} V ${placed.actions.get(a.key)!.y + ACT_H / 2} H ${placed.actions.get(a.key)!.x - 2}`"
+                :d="`M ${act(a.key).spineX} ${ev(e.key).cy + R} V ${act(a.key).y + ACT_H / 2} H ${act(a.key).x - 2}`"
                 fill="none"
                 class="stroke-ccf-400"
                 stroke-width="1.5"
                 marker-end="url(#wi-arrow)"
               />
               <text
-                :x="placed.actions.get(a.key)!.x"
-                :y="placed.actions.get(a.key)!.y - 5"
+                :x="act(a.key).x"
+                :y="act(a.key).y - 5"
                 class="fill-ccf-500 text-[10px]"
                 data-testid="graph-rule"
               >
                 {{ clip(a.rule, 34) }}
               </text>
               <rect
-                :x="placed.actions.get(a.key)!.x"
-                :y="placed.actions.get(a.key)!.y"
+                :x="act(a.key).x"
+                :y="act(a.key).y"
                 :width="ACT_W"
                 :height="ACT_H"
                 rx="4"
@@ -342,15 +218,15 @@ function activate(e: KeyboardEvent, fn: () => void): void {
                 :stroke-dasharray="a.deterministic ? '2 3' : undefined"
               />
               <text
-                :x="placed.actions.get(a.key)!.x + 8"
-                :y="placed.actions.get(a.key)!.y + 19"
+                :x="act(a.key).x + 8"
+                :y="act(a.key).y + 19"
                 class="fill-current text-xs font-medium"
               >
                 {{ clip(actionTitle(a), 28) }}
               </text>
               <text
-                :x="placed.actions.get(a.key)!.x + 8"
-                :y="placed.actions.get(a.key)!.y + 37"
+                :x="act(a.key).x + 8"
+                :y="act(a.key).y + 37"
                 class="text-xs"
                 :class="TEXT[toneFor(a.state)]"
               >
