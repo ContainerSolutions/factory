@@ -134,10 +134,13 @@ function effectSubject(e: Effect): string {
 
 /**
  * The work item as a graph: each event (a column, in time order), the actions of its fired
- * decisions, and links from an action to the events it caused. A dispatch links to its runs'
- * `factory.run.completed` / `.failed` events through the task's provenance and `facts.run.id`
- * (reliable). An effect, or a dispatch whose run made effects or reported a PR, links to the
- * first later provider event the factory caused on the same object (inferred: by ref and time).
+ * decisions, and links from an action to the events it caused. Reliable links: a dispatch to
+ * its runs' `factory.run.completed` / `.failed` events (the task's provenance and
+ * `facts.run.id`), and an effect (a rule's own, or one its task made) to the event whose
+ * `data.effect` is the effect's idempotency key (the provider reads it from the factory's
+ * marker on the object the effect created). Inferred links: an effect, or a dispatch whose run
+ * made effects or reported a PR, to the first later provider event the factory caused on the
+ * same object (by ref and time) that no effect is exactly linked to, e.g. a push's pr.updated.
  * Decisions that didn't fire take no actions, so they aren't in the graph.
  */
 export function graphOf(detail: Detail): WorkItemGraph {
@@ -229,9 +232,19 @@ export function graphOf(detail: Detail): WorkItemGraph {
   });
 
   const links: GraphLink[] = [];
+  const linked = new Map<string, Set<string>>();
+  const link = (from: string, to: string, inferred: boolean) => {
+    const seen = linked.get(from) ?? new Set<string>();
+    if (seen.has(to)) return;
+    seen.add(to);
+    linked.set(from, seen);
+    links.push({ from, to, inferred });
+  };
+  // Exact links first: the run completions, and the events whose data.effect names one of the
+  // action's effects by its idempotency key.
+  const exact = new Set<string>();
   for (const node of events) {
     for (const a of node.actions) {
-      const linked = new Set<string>();
       for (const run of a.runs) {
         const done = events.find(
           (e) =>
@@ -240,15 +253,27 @@ export function graphOf(detail: Detail): WorkItemGraph {
               e.type === 'factory.run.failed') &&
             runIdOf(e.event) === run.metadata.name,
         );
-        if (done && !linked.has(done.key)) {
-          links.push({ from: a.key, to: done.key, inferred: false });
-          linked.add(done.key);
+        if (done) link(a.key, done.key, false);
+      }
+      const keys = new Set(
+        [a.effect, ...a.taskEffects].flatMap((f) =>
+          f ? [f.spec.idempotencyKey] : [],
+        ),
+      );
+      for (const e of events) {
+        if (e.event?.data.effect && keys.has(e.event.data.effect)) {
+          link(a.key, e.key, false);
+          exact.add(e.key);
         }
       }
-      const inferred = inferredEvent(a, node, events);
-      if (inferred && !linked.has(inferred.key)) {
-        links.push({ from: a.key, to: inferred.key, inferred: true });
-      }
+    }
+  }
+  // Then the heuristic, for what no effect names: an event already linked exactly isn't
+  // guessed at again (e.g. a push's pr.updated still is; the pr.opened its pr.open made isn't).
+  for (const node of events) {
+    for (const a of node.actions) {
+      const inferred = inferredEvent(a, node, events, exact);
+      if (inferred) link(a.key, inferred.key, true);
     }
   }
   return { events, links };
@@ -256,12 +281,14 @@ export function graphOf(detail: Detail): WorkItemGraph {
 
 /**
  * The first provider event after the action that the factory caused on an object the action
- * touched: the effect's target, or a dispatch's run effects' targets and its Result's `data.pr`.
+ * touched (the effect's target, or a dispatch's run effects' targets and its Result's
+ * `data.pr`), leaving out the events an effect is exactly linked to.
  */
 function inferredEvent(
   a: GraphAction,
   from: GraphEvent,
   events: readonly GraphEvent[],
+  exact: ReadonlySet<string>,
 ): GraphEvent | undefined {
   const refs = new Set<string>();
   let after = time(a.decision.at);
@@ -283,6 +310,7 @@ function inferredEvent(
   return events.find(
     (e) =>
       e !== from &&
+      !exact.has(e.key) &&
       !!e.event &&
       !e.type.startsWith('factory.') &&
       !!e.event.data.actor?.isFactory &&

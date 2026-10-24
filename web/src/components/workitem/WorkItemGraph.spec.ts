@@ -13,7 +13,7 @@ const example = examples.get('getWorkItem') as Schemas['WorkItemDetail'];
 describe('WorkItemGraph', () => {
   it('draws events, actions with their rule, state and shape, and the links', () => {
     const wrapper = mount(WorkItemGraph, { props: { detail: pipeline } });
-    expect(wrapper.findAll('[data-testid="graph-event"]')).toHaveLength(4);
+    expect(wrapper.findAll('[data-testid="graph-event"]')).toHaveLength(5);
     const actions = wrapper.findAll('[data-testid="graph-action"]');
     expect(
       actions.map((a) => [
@@ -28,6 +28,7 @@ describe('WorkItemGraph', () => {
       ['dispatch', 'Succeeded', 'solid'],
       ['notify', 'done', '2 3'],
       ['dispatch', 'Pending', 'solid'],
+      ['effect', 'applied', '2 3'],
     ]);
     // The state is text too, not only the stroke's colour.
     expect(actions[5]!.findAll('text').map((t) => t.text())).toEqual([
@@ -42,12 +43,10 @@ describe('WorkItemGraph', () => {
       wrapper
         .findAll('[data-testid="graph-link"]')
         .map((l) => l.attributes('data-inferred')),
-    ).toEqual(['false', 'false', 'true']);
-    expect(
-      wrapper
-        .findAll('[data-testid="graph-link"]')[2]!
-        .attributes('stroke-dasharray'),
-    ).toBe('6 4');
+    ).toEqual(['false', 'false', 'false', 'true', 'true']);
+    const links = wrapper.findAll('[data-testid="graph-link"]');
+    expect(links[2]!.attributes('stroke-dasharray')).toBeUndefined();
+    expect(links[3]!.attributes('stroke-dasharray')).toBe('6 4');
   });
 
   it("opens an action's why and an event's row, by click or key", async () => {

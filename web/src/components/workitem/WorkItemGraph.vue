@@ -277,8 +277,14 @@ function activate(e: KeyboardEvent, fn: () => void): void {
         <li>○ an event</li>
         <li>▭ solid: a dispatch (an agent task)</li>
         <li>┈ dotted: a deterministic action</li>
-        <li>→ caused (task provenance, run id)</li>
-        <li>⇢ dashed: inferred (same object, later, by the factory)</li>
+        <li>
+          → caused: a run's completion (task provenance, run id), or the object
+          an effect created (the event names the effect)
+        </li>
+        <li>
+          ⇢ dashed: inferred, where no effect is named (same object, later, by
+          the factory)
+        </li>
       </ul>
     </template>
   </section>
