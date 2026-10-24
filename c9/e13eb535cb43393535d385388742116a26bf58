@@ -3,3 +3,6 @@ lisa-design:
 - Both libraries load through one dynamic import on first render (cached promise), so they are their own chunks: initial JS unchanged at 123.38 KB gzip; markdown-it 41.9 KB and DOMPurify 11.7 KB gzip, loaded with the Prompts tab.
 - Pinned markdown-it 15.0.3 and dompurify 3.4.17 although they are under two weeks old: the earlier versions have open advisories (GHSA-gfr2-rv44-r23c / GHSA-vfgh-jcmw-g37q for markdown-it, GHSA-cg2g-xh64-v4q7 and others for DOMPurify) that the osv scan would flag.
 - Template actions stay literal: markdown-it treats {{ }} as text. Schemas have no toggle.
+
+lisa-selfreview:
+- pass 1: no blocking findings. Checked the sanitiser with specs (script tag, onerror, inline handler, javascript:/data:/relative links, images), the toggle's aria-pressed, lazy loading (separate chunks, initial bundle unchanged), npm audit --omit=dev clean.
