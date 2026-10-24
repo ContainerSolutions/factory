@@ -13,6 +13,13 @@ import {
   providerLabels,
   selectRules,
   shortSHA,
+  constraintText,
+  fileUsers,
+  harnessText,
+  inputRows,
+  limitsText,
+  memberText,
+  skillText,
 } from './catalog';
 
 const labels = { family: 'github', network: 'public' };
@@ -232,5 +239,114 @@ describe('dry-run helpers', () => {
       ]),
     ).toEqual(['dispatch', 'cancel']);
     expect(shortSHA('9f1e2d3c4b5a69788796a5b4c3d2e1f0')).toBe('9f1e2d3c4b5a');
+  });
+});
+
+describe('TaskSpec text', () => {
+  it.each<[Schemas['HarnessRequest'] | undefined, string]>([
+    [undefined, ''],
+    [{ name: 'codex' }, 'codex'],
+    [
+      {
+        name: 'codex',
+        config: {
+          model: ['gpt-5*', 'gpt-6*'],
+          reasoningEffort: 'medium',
+          prefer: ['gpt-6'],
+        },
+      },
+      'codex (gpt-5* | gpt-6*, effort medium, prefer gpt-6)',
+    ],
+  ])('harnessText(%j) is %s', (h, want) => {
+    expect(harnessText(h)).toBe(want);
+  });
+
+  it.each<[Schemas['HarnessConstraint'], string]>([
+    [{ name: 'codex' }, 'codex'],
+    [
+      { name: 'codex', models: 'gpt-5*', reasoningEffort: ['low', 'high'] },
+      'codex: gpt-5* · effort low | high',
+    ],
+  ])('constraintText(%j) is %s', (c, want) => {
+    expect(constraintText(c)).toBe(want);
+  });
+
+  it.each<[Schemas['SkillRef'], string]>([
+    [{ source: 'ccf-skills' }, 'ccf-skills'],
+    [{ source: 'ccf-skills', ref: 'v1', use: ['lisa'] }, 'ccf-skills@v1: lisa'],
+    [{ source: 'ccf-skills', ref: 'v1', commit: 'abc' }, 'ccf-skills@abc'],
+  ])('skillText(%j) is %s', (s, want) => {
+    expect(skillText(s)).toBe(want);
+  });
+
+  it.each<[Schemas['Limits'] | undefined, string]>([
+    [undefined, ''],
+    [
+      { maxTurns: 40, maxWallClock: '15m', maxCostUSD: 1.5 },
+      '40 turns, 15m, $1.50',
+    ],
+    [{ maxWallClock: '1h' }, '1h'],
+  ])('limitsText(%j) is %s', (l, want) => {
+    expect(limitsText(l)).toBe(want);
+  });
+
+  it('lists inputs by name with their values and defaults', () => {
+    expect(
+      inputRows({
+        target: {
+          type: 'string',
+          enum: ['pr', 'stack'],
+          default: 'pr',
+          required: true,
+        },
+        n: { type: 'integer', default: 3 },
+        any: {},
+      }),
+    ).toEqual([
+      { name: 'any', type: '', values: '', default: '', required: false },
+      { name: 'n', type: 'integer', values: '', default: '3', required: false },
+      {
+        name: 'target',
+        type: 'string',
+        values: 'pr, stack',
+        default: 'pr',
+        required: true,
+      },
+    ]);
+    expect(inputRows(undefined)).toEqual([]);
+  });
+
+  it.each<[Schemas['GroupSource'], string]>([
+    [
+      { provider: 'gh', orgRole: { org: 'ccf', role: 'admin' } },
+      'gh: org ccf, role admin',
+    ],
+    [{ provider: 'gh', team: 'ccf/docs' }, 'gh: team ccf/docs'],
+    [{ provider: 'gh', users: ['a', 'b'] }, 'gh: users a, b'],
+    [{ provider: 'slack', userGroup: 'S1' }, 'slack: user group S1'],
+    [{ provider: 'gh' }, 'gh: nobody'],
+  ])('memberText(%j) is %s', (m, want) => {
+    expect(memberText(m)).toBe(want);
+  });
+
+  it('maps each prompt and schema to the TaskSpecs that use it', () => {
+    const ts = (
+      name: string,
+      spec: Schemas['TaskSpecSpec'],
+    ): Schemas['TaskSpec'] => ({
+      kind: 'TaskSpec',
+      metadata: { name },
+      spec,
+    });
+    expect(
+      fileUsers([
+        ts('b', {
+          instructions: { template: 'prompts/x' },
+          output: { schema: 'schemas/s' },
+        }),
+        ts('a', { instructions: { template: 'prompts/x' } }),
+        ts('c', {}),
+      ]),
+    ).toEqual({ 'prompts/x': ['a', 'b'], 'schemas/s': ['b'] });
   });
 });

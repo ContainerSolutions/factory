@@ -35,7 +35,48 @@ describe('catalog store', () => {
       'maintainer-agents',
     ]);
     expect(store.namesOf('Group')).toEqual(['maintainers', 'readers']);
+    expect(store.groups.map((g) => g.metadata.name)).toEqual([
+      'maintainers',
+      'readers',
+    ]);
+    expect(store.templates.map((t) => t.metadata.name)).toEqual([
+      'needs-human',
+    ]);
+    expect(store.files.map((f) => `${f.kind} ${f.path}`)).toEqual([
+      'prompt prompts/implement.md.tmpl',
+      'prompt prompts/triage.md.tmpl',
+      'schema schemas/results/implement.json',
+      'schema schemas/results/triage.json',
+    ]);
     expect(store.objectErrors).toEqual([]);
+  });
+
+  it('loads a file once, and says why one failed', async () => {
+    let requests = 0;
+    server.events.on('request:start', ({ request }) => {
+      if (new URL(request.url).pathname === '/api/v1/catalog/file') requests++;
+    });
+    const store = useCatalogStore();
+    await store.loadFile('prompts/triage.md.tmpl');
+    await store.loadFile('prompts/triage.md.tmpl');
+    await store.loadFile('prompts/nope.md.tmpl');
+    server.events.removeAllListeners();
+    expect(requests).toBe(2);
+    expect(store.fileContents['prompts/triage.md.tmpl']).toEqual(
+      examples.get('getCatalogFile'),
+    );
+    expect(store.fileErrors).toEqual({
+      'prompts/nope.md.tmpl':
+        'Not Found: no file "prompts/nope.md.tmpl" in the catalog',
+    });
+  });
+
+  it('drops a file fetched before a load', async () => {
+    const store = useCatalogStore();
+    const pending = store.loadFile('prompts/triage.md.tmpl');
+    await store.load({ quiet: true });
+    await pending;
+    expect(store.fileContents).toEqual({});
   });
 
   it('only fetches the kinds it shows', async () => {
@@ -47,7 +88,7 @@ describe('catalog store', () => {
     await useCatalogStore().load();
     server.events.removeAllListeners();
     expect(fetched.some((p) => p.includes('/Provider/'))).toBe(false);
-    expect(fetched.some((p) => p.includes('/Group/'))).toBe(false);
+    expect(fetched).toContain('/api/v1/catalog/Group/readers');
     expect(fetched).toContain('/api/v1/catalog/RuleSet/docs');
   });
 

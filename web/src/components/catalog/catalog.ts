@@ -266,3 +266,110 @@ export function matchTone(
 export function eventLabel(event: Schemas['Event'], time: string): string {
   return [event.type, event.subject, time].filter(Boolean).join(' · ');
 }
+
+function oneOrList(v: Schemas['StringOrList'] | undefined): string {
+  return Array.isArray(v) ? v.join(' | ') : (v ?? '');
+}
+
+/** A harness request: `codex (gpt-5*, effort medium)`. */
+export function harnessText(h: Schemas['HarnessRequest'] | undefined): string {
+  if (!h) return '';
+  const parts = [
+    oneOrList(h.config?.model),
+    h.config?.reasoningEffort
+      ? `effort ${oneOrList(h.config.reasoningEffort)}`
+      : '',
+    h.config?.prefer?.length ? `prefer ${h.config.prefer.join(', ')}` : '',
+  ].filter(Boolean);
+  return parts.length ? `${h.name} (${parts.join(', ')})` : h.name;
+}
+
+/** A harness constraint: `codex: gpt-5* · effort low | medium`. */
+export function constraintText(c: Schemas['HarnessConstraint']): string {
+  const parts = [
+    oneOrList(c.models),
+    c.reasoningEffort ? `effort ${oneOrList(c.reasoningEffort)}` : '',
+  ].filter(Boolean);
+  return parts.length ? `${c.name}: ${parts.join(' · ')}` : c.name;
+}
+
+/** A skill source: `ccf-skills@v0.9.0: lisa, resolve`. */
+export function skillText(s: Schemas['SkillRef']): string {
+  const at = s.commit
+    ? `${s.source}@${s.commit}`
+    : s.ref
+      ? `${s.source}@${s.ref}`
+      : s.source;
+  return s.use?.length ? `${at}: ${s.use.join(', ')}` : at;
+}
+
+/** A run's limits: `40 turns, 15m, $1.50`; empty when it has none. */
+export function limitsText(l: Schemas['Limits'] | undefined): string {
+  if (!l) return '';
+  return [
+    l.maxTurns !== undefined ? `${l.maxTurns} turns` : '',
+    l.maxWallClock ? `${l.maxWallClock}` : '',
+    l.maxCostUSD !== undefined ? `$${l.maxCostUSD.toFixed(2)}` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+}
+
+/** One declared input of a TaskSpec, as a table row. */
+export interface InputRow {
+  name: string;
+  type: string;
+  values: string;
+  default: string;
+  required: boolean;
+}
+
+/** A TaskSpec's declared inputs, by name. */
+export function inputRows(
+  inputs: Schemas['TaskSpecSpec']['inputs'],
+): InputRow[] {
+  return Object.entries(inputs ?? {})
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, i]) => ({
+      name,
+      type: i.type ?? '',
+      values: (i.enum ?? [])
+        .map((v) => (typeof v === 'string' ? v : JSON.stringify(v)))
+        .join(', '),
+      default:
+        i.default === undefined
+          ? ''
+          : typeof i.default === 'string'
+            ? i.default
+            : JSON.stringify(i.default),
+      required: !!i.required,
+    }));
+}
+
+/** A Group member source: `github-public: org compliance-framework, role admin`. */
+export function memberText(m: Schemas['GroupSource']): string {
+  const what = m.orgRole
+    ? `org ${m.orgRole.org}, role ${m.orgRole.role}`
+    : m.team
+      ? `team ${m.team}`
+      : m.users?.length
+        ? `users ${m.users.join(', ')}`
+        : m.userGroup
+          ? `user group ${m.userGroup}`
+          : 'nobody';
+  return `${m.provider}: ${what}`;
+}
+
+/** The TaskSpecs that use each catalog file, as their prompt or their output schema. */
+export function fileUsers(
+  taskSpecs: readonly Schemas['TaskSpec'][],
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const t of taskSpecs) {
+    for (const p of [t.spec.instructions?.template, t.spec.output?.schema]) {
+      if (p) (out[p] ??= []).push(t.metadata.name);
+    }
+  }
+  for (const names of Object.values(out)) names.sort();
+  return out;
+}

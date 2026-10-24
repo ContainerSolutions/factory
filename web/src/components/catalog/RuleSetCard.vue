@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { Schemas } from '@/api/client';
+import CodeBlock from '@/components/shared/CodeBlock.vue';
 import JsonViewer from '@/components/shared/JsonViewer.vue';
+import ObjectYaml from '@/components/shared/ObjectYaml.vue';
 import StatusPill from '@/components/shared/StatusPill.vue';
+import { tokenizeCEL } from '@/components/shared/highlight';
 import { budgetText } from '@/components/pools/pools';
 import {
   actionKinds,
@@ -127,7 +130,11 @@ const budget = computed(() => budgetText(spec.value.budget));
           <template v-if="rule.spec.where">
             <dt class="text-ccf-600 dark:text-ccf-400">Where</dt>
             <dd>
-              <code class="text-xs break-all">{{ rule.spec.where }}</code>
+              <CodeBlock
+                :tokens="tokenizeCEL(rule.spec.where)"
+                :label="`Where of ${rule.name}`"
+                inline
+              />
             </dd>
           </template>
           <template v-if="rule.spec.priority !== undefined">
@@ -156,5 +163,6 @@ const budget = computed(() => budgetText(spec.value.budget));
     <p v-else class="text-sm text-ccf-500 dark:text-ccf-400">
       Selects no rules.
     </p>
+    <ObjectYaml :value="ruleSet" :label="`YAML of RuleSet ${name}`" />
   </section>
 </template>

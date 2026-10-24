@@ -40,7 +40,7 @@ describe('CatalogStatus', () => {
     );
     expect(wrapper.text()).toContain('2026-10-16 08:00:05 UTC');
     expect(wrapper.get('[data-testid="catalog-counts"]').text()).toBe(
-      '3 Provider, 2 Group, 2 RuleSet, 5 Rule, 3 TaskSpec, 4 Queue, 2 Pool',
+      '3 Provider, 2 Group, 1 Template, 2 RuleSet, 5 Rule, 3 TaskSpec, 4 Queue, 2 Pool',
     );
     expect(wrapper.find('[data-testid="catalog-errors"]').exists()).toBe(false);
   });

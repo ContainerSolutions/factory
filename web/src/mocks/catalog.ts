@@ -154,11 +154,34 @@ export const taskSpecs: readonly Schemas['TaskSpec'][] = [
   triage,
   taskSpec('implement', {
     description: 'Address review feedback on a pull request.',
+    inputs: {
+      mode: { type: 'string', enum: ['new', 'address-review'], default: 'new' },
+      issue: { type: 'string' },
+      base: { type: 'string', default: 'main' },
+    },
+    instructions: { template: 'prompts/implement.md.tmpl', headless: true },
+    skills: [
+      { source: 'ccf-skills', ref: 'v0.9.0', use: ['lisa', 'docs-style'] },
+    ],
     harness: {
       default: { name: 'claude-code', config: { model: 'claude-sonnet-5-*' } },
     },
+    workspace: {
+      repos: [{ ref: "=task.target.repo + '@' + inputs.base", mode: 'rw' }],
+      hosts: ['registry.npmjs.org'],
+      environment: {
+        setup: 'corepack enable\nyarn install --immutable\n',
+        exposes: { FACTORY_STACK_URL: 'http://localhost:8000' },
+      },
+    },
+    identity: 'author',
+    permissions: { contents: 'write', pull_requests: 'write' },
     effects: { allow: ['push-branch', 'pr.comment'] },
     limits: { maxTurns: 120, maxWallClock: '1h' },
+    output: {
+      schema: 'schemas/results/implement.json',
+      outcomes: ['pr-opened', 'pr-updated', 'blocked'],
+    },
   }),
   taskSpec('review', {
     description: 'Review a pull request against the CCF rule catalog.',
@@ -235,10 +258,25 @@ const groups: readonly Schemas['Group'][] = [
   },
 ];
 
+const templates: readonly Schemas['Template'][] = [
+  {
+    kind: 'Template',
+    metadata: { name: 'needs-human' },
+    spec: {
+      bodies: {
+        github:
+          '🙋 The factory needs a person here.\n\n- **What blocked:** the `{{ .run.spec }}` run ended `{{ .run.outcome }}`{{ with .run.result.summary }}: {{ . }}{{ end }}\n- **Last run:** [{{ .run.id }}]({{ .links.ui }})\n',
+        slack: { blocks: 'templates/needs-human.blocks.json' },
+      },
+    },
+  },
+];
+
 /** Every object of the mock catalog, by kind and name. */
 export const catalogObjects: readonly CatalogObject[] = [
   ...providerViews.map((v) => v.provider),
   ...groups,
+  ...templates,
   ...ruleSets,
   ...rules,
   ...taskSpecs,
@@ -255,6 +293,72 @@ export const catalogSummary: Schemas['CatalogSummary'] = {
       : { kind: o.kind, name: o.metadata.name },
   ),
 };
+
+const exampleFile = examples.get('getCatalogFile') as Schemas['CatalogFile'];
+
+async function digest(text: string): Promise<string> {
+  const sum = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(text),
+  );
+  return `sha256:${[...new Uint8Array(sum)].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** The mock catalog's files: the example's triage prompt, an implement prompt and two schemas. */
+export const catalogFiles: readonly Omit<Schemas['CatalogFile'], 'digest'>[] = [
+  exampleFile,
+  {
+    path: 'prompts/implement.md.tmpl',
+    kind: 'prompt',
+    content: [
+      '{{- /* implement: one issue as a PR, or the review fixes on one. */ -}}',
+      '# Task: {{ .task.spec }} for {{ .task.target.repo }}',
+      '',
+      '## Goal',
+      '',
+      '{{ if eq .inputs.mode "new" -}}',
+      'Implement {{ with .inputs.issue }}{{ printf "%q" . }}{{ else }}(none given){{ end }} on a new branch.',
+      '{{- else -}}',
+      'Address every unresolved review thread on the pull request, and push the fixes.',
+      '{{- end }}',
+      '',
+      '## Inputs',
+      '',
+      '- mode: {{ printf "%q" .inputs.mode }}',
+      '- base: {{ printf "%q" .inputs.base }}',
+      '',
+    ].join('\n'),
+  },
+  {
+    path: 'schemas/results/implement.json',
+    kind: 'schema',
+    content: `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [{ "$ref": "https://factory.ccf.dev/schemas/v1alpha1/result.schema.json" }],
+  "properties": {
+    "outcome": { "enum": ["pr-opened", "pr-updated", "blocked"] },
+    "data": {
+      "type": "object",
+      "properties": { "pr": { "type": "string" }, "branch": { "type": "string", "minLength": 1 } }
+    }
+  }
+}
+`,
+  },
+  {
+    path: 'schemas/results/triage.json',
+    kind: 'schema',
+    content: `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [{ "$ref": "https://factory.ccf.dev/schemas/v1alpha1/result.schema.json" }],
+  "properties": {
+    "outcome": { "enum": ["triaged", "needs-info", "duplicate", "not-actionable", "promote"] },
+    "data": { "type": "object", "properties": { "labels": { "type": "array", "items": { "type": "string" } } } }
+  }
+}
+`,
+  },
+];
 
 /** The mock work item whose events the dry-run panel offers first. */
 export const recordedWorkItem = workItemDetails[0]!;
@@ -297,8 +401,9 @@ const exampleEvaluation = examples.get(
 ) as Schemas['Evaluation'];
 
 /**
- * `GET /catalog`, `GET /providers` and `GET /catalog/{kind}/{name}` over the fixtures above (404
- * for an unknown object), and `POST /catalog/dry-run` answering the example Evaluation for the
+ * `GET /catalog`, `GET /providers`, `GET /catalog/{kind}/{name}` and the catalog files over the
+ * fixtures above (404 for an unknown object or file, 400 for a path outside prompts/ and
+ * schemas/), and `POST /catalog/dry-run` answering the example Evaluation for the
  * posted event (400 without one). Registered before the example handlers, which they override.
  */
 export const catalogHandlers: HttpHandler[] = [
@@ -327,6 +432,29 @@ export const catalogHandlers: HttpHandler[] = [
       delete evaluation.workItem;
     }
     return HttpResponse.json<Schemas['Evaluation']>(evaluation);
+  }),
+  http.get(`${API_BASE}/catalog/files`, () =>
+    HttpResponse.json<Schemas['CatalogFileList']>({
+      items: catalogFiles
+        .map(({ path, kind }) => ({ path, kind }))
+        .sort((a, b) => a.path.localeCompare(b.path)),
+    }),
+  ),
+  http.get(`${API_BASE}/catalog/file`, async ({ request }) => {
+    const path = new URL(request.url).searchParams.get('path') ?? '';
+    if (!/^(prompts|schemas)\/./.test(path) || path.includes('..')) {
+      return badRequest(
+        'path must be a file under prompts/ or schemas/',
+        'path',
+      );
+    }
+    const file = catalogFiles.find((f) => f.path === path);
+    if (!file) return notFound(`no file "${path}" in the catalog`);
+    return HttpResponse.json<Schemas['CatalogFile']>({
+      ...file,
+      digest:
+        file === exampleFile ? exampleFile.digest : await digest(file.content),
+    });
   }),
   http.get<{ kind: string; name: string }>(
     `${API_BASE}/catalog/:kind/:name`,

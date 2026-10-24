@@ -13,6 +13,8 @@ export const DETAIL_KINDS = [
   'TaskSpec',
   'Queue',
   'Pool',
+  'Group',
+  'Template',
 ] as const satisfies readonly Kind[];
 
 type DetailKind = (typeof DETAIL_KINDS)[number];
@@ -44,9 +46,10 @@ export type DryRunOutcome =
   | { ok: false; message: string; fields: Schemas['FieldError'][] };
 
 /**
- * The loaded catalog (`GET /catalog`), its providers with their health (`GET /providers`), and the
- * RuleSets, Rules, TaskSpecs, Queues and Pools it lists, each fetched in full. The contract has no
- * bulk read of catalog objects, so that is one request per object.
+ * The loaded catalog (`GET /catalog`), its providers with their health (`GET /providers`), the
+ * RuleSets, Rules, TaskSpecs, Queues, Pools, Groups and Templates it lists, each fetched in full,
+ * and its prompt and schema files (`GET /catalog/files`; each file's content on demand). The
+ * contract has no bulk read of catalog objects, so that is one request per object.
  */
 export const useCatalogStore = defineStore('catalog', () => {
   const summary = ref<Schemas['CatalogSummary'] | null>(null);
@@ -58,6 +61,13 @@ export const useCatalogStore = defineStore('catalog', () => {
   /** One line per object that didn't load: `RuleSet docs: Not Found: …`. */
   const objectErrors = ref<string[]>([]);
   const loading = ref(false);
+  const files = ref<Schemas['CatalogFileRef'][]>([]);
+  const filesError = ref<string | null>(null);
+  /** The files fetched so far, by path, and why the others failed. */
+  const fileContents = ref<Record<string, Schemas['CatalogFile']>>({});
+  const fileErrors = ref<Record<string, string>>({});
+  /** Bumped when the file contents are dropped (a load): a file fetched before is stale. */
+  const filesVersion = ref(0);
 
   function of<K extends DetailKind>(kind: K) {
     return computed(() => {
@@ -72,6 +82,8 @@ export const useCatalogStore = defineStore('catalog', () => {
   const taskSpecs = of('TaskSpec');
   const queues = of('Queue');
   const pools = of('Pool');
+  const groups = of('Group');
+  const templates = of('Template');
 
   /** The names of the listed objects of `kind`, sorted. */
   function namesOf(kind: Kind): string[] {
@@ -136,11 +148,53 @@ export const useCatalogStore = defineStore('catalog', () => {
     }
   }
 
-  /** Loads the summary, its objects and the providers. A quiet load keeps "Loading…" off. */
+  async function loadFiles(): Promise<void> {
+    fileContents.value = {};
+    fileErrors.value = {};
+    filesVersion.value++;
+    try {
+      const { data, error, response } = await api.GET('/catalog/files');
+      if (data) {
+        files.value = data.items;
+        filesError.value = null;
+      } else filesError.value = describeProblem(error, response);
+    } catch (e) {
+      filesError.value = message(e);
+    }
+  }
+
+  /** Fetches a file's content (`GET /catalog/file`) unless it is already loaded. */
+  async function loadFile(path: string): Promise<void> {
+    if (fileContents.value[path]) return;
+    const version = filesVersion.value;
+    try {
+      const { data, error, response } = await api.GET('/catalog/file', {
+        params: { query: { path } },
+      });
+      // A load since this request started dropped the old snapshot's files: keep none of it.
+      if (version !== filesVersion.value) return;
+      if (data) {
+        fileContents.value = { ...fileContents.value, [path]: data };
+        const rest = { ...fileErrors.value };
+        delete rest[path];
+        fileErrors.value = rest;
+      } else {
+        fileErrors.value = {
+          ...fileErrors.value,
+          [path]: describeProblem(error, response),
+        };
+      }
+    } catch (e) {
+      if (version !== filesVersion.value) return;
+      fileErrors.value = { ...fileErrors.value, [path]: message(e) };
+    }
+  }
+
+  /** Loads the summary, its objects, the providers and the file list. A quiet load keeps "Loading…" off. */
   async function load({ quiet = false }: { quiet?: boolean } = {}) {
     if (!quiet) loading.value = true;
     try {
-      await Promise.all([loadSummary(), loadProviders()]);
+      await Promise.all([loadSummary(), loadProviders(), loadFiles()]);
     } finally {
       if (!quiet) loading.value = false;
     }
@@ -212,8 +266,16 @@ export const useCatalogStore = defineStore('catalog', () => {
     taskSpecs,
     queues,
     pools,
+    groups,
+    templates,
+    files,
+    filesError,
+    fileContents,
+    fileErrors,
+    filesVersion,
     namesOf,
     load,
+    loadFile,
     dryRun,
     recentWorkItems,
     recordedEvents,
