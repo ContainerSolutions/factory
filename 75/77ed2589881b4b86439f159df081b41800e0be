@@ -1,0 +1,5 @@
+lisa-design:
+- Two routes, not `/catalog/files/{path}`: a catalog path has slashes, which an echo path param can't hold, and a 3-segment path would be ambiguous with `/catalog/{kind}/{name}`. So `GET /catalog/files` lists and `GET /catalog/file?path=` gets one.
+- JSON `{path, kind, digest, content}` for both prompts and schemas (one media type for the web client), content unrendered; digest is `sha256:<hex>` of the content, the prompt's `spec.prompt.digest`.
+- The list has no pagination: a catalog holds a handful of files. It still uses `items` like the other lists.
+- The contract PR stubs both handlers with 501 (as #102 did for enrollments) so the server builds; UI-1b replaces them.
