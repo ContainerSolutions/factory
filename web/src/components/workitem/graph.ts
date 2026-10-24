@@ -508,3 +508,24 @@ function inferredEvent(
   );
   return event ? { event, after } : undefined;
 }
+
+/**
+ * The graph without its idle events, for the Graph tab: an event no fired decision acted on (no
+ * actions) and nothing links to. Columns are renumbered over the events that remain, so there
+ * are no gaps; the Timeline still lists every event. Links run from actions and tasks, so an
+ * event with no actions has none going out.
+ */
+export function withoutIdle(g: WorkItemGraph): {
+  graph: WorkItemGraph;
+  hidden: number;
+} {
+  const linked = new Set(g.links.map((l) => l.to));
+  const kept = g.events.filter((e) => e.actions.length || linked.has(e.key));
+  return {
+    graph: {
+      events: kept.map((e, column) => ({ ...e, column })),
+      links: g.links,
+    },
+    hidden: g.events.length - kept.length,
+  };
+}

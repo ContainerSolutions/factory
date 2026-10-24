@@ -115,6 +115,7 @@ const catalogSHA = computed(() =>
         @why="whyIndex = $event"
         @event="showEvent"
         @task="showTask"
+        @timeline="selectTab('timeline')"
       />
       <LLMTasks
         v-else-if="tab === 'tasks'"
