@@ -95,7 +95,7 @@ const caps = computed(() =>
       />
     </div>
 
-    <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+    <dl class="kv-grid gap-x-4 gap-y-1 text-sm">
       <dt class="text-ccf-600 dark:text-ccf-400">Owner</dt>
       <dd class="break-all" data-testid="agent-owner">
         {{ agent.spec.owner }}
@@ -179,7 +179,7 @@ const caps = computed(() =>
       <p v-else-if="lending.unlimited">
         Unlimited: any queue of the pool, any RuleSet and harness, at any time.
       </p>
-      <dl v-else class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
+      <dl v-else class="kv-grid gap-x-4 gap-y-1">
         <template v-for="[label, value] in lendingRows" :key="label">
           <dt class="text-ccf-600 dark:text-ccf-400">{{ label }}</dt>
           <dd>{{ value }}</dd>

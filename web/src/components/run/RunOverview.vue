@@ -14,7 +14,7 @@ const result = computed(() => props.run.status?.result);
 <template>
   <section aria-labelledby="overview-heading">
     <h2 id="overview-heading" class="mb-2 text-sm font-semibold">Run</h2>
-    <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+    <dl class="kv-grid gap-x-4 gap-y-1 text-sm">
       <dt class="text-ccf-600 dark:text-ccf-400">State</dt>
       <dd data-testid="run-state"><StatusPill :label="state" /></dd>
       <dt class="text-ccf-600 dark:text-ccf-400">Agent</dt>

@@ -37,7 +37,9 @@ const tokens = computed(() => {
 </script>
 
 <template>
-  <div class="grid gap-4 lg:grid-cols-[minmax(12rem,max-content)_1fr]">
+  <div
+    class="grid gap-4 lg:grid-cols-[minmax(12rem,max-content)_minmax(0,1fr)]"
+  >
     <nav :aria-label="label">
       <ul class="flex flex-col gap-1 text-sm">
         <li v-for="f in files" :key="f.path">

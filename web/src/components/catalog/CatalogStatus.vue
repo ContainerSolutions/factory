@@ -35,7 +35,7 @@ const command = resyncCatalogCommand();
     class="mb-8 rounded-lg border border-ccf-200 p-4 dark:border-ccf-800"
   >
     <div class="flex flex-wrap items-start gap-6">
-      <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+      <dl class="kv-grid gap-x-4 gap-y-1 text-sm">
         <dt class="text-ccf-600 dark:text-ccf-400">Status</dt>
         <dd data-testid="catalog-status">
           <StatusPill

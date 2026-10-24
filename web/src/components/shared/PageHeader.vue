@@ -3,7 +3,7 @@ defineProps<{ title: string }>();
 </script>
 
 <template>
-  <header class="mb-6">
+  <header class="mb-6 [overflow-wrap:anywhere]">
     <h1 class="text-2xl font-semibold text-ccf-900 dark:text-ccf-100">
       {{ title }}
     </h1>

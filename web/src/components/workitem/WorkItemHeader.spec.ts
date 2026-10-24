@@ -26,11 +26,17 @@ describe('WorkItemHeader', () => {
     ).toEqual([
       ['github-public', 'pr', 'compliance-framework/api#310', 'primary'],
       ['slack-ccf', 'thread', '#ccf-api/1729070000.000100'],
+      [
+        'github-public',
+        'branch',
+        'compliance-framework/api@factory/wi_01JAC0ESCALATED0000000000000/implement-review-feedback-round-3-oscal-profile-flag-visibility',
+      ],
     ]);
     expect(pairs(wrapper, 'state-keys')).toEqual([
       ['stackNext', '1'],
       ['stackTotal', '2'],
       ['review', 'needs-human'],
+      ['lastReview', expect.stringMatching(/^\{"round":3,/)],
     ]);
     expect(pairs(wrapper, 'counters')).toEqual([
       ['implement', '3'],

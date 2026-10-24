@@ -63,3 +63,29 @@ html,
 body {
   @apply font-sans;
 }
+
+/*
+ * Long, unbroken values (refs, ids, labels, JSON) stay inside their boxes. A flex or grid item
+ * may shrink below its content, so a long value wraps, truncates or scrolls inside it instead of
+ * widening its column; utilities still override this (they come in a later layer).
+ */
+@layer base {
+  .flex > *,
+  .inline-flex > *,
+  .grid > * {
+    min-width: 0;
+  }
+}
+
+/*
+ * A definition list as two tracks: the term's, as wide as its terms up to 40%, and the value's,
+ * which takes the rest and may shrink. Terms and values wrap anywhere rather than overflow.
+ */
+@utility kv-grid {
+  display: grid;
+  grid-template-columns: fit-content(40%) minmax(0, 1fr);
+  & > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}

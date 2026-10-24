@@ -48,7 +48,7 @@ const lane = computed(() => {
       <p v-else class="text-sm text-ccf-500">No links.</p>
 
       <h2 class="mt-4 mb-2 text-sm font-semibold">Details</h2>
-      <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+      <dl class="kv-grid gap-x-4 gap-y-1 text-sm">
         <dt class="text-ccf-600 dark:text-ccf-400">Board lane</dt>
         <dd data-testid="lane">
           <StatusPill :label="lane.title" :tone="toneOf(lane.id)" />
@@ -77,7 +77,7 @@ const lane = computed(() => {
       <h2 class="mb-2 text-sm font-semibold">State keys</h2>
       <dl
         v-if="state.length"
-        class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm"
+        class="kv-grid gap-x-4 gap-y-1 text-sm"
         data-testid="state-keys"
       >
         <template v-for="[key, value] in state" :key="key">
@@ -94,10 +94,7 @@ const lane = computed(() => {
 
       <template v-if="counters.length">
         <h2 class="mt-4 mb-2 text-sm font-semibold">Runs per TaskSpec</h2>
-        <dl
-          class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm"
-          data-testid="counters"
-        >
+        <dl class="kv-grid gap-x-4 gap-y-1 text-sm" data-testid="counters">
           <template v-for="[spec, count] in counters" :key="spec">
             <dt class="font-mono text-xs leading-5">{{ spec }}</dt>
             <dd>{{ count }}</dd>

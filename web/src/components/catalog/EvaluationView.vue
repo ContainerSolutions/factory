@@ -52,39 +52,38 @@ function actionOf(action: Schemas['ActionIntent']): Record<string, unknown> {
     </p>
 
     <h3 class="mb-2 text-sm font-semibold">Candidate rules</h3>
-    <table
-      v-if="evaluation.matches.length"
-      class="mb-4 w-full text-left text-sm"
-    >
-      <thead class="text-ccf-600 dark:text-ccf-400">
-        <tr>
-          <th scope="col" class="py-1 pr-4 font-medium">RuleSet</th>
-          <th scope="col" class="py-1 pr-4 font-medium">Rule</th>
-          <th scope="col" class="py-1 pr-4 font-medium">Result</th>
-          <th scope="col" class="py-1 font-medium">Error</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="(m, i) in evaluation.matches"
-          :key="i"
-          class="border-t border-ccf-200 dark:border-ccf-800"
-          data-testid="match"
-        >
-          <td class="py-1 pr-4 font-mono text-xs">{{ m.ruleSet }}</td>
-          <td class="py-1 pr-4 font-mono text-xs">{{ m.rule }}</td>
-          <td class="py-1 pr-4">
-            <StatusPill :label="m.result" :tone="matchTone(m.result)" />
-          </td>
-          <td class="py-1 text-xs">
-            {{ m.error ?? ''
-            }}<template v-if="m.actionIndex !== undefined">
-              (action {{ m.actionIndex }})</template
-            >
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <div v-if="evaluation.matches.length" class="max-w-full overflow-x-auto">
+      <table class="mb-4 w-full text-left text-sm">
+        <thead class="text-ccf-600 dark:text-ccf-400">
+          <tr>
+            <th scope="col" class="py-1 pr-4 font-medium">RuleSet</th>
+            <th scope="col" class="py-1 pr-4 font-medium">Rule</th>
+            <th scope="col" class="py-1 pr-4 font-medium">Result</th>
+            <th scope="col" class="py-1 font-medium">Error</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="(m, i) in evaluation.matches"
+            :key="i"
+            class="border-t border-ccf-200 dark:border-ccf-800"
+            data-testid="match"
+          >
+            <td class="py-1 pr-4 font-mono text-xs">{{ m.ruleSet }}</td>
+            <td class="py-1 pr-4 font-mono text-xs">{{ m.rule }}</td>
+            <td class="py-1 pr-4">
+              <StatusPill :label="m.result" :tone="matchTone(m.result)" />
+            </td>
+            <td class="py-1 text-xs">
+              {{ m.error ?? ''
+              }}<template v-if="m.actionIndex !== undefined">
+                (action {{ m.actionIndex }})</template
+              >
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     <p v-else class="mb-4 text-sm text-ccf-500">No rule is a candidate.</p>
 
     <h3 class="mb-2 text-sm font-semibold">Actions</h3>

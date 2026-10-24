@@ -109,12 +109,12 @@ function detailText(entry: TranscriptEntry): string {
             </div>
             <pre
               v-if="entry.text"
-              class="font-sans break-words whitespace-pre-wrap"
+              class="font-sans whitespace-pre-wrap [overflow-wrap:anywhere]"
               >{{ entry.text }}</pre
             >
             <pre
               v-if="entry.detail"
-              class="overflow-x-auto rounded bg-ccf-100 p-2 font-mono text-xs dark:bg-ccf-900"
+              class="max-w-full overflow-x-auto rounded bg-ccf-100 p-2 font-mono text-xs dark:bg-ccf-900"
               >{{ detailText(entry) }}</pre
             >
           </li>

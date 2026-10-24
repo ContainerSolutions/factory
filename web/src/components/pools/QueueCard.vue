@@ -39,7 +39,7 @@ const retry = computed(() => {
       >
       <div class="ms-auto"><slot name="actions" /></div>
     </div>
-    <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+    <dl class="kv-grid gap-x-4 gap-y-1 text-sm">
       <dt class="text-ccf-600 dark:text-ccf-400">Pool</dt>
       <dd class="font-mono text-xs">{{ spec.pool }}</dd>
       <dt class="text-ccf-600 dark:text-ccf-400">Running</dt>

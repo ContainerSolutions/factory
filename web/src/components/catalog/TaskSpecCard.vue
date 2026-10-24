@@ -50,33 +50,31 @@ function fileLink(tab: 'prompts' | 'schemas', file: string) {
       {{ spec.description }}
     </p>
 
-    <dl class="mt-3 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
+    <dl class="mt-3 kv-grid gap-x-4 gap-y-2 text-sm">
       <dt class="text-ccf-600 dark:text-ccf-400">Inputs</dt>
       <dd>
-        <table
-          v-if="inputs.length"
-          class="text-left text-xs"
-          data-testid="taskspec-inputs"
-        >
-          <thead class="text-ccf-600 dark:text-ccf-400">
-            <tr>
-              <th scope="col" class="pr-3 font-medium">Name</th>
-              <th scope="col" class="pr-3 font-medium">Type</th>
-              <th scope="col" class="pr-3 font-medium">Values</th>
-              <th scope="col" class="font-medium">Default</th>
-            </tr>
-          </thead>
-          <tbody class="font-mono">
-            <tr v-for="i in inputs" :key="i.name">
-              <th scope="row" class="pr-3 font-medium">
-                {{ i.name }}<span v-if="i.required" title="required">*</span>
-              </th>
-              <td class="pr-3">{{ i.type }}</td>
-              <td class="pr-3">{{ i.values || 'any' }}</td>
-              <td>{{ i.default || '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div v-if="inputs.length" class="max-w-full overflow-x-auto">
+          <table class="text-left text-xs" data-testid="taskspec-inputs">
+            <thead class="text-ccf-600 dark:text-ccf-400">
+              <tr>
+                <th scope="col" class="pr-3 font-medium">Name</th>
+                <th scope="col" class="pr-3 font-medium">Type</th>
+                <th scope="col" class="pr-3 font-medium">Values</th>
+                <th scope="col" class="font-medium">Default</th>
+              </tr>
+            </thead>
+            <tbody class="font-mono">
+              <tr v-for="i in inputs" :key="i.name">
+                <th scope="row" class="pr-3 font-medium">
+                  {{ i.name }}<span v-if="i.required" title="required">*</span>
+                </th>
+                <td class="pr-3">{{ i.type }}</td>
+                <td class="pr-3">{{ i.values || 'any' }}</td>
+                <td>{{ i.default || '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <span v-else>none</span>
       </dd>
 

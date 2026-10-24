@@ -24,8 +24,11 @@ describe('WorkItemCard', () => {
       'stackNext: 1',
       'stackTotal: 2',
       'review: needs-human',
+      expect.stringMatching(/^lastReview: \{"round":3,/),
     ]);
     expect(pills[2]!.get('span').attributes('data-tone')).toBe('danger');
+    // A long value is cut to the card; its title holds it whole.
+    expect(pills[3]!.get('span').attributes('title')).toBe(pills[3]!.text());
     expect(wrapper.text()).toContain('api · 2026-10-17 14:02:01 UTC');
   });
 

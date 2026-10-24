@@ -43,7 +43,7 @@ const classes: Record<TokenKind, string> = {
     role="region"
     :aria-label="label"
     tabindex="0"
-    class="overflow-x-auto rounded-md border border-ccf-200 bg-ccf-50 p-3 font-mono text-xs leading-5 text-ccf-800 dark:border-ccf-700 dark:bg-ccf-900 dark:text-ccf-200"
+    class="max-w-full overflow-x-auto rounded-md border border-ccf-200 bg-ccf-50 p-3 font-mono text-xs leading-5 text-ccf-800 dark:border-ccf-700 dark:bg-ccf-900 dark:text-ccf-200"
     data-testid="code"
   ><span
       v-for="(t, i) in tokens"

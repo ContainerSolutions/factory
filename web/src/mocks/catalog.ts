@@ -72,11 +72,17 @@ export const rules: readonly Rule[] = [
   ),
   rule(
     'implement-review-feedback',
-    { pack: 'review' },
+    {
+      pack: 'review',
+      // A long label and a long where must stay inside their boxes.
+      owner:
+        'compliance-framework.platform-maintainers.release-engineering.oscal-tooling-working-group',
+    },
     {
       providerSelector: github,
       on: ['pr.review.submitted'],
-      where: "item.count('implement') < params.maxRounds",
+      where:
+        "item.count('implement') < params.maxRounds && event.data.facts['review.state'] == 'changes_requested' && !event.data.actor.isBot && event.data.object.ref.startsWith('compliance-framework/')",
       params: { maxRounds: 3 },
       actions: [{ dispatch: { taskSpec: 'implement', queue: 'default' } }],
     },
