@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
 import type { Schemas } from '@/api/client';
 import { examples } from '@/mocks/examples';
+import { renderMarkdown } from '@/components/shared/markdown';
 import CatalogFiles from './CatalogFiles.vue';
+
+beforeAll(async () => {
+  await renderMarkdown('');
+});
 
 const prompt = examples.get('getCatalogFile') as Schemas['CatalogFile'];
 const files: Schemas['CatalogFileRef'][] = [
@@ -38,8 +43,21 @@ describe('CatalogFiles', () => {
     expect(wrapper.emitted('select')).toEqual([['prompts/triage.md.tmpl']]);
   });
 
-  it('shows a prompt as its highlighted template, with its users and digest', () => {
+  it('shows a prompt rendered by default, its source on the toggle', async () => {
     const wrapper = mountFiles({ selected: prompt.path, file: prompt });
+    await flushPromises();
+    const modes = wrapper.findAll('[data-mode]');
+    expect(modes.map((m) => [m.text(), m.attributes('aria-pressed')])).toEqual([
+      ['Rendered', 'true'],
+      ['Source', 'false'],
+    ]);
+    expect(wrapper.get('[data-testid="markdown"] h1').text()).toBe(
+      'Task: {{ .task.spec }} for {{ .task.target.repo }}',
+    );
+    expect(wrapper.find('pre').exists()).toBe(false);
+    await modes[1]!.trigger('click');
+    expect(modes[1]!.attributes('aria-pressed')).toBe('true');
+    expect(wrapper.find('[data-testid="markdown"]').exists()).toBe(false);
     expect(wrapper.find('[aria-current="true"]').text()).toBe(
       'prompts/triage.md.tmpl',
     );
@@ -51,6 +69,7 @@ describe('CatalogFiles', () => {
     ).toBe(`Used by triage · ${prompt.digest}`);
     const pre = wrapper.get('pre');
     expect(pre.text()).toBe(prompt.content.trimEnd());
+    // A schema has no toggle.
     expect(pre.findAll('[data-kind="delim"]').length).toBeGreaterThan(0);
     expect(pre.find('[data-kind="comment"]').text()).toBe(
       '{{- /* triage: classify an incoming issue. */ -}}',
@@ -69,6 +88,7 @@ describe('CatalogFiles', () => {
       selected: schema.path,
       file: schema,
     });
+    expect(wrapper.find('[data-mode]').exists()).toBe(false);
     expect(
       wrapper.findAll('pre [data-kind="key"]').map((s) => s.text()),
     ).toEqual(['"type"']);

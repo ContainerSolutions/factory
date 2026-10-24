@@ -1,11 +1,16 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { flushPromises, type VueWrapper } from '@vue/test-utils';
 import { http, HttpResponse } from 'msw';
 import { confirmDialog, recordCommands } from '@/__tests__/commands';
 import { mountWithApp } from '@/__tests__/mount';
 import { server } from '@/mocks/node';
 import { maintainer, reader } from '@/mocks/session';
+import { renderMarkdown } from '@/components/shared/markdown';
 import CatalogView from './CatalogView.vue';
+
+beforeAll(async () => {
+  await renderMarkdown('');
+});
 
 let mounted: VueWrapper | undefined;
 
@@ -112,7 +117,8 @@ describe('CatalogView', () => {
     const view = wrapper.get('[data-testid="catalog-file-view"]');
     expect(view.get('h3').text()).toBe('prompts/triage.md.tmpl');
     expect(view.text()).toContain('Used by triage');
-    expect(view.find('pre [data-kind="delim"]').exists()).toBe(true);
+    await flushPromises();
+    expect(view.find('[data-testid="markdown"] h1').exists()).toBe(true);
   });
 
   it('shows the first result schema, and another one picked', async () => {
@@ -159,7 +165,8 @@ describe('CatalogView', () => {
     await flushPromises();
     const view = wrapper.get('[data-testid="catalog-file-view"]');
     expect(view.get('h3').text()).toBe('prompts/implement.md.tmpl');
-    expect(view.find('pre [data-kind="delim"]').exists()).toBe(true);
+    await flushPromises();
+    expect(view.find('[data-testid="markdown"] h1').exists()).toBe(true);
     expect(view.find('[role="status"]').exists()).toBe(false);
   });
 
