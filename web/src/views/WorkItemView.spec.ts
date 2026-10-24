@@ -78,6 +78,20 @@ describe('WorkItemView', () => {
     expect(first.get('button').attributes('aria-expanded')).toBe('true');
   });
 
+  it('opens a task of the graph in the LLM tasks tab, outlined', async () => {
+    const { wrapper, router } = await mountItem(
+      'wi_01JAC0PIPELINE0000000000000',
+    );
+    await wrapper.findAll('[data-testid="graph-task"]')[1]!.trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.query.tab).toBe('tasks');
+    const focused = wrapper.findAll('[data-testid="llm-task"][data-focus]');
+    expect(focused.map((t) => t.get('h3').text())).toEqual(['implement']);
+    expect(focused[0]!.attributes('id')).toBe(
+      'task-tsk_01JAC0PIPELINEIMPLEMENT0000',
+    );
+  });
+
   it('opens the "why" panel of a decision, with the catalog SHA from its task', async () => {
     const { wrapper } = await mountItem(
       'wi_01JAB3J9T1D2E3F4G5H6J7K8LM',

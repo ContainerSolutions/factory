@@ -38,7 +38,10 @@ describe('BoardView', () => {
           'compliance-framework/docs#42',
         ],
       ],
-      ['lane-waiting', ['compliance-framework/ui#88']],
+      [
+        'lane-waiting',
+        ['compliance-framework/docs#91', 'compliance-framework/ui#88'],
+      ],
       ['lane-done', ['compliance-framework/docs#40']],
     ]);
     expect(wrapper.get('[data-testid="lane-hidden"]').text()).toBe(
@@ -98,7 +101,7 @@ describe('BoardView', () => {
       .find((b) => b.text() === 'Load more')!;
     await more.trigger('click');
     await flushPromises();
-    expect(wrapper.findAll('[data-testid="workitem-card"]')).toHaveLength(7);
+    expect(wrapper.findAll('[data-testid="workitem-card"]')).toHaveLength(8);
     expect(
       wrapper.findAll('button').some((b) => b.text() === 'Load more'),
     ).toBe(false);
@@ -135,7 +138,10 @@ describe('BoardView', () => {
         'compliance-framework/ui#88',
       ],
     ]);
-    expect(lanes(wrapper)[2]).toEqual(['lane-waiting', []]);
+    expect(lanes(wrapper)[2]).toEqual([
+      'lane-waiting',
+      ['compliance-framework/docs#91'],
+    ]);
 
     wrapper.unmount();
     expect(source.closed).toBe(true);

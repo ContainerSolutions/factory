@@ -10,7 +10,7 @@ const pipeline = workItemDetails.find(
 describe('WorkItemGraph', () => {
   it('draws events, actions with their rule, state and shape, and the links', () => {
     const wrapper = mount(WorkItemGraph, { props: { detail: pipeline } });
-    expect(wrapper.findAll('[data-testid="graph-event"]')).toHaveLength(5);
+    expect(wrapper.findAll('[data-testid="graph-event"]')).toHaveLength(6);
     const actions = wrapper.findAll('[data-testid="graph-action"]');
     expect(
       actions.map((a) => [
@@ -36,14 +36,27 @@ describe('WorkItemGraph', () => {
     expect(actions[3]!.findAll('text')[2]!.text()).toBe(
       'Succeeded · 2 attempts',
     );
-    expect(
-      wrapper
-        .findAll('[data-testid="graph-link"]')
-        .map((l) => l.attributes('data-inferred')),
-    ).toEqual(['false', 'false', 'false', 'true', 'true']);
     const links = wrapper.findAll('[data-testid="graph-link"]');
-    expect(links[2]!.attributes('stroke-dasharray')).toBeUndefined();
-    expect(links[3]!.attributes('stroke-dasharray')).toBe('6 4');
+    expect(
+      links.map((l) => [
+        l.attributes('data-cause'),
+        l.attributes('data-inferred'),
+      ]),
+    ).toEqual([
+      ['task', 'false'],
+      ['run', 'false'],
+      ['task', 'false'],
+      ['run', 'false'],
+      ['effect', 'false'],
+      ['notify', 'false'],
+      ['task', 'false'],
+      ['inferred', 'true'],
+      ['inferred', 'true'],
+    ]);
+    expect(links[4]!.attributes('stroke-dasharray')).toBeUndefined();
+    expect(links[7]!.attributes('stroke-dasharray')).toBe('6 4');
+    // A dispatch → its task is a straight arrow along the row.
+    expect(links[0]!.attributes('d')).toMatch(/^M [\d.]+ [\d.]+ H [\d.]+$/);
   });
 
   it("opens an action's why and an event's row, by click or key", async () => {
@@ -60,8 +73,8 @@ describe('WorkItemGraph', () => {
     await actions[0]!.trigger('keydown', { key: 'Enter' });
     expect(wrapper.emitted('why')).toEqual([[3], [0]]);
     const events = wrapper.findAll('[data-testid="graph-event"]');
-    await events[2]!.trigger('keydown', { key: ' ' });
-    await events[2]!.trigger('keydown', { key: 'x' });
+    await events[3]!.trigger('keydown', { key: ' ' });
+    await events[3]!.trigger('keydown', { key: 'x' });
     expect(wrapper.emitted('event')).toEqual([
       ['event/github-public/gh-docs-78-opened'],
     ]);
@@ -95,5 +108,45 @@ describe('WorkItemGraph', () => {
     });
     expect(wrapper.find('svg').exists()).toBe(false);
     expect(wrapper.text()).toContain('Nothing has happened yet.');
+  });
+
+  it('draws each task by its phase, and opens it by click or key', async () => {
+    const wrapper = mount(WorkItemGraph, { props: { detail: pipeline } });
+    const tasks = wrapper.findAll('[data-testid="graph-task"]');
+    expect(
+      tasks.map((t) => [
+        t.attributes('data-phase'),
+        t.findAll('text').map((x) => x.text()),
+      ]),
+    ).toEqual([
+      ['Succeeded', ['triage', 'Succeeded · 1 attempt', 'outcome: promote']],
+      [
+        'Succeeded',
+        ['implement', 'Succeeded · 2 attempts', 'outcome: pr-opened'],
+      ],
+      [
+        'Pending',
+        [
+          'docs-review',
+          'Pending · 0 attempts',
+          'waiting: anti-affinity: waiti…',
+        ],
+      ],
+    ]);
+    // Coloured as the LLM tasks tab colours the phase, and named in words too.
+    expect(tasks[2]!.get('rect').classes()).toContain('fill-amber-50');
+    expect(tasks[2]!.attributes()).toMatchObject({
+      role: 'button',
+      tabindex: '0',
+    });
+    expect(tasks[2]!.attributes('aria-label')).toBe(
+      'Task docs-review: Pending, 0 attempts, waiting: anti-affinity: waiting for an agent other than the author. Show it in LLM tasks',
+    );
+    await tasks[1]!.trigger('click');
+    await tasks[2]!.trigger('keydown', { key: 'Enter' });
+    expect(wrapper.emitted('task')).toEqual([
+      ['tsk_01JAC0PIPELINEIMPLEMENT0000'],
+      ['tsk_01JAC0PIPELINEREVIEW0000000'],
+    ]);
   });
 });

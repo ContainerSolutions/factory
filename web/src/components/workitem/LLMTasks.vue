@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, nextTick, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import type { Schemas } from '@/api/client';
 import { runStateOf } from '@/components/run/run';
@@ -10,11 +10,29 @@ import { llmTasksOf } from './agentTasks';
 /**
  * Every agent task of the work item, in order: TaskSpec, inputs, harness, attempts, phase and
  * pending reason, outcome and summary, links to each run, its transcript and what it produced.
- * The tasks still in flight are highlighted.
+ * The tasks still in flight are highlighted; the one the graph opened is outlined and scrolled to.
  */
-const props = defineProps<{ detail: Schemas['WorkItemDetail'] }>();
+const props = defineProps<{
+  detail: Schemas['WorkItemDetail'];
+  /** A task to outline and scroll to (its id, from the graph). */
+  focus?: string;
+}>();
 
 const tasks = computed(() => llmTasksOf(props.detail));
+
+function taskId(id: string): string {
+  return `task-${id.replace(/[^A-Za-z0-9_-]/g, '-')}`;
+}
+
+watch(
+  () => props.focus,
+  async (id) => {
+    if (!id) return;
+    await nextTick();
+    document.getElementById(taskId(id))?.scrollIntoView?.({ block: 'nearest' });
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
@@ -22,14 +40,19 @@ const tasks = computed(() => llmTasksOf(props.detail));
     <ol v-if="tasks.length" class="flex flex-col gap-3">
       <li
         v-for="(t, i) in tasks"
+        :id="taskId(t.task.metadata.id)"
         :key="t.task.metadata.id"
         class="rounded-lg border p-4 text-sm"
-        :class="
+        :class="[
           t.inFlight
             ? 'border-sky-500 bg-sky-50 ring-2 ring-sky-300 dark:border-sky-400 dark:bg-sky-950 dark:ring-sky-800'
-            : 'border-ccf-200 dark:border-ccf-800'
-        "
+            : 'border-ccf-200 dark:border-ccf-800',
+          focus === t.task.metadata.id
+            ? 'outline-2 outline-offset-2 outline-amber-500'
+            : '',
+        ]"
         :data-in-flight="t.inFlight"
+        :data-focus="focus === t.task.metadata.id || undefined"
         data-testid="llm-task"
       >
         <div class="mb-2 flex flex-wrap items-center gap-2">

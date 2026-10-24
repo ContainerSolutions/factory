@@ -518,6 +518,19 @@ const pipelinePRLabeled = event(
   { label: 'factory' },
 );
 pipelinePRLabeled.data.actor = pipelinePROpened.data.actor;
+// The implement-promoted rule's notify (its second action) commented on docs#77: the marker
+// names the rule controller's key, evt/<event>/<rule>/<i>, plus the request's index.
+const pipelineNotified = event(
+  'gh-docs-77-notified',
+  'issue.commented',
+  '2026-10-18T08:06:03Z',
+  'compliance-framework/docs#77',
+  'ccf-factory',
+);
+pipelineNotified.data.actor = pipelinePROpened.data.actor;
+pipelineNotified.data.object = pipelineOpened.data.object;
+pipelineNotified.data.effect =
+  'evt/factory/run-completed-triage-77/implement-promoted/1/0';
 
 function runCompleted(
   id: string,
@@ -800,6 +813,7 @@ const pipelineDetail: Detail = {
   events: [
     pipelineOpened,
     triageDone,
+    pipelineNotified,
     pipelinePROpened,
     pipelinePRLabeled,
     implementDone,
@@ -875,12 +889,189 @@ const pipelineDetail: Detail = {
   ],
 };
 
+// An epic, as wi_d235e0c50568b22418e5 ran: issue.opened planned it and set the plan; the
+// factory's tracking comment followed 4 s later; the plan-epic run's completion set the plan and
+// the stack and dispatched implement, which waits for an agent.
+const EPIC = 'wi_d235e0c50568b22418e5';
+const epicOpened = event(
+  'gh-docs-91-opened',
+  'issue.opened',
+  '2026-10-19T09:00:00Z',
+  'compliance-framework/docs#91',
+  'gusfcarvalho',
+  { title: 'Epic: document the OSCAL profile resolver', labels: ['epic'] },
+);
+epicOpened.data.object = {
+  provider: 'github-public',
+  kind: 'issue',
+  ref: 'compliance-framework/docs#91',
+};
+// The work-item controller's projection (<!-- factory:wi … -->): a factory comment, no effect.
+const epicTracking = event(
+  'gh-docs-91-tracking',
+  'issue.commented',
+  '2026-10-19T09:00:04Z',
+  'compliance-framework/docs#91',
+  'ccf-factory',
+);
+epicTracking.data.actor = pipelinePROpened.data.actor;
+epicTracking.data.object = epicOpened.data.object;
+const epicPlanTask: Schemas['Task'] = {
+  ...exampleTask,
+  metadata: {
+    ...exampleTask.metadata,
+    id: 'tsk_d235e0c50568PLANEPIC0000',
+    workItem: EPIC,
+    provenance: {
+      event: epicOpened.id,
+      ruleSet: 'docs-epic',
+      rule: 'plan-epic',
+      catalogSHA: CATALOG_SHA,
+    },
+    createdAt: '2026-10-19T09:00:01Z',
+  },
+  spec: {
+    ...exampleTask.spec,
+    taskSpec: { name: 'plan-epic' },
+    queue: 'poc',
+    inputs: { issue: 'compliance-framework/docs#91' },
+  },
+  status: { phase: 'Succeeded', agent: 'agt_gusfcarvalho-mbp-01', attempts: 1 },
+};
+const epicPlanRun: Schemas['Run'] = {
+  kind: 'Run',
+  metadata: {
+    name: 'run_d235e0c50568PLANEPIC000',
+    createdAt: '2026-10-19T09:00:30Z',
+  },
+  spec: {
+    task: epicPlanTask.metadata.id,
+    attempt: 1,
+    agent: 'agt_gusfcarvalho-mbp-01',
+    owner: 'github-public:gusfcarvalho',
+  },
+  status: {
+    startedAt: '2026-10-19T09:00:30Z',
+    endedAt: '2026-10-19T09:09:50Z',
+    end: 'completed',
+    result: {
+      ...exampleRun.status!.result!,
+      artifacts: [],
+      task: epicPlanTask.metadata.id,
+      outcome: 'planned',
+      summary: 'Split the epic into a stack of three PRs.',
+    } as Schemas['Result'],
+    transcriptRef: 'transcripts/run_d235e0c50568PLANEPIC000.jsonl.gz',
+  },
+};
+const epicPlanned: Schemas['Event'] = {
+  kind: 'Event',
+  id: 'factory/run-completed-plan-epic-91',
+  source: 'factory',
+  type: 'factory.run.completed',
+  subject: epicPlanRun.metadata.name,
+  time: '2026-10-19T09:10:00Z',
+  data: {
+    provider: 'factory',
+    object: epicOpened.data.object,
+    facts: {
+      run: {
+        id: epicPlanRun.metadata.name,
+        spec: 'plan-epic',
+        outcome: 'planned',
+        status: 'done',
+      },
+    },
+  },
+};
+const epicImplementTask: Schemas['Task'] = {
+  ...epicPlanTask,
+  metadata: {
+    ...epicPlanTask.metadata,
+    id: 'tsk_d235e0c50568IMPLEMENT000',
+    provenance: {
+      event: epicPlanned.id,
+      ruleSet: 'docs-epic',
+      rule: 'implement-plan',
+      catalogSHA: CATALOG_SHA,
+    },
+    createdAt: '2026-10-19T09:10:01Z',
+  },
+  spec: {
+    ...epicPlanTask.spec,
+    taskSpec: { name: 'implement' },
+    inputs: {
+      mode: 'new',
+      target: 'pr',
+      issue: 'compliance-framework/docs#91',
+    },
+  },
+  status: {
+    phase: 'Pending',
+    agent: null,
+    attempts: 0,
+    reason:
+      'no-capable-agent: no agent in pool maintainer-agents lends queue poc',
+  },
+};
+const epicDetail: Detail = {
+  workItem: item(
+    EPIC,
+    '2026-10-19T09:00:00Z',
+    [
+      {
+        provider: 'github-public',
+        ref: 'compliance-framework/docs#91',
+        kind: 'issue',
+        primary: true,
+      },
+    ],
+    {
+      state: { plan: 'planned', stackNext: 0, stackTotal: 3 },
+      counters: { 'plan-epic': 1 },
+      decisions: [
+        {
+          at: '2026-10-19T09:00:01Z',
+          event: epicOpened.id,
+          ruleSet: 'docs-epic',
+          rule: 'plan-epic',
+          fired: true,
+          inputs: { 'event.labels': ['epic'] },
+          rails: [{ rail: 'run-cap', verdict: 'allowed' }],
+          actions: ['dispatch plan-epic → poc', 'set plan'],
+        },
+        {
+          at: '2026-10-19T09:10:01Z',
+          event: epicPlanned.id,
+          ruleSet: 'docs-epic',
+          rule: 'implement-plan',
+          fired: true,
+          inputs: { 'run.spec': 'plan-epic', 'run.outcome': 'planned' },
+          rails: [{ rail: 'run-cap', verdict: 'allowed' }],
+          actions: [
+            'set plan',
+            'set stackNext',
+            'set stackTotal',
+            'dispatch implement → poc',
+          ],
+        },
+      ],
+      reporter: { id: 'github-public:gusfcarvalho', tier: 'maintainer' },
+    },
+  ),
+  events: [epicOpened, epicTracking, epicPlanned],
+  tasks: [epicPlanTask, epicImplementTask],
+  runs: [epicPlanRun],
+  effects: [],
+};
+
 function bare(workItem: WorkItem): Detail {
   return { workItem, events: [], tasks: [], runs: [], effects: [] };
 }
 
 /** The mock work items and their timelines, most recently updated first. */
 export const workItemDetails: readonly Detail[] = [
+  epicDetail,
   releaseDetail,
   escalatedDetail,
   pipelineDetail,

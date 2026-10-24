@@ -6,6 +6,23 @@ const byName = (name: string) =>
   workItemDetails.find((d) => d.workItem.metadata.name === name)!;
 const pipeline = byName('wi_01JAC0PIPELINE0000000000000');
 
+/** A link's source as `kind@column` (an action) or `task:<TaskSpec>` (a task). */
+function from(g: ReturnType<typeof graphOf>, key: string): string {
+  for (const e of g.events) {
+    for (const a of e.actions) {
+      if (a.key === key) return `${a.kind}@${e.column}`;
+      if (a.taskNode?.key === key) return `task:${a.taskNode.spec}`;
+    }
+  }
+  return key;
+}
+
+/** A link's target as its column (an event) or `task:<TaskSpec>` (a task). */
+function col(g: ReturnType<typeof graphOf>, key: string): number | string {
+  const e = g.events.find((e) => e.key === key);
+  return e ? e.column : from(g, key);
+}
+
 describe('parseAction', () => {
   it.each([
     ['dispatch plan-epic → poc', 'dispatch', 'plan-epic → poc'],
@@ -42,11 +59,23 @@ describe('graphOf', () => {
     expect(triage.runs.map((r) => r.metadata.name)).toEqual([
       'run_01JAC0PIPELINETRIAGE000000',
     ]);
-    expect(g.links.filter((l) => l.from === triage.key)).toEqual([
+    // The dispatch → its task → the run's completion.
+    expect(
+      g.links.filter(
+        (l) => l.from === triage.key || l.from === triage.taskNode?.key,
+      ),
+    ).toEqual([
       {
         from: triage.key,
+        to: 'task/tsk_01JAC0PIPELINETRIAGE0000000',
+        inferred: false,
+        cause: 'task',
+      },
+      {
+        from: 'task/tsk_01JAC0PIPELINETRIAGE0000000',
         to: 'event/factory/run-completed-triage-77',
         inferred: false,
+        cause: 'run',
       },
     ]);
   });
@@ -65,9 +94,10 @@ describe('graphOf', () => {
     expect(g.events.map((e) => [e.column, e.type])).toEqual([
       [0, 'issue.opened'],
       [1, 'factory.run.completed'],
-      [2, 'pr.opened'],
-      [3, 'pr.labeled'],
-      [4, 'factory.run.completed'],
+      [2, 'issue.commented'],
+      [3, 'pr.opened'],
+      [4, 'pr.labeled'],
+      [5, 'factory.run.completed'],
     ]);
     expect(
       g.events.map((e) =>
@@ -113,6 +143,7 @@ describe('graphOf', () => {
           true,
         ],
       ],
+      [],
       [
         [
           'dispatch',
@@ -138,23 +169,105 @@ describe('graphOf', () => {
     ]);
   });
 
-  it('links runs to their completions and effects to the events naming them, and infers the rest', () => {
+  it('links dispatches to tasks, tasks to completions and named effects, notify to its comment, and infers the rest', () => {
     const g = graphOf(pipeline);
-    const at = (key: string) => {
-      const e = g.events.find((e) => e.actions.some((a) => a.key === key))!;
-      const a = e.actions.find((a) => a.key === key)!;
-      return `${a.kind}@${e.column}`;
-    };
-    const col = (key: string) => g.events.find((e) => e.key === key)!.column;
-    expect(g.links.map((l) => [at(l.from), col(l.to), l.inferred])).toEqual([
-      ['dispatch@0', 1, false],
+    expect(
+      g.links.map((l) => [from(g, l.from), col(g, l.to), l.cause]),
+    ).toEqual([
+      ['dispatch@0', 'task:triage', 'task'],
+      ['task:triage', 1, 'run'],
+      ['dispatch@1', 'task:implement', 'task'],
       // implement: its last run's completion, and pr.opened, whose data.effect is its pr.open.
-      ['dispatch@1', 4, false],
-      ['dispatch@1', 2, false],
-      // pr.labeled names no effect: guessed by ref and time, for both actions on docs#78.
-      ['dispatch@1', 3, true],
-      ['effect@2', 3, true],
+      ['task:implement', 5, 'run'],
+      ['task:implement', 3, 'effect'],
+      // The comment whose data.effect is the notify's key, evt/<event>/<rule>/<i>/<request>.
+      ['notify@1', 2, 'notify'],
+      ['dispatch@3', 'task:docs-review', 'task'],
+      // pr.labeled names no effect: guessed by ref and time, for both causes on docs#78.
+      ['task:implement', 4, 'inferred'],
+      ['effect@3', 4, 'inferred'],
     ]);
+    expect(g.links.map((l) => l.inferred)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+    ]);
+  });
+
+  it('draws each task with its phase, attempts, and outcome or pending reason', () => {
+    const tasks = graphOf(pipeline)
+      .events.flatMap((e) => e.actions)
+      .flatMap((a) => (a.taskNode ? [a.taskNode] : []));
+    expect(
+      tasks.map((t) => [t.spec, t.phase, t.attempts, t.outcome, t.reason]),
+    ).toEqual([
+      ['triage', 'Succeeded', 1, 'promote', undefined],
+      ['implement', 'Succeeded', 2, 'pr-opened', undefined],
+      [
+        'docs-review',
+        'Pending',
+        0,
+        undefined,
+        'anti-affinity: waiting for an agent other than the author',
+      ],
+    ]);
+  });
+
+  it("links the tracking comment from the latest decision's state changes, dashed", () => {
+    const epic = byName('wi_d235e0c50568b22418e5');
+    const g = graphOf(epic);
+    expect(g.events.map((e) => e.type)).toEqual([
+      'issue.opened',
+      'issue.commented',
+      'factory.run.completed',
+    ]);
+    expect(
+      g.events.map((e) => e.actions.map((a) => `${a.kind} ${a.subject}`)),
+    ).toEqual([
+      ['dispatch plan-epic', 'set plan'],
+      [],
+      ['set plan', 'set stackNext', 'set stackTotal', 'dispatch implement'],
+    ]);
+    expect(
+      g.links.map((l) => [from(g, l.from), col(g, l.to), l.cause, l.inferred]),
+    ).toEqual([
+      ['dispatch@0', 'task:plan-epic', 'task', false],
+      ['task:plan-epic', 2, 'run', false],
+      ['dispatch@2', 'task:implement', 'task', false],
+      // set plan → the factory's issue.commented 4 s later.
+      ['set@0', 1, 'tracking', true],
+    ]);
+    // The implement task has no run yet: it says why it waits.
+    expect(g.events[2]!.actions[3]!.taskNode).toMatchObject({
+      phase: 'Pending',
+      attempts: 0,
+      reason: expect.stringContaining('no-capable-agent'),
+    });
+  });
+
+  it('links no tracking comment without a state change before it', () => {
+    const epic = byName('wi_d235e0c50568b22418e5');
+    const decisions = epic.workItem.status!.decisions!;
+    const g = graphOf({
+      ...epic,
+      workItem: {
+        ...epic.workItem,
+        status: {
+          ...epic.workItem.status,
+          decisions: [
+            { ...decisions[0]!, actions: ['dispatch plan-epic → poc'] },
+            decisions[1]!,
+          ],
+        },
+      },
+    });
+    expect(g.links.filter((l) => l.cause === 'tracking')).toEqual([]);
   });
 
   it('adds an event only a decision names, and shows a held action by its rail', () => {
@@ -235,9 +348,10 @@ describe('graphOf', () => {
     );
     expect(toOpened).toEqual([
       {
-        from: g.events[1]!.actions[0]!.key,
+        from: 'task/tsk_01JAC0PIPELINEIMPLEMENT0000',
         to: 'event/github-public/gh-docs-78-opened',
         inferred: true,
+        cause: 'inferred',
       },
     ]);
     // With it, the link is reliable and the heuristic moves on to pr.labeled.
@@ -245,7 +359,7 @@ describe('graphOf', () => {
       graphOf(pipeline).links.filter(
         (l) => l.to === 'event/github-public/gh-docs-78-opened',
       ),
-    ).toEqual([{ ...toOpened[0]!, inferred: false }]);
+    ).toEqual([{ ...toOpened[0]!, inferred: false, cause: 'effect' }]);
   });
 
   it("links a rule's own effect to the event that names it", () => {
@@ -257,20 +371,21 @@ describe('graphOf', () => {
               ...e,
               data: {
                 ...e.data,
-                effect: `evt/${pipeline.events[2]!.id}/label-factory-prs/0`,
+                effect: `evt/github-public/gh-docs-78-opened/label-factory-prs/0`,
               },
             }
           : e,
       ),
     };
     const g = graphOf(detail);
-    const effect = g.events[2]!.actions[1]!;
+    const effect = g.events[3]!.actions[1]!;
     expect(effect.kind).toBe('effect');
     expect(g.links.filter((l) => l.from === effect.key)).toEqual([
       {
         from: effect.key,
         to: 'event/github-public/gh-docs-78-labeled',
         inferred: false,
+        cause: 'effect',
       },
     ]);
   });

@@ -68,6 +68,8 @@ export interface GraphAction {
   deterministic: boolean;
   /** The decision's index in `workItem.status.decisions`. */
   decisionIndex: number;
+  /** The action's index in its decision's actions: the `<i>` of the rule controller's key. */
+  index: number;
   decision: Decision;
   /** `<RuleSet>/<rule>`, the arrow's label. */
   rule: string;
@@ -86,6 +88,23 @@ export interface GraphAction {
   /** The effects the task's runs made, for a dispatch. */
   taskEffects: Effect[];
   approval?: Schemas['ApprovalRef'];
+  /** The task a dispatch created, drawn as its own node after the action. */
+  taskNode?: GraphTask;
+}
+
+/** The task a dispatch created: its TaskSpec, phase, attempts and the latest run's outcome. */
+export interface GraphTask {
+  key: string;
+  task: Task;
+  /** The TaskSpec's name. */
+  spec: string;
+  /** Its phase (Pending when not set yet), coloured as the LLM tasks tab colours it. */
+  phase: string;
+  attempts: number;
+  /** The latest run's outcome, else its state; none before the first run. */
+  outcome?: string;
+  /** Why a task with no run yet is waiting. */
+  reason?: string;
 }
 
 /** One event, in time order, with the actions its fired decisions took. */
@@ -100,11 +119,32 @@ export interface GraphEvent {
   actions: GraphAction[];
 }
 
-/** An action → a later event it caused: reliable (provenance) or inferred (ref and time order). */
+/**
+ * What a link says caused what:
+ * - `task`: a dispatch created the task;
+ * - `run`: the task's run completed (or failed) as the event;
+ * - `effect`: the event names an effect of the action or task (`data.effect`);
+ * - `notify`: the event names a notify action's key;
+ * - `tracking`: the factory's tracking comment after a state change (inferred);
+ * - `inferred`: the same object, later, by the factory (ref and time order).
+ */
+export type GraphCause =
+  | 'task'
+  | 'run'
+  | 'effect'
+  | 'notify'
+  | 'tracking'
+  | 'inferred';
+
+/**
+ * An action or task → what it caused: a task, or a later event. Reliable (provenance, a named
+ * key) or inferred (`tracking`, `inferred`).
+ */
 export interface GraphLink {
   from: string;
   to: string;
   inferred: boolean;
+  cause: GraphCause;
 }
 
 export interface WorkItemGraph {
@@ -161,19 +201,87 @@ function ruleEffectsOf(
     .sort((a, b) => a.spec.idempotencyKey.localeCompare(b.spec.idempotencyKey));
 }
 
+/** A dispatch's task as a node: its TaskSpec, phase, attempts, latest outcome or why it waits. */
+function taskNodeOf(task: Task, runs: readonly Run[]): GraphTask {
+  const latest = runs[runs.length - 1];
+  const outcome =
+    latest?.status?.result?.outcome ??
+    (latest ? (latest.status?.end ?? 'running') : undefined);
+  const node: GraphTask = {
+    key: `task/${task.metadata.id}`,
+    task,
+    spec: task.spec.taskSpec.name,
+    phase: task.status?.phase ?? 'Pending',
+    attempts: task.status?.attempts ?? runs.length,
+  };
+  if (outcome) node.outcome = outcome;
+  else if (task.status?.reason) node.reason = task.status.reason;
+  return node;
+}
+
+/** A factory comment on the work item that names no effect: the tracking comment's projection. */
+function isTrackingComment(e: GraphEvent): boolean {
+  return (
+    e.type === 'issue.commented' &&
+    !!e.event?.data.actor?.isFactory &&
+    !e.event.data.effect
+  );
+}
+
+/**
+ * The state-changing actions (`set`, `link`) of the latest fired decision at or before the
+ * event, leaving out the event's own decisions.
+ */
+function latestStateChange(
+  actions: readonly GraphAction[],
+  event: GraphEvent,
+): GraphAction[] {
+  const at = time(event.at);
+  const changes = actions.filter(
+    (a) =>
+      (a.kind === 'set' || a.kind === 'link') &&
+      a.decision.event !== event.id &&
+      time(a.decision.at) <= at,
+  );
+  const last = changes.reduce<GraphAction | undefined>(
+    (best, a) =>
+      !best ||
+      time(a.decision.at) > time(best.decision.at) ||
+      (time(a.decision.at) === time(best.decision.at) &&
+        a.decisionIndex > best.decisionIndex)
+        ? a
+        : best,
+    undefined,
+  );
+  return last
+    ? changes.filter((a) => a.decisionIndex === last.decisionIndex)
+    : [];
+}
+
 function effectSubject(e: Effect): string {
   return `${e.spec.op} ${e.spec.target.ref}`;
 }
 
 /**
  * The work item as a graph: each event (a column, in time order), the actions of its fired
- * decisions, and links from an action to the events it caused. Reliable links: a dispatch to
- * its runs' `factory.run.completed` / `.failed` events (the task's provenance and
- * `facts.run.id`), and an effect (a rule's own, or one its task made) to the event whose
- * `data.effect` is the effect's idempotency key (the provider reads it from the factory's
- * marker on the object the effect created). Inferred links: an effect, or a dispatch whose run
- * made effects or reported a PR, to the first later provider event the factory caused on the
- * same object (by ref and time) that no effect is exactly linked to, e.g. a push's pr.updated.
+ * decisions, each dispatch's task, and links to what they caused.
+ *
+ * Reliable links:
+ * - a dispatch to its task, and the task to its runs' `factory.run.completed` / `.failed` events
+ *   (the task's provenance and `facts.run.id`);
+ * - an effect (a rule's own from its action, or one its task made from the task) to the event
+ *   whose `data.effect` is the effect's idempotency key (the provider reads it from the factory's
+ *   marker on the object the effect created);
+ * - a notify action to the comment whose `data.effect` is its key, `evt/<event>/<rule>/<i>`
+ *   (a notify keeps no Effect record).
+ *
+ * Inferred links:
+ * - the tracking comment (a factory `issue.commented` naming no effect) from the `set` and `link`
+ *   actions of the latest fired decision before it;
+ * - an effect, or a task whose run made effects or reported a PR, to the first later provider
+ *   event the factory caused on the same object (by ref and time) that nothing else claims, e.g.
+ *   a push's pr.updated.
+ *
  * Decisions that didn't fire take no actions, so they aren't in the graph.
  */
 export function graphOf(detail: Detail): WorkItemGraph {
@@ -221,6 +329,7 @@ export function graphOf(detail: Detail): WorkItemGraph {
       const { kind, subject } = parseAction(summary);
       const action: GraphAction = {
         key: `action/${decisionIndex}/${j}`,
+        index: j,
         kind,
         deterministic: DETERMINISTIC.has(kind),
         decisionIndex,
@@ -249,6 +358,7 @@ export function graphOf(detail: Detail): WorkItemGraph {
           action.taskEffects = detail.effects.filter(
             (e) => e.spec.task === task.metadata.id,
           );
+          action.taskNode = taskNodeOf(task, action.runs);
         } else action.state = held ?? 'no task';
       } else if (kind === 'effect') {
         // The first rule effect left with the summary's op (any, for a bare kind).
@@ -274,48 +384,74 @@ export function graphOf(detail: Detail): WorkItemGraph {
   });
 
   const links: GraphLink[] = [];
-  const linked = new Map<string, Set<string>>();
-  const link = (from: string, to: string, inferred: boolean) => {
-    const seen = linked.get(from) ?? new Set<string>();
-    if (seen.has(to)) return;
-    seen.add(to);
-    linked.set(from, seen);
-    links.push({ from, to, inferred });
+  const linked = new Set<string>();
+  const link = (from: string, to: string, cause: GraphCause) => {
+    if (linked.has(`${from}->${to}`)) return;
+    linked.add(`${from}->${to}`);
+    const inferred = cause === 'tracking' || cause === 'inferred';
+    links.push({ from, to, inferred, cause });
   };
-  // Exact links first: the run completions, and the events whose data.effect names one of the
-  // action's effects by its idempotency key.
-  const exact = new Set<string>();
-  for (const node of events) {
-    for (const a of node.actions) {
-      for (const run of a.runs) {
-        const done = events.find(
-          (e) =>
-            !!e.event &&
-            (e.type === 'factory.run.completed' ||
-              e.type === 'factory.run.failed') &&
-            runIdOf(e.event) === run.metadata.name,
-        );
-        if (done) link(a.key, done.key, false);
-      }
-      const keys = new Set(
-        [a.effect, ...a.taskEffects].flatMap((f) =>
-          f ? [f.spec.idempotencyKey] : [],
-        ),
+  const actions = events.flatMap((node) => node.actions);
+  // Exact links first: a dispatch to its task, the task to its runs' completions, an action or
+  // task to the events whose data.effect names one of its effects, and a notify action to the
+  // comments whose data.effect is its key. What they claim isn't guessed at again below.
+  const claimed = new Set<string>();
+  for (const a of actions) {
+    const source = a.taskNode?.key ?? a.key;
+    if (a.taskNode) link(a.key, a.taskNode.key, 'task');
+    for (const run of a.runs) {
+      const done = events.find(
+        (e) =>
+          !!e.event &&
+          (e.type === 'factory.run.completed' ||
+            e.type === 'factory.run.failed') &&
+          runIdOf(e.event) === run.metadata.name,
       );
-      for (const e of events) {
-        if (e.event?.data.effect && keys.has(e.event.data.effect)) {
-          link(a.key, e.key, false);
-          exact.add(e.key);
-        }
+      if (done) link(source, done.key, 'run');
+    }
+    const keys = new Set(
+      [a.effect, ...a.taskEffects].flatMap((f) =>
+        f ? [f.spec.idempotencyKey] : [],
+      ),
+    );
+    const notifyKey =
+      a.kind === 'notify' && a.decision.event && a.decision.rule
+        ? `evt/${a.decision.event}/${a.decision.rule}/${a.index}`
+        : undefined;
+    for (const e of events) {
+      const named = e.event?.data.effect;
+      if (!named) continue;
+      if (keys.has(named)) {
+        link(
+          a.effect && named === a.effect.spec.idempotencyKey ? a.key : source,
+          e.key,
+          'effect',
+        );
+        claimed.add(e.key);
+      } else if (
+        notifyKey &&
+        (named === notifyKey || named.startsWith(`${notifyKey}/`))
+      ) {
+        link(a.key, e.key, 'notify');
+        claimed.add(e.key);
       }
     }
   }
-  // Then the heuristic, for what no effect names: an event already linked exactly isn't
-  // guessed at again (e.g. a push's pr.updated still is; the pr.opened its pr.open made isn't).
+  // The work item's tracking comment (the controller's projection after the state changed):
+  // a factory comment naming no effect, from the state-changing actions of the latest fired
+  // decision before it.
+  for (const e of events) {
+    if (!isTrackingComment(e)) continue;
+    const by = latestStateChange(actions, e);
+    for (const a of by) link(a.key, e.key, 'tracking');
+    if (by.length) claimed.add(e.key);
+  }
+  // Then the heuristic, for what nothing names: an event already linked isn't guessed at again
+  // (e.g. a push's pr.updated still is; the pr.opened its pr.open made isn't).
   for (const node of events) {
     for (const a of node.actions) {
-      const inferred = inferredEvent(a, node, events, exact);
-      if (inferred) link(a.key, inferred.key, true);
+      const inferred = inferredEvent(a, node, events, claimed);
+      if (inferred) link(a.taskNode?.key ?? a.key, inferred.key, 'inferred');
     }
   }
   return { events, links };
@@ -324,13 +460,13 @@ export function graphOf(detail: Detail): WorkItemGraph {
 /**
  * The first provider event after the action that the factory caused on an object the action
  * touched (the effect's target, or a dispatch's run effects' targets and its Result's
- * `data.pr`), leaving out the events an effect is exactly linked to.
+ * `data.pr`), leaving out the events already linked by something that names them.
  */
 function inferredEvent(
   a: GraphAction,
   from: GraphEvent,
   events: readonly GraphEvent[],
-  exact: ReadonlySet<string>,
+  claimed: ReadonlySet<string>,
 ): GraphEvent | undefined {
   const refs = new Set<string>();
   let after = time(a.decision.at);
@@ -352,7 +488,7 @@ function inferredEvent(
   return events.find(
     (e) =>
       e !== from &&
-      !exact.has(e.key) &&
+      !claimed.has(e.key) &&
       !!e.event &&
       !e.type.startsWith('factory.') &&
       !!e.event.data.actor?.isFactory &&
