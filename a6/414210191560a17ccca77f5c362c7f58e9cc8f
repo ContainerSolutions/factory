@@ -5,3 +5,6 @@ lisa-design:
 - Tracking comment: a factory issue.commented with no data.effect is linked (dashed) from the set/link actions of the latest fired decision at or before it, excluding the event's own decisions. Events linked exactly or as tracking are claimed and the heuristic skips them.
 - Layout: a column with a task is wider by a task sub-column. Links to events leave the node to the right, climb a gutter just after it and run in a lane band above the first action row (6 offsets), entering the event from the left, so they cross no box; a straight arrow joins a dispatch to its task.
 - Clicking a task opens the LLM tasks tab with that task outlined and scrolled to (WorkItemView focusTask → LLMTasks focus), rather than the run page: the tab lists every run.
+
+lisa-selfreview:
+- pass 1: checked the epic mock (wi_d235e0c50568b22418e5) and the pipeline graph at 1440/1024 and a full-width render; task click lands on the outlined task. Widened task columns so the task's gutter never falls back to a crossing curve. reviewable green (600 tests).
