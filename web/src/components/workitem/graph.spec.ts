@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { example, workItemDetails } from '@/mocks/workitems';
-import { graphOf, parseAction } from './graph';
+import { graphOf, parseAction, withoutIdle } from './graph';
 
 const byName = (name: string) =>
   workItemDetails.find((d) => d.workItem.metadata.name === name)!;
@@ -220,7 +220,7 @@ describe('graphOf', () => {
 
   it("links the tracking comment from the latest decision's state changes, dashed", () => {
     const epic = byName('wi_d235e0c50568b22418e5');
-    const g = graphOf(epic);
+    const g = withoutIdle(graphOf(epic)).graph;
     expect(g.events.map((e) => e.type)).toEqual([
       'issue.opened',
       'issue.commented',
@@ -261,7 +261,7 @@ describe('graphOf', () => {
           ...epic.workItem.status,
           decisions: [
             { ...decisions[0]!, actions: ['dispatch plan-epic → poc'] },
-            decisions[1]!,
+            ...decisions.slice(1),
           ],
         },
       },
@@ -387,5 +387,35 @@ describe('graphOf', () => {
         cause: 'effect',
       },
     ]);
+  });
+});
+
+describe('withoutIdle', () => {
+  it('leaves out an event with no actions that nothing points to, and renumbers the columns', () => {
+    const full = graphOf(byName('wi_d235e0c50568b22418e5'));
+    // The Timeline's graph still has the maintainer's issue.labeled (no rule fired on it).
+    expect(full.events.map((e) => e.type)).toEqual([
+      'issue.opened',
+      'issue.commented',
+      'issue.labeled',
+      'factory.run.completed',
+    ]);
+    const { graph, hidden } = withoutIdle(full);
+    expect(hidden).toBe(1);
+    expect(graph.events.map((e) => [e.column, e.type])).toEqual([
+      [0, 'issue.opened'],
+      // No actions, but the tracking link points to it: kept.
+      [1, 'issue.commented'],
+      [2, 'factory.run.completed'],
+    ]);
+    expect(graph.links).toBe(full.links);
+    // The input is left as it was.
+    expect(full.events[3]!.column).toBe(3);
+  });
+
+  it('keeps every event of the pipeline: each acted or was pointed to', () => {
+    const { graph, hidden } = withoutIdle(graphOf(pipeline));
+    expect(hidden).toBe(0);
+    expect(graph.events).toHaveLength(6);
   });
 });

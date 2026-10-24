@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
 import { example, workItemDetails } from '@/mocks/workitems';
 import WorkItemGraph from './WorkItemGraph.vue';
@@ -85,7 +86,15 @@ describe('WorkItemGraph', () => {
         detail: {
           ...example,
           events: [{ ...example.events[0]!, id: '<b>x</b>' }],
-          workItem: { ...example.workItem, status: {} },
+          workItem: {
+            ...example.workItem,
+            status: {
+              decisions: example.workItem.status!.decisions!.map((d) => ({
+                ...d,
+                event: '<b>x</b>',
+              })),
+            },
+          },
         },
       },
     });
@@ -147,5 +156,134 @@ describe('WorkItemGraph', () => {
       ['tsk_01JAC0PIPELINEIMPLEMENT0000'],
       ['tsk_01JAC0PIPELINEREVIEW0000000'],
     ]);
+  });
+
+  it('hides events with no decisions, and says so with a way to the timeline', async () => {
+    const epic = workItemDetails.find(
+      (d) => d.workItem.metadata.name === 'wi_d235e0c50568b22418e5',
+    )!;
+    const wrapper = mount(WorkItemGraph, { props: { detail: epic } });
+    expect(
+      wrapper
+        .findAll('[data-testid="graph-event"]')
+        .map((e) => e.get('text').text()),
+    ).toEqual(['issue.opened', 'issue.commented', 'factory.run.completed']);
+    const note = wrapper.get('[data-testid="graph-hidden"]');
+    expect(note.text().replace(/\s+/g, ' ')).toBe(
+      '1 event with no decisions hidden; see the Timeline',
+    );
+    await note.get('button').trigger('click');
+    expect(wrapper.emitted('timeline')).toEqual([[]]);
+    expect(
+      mount(WorkItemGraph, { props: { detail: pipeline } })
+        .find('[data-testid="graph-hidden"]')
+        .exists(),
+    ).toBe(false);
+  });
+
+  describe('pan and zoom', () => {
+    const transform = (w: ReturnType<typeof mount>) =>
+      w.get('[data-testid="graph-content"]').attributes('transform');
+
+    it('zooms with the controls and the keys, within the limits, and fits again', async () => {
+      const wrapper = mount(WorkItemGraph, { props: { detail: pipeline } });
+      // jsdom has no layout: the viewport is 0 wide, so the fit is 1×.
+      expect(transform(wrapper)).toBe('translate(0 0) scale(1)');
+      const button = (label: string) =>
+        wrapper.get(`[data-testid="graph-controls"] [aria-label="${label}"]`);
+      await button('Zoom in').trigger('click');
+      expect(transform(wrapper)).toBe('translate(0 0) scale(1.25)');
+      for (let i = 0; i < 10; i++) await button('Zoom in').trigger('click');
+      expect(transform(wrapper)).toBe('translate(0 0) scale(3)');
+      const viewport = wrapper.get('[data-testid="graph-viewport"]');
+      await viewport.trigger('keydown', { key: '0' });
+      expect(transform(wrapper)).toBe('translate(0 0) scale(1)');
+      await viewport.trigger('keydown', { key: '-' });
+      expect(transform(wrapper)).toBe('translate(0 0) scale(0.8)');
+      await viewport.trigger('keydown', { key: 'ArrowRight' });
+      expect(transform(wrapper)).toBe('translate(-40 0) scale(0.8)');
+      await button('Actual size').trigger('click');
+      expect(transform(wrapper)).toBe('translate(0 0) scale(1)');
+    });
+
+    it('pans on a wheel and zooms around the cursor on ⌘/Ctrl+wheel', async () => {
+      const wrapper = mount(WorkItemGraph, { props: { detail: pipeline } });
+      const viewport = wrapper.get('[data-testid="graph-viewport"]');
+      await viewport.trigger('wheel', { deltaX: 10, deltaY: 30 });
+      expect(transform(wrapper)).toBe('translate(-10 -30) scale(1)');
+      viewport.element.dispatchEvent(
+        new WheelEvent('wheel', {
+          deltaY: -100,
+          ctrlKey: true,
+          clientX: 0,
+          clientY: 0,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await nextTick();
+      const [, x, y, k] = transform(wrapper)!.match(
+        /translate\((\S+) (\S+)\) scale\((\S+)\)/,
+      )!;
+      expect(Number(k)).toBeCloseTo(Math.exp(0.2), 5);
+      // The content under the cursor (0, 0) stays put.
+      expect(Number(x)).toBeCloseTo(-10 * Math.exp(0.2), 5);
+      expect(Number(y)).toBeCloseTo(-30 * Math.exp(0.2), 5);
+    });
+
+    it('pans on a drag without clicking the node it started on; a small move still clicks', async () => {
+      const wrapper = mount(WorkItemGraph, {
+        props: { detail: pipeline },
+        attachTo: document.body,
+      });
+      const viewport = wrapper.get('[data-testid="graph-viewport"]');
+      const task = wrapper.findAll('[data-testid="graph-task"]')[1]!;
+      const press = { button: 0, pointerId: 1 };
+      await task.trigger('pointerdown', {
+        ...press,
+        clientX: 100,
+        clientY: 100,
+      });
+      await viewport.trigger('pointermove', {
+        ...press,
+        clientX: 102,
+        clientY: 101,
+      });
+      await viewport.trigger('pointerup', {
+        ...press,
+        clientX: 102,
+        clientY: 101,
+      });
+      await task.trigger('click');
+      expect(wrapper.emitted('task')).toEqual([
+        ['tsk_01JAC0PIPELINEIMPLEMENT0000'],
+      ]);
+      expect(transform(wrapper)).toBe('translate(0 0) scale(1)');
+
+      await task.trigger('pointerdown', {
+        ...press,
+        clientX: 100,
+        clientY: 100,
+      });
+      await viewport.trigger('pointermove', {
+        ...press,
+        clientX: 160,
+        clientY: 80,
+      });
+      expect(viewport.classes()).toContain('cursor-grabbing');
+      await viewport.trigger('pointerup', {
+        ...press,
+        clientX: 160,
+        clientY: 80,
+      });
+      expect(transform(wrapper)).toBe('translate(60 -20) scale(1)');
+      // The click that ends the drag doesn't open the task.
+      await task.trigger('click');
+      expect(wrapper.emitted('task')).toHaveLength(1);
+      // The next one does.
+      await task.trigger('click');
+      expect(wrapper.emitted('task')).toHaveLength(2);
+      wrapper.unmount();
+    });
   });
 });

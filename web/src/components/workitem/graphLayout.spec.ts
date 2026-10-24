@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { workItemDetails } from '@/mocks/workitems';
-import { graphOf } from './graph';
+import { graphOf, withoutIdle } from './graph';
 import type { GraphAction, WorkItemGraph } from './graph';
 import { ACT_W, LANE_Y, R, layoutGraph, rowY } from './graphLayout';
 
@@ -11,7 +11,7 @@ const pipeline = byName('wi_01JAC0PIPELINE0000000000000');
 
 /** Each event's type and row. */
 function rows(name: Parameters<typeof graphOf>[0]) {
-  const g = graphOf(name);
+  const g = withoutIdle(graphOf(name)).graph;
   const l = layoutGraph(g);
   return {
     g,

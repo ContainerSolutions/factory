@@ -916,6 +916,16 @@ const epicTracking = event(
 );
 epicTracking.data.actor = pipelinePROpened.data.actor;
 epicTracking.data.object = epicOpened.data.object;
+// A maintainer labelled the issue: no rule fired on it, so the graph leaves it out.
+const epicLabeled = event(
+  'gh-docs-91-labeled',
+  'issue.labeled',
+  '2026-10-19T09:02:00Z',
+  'compliance-framework/docs#91',
+  'gusfcarvalho',
+  { label: 'area/docs' },
+);
+epicLabeled.data.object = epicOpened.data.object;
 const epicPlanTask: Schemas['Task'] = {
   ...exampleTask,
   metadata: {
@@ -1041,6 +1051,15 @@ const epicDetail: Detail = {
           actions: ['dispatch plan-epic → poc', 'set plan'],
         },
         {
+          at: '2026-10-19T09:02:01Z',
+          event: epicLabeled.id,
+          ruleSet: 'docs-epic',
+          rule: 'plan-epic',
+          fired: false,
+          inputs: { 'event.labels': ['area/docs'] },
+          reason: 'where is false',
+        },
+        {
           at: '2026-10-19T09:10:01Z',
           event: epicPlanned.id,
           ruleSet: 'docs-epic',
@@ -1059,7 +1078,7 @@ const epicDetail: Detail = {
       reporter: { id: 'github-public:gusfcarvalho', tier: 'maintainer' },
     },
   ),
-  events: [epicOpened, epicTracking, epicPlanned],
+  events: [epicOpened, epicTracking, epicLabeled, epicPlanned],
   tasks: [epicPlanTask, epicImplementTask],
   runs: [epicPlanRun],
   effects: [],
