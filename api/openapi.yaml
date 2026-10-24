@@ -930,6 +930,67 @@ paths:
         default:
           $ref: '#/components/responses/Error'
 
+  /catalog/files:
+    get:
+      operationId: listCatalogFiles
+      tags: [resources]
+      summary: List the catalog's prompt and schema files
+      description: |
+        The loaded catalog's files that are not objects: the prompt templates under `prompts/`
+        and the JSON Schemas under `schemas/`, by catalog-relative path, sorted by path.
+      security:
+        - uiSession: []
+        - cliToken: []
+      responses:
+        '200':
+          description: The files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogFileList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        default:
+          $ref: '#/components/responses/Error'
+  /catalog/file:
+    get:
+      operationId: getCatalogFile
+      tags: [resources]
+      summary: Get one prompt or schema file of the catalog
+      description: |
+        One file of the loaded catalog snapshot, as the catalog holds it: a prompt template
+        under `prompts/` (its source, not rendered) or a JSON Schema under `schemas/` (its raw
+        bytes). Nothing else is served: `400` for a path outside those two directories, `404`
+        for one the catalog doesn't hold.
+      security:
+        - uiSession: []
+        - cliToken: []
+      parameters:
+        - name: path
+          in: query
+          required: true
+          description: The file's catalog-relative path, e.g. `prompts/implement.md.tmpl`.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+            pattern: '^(prompts|schemas)/'
+      responses:
+        '200':
+          description: The file.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogFile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+
   # ---- dry-run -----------------------------------------------------------------------------
   /catalog/dry-run:
     post:
@@ -2157,6 +2218,45 @@ components:
           type: object
           additionalProperties:
             type: string
+
+    CatalogFileKind:
+      type: string
+      description: '`prompt` is a template under `prompts/`; `schema` a JSON Schema under `schemas/`.'
+      enum: [prompt, schema]
+    CatalogFileRef:
+      type: object
+      description: One prompt or schema file of the catalog.
+      required: [path, kind]
+      properties:
+        path:
+          type: string
+          description: The catalog-relative path, as TaskSpecs reference it.
+        kind:
+          $ref: '#/components/schemas/CatalogFileKind'
+    CatalogFileList:
+      type: object
+      description: The catalog's prompt and schema files.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogFileRef'
+    CatalogFile:
+      type: object
+      description: One prompt or schema file, as the catalog holds it.
+      required: [path, kind, digest, content]
+      properties:
+        path:
+          type: string
+        kind:
+          $ref: '#/components/schemas/CatalogFileKind'
+        digest:
+          type: string
+          description: '`sha256:<hex>` of the content (a prompt''s is its `spec.prompt.digest`).'
+        content:
+          type: string
+          description: The file's text, unrendered.
 
     # ---- dry-run (API-only) ------------------------------------------------------------------
     DryRunRequest:

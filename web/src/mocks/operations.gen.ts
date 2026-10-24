@@ -99,6 +99,20 @@ export const operations: readonly MockOperation[] = [
     contentType: 'application/json',
   },
   {
+    id: 'getCatalogFile',
+    method: 'get',
+    path: '/api/v1/catalog/file',
+    status: 200,
+    contentType: 'application/json',
+  },
+  {
+    id: 'listCatalogFiles',
+    method: 'get',
+    path: '/api/v1/catalog/files',
+    status: 200,
+    contentType: 'application/json',
+  },
+  {
     id: 'getCatalogObject',
     method: 'get',
     path: '/api/v1/catalog/{kind}/{name}',

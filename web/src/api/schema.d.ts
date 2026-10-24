@@ -592,6 +592,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/catalog/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the catalog's prompt and schema files
+         * @description The loaded catalog's files that are not objects: the prompt templates under `prompts/`
+         *     and the JSON Schemas under `schemas/`, by catalog-relative path, sorted by path.
+         */
+        get: operations["listCatalogFiles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one prompt or schema file of the catalog
+         * @description One file of the loaded catalog snapshot, as the catalog holds it: a prompt template
+         *     under `prompts/` (its source, not rendered) or a JSON Schema under `schemas/` (its raw
+         *     bytes). Nothing else is served: `400` for a path outside those two directories, `404`
+         *     for one the catalog doesn't hold.
+         */
+        get: operations["getCatalogFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/catalog/dry-run": {
         parameters: {
             query?: never;
@@ -1231,6 +1275,30 @@ export interface components {
             labels?: {
                 [key: string]: string;
             };
+        };
+        /**
+         * @description `prompt` is a template under `prompts/`; `schema` a JSON Schema under `schemas/`.
+         * @enum {string}
+         */
+        CatalogFileKind: "prompt" | "schema";
+        /** @description One prompt or schema file of the catalog. */
+        CatalogFileRef: {
+            /** @description The catalog-relative path, as TaskSpecs reference it. */
+            path: string;
+            kind: components["schemas"]["CatalogFileKind"];
+        };
+        /** @description The catalog's prompt and schema files. */
+        CatalogFileList: {
+            items: components["schemas"]["CatalogFileRef"][];
+        };
+        /** @description One prompt or schema file, as the catalog holds it. */
+        CatalogFile: {
+            path: string;
+            kind: components["schemas"]["CatalogFileKind"];
+            /** @description `sha256:<hex>` of the content (a prompt's is its `spec.prompt.digest`). */
+            digest: string;
+            /** @description The file's text, unrendered. */
+            content: string;
         };
         /** @description An event to evaluate, optionally against an existing work item. */
         DryRunRequest: {
@@ -3307,6 +3375,55 @@ export interface operations {
                     "application/json": components["schemas"]["CatalogObject"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    listCatalogFiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The files. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogFileList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            default: components["responses"]["Error"];
+        };
+    };
+    getCatalogFile: {
+        parameters: {
+            query: {
+                /** @description The file's catalog-relative path, e.g. `prompts/implement.md.tmpl`. */
+                path: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogFile"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             default: components["responses"]["Error"];
