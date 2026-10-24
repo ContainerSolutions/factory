@@ -34,6 +34,10 @@ type EventData struct {
 	Repo       string         `json:"repo,omitzero"`
 	ContentRef string         `json:"contentRef,omitzero"`
 	Facts      map[string]any `json:"facts,omitzero"`
+	// Effect is the idempotency key of the factory effect that created the event's object
+	// (its Effect's spec.idempotencyKey), read from the object's hidden effect marker. Set
+	// only on the event that creates the object, and only when the factory's own App wrote it.
+	Effect string `json:"effect,omitzero"`
 	// Raw is the provider payload, kept for audit; never shown to rules.
 	Raw json.RawMessage `json:"raw,omitzero"`
 }

@@ -60,6 +60,8 @@ Actor (`event.actor`):
 | `isFactory`, `identity` | sender is `ccf-factory[bot]` → `author`; `ccf-factory-reviewer[bot]` → `reviewer` |
 | `tier` | first matching Provider `trust` rule: Group (`orgRole admin` via `GET /orgs/{org}/memberships/{user}` → `role == admin`, cached 10 min), `authorAssociation`, `bots`; else `anyone` |
 
+`data.effect`: on an event that creates an object (`pr.opened`, `issue.opened`, a comment, a review), the percent-decoded key of the object's `<!-- factory:effect <key> -->` marker, only when the factory's own App authored it (a marker in anyone else's text is forgeable and ignored); never on `pr.updated` and the like.
+
 Untrusted text (issue/PR bodies, comments) is stored as **content refs** (`github://owner/repo/issues/42#body`, `…#comment-123`), not inline; CEL gets `event.text`/`issue.body` only for **trusted** sources needed by rules (the train issue in `workflows`) — the normaliser inlines bodies only when the actor tier is `maintainer` or `bot` from the allow-list; otherwise the field is the ref string.
 
 ## Observe, list and projection
