@@ -1,0 +1,31 @@
+[
+  {
+    "kind": "Event",
+    "id": "gh-issue_comment-created-factory/0",
+    "source": "github-public",
+    "type": "issue.commented",
+    "subject": "compliance-framework/docs#57",
+    "time": "2026-10-16T11:00:00Z",
+    "data": {
+      "provider": "github-public",
+      "actor": {
+        "id": "github-public:ccf-factory[bot]",
+        "tier": "anyone",
+        "isBot": true,
+        "isFactory": true,
+        "identity": "author"
+      },
+      "object": {
+        "provider": "github-public",
+        "kind": "pr",
+        "ref": "compliance-framework/docs#57"
+      },
+      "repo": "compliance-framework/docs",
+      "contentRef": "github://compliance-framework/docs/issues/57#comment-3401113333",
+      "facts": {
+        "text": "github://compliance-framework/docs/issues/57#comment-3401113333"
+      },
+      "effect": "tsk_01JAB3K7Q2M8V9W4XYZ5N6P7RS/pr.comment/1"
+    }
+  }
+]
