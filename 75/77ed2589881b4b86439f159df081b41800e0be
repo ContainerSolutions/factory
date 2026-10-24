@@ -3,3 +3,6 @@ lisa-design:
 - JSON `{path, kind, digest, content}` for both prompts and schemas (one media type for the web client), content unrendered; digest is `sha256:<hex>` of the content, the prompt's `spec.prompt.digest`.
 - The list has no pagination: a catalog holds a handful of files. It still uses `items` like the other lists.
 - The contract PR stubs both handlers with 501 (as #102 did for enrollments) so the server builds; UI-1b replaces them.
+
+lisa-selfreview:
+- pass 1 (core, go): no findings. Checked: the two operations carry the same security as getCatalog (reader), TestOperationsCovered and TestContract cover them (501 stubs), examples validate, web client regenerated, contracts.md updated.
