@@ -3,3 +3,6 @@ lisa-design:
 - "unsupported requestApproval" (how the engine records a requestApproval) parses as kind requestApproval, so the approval join still applies.
 - A dispatch joins the first remaining task whose TaskSpec its summary names (any task for a bare kind); an effect joins the first remaining rule effect with its op. Replaces positional counters, which mis-joined when one decision dispatches two specs.
 - The contract examples (api/examples) keep bare kinds: changing them is a contract PR. web/src/mocks/workitems.ts summarises the getWorkItem example and the stream's workitem.updated frame instead, and the specs use that mock.
+
+lisa-selfreview:
+- pass 1: reviewed graph.ts parse/join, mocks and specs; reviewable green (578 tests). No findings.
