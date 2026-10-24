@@ -5,3 +5,6 @@ lisa-design:
 - Wheel: plain wheel pans (shift+wheel pans sideways), ⌘/Ctrl+wheel and pinch zoom around the cursor, factor exp(-deltaY·0.002) (about 1.2× per mouse-wheel notch). preventDefault in the viewport's own wheel handler, so only over the graph.
 - Keys act only when the viewport itself is focused (target === currentTarget), so a focused node's Enter/Space keep working: + / = and - zoom around the centre, arrows pan 40 px, 0 fits.
 - A new graph (its width changes) is fitted again; a ResizeObserver re-measures the viewport's width when the browser has one.
+
+lisa-selfreview:
+- pass 1: browser check at 1440 on the epic and pipeline: fitted by default (epic 1×, pipeline 0.62×), Ctrl+wheel zooms around the cursor, a drag that starts on a node pans without opening it, and a click after the pan opens the node. reviewable green (622 tests).
