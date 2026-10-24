@@ -35,7 +35,7 @@ const actions = computed(() =>
       <StatusPill v-for="l in labels" :key="l" :label="l" tone="neutral" />
       <StatusPill v-if="spec.final" label="final" tone="warn" />
     </div>
-    <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
+    <dl class="kv-grid gap-x-4 gap-y-2 text-sm">
       <template v-if="spec.ruleSet">
         <dt class="text-ccf-600 dark:text-ccf-400">RuleSet</dt>
         <dd class="font-mono text-xs">{{ spec.ruleSet }}</dd>

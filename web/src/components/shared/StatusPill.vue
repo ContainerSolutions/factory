@@ -2,7 +2,8 @@
 import { computed } from 'vue';
 import { toneOf, type Tone } from './format';
 
-// The label is always shown: colour is never the only status signal.
+// The label is always shown: colour is never the only status signal. A long one is cut to its
+// box with an ellipsis; the title holds it whole.
 const props = defineProps<{ label: string; tone?: Tone }>();
 
 const classes: Record<Tone, string> = {
@@ -21,9 +22,10 @@ const tone = computed(() => props.tone ?? toneOf(props.label));
 
 <template>
   <span
-    class="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap"
+    class="inline-block max-w-full truncate rounded-full border px-2 py-0.5 align-middle text-xs font-medium"
     :class="classes[tone]"
     :data-tone="tone"
+    :title="label"
     >{{ label }}</span
   >
 </template>

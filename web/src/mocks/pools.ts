@@ -178,7 +178,12 @@ export const offline: Agent = {
           models: ['claude-sonnet-5-5'],
         },
       ],
-      labels: ['has-local-stack', 'linux'],
+      labels: [
+        'has-local-stack',
+        'linux',
+        // A long label must stay inside its card.
+        'docker-compose-with-postgres-16-and-minio-for-the-integration-test-stack-on-linux-arm64',
+      ],
     },
     lending: { unlimited: true },
   },

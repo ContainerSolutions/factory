@@ -103,9 +103,29 @@ const escalated = item(
       ref: '#ccf-api/1729070000.000100',
       kind: 'thread',
     },
+    // Long, unbroken values (a ref, a JSON state value) must stay inside their boxes.
+    {
+      provider: 'github-public',
+      ref: 'compliance-framework/api@factory/wi_01JAC0ESCALATED0000000000000/implement-review-feedback-round-3-oscal-profile-flag-visibility',
+      kind: 'branch',
+    },
   ],
   {
-    state: { stackNext: 1, stackTotal: 2, review: 'needs-human' },
+    state: {
+      stackNext: 1,
+      stackTotal: 2,
+      review: 'needs-human',
+      lastReview: {
+        round: 3,
+        reviewer: 'ccf-factory-reviewer[bot]',
+        verdict: 'changes_requested',
+        blocking: [
+          'cmd/oscal/profile.go:118:the --profile flag is exported but undocumented',
+          'internal/oscal/resolve.go:42:the resolver swallows ErrProfileNotFound',
+        ],
+        url: 'https://github.com/compliance-framework/api/pull/310#pullrequestreview-2468013579',
+      },
+    },
     counters: { implement: 3, 'docs-review': 3 },
     decisions: [
       {
@@ -188,6 +208,11 @@ const escalatedDetail: Detail = {
           outcome: 'needs-human',
           summary:
             'Third review round: whether the OSCAL profile flag is public needs a maintainer.',
+          data: {
+            pr: 'compliance-framework/api#310',
+            branch:
+              'factory/wi_01JAC0ESCALATED0000000000000/implement-review-feedback-round-3-oscal-profile-flag-visibility',
+          },
         },
       },
     },

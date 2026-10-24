@@ -62,7 +62,7 @@ const tasks = computed(() => llmTasksOf(props.detail));
         <p v-if="t.summary" class="mb-2" data-testid="llm-task-summary">
           {{ t.summary }}
         </p>
-        <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
+        <dl class="kv-grid gap-x-4 gap-y-1">
           <dt class="text-ccf-600 dark:text-ccf-400">Inputs</dt>
           <dd class="font-mono text-xs leading-5" data-testid="llm-task-inputs">
             <span v-if="!t.inputs.length">none</span>

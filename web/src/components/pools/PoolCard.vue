@@ -50,10 +50,7 @@ const backend = computed(() => {
     </div>
 
     <!-- The admission token and the LLM API key are secret refs: never shown. -->
-    <dl
-      v-if="spec"
-      class="mb-3 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm"
-    >
+    <dl v-if="spec" class="mb-3 kv-grid gap-x-4 gap-y-1 text-sm">
       <template v-if="spec.admission">
         <dt class="text-ccf-600 dark:text-ccf-400">Owners</dt>
         <dd>members of the Group {{ spec.admission.owners }}</dd>

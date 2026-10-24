@@ -14,4 +14,14 @@ describe('StatusPill', () => {
     expect(wrapper.text()).toBe(props.label);
     expect(wrapper.attributes('data-tone')).toBe(tone);
   });
+
+  it('truncates a long label to its box, with the whole label as its title', () => {
+    const label = `lastReview: ${'x'.repeat(300)}`;
+    const wrapper = mount(StatusPill, { props: { label } });
+    expect(wrapper.classes()).toEqual(
+      expect.arrayContaining(['max-w-full', 'truncate']),
+    );
+    expect(wrapper.attributes('title')).toBe(label);
+    expect(wrapper.text()).toBe(label);
+  });
 });

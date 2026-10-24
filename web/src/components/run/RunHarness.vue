@@ -19,7 +19,7 @@ const usage = computed(() => props.run.status?.usage ?? harness.value?.usage);
     <h2 id="harness-heading" class="mb-2 text-sm font-semibold">Harness</h2>
     <dl
       v-if="harness"
-      class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm"
+      class="kv-grid gap-x-4 gap-y-1 text-sm"
       data-testid="harness"
     >
       <dt class="text-ccf-600 dark:text-ccf-400">Name</dt>
@@ -42,7 +42,7 @@ const usage = computed(() => props.run.status?.usage ?? harness.value?.usage);
     <h2 class="mt-4 mb-2 text-sm font-semibold">Usage</h2>
     <dl
       v-if="usage"
-      class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm"
+      class="kv-grid gap-x-4 gap-y-1 text-sm"
       data-testid="usage"
     >
       <dt class="text-ccf-600 dark:text-ccf-400">Input tokens</dt>

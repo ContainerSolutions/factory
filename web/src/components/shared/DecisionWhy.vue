@@ -41,7 +41,7 @@ const title = computed(() =>
       class="flex flex-col gap-5 text-sm"
       data-testid="decision-why"
     >
-      <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2">
+      <dl class="kv-grid gap-x-4 gap-y-2">
         <dt class="font-medium text-ccf-600 dark:text-ccf-400">RuleSet</dt>
         <dd data-testid="why-ruleset">{{ decision.ruleSet ?? '—' }}</dd>
         <dt class="font-medium text-ccf-600 dark:text-ccf-400">Rule</dt>
