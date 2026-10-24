@@ -32,8 +32,9 @@ const tabs = computed<Tab[]>(() => [
 ]);
 /** The tab lives in the URL (?tab=timeline). */
 const tab = computed(() => pickTab(tabs.value, route.query.tab));
-/** The timeline row a graph event opened. */
+/** The timeline row a graph event opened, and the task a graph task opened. */
 const focus = ref<string | undefined>();
+const focusTask = ref<string | undefined>();
 
 function selectTab(id: string): void {
   router.replace({ query: { ...route.query, tab: id } });
@@ -42,6 +43,11 @@ function selectTab(id: string): void {
 function showEvent(key: string): void {
   focus.value = key;
   selectTab('timeline');
+}
+
+function showTask(id: string): void {
+  focusTask.value = id;
+  selectTab('tasks');
 }
 
 const whyIndex = ref<number | null>(null);
@@ -57,6 +63,7 @@ watch(
   (id) => {
     whyIndex.value = null;
     focus.value = undefined;
+    focusTask.value = undefined;
     store.loadItem(id);
   },
   { immediate: true },
@@ -107,8 +114,13 @@ const catalogSHA = computed(() =>
         :detail="detail"
         @why="whyIndex = $event"
         @event="showEvent"
+        @task="showTask"
       />
-      <LLMTasks v-else-if="tab === 'tasks'" :detail="detail" />
+      <LLMTasks
+        v-else-if="tab === 'tasks'"
+        :detail="detail"
+        :focus="focusTask"
+      />
       <WorkItemTimeline
         v-else
         :detail="detail"

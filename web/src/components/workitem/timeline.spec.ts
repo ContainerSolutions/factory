@@ -92,6 +92,7 @@ describe('eventRows', () => {
         ['implement-promoted: dispatch, notify'],
         ['escalate-needs-human: where is false'],
       ],
+      ['issue.commented', [], []],
       [
         'pr.opened',
         ['review-factory-prs: dispatch', 'label-factory-prs: effect'],

@@ -52,6 +52,13 @@ describe('WorkItemTimeline', () => {
       ],
       [
         '▸',
+        'issue.commented',
+        'on github-public · compliance-framework/docs#77',
+        '0 fired',
+        '2026-10-18 08:06:03 UTC',
+      ],
+      [
+        '▸',
         'pr.opened',
         'on github-public · compliance-framework/docs#78',
         '2 fired · 1 not fired',
@@ -78,7 +85,7 @@ describe('WorkItemTimeline', () => {
           .get('[data-testid="timeline-event-toggle"]')
           .attributes('aria-expanded'),
       ),
-    ).toEqual(['false', 'false', 'false', 'false', 'true']);
+    ).toEqual(['false', 'false', 'false', 'false', 'false', 'true']);
   });
 
   it('shows the fired decisions first, with their actions, runs and effects', async () => {
