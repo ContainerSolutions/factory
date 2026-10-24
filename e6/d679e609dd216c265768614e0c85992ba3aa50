@@ -1,3 +1,6 @@
 lisa-design:
 - EventData.Effect is the effect's idempotency key (what the marker holds, decoded), not an Effect record name: the provider sees only the marker, and Effect records already carry spec.idempotencyKey, so the UI joins on it with no extra lookup.
 - No example changes: no example event is a factory-created object, and adding effect to the contributor's issue.opened example would misstate the rule.
+
+lisa-selfreview:
+- pass 1: no findings. Contract-only: the field, regenerated openapi.yaml and web schema.d.ts, one line in contracts.md and one in the github-provider LLD.
