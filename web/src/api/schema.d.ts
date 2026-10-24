@@ -1699,6 +1699,12 @@ export interface components {
             facts?: {
                 [key: string]: unknown;
             };
+            /**
+             * @description Effect is the idempotency key of the factory effect that created the event's object
+             *     (its Effect's spec.idempotencyKey), read from the object's hidden effect marker. Set
+             *     only on the event that creates the object, and only when the factory's own App wrote it.
+             */
+            effect?: string;
             /** @description Raw is the provider payload, kept for audit; never shown to rules. */
             raw?: unknown;
         };
