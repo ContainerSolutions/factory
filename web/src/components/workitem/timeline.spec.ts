@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Schemas } from '@/api/client';
 import { examples } from '@/mocks/examples';
-import { catalogSHAFor, timelineOf } from './timeline';
+import { workItemDetails } from '@/mocks/workitems';
+import { graphOf } from './graph';
+import { catalogSHAFor, eventRows, timelineOf, unattached } from './timeline';
 
 const example = examples.get('getWorkItem') as Schemas['WorkItemDetail'];
 
@@ -63,5 +65,57 @@ describe('catalogSHAFor', () => {
       catalogSHAFor({ ...decision, rule: 'other' }, example.tasks),
     ).toBeUndefined();
     expect(catalogSHAFor(decision, [])).toBeUndefined();
+  });
+});
+
+describe('eventRows', () => {
+  const pipeline = workItemDetails.find(
+    (d) => d.workItem.metadata.name === 'wi_01JAC0PIPELINE0000000000000',
+  )!;
+
+  it("splits each event's decisions into fired (with their actions) and not fired", () => {
+    const rows = eventRows(pipeline, graphOf(pipeline));
+    expect(
+      rows.map((r) => [
+        r.node.type,
+        r.fired.map(
+          (d) =>
+            `${d.decision.rule}: ${d.actions.map((a) => a.kind).join(', ')}`,
+        ),
+        r.notFired.map((d) => `${d.decision.rule}: ${d.decision.reason}`),
+      ]),
+    ).toEqual([
+      [
+        'issue.opened',
+        ['triage-outside-issues: dispatch, set', 'docs/label-docs: effect'],
+        ['triage-maintainer-issues: where is false'],
+      ],
+      [
+        'factory.run.completed',
+        ['implement-promoted: dispatch, notify'],
+        ['escalate-needs-human: where is false'],
+      ],
+      [
+        'pr.opened',
+        ['review-factory-prs: dispatch'],
+        ['review-factory-prs: already fired through RuleSet docs'],
+      ],
+      ['factory.run.completed', [], []],
+    ]);
+    expect(rows[0]!.notFired[0]!.index).toBe(2);
+  });
+
+  it('keeps what no action accounts for', () => {
+    expect(unattached(pipeline, graphOf(pipeline))).toEqual([]);
+    expect(unattached(example, graphOf(example))).toEqual([]);
+    const orphan = {
+      ...example,
+      workItem: { ...example.workItem, status: {} },
+    };
+    expect(unattached(orphan, graphOf(orphan)).map((e) => e.kind)).toEqual([
+      'task',
+      'run',
+      'effect',
+    ]);
   });
 });

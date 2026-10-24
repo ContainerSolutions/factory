@@ -1,4 +1,5 @@
 import type { Schemas } from '@/api/client';
+import type { GraphAction, GraphEvent, WorkItemGraph } from './graph';
 
 export type TimelineEntry =
   | { kind: 'event'; at?: string; key: string; event: Schemas['Event'] }
@@ -102,4 +103,61 @@ export function catalogSHAFor(
       t.metadata.provenance?.ruleSet === decision.ruleSet &&
       t.metadata.provenance?.rule === decision.rule,
   )?.metadata.provenance?.catalogSHA;
+}
+
+/** One decision of an event row, by its index in `workItem.status.decisions`. */
+export interface RowDecision {
+  index: number;
+  decision: Schemas['Decision'];
+  /** The graph's actions for a fired decision; none for one that didn't fire. */
+  actions: GraphAction[];
+}
+
+/** One event of the collapsible timeline: its fired decisions first, the others apart. */
+export interface EventRow {
+  key: string;
+  node: GraphEvent;
+  fired: RowDecision[];
+  notFired: RowDecision[];
+}
+
+/** The work item's events in time order, each with its decisions split into fired and not. */
+export function eventRows(
+  detail: Schemas['WorkItemDetail'],
+  graph: WorkItemGraph,
+): EventRow[] {
+  const decisions = detail.workItem.status?.decisions ?? [];
+  return graph.events.map((node) => {
+    const row: EventRow = { key: node.key, node, fired: [], notFired: [] };
+    decisions.forEach((decision, index) => {
+      if (decision.event !== node.id) return;
+      const actions = node.actions.filter((a) => a.decisionIndex === index);
+      (decision.fired ? row.fired : row.notFired).push({
+        index,
+        decision,
+        actions,
+      });
+    });
+    return row;
+  });
+}
+
+/** The tasks, runs and effects no fired decision's action accounts for, in time order. */
+export function unattached(
+  detail: Schemas['WorkItemDetail'],
+  graph: WorkItemGraph,
+): TimelineEntry[] {
+  const seen = new Set<string>();
+  for (const e of graph.events) {
+    for (const a of e.actions) {
+      if (a.task) seen.add(`task/${a.task.metadata.id}`);
+      for (const r of a.runs) seen.add(`run/${r.metadata.name}`);
+      for (const f of [a.effect, ...a.taskEffects]) {
+        if (f) seen.add(`effect/${f.metadata.name}`);
+      }
+    }
+  }
+  return timelineOf(detail).filter(
+    (e) => e.kind !== 'event' && e.kind !== 'decision' && !seen.has(e.key),
+  );
 }
