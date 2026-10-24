@@ -73,18 +73,20 @@ describe('layoutGraph', () => {
     expect(pushed[0]!.d).toContain(`V ${rowY(5) - 5}`);
   });
 
-  it('keeps an uncaused event on the top row, and routes a link only when its row is blocked', () => {
+  it('keeps an uncaused event on the top row, and no link loops through the lanes', () => {
     const { l, g } = rows(pipeline);
     expect(l.events.get(g.events[0]!.key)!.row).toBe(0);
     const labeled = g.events[4]!.key;
-    const into = l.links.filter((k) => k.to === labeled);
-    // The label effect's arrow is straight; the implement task's would cross the label effect,
-    // so it runs in the lanes above every row.
-    expect(into.map((k) => [k.from.split('/')[0], k.straight])).toEqual([
-      ['task', false],
-      ['action', true],
-    ]);
-    expect(into[0]!.d).toMatch(/V 1\d(\.\d+)? /);
+    // One guess into pr.labeled: the label effect's, straight along its row.
+    expect(
+      l.links
+        .filter((k) => k.to === labeled)
+        .map((k) => [k.from.split('/')[0], k.straight]),
+    ).toEqual([['action', true]]);
+    // No path climbs to the lanes above the first row.
+    expect(
+      l.links.filter((k) => /V 1\d(\.\d+)? /.test(k.d)).map((k) => k.key),
+    ).toEqual([]);
     expect(l.height).toBeGreaterThan(rowY(5));
   });
 

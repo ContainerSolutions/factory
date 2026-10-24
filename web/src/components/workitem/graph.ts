@@ -447,18 +447,29 @@ export function graphOf(detail: Detail): WorkItemGraph {
     if (by.length) claimed.add(e.key);
   }
   // Then the heuristic, for what nothing names: an event already linked isn't guessed at again
-  // (e.g. a push's pr.updated still is; the pr.opened its pr.open made isn't).
+  // (e.g. a push's pr.updated still is; the pr.opened its pr.open made isn't), and an event gets
+  // one guess at most: from the cause closest before it (the latest action or run).
+  const guesses = new Map<string, { from: string; after: number }>();
   for (const node of events) {
     for (const a of node.actions) {
-      const inferred = inferredEvent(a, node, events, claimed);
-      if (inferred) link(a.taskNode?.key ?? a.key, inferred.key, 'inferred');
+      const guess = inferredEvent(a, node, events, claimed);
+      if (!guess) continue;
+      const best = guesses.get(guess.event.key);
+      if (!best || guess.after > best.after) {
+        guesses.set(guess.event.key, {
+          from: a.taskNode?.key ?? a.key,
+          after: guess.after,
+        });
+      }
     }
   }
+  for (const [to, { from }] of guesses) link(from, to, 'inferred');
   return { events, links };
 }
 
 /**
- * The first provider event after the action that the factory caused on an object the action
+ * The first provider event after the action (`after`: the effect's or the latest run's start
+ * time) that the factory caused on an object the action
  * touched (the effect's target, or a dispatch's run effects' targets and its Result's
  * `data.pr`), leaving out the events already linked by something that names them.
  */
@@ -467,7 +478,7 @@ function inferredEvent(
   from: GraphEvent,
   events: readonly GraphEvent[],
   claimed: ReadonlySet<string>,
-): GraphEvent | undefined {
+): { event: GraphEvent; after: number } | undefined {
   const refs = new Set<string>();
   let after = time(a.decision.at);
   if (a.effect) {
@@ -485,7 +496,7 @@ function inferredEvent(
     if (started) after = time(started);
   }
   if (!refs.size || after === Infinity) return undefined;
-  return events.find(
+  const event = events.find(
     (e) =>
       e !== from &&
       !claimed.has(e.key) &&
@@ -495,4 +506,5 @@ function inferredEvent(
       refs.has(e.event.data.object?.ref ?? '') &&
       time(e.at) >= after,
   );
+  return event ? { event, after } : undefined;
 }

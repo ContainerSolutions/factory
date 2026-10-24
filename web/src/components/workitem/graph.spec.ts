@@ -183,8 +183,8 @@ describe('graphOf', () => {
       // The comment whose data.effect is the notify's key, evt/<event>/<rule>/<i>/<request>.
       ['notify@1', 2, 'notify'],
       ['dispatch@3', 'task:docs-review', 'task'],
-      // pr.labeled names no effect: guessed by ref and time, for both causes on docs#78.
-      ['task:implement', 4, 'inferred'],
+      // pr.labeled names no effect: guessed by ref and time. Both the implement task and the
+      // label effect touched docs#78 before it; one guess only, from the closer cause.
       ['effect@3', 4, 'inferred'],
     ]);
     expect(g.links.map((l) => l.inferred)).toEqual([
@@ -195,7 +195,6 @@ describe('graphOf', () => {
       false,
       false,
       false,
-      true,
       true,
     ]);
   });

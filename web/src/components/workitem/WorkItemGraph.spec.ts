@@ -51,7 +51,6 @@ describe('WorkItemGraph', () => {
       ['notify', 'false'],
       ['task', 'false'],
       ['inferred', 'true'],
-      ['inferred', 'true'],
     ]);
     expect(links[4]!.attributes('stroke-dasharray')).toBeUndefined();
     expect(links[7]!.attributes('stroke-dasharray')).toBe('6 4');
