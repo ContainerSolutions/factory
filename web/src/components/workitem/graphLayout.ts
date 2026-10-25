@@ -106,9 +106,11 @@ interface Cells {
  *
  * An event something caused goes in the leftmost slot strictly right of its source (the most
  * certain cause: recorded, then tracking, then inferred; then the highest row), on the source's
- * row, so that arrow is one straight horizontal line. When the line would cross anything, the
- * event moves down to the first row where it doesn't (the arrow drops down the source's gutter).
- * When the event, its actions or their tasks would land on something already placed, it moves
+ * row when it can, so that arrow is one straight horizontal line. Rows come before slots: in a
+ * slot, the event takes the first row from the source's down where it, its actions and their
+ * tasks land on nothing already placed and its line is free (the arrow drops down the source's
+ * gutter to a lower row), so it stacks under a neighbour in that slot. Only when no row fits
+ * (no lower than the last row in use, or the event's own height below its source) does it move
  * one slot right. An event with no cause takes the leftmost slot on the top row after the
  * previous one. Each slot is as wide as what it holds, so the graph is as narrow as it can be.
  *
@@ -132,6 +134,16 @@ export function layoutGraph(graph: WorkItemGraph): GraphLayout {
       (c.event.has(r) || c.action.has(r) || c.task.has(r) || c.line.has(r))
     );
   };
+  /** How many rows hold something so far. */
+  const usedRows = () =>
+    Math.max(
+      0,
+      ...cells.flatMap((c) =>
+        c
+          ? [...c.event, ...c.action, ...c.task, ...c.line].map((r) => r + 1)
+          : [],
+      ),
+    );
   /** Whether a straight line on `row` from a source in slot `from` reaches slot `to`. */
   const lineFree = (row: number, from: number, to: number) => {
     for (let k = from + 1; k < to; k++) if (busy(k, row)) return false;
@@ -171,13 +183,33 @@ export function layoutGraph(graph: WorkItemGraph): GraphLayout {
     let place: Cell | undefined;
     if (first) {
       const s = first.s!;
+      const fitRow = (t: number, lowest: number) => {
+        for (let r = s.row; r <= lowest; r++) {
+          if (lineFree(r, s.slot, t) && fits(t, r)) return r;
+        }
+        return undefined;
+      };
+      // Rows before slots: in each slot, leftmost first, the first row from the source's down
+      // where the event fits and its line is free. No lower than the last row in use or its own
+      // height below its source, whichever is lower: a slot that only fits further down loses
+      // to the next slot over.
+      const height = 1 + e.actions.length;
+      const lowest = Math.min(
+        MAX_ROW,
+        Math.max(s.row + height, usedRows() - 1),
+      );
       for (let t = s.slot + 1; !place && t <= s.slot + MAX_SLOTS; t++) {
-        let r = s.row;
-        while (r <= MAX_ROW && !lineFree(r, s.slot, t)) r++;
-        if (r > MAX_ROW || !fits(t, r)) continue;
-        place = { slot: t, row: r };
+        const r = fitRow(t, lowest);
+        if (r !== undefined) place = { slot: t, row: r };
+      }
+      // Nowhere within that: the first slot right of the source, as low as it takes.
+      if (!place) {
+        const r = fitRow(s.slot + 1, MAX_ROW);
+        if (r !== undefined) place = { slot: s.slot + 1, row: r };
+      }
+      if (place) {
         aligned.set(e.key, first.i);
-        for (let k = s.slot + 1; k < t; k++) at(k).line.add(r);
+        for (let k = s.slot + 1; k < place.slot; k++) at(k).line.add(place.row);
       }
     }
     if (!place) {
