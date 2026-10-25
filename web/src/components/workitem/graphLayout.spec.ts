@@ -173,8 +173,11 @@ describe('layoutGraph', () => {
       expect(at(3)).toEqual(['issue.commented', 3, 2]);
       expect(task('implement')).toMatchObject({ slot: 3, row: 5 });
       expect(at(4)).toEqual(['pr.opened', 4, 5]);
-      // pr.opened holds slot 4 on row 5: one slot right, and down a row so its line is free.
-      expect(at(5)).toEqual(['factory.run.completed', 5, 6]);
+      // pr.opened holds slot 4 on row 5: the implement completion stacks under it.
+      expect(at(5)).toEqual(['factory.run.completed', 4, 6]);
+      expect(l.events.get(g.events[5]!.key)!.cx).toBe(
+        l.events.get(g.events[4]!.key)!.cx,
+      );
       // One column per event (and a task column beside each dispatch) took far more room.
       const before =
         2 * PAD +
@@ -188,9 +191,9 @@ describe('layoutGraph', () => {
           0,
         );
       expect(l.width).toBeLessThan(before - COL_W);
-      // Seven slots (the review task in the last), where today drew six columns and four task
-      // columns.
-      expect(Math.max(...[...l.tasks.values()].map((t) => t.slot)) + 1).toBe(7);
+      // Six slots (the review task in the last), where one column per event drew six columns
+      // and four task columns.
+      expect(Math.max(...[...l.tasks.values()].map((t) => t.slot)) + 1).toBe(6);
       // And its arrows are still straight where they were.
       expect(
         l.links
@@ -206,13 +209,52 @@ describe('layoutGraph', () => {
       ]);
     });
 
-    it('bumps an event one slot right when its slot is taken on its row', () => {
-      const { g, l } = rows(build);
-      const opened = l.events.get(g.events[4]!.key)!;
-      const done = l.events.get(g.events[5]!.key)!;
-      // Both are caused by the implement task (slot 3, row 5).
-      expect(opened).toMatchObject({ slot: 4, row: 5 });
-      expect(done.slot).toBe(opened.slot + 1);
+    it('moves an event one slot right when no row of the next slot fits', () => {
+      const action = (key: string, task?: string): GraphAction =>
+        ({
+          key,
+          kind: task ? 'dispatch' : 'set',
+          ...(task ? { taskNode: { key: task } } : {}),
+        }) as GraphAction;
+      // A's actions: rows 1–4, with tasks beside rows 2 and 4 (slot 1). B, caused by row 1's
+      // action, needs two rows (its circle and its action): slot 1 has none free together on
+      // rows 1–4, and it may not drop below them, so B goes one slot right, on its source's row.
+      const g: WorkItemGraph = {
+        events: [
+          {
+            key: 'event/a',
+            id: 'a',
+            type: 'issue.opened',
+            column: 0,
+            actions: [
+              action('action/0/0'),
+              action('action/0/1', 'task/2'),
+              action('action/0/2'),
+              action('action/0/3', 'task/4'),
+            ],
+          },
+          {
+            key: 'event/b',
+            id: 'b',
+            type: 'issue.commented',
+            column: 1,
+            actions: [action('action/1/0')],
+          },
+        ],
+        links: [
+          {
+            from: 'action/0/0',
+            to: 'event/b',
+            inferred: true,
+            cause: 'tracking',
+          },
+        ],
+      };
+      const l = layoutGraph(g);
+      expect(l.tasks.get('task/2')).toMatchObject({ slot: 1, row: 2 });
+      expect(l.events.get('event/b')).toMatchObject({ slot: 2, row: 1 });
+      // Its line runs through slot 1 on row 1, straight.
+      expect(l.links[0]!.straight).toBe(true);
     });
 
     it.each(workItemDetails.map((d) => [d.workItem.metadata.name, d]))(
