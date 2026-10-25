@@ -1,0 +1,4 @@
+lisa-design:
+- Rows before slots: for each slot (leftmost first) the event takes the first row from its source's down where its cells are free and its straight line through the slots between is free; the arrow drops down the source's gutter to it.
+- The cap is max(source row + the event's height, last row in use). Not "just below every row in use": that row is always free, so the adjacent slot would always win and an event could never move right; with this cap a slot that only fits further down loses to the next one.
+- If no slot fits within the cap, the event takes the first slot right of its source as low as it needs (instead of falling back to the top row as an uncaused event).
