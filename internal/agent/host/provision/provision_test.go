@@ -178,3 +178,167 @@ func TestKataScripts(t *testing.T) {
 		}
 	}
 }
+
+// stubCommands are every command base.sh runs (sudo's arguments aside). The stub logs its name
+// and arguments, and sha256sum -c's stdin (fetch's "<sha256>  <file>"), and answers what the
+// script reads.
+var stubCommands = []string{"cargo", "cat", "cloud-init", "cmp", "curl", "cut", "dpkg", "getent", "head", "id", "jq", "mkdir", "mktemp", "node", "npm", "od", "readlink", "rm", "sha256sum", "sudo", "tar", "tr"}
+
+const stubScript = `#!/bin/sh
+n=${0##*/}
+printf '%s' "$n" >>"$STUB_LOG"
+for a in "$@"; do printf ' %s' "$a" >>"$STUB_LOG"; done
+echo >>"$STUB_LOG"
+case $n in
+dpkg) echo "$STUB_ARCH" ;;
+mktemp) echo "$STUB_TMP" ;;
+getent) echo "admin:x:1000:1000::$STUB_TMP/home:/bin/bash" ;;
+id) echo admin ;;
+npm) [ "$1" = prefix ] && echo /usr/local; [ "$1" = root ] && echo /usr/local/lib/node_modules ;;
+node) echo /bin/sh ;;
+sha256sum) [ "$1" = -c ] && /bin/cat >>"$STUB_LOG" ;;
+esac
+# a piped stdin is read, so the writer (echo ... | sudo tee) doesn't die of SIGPIPE.
+if [ -p /dev/stdin ]; then /bin/cat >/dev/null; fi
+exit 0
+`
+
+// runBase runs the embedded base.sh with every command it runs stubbed (PATH is the stubs'
+// directory only, so nothing outside it can run) and returns the stubs' log, its stderr and
+// its error. The run ends at the first check of a real file the stubs can't make (vhs and
+// gifski in /usr/local/bin, or claude-code's native binary), after every download but codex's.
+func runBase(t *testing.T, arch, mode string) (string, string, error) {
+	t.Helper()
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("no bash")
+	}
+	if _, err := os.Stat("/bin/cat"); err != nil {
+		t.Skip("no /bin/cat for the stubs")
+	}
+	dir := t.TempDir()
+	stubs, tmp := filepath.Join(dir, "stubs"), filepath.Join(dir, "tmp")
+	for _, d := range []string{stubs, tmp} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range stubCommands {
+		if err := os.WriteFile(filepath.Join(stubs, c), []byte(stubScript), 0o755); err != nil { //nolint:gosec // an executable stub
+			t.Fatal(err)
+		}
+	}
+	// the Rust components' install.sh, which rust_component runs from $TMP.
+	for _, c := range []string{"rustc", "cargo", "rust-std"} {
+		for _, triple := range []string{"x86_64", "aarch64"} {
+			d := filepath.Join(tmp, c+"-1.99.0-"+triple+"-unknown-linux-gnu")
+			if err := os.Mkdir(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(d, "install.sh"), []byte(stubScript), 0o755); err != nil { //nolint:gosec // an executable stub
+				t.Fatal(err)
+			}
+		}
+	}
+	script, err := fs.ReadFile(embedded, "base.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "base.sh")
+	if err := os.WriteFile(p, script, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(dir, "log")
+	cmd := exec.Command(bash, p)
+	cmd.Env = []string{"PATH=" + stubs, "HOME=" + dir, "STUB_LOG=" + log, "STUB_ARCH=" + arch, "STUB_TMP=" + tmp}
+	if mode != "" {
+		cmd.Env = append(cmd.Env, "FACTORY_BASE_MODE="+mode)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	runErr := cmd.Run()
+	b, err := os.ReadFile(log)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	return string(b), stderr.String(), runErr
+}
+
+// TestBaseScriptRuns runs base.sh against stubs: each architecture downloads its own half of
+// every pin pair, the image mode never starts, stops or applies anything, and an unknown mode
+// or architecture stops it before anything runs.
+func TestBaseScriptRuns(t *testing.T) {
+	script, err := fs.ReadFile(embedded, "base.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pins := map[string]map[string]string{} // name -> arch -> sha256
+	for _, m := range regexp.MustCompile(`(?m)^([A-Z0-9_]+_SHA256)_(amd64|arm64)=([0-9a-f]{64})$`).FindAllStringSubmatch(string(script), -1) {
+		if pins[m[1]] == nil {
+			pins[m[1]] = map[string]string{}
+		}
+		pins[m[1]][m[2]] = m[3]
+	}
+	if len(pins) == 0 {
+		t.Fatal("no per-architecture pins")
+	}
+	vmOnly := []string{"sudo systemctl disable --now apt-daily.timer apt-daily-upgrade.timer", "sudo systemctl stop unattended-upgrades.service", "sudo cloud-init status --wait", "sudo systemctl enable --now docker", "sudo sysctl --quiet --system"}
+	for _, c := range []struct {
+		arch, mode, other string
+		assets            []string
+	}{
+		{"amd64", "image", "arm64", []string{"/kind-linux-amd64", "/bin/linux/amd64/kubectl", "/v1.6.2/linux-amd64\n", "/v0.2.0/linux-amd64\n", "-linux-x64.tar.gz", "go1.26.9.linux-amd64.tar.gz", "_Linux_x86_64.tar.gz", "-x86_64-unknown-linux-gnu.tar.xz"}},
+		{"amd64", "vm", "arm64", []string{"/kind-linux-amd64", "-linux-x64.tar.gz"}},
+		{"arm64", "", "amd64", []string{"/kind-linux-arm64", "/bin/linux/arm64/kubectl", "/v1.6.2/linux-arm64\n", "/v0.2.0/linux-arm64\n", "-linux-arm64.tar.gz", "go1.26.9.linux-arm64.tar.gz", "_Linux_arm64.tar.gz", "-aarch64-unknown-linux-gnu.tar.xz"}},
+	} {
+		t.Run(c.arch+"-"+c.mode, func(t *testing.T) {
+			log, stderr, _ := runBase(t, c.arch, c.mode)
+			if !strings.Contains(log, "gifski-1.34.0.crate") {
+				t.Fatalf("the run ended before gifski's download:\n%s\nstderr:\n%s", log, stderr)
+			}
+			for name, sums := range pins {
+				if strings.HasPrefix(name, "CODEX_") {
+					continue // after the claude-code check, which the stubs can't pass
+				}
+				if !strings.Contains(log, sums[c.arch]+"  ") {
+					t.Errorf("%s: %s_%s isn't checked", c.arch, name, c.arch)
+				}
+				if strings.Contains(log, sums[c.other]) {
+					t.Errorf("%s: %s_%s is used", c.arch, name, c.other)
+				}
+			}
+			for _, a := range c.assets {
+				if !strings.Contains(log, a) {
+					t.Errorf("%s: no download of %q", c.arch, a)
+				}
+			}
+			for _, l := range vmOnly {
+				if got := strings.Contains(log, l+"\n") || strings.Contains(log, l+" "); got != (c.mode != "image") {
+					t.Errorf("mode %q: %q run: %v", c.mode, l, got)
+				}
+			}
+			if c.mode == "image" {
+				for l := range strings.Lines(log) {
+					if strings.Contains(l, "--now") || strings.Contains(l, "cloud-init") || strings.Contains(l, "sysctl --") {
+						t.Errorf("the image mode runs %s", strings.TrimSpace(l))
+					}
+				}
+				if !strings.Contains(log, "sudo systemctl enable docker\n") {
+					t.Error("the image mode doesn't enable docker")
+				}
+			}
+		})
+	}
+	for _, c := range []struct{ arch, mode, err, log string }{
+		{"amd64", "bogus", "unknown FACTORY_BASE_MODE bogus", ""},
+		{"riscv64", "image", "unsupported architecture riscv64", "dpkg --print-architecture\n"},
+	} {
+		log, stderr, err := runBase(t, c.arch, c.mode)
+		if err == nil || !strings.Contains(stderr, c.err) {
+			t.Errorf("%s %s: %v, stderr %q; want %q", c.arch, c.mode, err, stderr, c.err)
+		}
+		if log != c.log {
+			t.Errorf("%s %s ran %q, want %q", c.arch, c.mode, log, c.log)
+		}
+	}
+}

@@ -80,8 +80,9 @@ VHS_SHA256_arm64=0b27029809fcc2ca2c381cceb854cbe03479a0f229b963e9bc3a2f2c36ffd3e
 
 # gifski: no Ubuntu or Debian release packages it, and its releases ship x86-64 linux binaries
 # only, so it is built from https://crates.io/crates/gifski/1.34.0 (2025-07-13, the newest
-# release) on both architectures (one path), with the crate's own Cargo.lock (--locked: cargo checks every dependency's
-# checksum). The sha256 is the crate's checksum in crates.io's API (crates/gifski/1.34.0).
+# release) on both architectures (one path), with the crate's own Cargo.lock (--locked: cargo
+# checks every dependency's checksum). The sha256 is the crate's checksum in crates.io's API
+# (crates/gifski/1.34.0).
 GIFSKI_VERSION=1.34.0
 GIFSKI_SHA256=c246c795a61d4a2476fb1c8ab70bedfaa825c734882adc40e117fc837df81190
 # The Rust toolchain that builds it, in $TMP only: rustc, cargo and rust-std 1.99.0 (2026-10-01,
@@ -102,13 +103,13 @@ RUST_STD_SHA256_arm64=1cf7e2ef58ed1cfa6f1adea18e155cbf254c1951f39e5f5e3376879f55
 #
 # What its postinstall (`node install.cjs`) does, read from the 2.1.304 tarball (npm pack, not
 # run): it picks the platform's optional dependency, here @anthropic-ai/claude-code-linux-arm64
-# or, on amd64, @anthropic-ai/claude-code-linux-x64 (glibc; neither has scripts), and hard-links (or else copies) that package's native `claude` over
-# the wrapper's bin/claude.exe, a 500-byte shell stub that only prints "claude native binary
-# not installed", then chmods it 0755. It runs no program on linux (it spawns sysctl only for
-# an x64 node on darwin) and never runs claude. npm 11 skips install scripts it isn't told to
-# allow, which leaves the stub as `claude`: the install allows this one package's script
-# (--allow-scripts=@anthropic-ai/claude-code), and claude_code_installed checks the native
-# binary is in place, without running it.
+# or, on amd64, @anthropic-ai/claude-code-linux-x64 (glibc; neither has scripts), and hard-links
+# (or else copies) that package's native `claude` over the wrapper's bin/claude.exe, a 500-byte
+# shell stub that only prints "claude native binary not installed", then chmods it 0755. It runs
+# no program on linux (it spawns sysctl only for an x64 node on darwin) and never runs claude.
+# npm 11 skips install scripts it isn't told to allow, which leaves the stub as `claude`: the
+# install allows this one package's script (--allow-scripts=@anthropic-ai/claude-code), and
+# claude_code_installed checks the native binary is in place, without running it.
 CLAUDE_CODE_VERSION=2.1.304
 CLAUDE_CODE_DIR=/usr/local/lib/node_modules/@anthropic-ai/claude-code
 # That native package's directory, which set_arch picks.
