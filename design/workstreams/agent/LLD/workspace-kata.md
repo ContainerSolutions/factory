@@ -228,7 +228,7 @@ Stacked, each on the one before; each passes `make reviewable` on its own.
 | # | Branch | What |
 |---|---|---|
 | 0 | `fx/p9-0-kata-lld` | this LLD, the Q8 section of the phase 0 report, P1's kata details brought in line |
-| 1 | `fx/p9-1-host-linux` | the per-OS state dir; `host.Steps` for kata with the `platform` and `statedir` steps; `host check --driver kata`; `init --driver kata` refused past them ("comes in the next PRs") |
+| 1 | `fx/p9-1-host-linux` | the per-OS state dir; `host.Steps` for kata with the `platform` and `statedir` steps; `host check` and `init --driver kata` run those two (the usage says the rest comes in the next PRs; `supervise --driver kata` stays refused until PR 6) |
 | 2 | `fx/p9-2-base-amd64` | `base.sh`'s architecture and mode, the amd64 pins; `provision/kata/` (the Dockerfile, `factory-init`, `factory-docker-storage` and its unit); the CI image build |
 | 3 | `fx/p9-3-host-kata` | steps 3 to 8, the pins, the renderings and their goldens; the helper's `protocol` and `list`; `main`'s `kata-helper` dispatch |
 | 4 | `fx/p9-4-kata-driver` | `vmexec` (moved from tart), the helper's workspace verbs, `workspace/kata`; the `kataintegration` tests |
