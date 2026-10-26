@@ -1,0 +1,3 @@
+lisa-selfreview:
+pass 1 (lenient, final): approve. CORE-TEST-002 (a test that cannot fail): the widened bounds still fail a hang (the Block fakes block forever; the bound is below go test's timeout); no assertion was dropped. Write-then-rename was not used for ETXTBSY: the forked child holds the same inode, so a rename doesn't close the race; ForkLock does.
+- also fixed: pipeline TestRunEnvironmentWallClockLimit and claudecode TestRunCancelKillsTheProcessTree, the same 30 s / 10 s bounds (TestRunEnvironmentWallClockLimit failed under load in the baseline run).
