@@ -5,4 +5,8 @@ metadata: { name: local }
 spec:
   mode: registered
   admission: { tokenRef: { name: local-pool, key: join-token }, owners: maintainers }
-  lease: { ttl: 2m, heartbeat: 30s, maxTasksPerAgent: 1 }
+  # maxTasksPerAgent is the ceiling on each agent's tasks at once; the agent's own
+  # lending.maxConcurrent (the owner's consent) is the other cap, and the scheduler takes the
+  # smaller. 3 is the Linux workstation's kata supervise (workspace-kata.md); the Mac's tart
+  # supervise registers 1 whatever its config says.
+  lease: { ttl: 2m, heartbeat: 30s, maxTasksPerAgent: 3 }
