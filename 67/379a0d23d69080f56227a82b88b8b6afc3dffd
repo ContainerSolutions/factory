@@ -1,0 +1,8 @@
+lisa-design:
+- kataintegration skips (never fails) when the helper isn't this build's protocol (sudo -n kata-helper protocol) or the image is missing (kata-helper image-exists, PR 5's verb: until PR 5's helper is installed it skips). Warm comes from kata-helper warm-exists the same way.
+- The stand-in gateway is a plain HTTP forward proxy (absolute-URI and CONNECT) on each slot's gateway address and FACTORY_KATA_GATEWAY_PORT (default 3128, the config's), recording client addresses for N01; the canary listens on 0.0.0.0:<free port>.
+- I07 uses docker0's default 172.17.0.1 as Q8 did; I16 passes when getent fails with a status other than timeout's 124 within 2 s.
+- The systemd-ignores-the-stop case SIGSTOPs PID 1 in the guest: stop's SIGRTMIN+3 then waits, as Q8's hung rm -f did.
+
+lisa-selfreview:
+pass 1 (4d): approve; vetted and linted with -tags kataintegration (CI builds neither). Not run here: needs sudo and the installed helper.

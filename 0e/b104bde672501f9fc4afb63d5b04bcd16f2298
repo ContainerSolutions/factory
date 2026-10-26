@@ -1,0 +1,2 @@
+lisa-addressed:
+- #181 thread PRRT_kwDOVK0lgs6wW18J: create takes <diskGiB> (20..500) after <memMiB>; truncate -s <n>G; DiskSize constant removed; LLD row updated. Protocol stays 2 (introduced in this PR); 4b2 bumps.

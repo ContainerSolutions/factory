@@ -1,0 +1,2 @@
+lisa-addressed:
+- #184 thread PRRT_kwDOVK0lgs6wW2wL: spoof checks use sudo -n ip addr add/del; a failed add exits 222 (not 99: curl can return 99, CURLE_UNRECOVERABLE_POLL), asserted never to happen; DiskGiB from FACTORY_KATA_DISK_GIB; /tmp/kit-out; sudo -n kill -STOP 1.
