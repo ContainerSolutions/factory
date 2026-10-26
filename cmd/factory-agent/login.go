@@ -41,7 +41,8 @@ func loginUsage(w io.Writer) {
   codex [--auth-json p]  imports codex's ChatGPT login (default ~/.codex/auth.json)
 
 Each goes to <state-dir>/logins/{claude,codex}.json (0600, in a 0700 directory); the
-workspace gateway adds it to the model hosts' requests. --state-dir defaults to the agent's.
+workspace gateway adds it to the model hosts' requests, and refreshes the codex login there
+(the file then holds the newer tokens). --state-dir defaults to the agent's.
 `)
 }
 

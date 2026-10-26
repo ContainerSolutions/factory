@@ -135,7 +135,8 @@ func (g *Gateway) anthropicRoute(w http.ResponseWriter, r *http.Request, rec *Re
 // chatgptRoute is chatgpt.com's rule (gateway.md, the host table; D2): the login's account id
 // on every request, and its access token as Bearer when the request carried Authorization.
 // Without Config.ChatGPT nothing is added; when it has no access token, every request is
-// no-login. A 401 is the client's to see: the PoC has no refresh, the owner re-imports the login.
+// no-login. A 401 to an injected token is retried once after Config.ChatGPTUnauthorized
+// (chatgptRetry).
 func (g *Gateway) chatgptRoute(w http.ResponseWriter, r *http.Request, rec *Record) (http.Header, bool) {
 	if g.cfg.ChatGPT == nil {
 		return nil, true

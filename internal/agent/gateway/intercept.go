@@ -100,7 +100,11 @@ func (g *Gateway) interceptRequest(w http.ResponseWriter, r *http.Request) {
 // carrier stripped, the class's cookie rule applied and then set's headers (the credentials).
 func (g *Gateway) forwardIntercepted(w http.ResponseWriter, r *http.Request, d policy.Decision, rec *Record, set http.Header) {
 	host := net.JoinHostPort(d.Target.Host, strconv.Itoa(int(g.upstreamPort)))
-	g.proxy(w, r, rec, g.upstream, func(out *http.Request) {
+	var tr http.RoundTripper = g.upstream
+	if d.Class == policy.ChatGPT && rec.Injected == InjectedChatGPT && g.cfg.ChatGPTUnauthorized != nil {
+		tr = &chatgptRetry{next: g.upstream, unauthorized: g.cfg.ChatGPTUnauthorized, log: g.log}
+	}
+	g.proxy(w, r, rec, tr, func(out *http.Request) {
 		out.URL = &url.URL{Scheme: "https", Host: host, Path: r.URL.Path, RawPath: r.URL.RawPath, RawQuery: r.URL.RawQuery}
 		out.Host = d.Target.Host
 		stripCarriers(out, d.Class)
