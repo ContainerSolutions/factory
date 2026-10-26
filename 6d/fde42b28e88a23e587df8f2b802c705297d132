@@ -1,0 +1,2 @@
+lisa-addressed:
+- review #174: P1's and gateway.md's registry-mirror references replaced by the warm disk; previous image deleted only when unused; exec's 125 disambiguated by a kata-helper stderr line.
