@@ -15,32 +15,28 @@ Three PR stacks, in this order:
 
 | Stack | Where | Contents | Starts |
 |---|---|---|---|
-| **1. Common phase 10** | the Mac session | The phase 10 work that touches files the phase 9 follow-ups also touch: **(1)** remove `worker` and `--runtime host` from `cmd/factory-agent` (supervise is the only runtime); **(2)** remove the `localDev` and label config from `internal/agent/config`; **(3)** the LLD renames (worker → supervise, run-pipeline, harness-adapters, local-stack → environment). Plus **(4)** lifting the "never install" rule and the `not-run` stopgap (#85) in the prompts: not shared code, but test T2 needs it. | now |
-| **2. Remaining phase 10** | the Mac session | Everything else in "2. P1 phase 10: removal" below. | after stack 1 is merged |
-| **3. Phase 9 follow-ups** | **the Linux box** | Fixes a–h and tests T1–T6 in "1. Phase 9 follow-ups" below. | **only after stack 1 is merged:** check `git log origin/main` for its PRs, and that this section says stack 1 is merged |
+| **1. Common phase 10** | the Mac session | The phase 10 work that touches files the phase 9 follow-ups also touch: **(1)** remove `worker` and `--runtime host` from `cmd/factory-agent` (supervise is the only runtime); **(2)** remove the `localDev` and label config from `internal/agent/config`; **(3)** the LLD renames (worker → supervise, run-pipeline, harness-adapters, local-stack → environment). Plus **(4)** lifting the "never install" rule and the `not-run` stopgap (#85) in the prompts: not shared code, but test T2 needs it. | **merged 2026-10-26** (#192–#195, ccf-skills#25; IMPROVEMENTS_DONE.md) |
+| **2. Remaining phase 10** | the Mac session | Everything else in "2. P1 phase 10: removal" below. | **next:** stack 1 is merged; its design goes to Gustavo first |
+| **3. Phase 9 follow-ups** | **the Linux box** | Fixes a–h and tests T1–T6 in "1. Phase 9 follow-ups" below. | **now:** stack 1 is merged (`git log origin/main` has #192–#195) |
 
 Notes for the Linux box agent:
 - **Read AGENTS.md first.** Use lisa as `ccf-lisa[bot]`, review with ccf-review, and keep one
-  stack. Before starting, tell Gustavo the design, what's in, and what goes back here as
+  stack. The repo is now **`ContainerSolutions/factory`**: set `LISA_REPO=ContainerSolutions/factory`
+  (lisa's App auth doesn't follow the old name's redirect); the App is installed there. Before starting, tell Gustavo the design, what's in, and what goes back here as
   deferred, then wait.
-- **Rebase on main after stack 1.** `internal/agent/config` and `cmd/factory-agent` will have
-  changed: `localDev` and `worker` are gone.
+- **Start from main after stack 1.** `internal/agent/config` and `cmd/factory-agent` have
+  changed: `localDev` and `worker` are gone. The config decode is strict, so delete any
+  `localDev` key from the Linux box's `agent.yaml` before restarting supervise.
 - **The tart-only parts can't be verified on Linux.** That's fix b and fix a's pf-anchor half.
   Write them against the existing fake tart, and leave the real check to Gustavo on the Mac
   (say so in the PR body).
-- **T1 and T3 run on either machine.** T2 needs stack 1's "never install" lift. T4, T5 and T6
+- **T1 and T3 run on either machine.** T2 can run now: stack 1 lifted "never install". T4, T5 and T6
   are Linux only.
 - **When an item ships,** record it in IMPROVEMENTS_DONE.md with its PR numbers, and remove it
   here.
 
-Stack 1 status (2026-10-26): **in review.**
-- ContainerSolutions/factory: #192 (drop `worker`), #193 (drop the host stack and `localDev`),
-  #194 (fold the worker and local-stack LLDs), and #195 (the catalog lifts "never install",
-  ccf-skills `v0.10.0`).
-- compliance-framework/ccf-skills#25 (v0.10.0). It needs the tag before PR 4 is used.
-- All pushed as Gustavo, so he can't approve them himself.
-
-The Linux box waits until all of these are merged.
+Stack 1 status (2026-10-26): **merged.** The PRs are listed in IMPROVEMENTS_DONE.md; what it
+left for stack 2 is under "Left over from stack 1, for stack 2" below.
 
 ### 1. Phase 9 follow-ups
 

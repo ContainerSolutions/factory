@@ -124,6 +124,21 @@ Verified on real runs (2026-10-26, from the Mac's supervisor records):
 - **#188, #189:** IPv4-only image builds, and login on Linux.
 - **#190:** the `local` Pool lets an agent run three tasks.
 
+## P1 phase 10, stack 1: the common part (2026-10-26)
+
+Merged before the phase 9 follow-ups started, because both touch `cmd/factory-agent` and
+`internal/agent/config`:
+- **#192:** supervise is the only runtime. `worker` and `--runtime host` are gone; the shared
+  lease loop moved to `agentloop.go`.
+- **#193:** the host stack, `localDev` and the label probes are gone. The config decode is
+  strict, so a leftover `localDev` key in `agent.yaml` now fails.
+- **#194:** the worker and local-stack LLDs fold into supervise and workspace-run.
+- **#195:** the prompts lift "never install" (#85's stopgap): agents install what the repo's
+  checks need through its package manager, never system tools, and never change lockfiles.
+  Every TaskSpec pins ccf-skills `v0.10.0`.
+- **ccf-skills#25 (`v0.10.0`):** HEADLESS.md rule 9, and docs-release runs `yarn install
+  --frozen-lockfile` before building.
+
 ## Other items closed
 
 - **C. Anti-affinity:** kept, but only for the same harness, with a configurable wait (#137).
