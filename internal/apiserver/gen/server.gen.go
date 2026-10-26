@@ -161,6 +161,27 @@ func (e CatalogSummaryStatus) Valid() bool {
 	}
 }
 
+// Defines values for CloseWorkItemRequestReason.
+const (
+	CloseWorkItemRequestReasonDone      CloseWorkItemRequestReason = "done"
+	CloseWorkItemRequestReasonDuplicate CloseWorkItemRequestReason = "duplicate"
+	CloseWorkItemRequestReasonWontDo    CloseWorkItemRequestReason = "wont-do"
+)
+
+// Valid indicates whether the value is a known member of the CloseWorkItemRequestReason enum.
+func (e CloseWorkItemRequestReason) Valid() bool {
+	switch e {
+	case CloseWorkItemRequestReasonDone:
+		return true
+	case CloseWorkItemRequestReasonDuplicate:
+		return true
+	case CloseWorkItemRequestReasonWontDo:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CommandType.
 const (
 	CommandTypeCancel        CommandType = "cancel"
@@ -461,6 +482,11 @@ type CatalogSummary struct {
 
 	// Status `error` keeps serving the last good catalog.
 	Status CatalogSummaryStatus `json:"status"`
+
+	// Warnings The live catalog's warnings, and the missing App installations (code
+	// `app-not-installed`): an identity's App that isn't installed on a repo a TaskSpec or
+	// RuleSet can touch.
+	Warnings []CatalogError `json:"warnings,omitempty"`
 }
 
 // CatalogSummaryStatus `error` keeps serving the last good catalog.
@@ -468,6 +494,15 @@ type CatalogSummaryStatus string
 
 // ChannelRef ChannelRef is a channel on a provider.
 type ChannelRef = v1alpha1.ChannelRef
+
+// CloseWorkItemRequest Why a work item is closed.
+type CloseWorkItemRequest struct {
+	Note   *string                    `json:"note,omitempty"`
+	Reason CloseWorkItemRequestReason `json:"reason"`
+}
+
+// CloseWorkItemRequestReason defines model for CloseWorkItemRequest.Reason.
+type CloseWorkItemRequestReason string
 
 // Command An operator command (api-server.md §Commands).
 type Command struct {
@@ -661,6 +696,12 @@ type EnrollmentRequest struct {
 
 // Environment Environment is what a task's workspace brings up before the harness runs (P1 §4): plain commands run as root inside the task's VM workspace, which has its own Docker.
 type Environment = v1alpha1.Environment
+
+// EnvironmentLogUpload Where the environment log was stored.
+type EnvironmentLogUpload struct {
+	Bytes             int64  `json:"bytes"`
+	EnvironmentLogRef string `json:"environmentLogRef"`
+}
 
 // Evaluation What the rule engine decided for an event (internal/rules Evaluation).
 type Evaluation struct {
@@ -1060,6 +1101,16 @@ type RegisterAgentRequest struct {
 	Pool string `json:"pool"`
 }
 
+// ReplayResult A replay's outcome.
+type ReplayResult struct {
+	// Decisions The decisions the replay recorded (each with `replay`), none when it changed nothing.
+	Decisions []Decision `json:"decisions"`
+	Event     string     `json:"event"`
+
+	// WorkItem The work item the event was evaluated for; absent when no rule fires for it.
+	WorkItem *string `json:"workItem,omitempty"`
+}
+
 // RepoMount RepoMount is one repo in the workspace.
 type RepoMount = v1alpha1.RepoMount
 
@@ -1236,6 +1287,16 @@ type Webhook = v1alpha1.Webhook
 // WorkItem WorkItem groups the provider objects that are about one piece of work.
 type WorkItem = v1alpha1.WorkItem
 
+// WorkItemClosed WorkItemClosed records why and when an admin closed a work item.
+type WorkItemClosed = v1alpha1.WorkItemClosed
+
+// WorkItemDeleted What deleting a work item removed, by kind.
+type WorkItemDeleted struct {
+	// Deleted How many objects of each kind were deleted (Task, Run, Effect, Event, …).
+	Deleted  map[string]int `json:"deleted"`
+	WorkItem string         `json:"workItem"`
+}
+
 // WorkItemDetail A work item and its timeline.
 type WorkItemDetail struct {
 	Effects []Effect `json:"effects"`
@@ -1272,6 +1333,9 @@ type Cursor = string
 
 // EnrollmentID defines model for EnrollmentID.
 type EnrollmentID = string
+
+// EventID defines model for EventID.
+type EventID = string
 
 // LabelSelectorParam defines model for LabelSelectorParam.
 type LabelSelectorParam = string
@@ -1429,6 +1493,9 @@ type ListQueuesParams struct {
 	LabelSelector *LabelSelectorParam `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 }
 
+// UploadEnvironmentLogTextBody defines parameters for UploadEnvironmentLog.
+type UploadEnvironmentLogTextBody = string
+
 // StreamEventsParams defines parameters for StreamEvents.
 type StreamEventsParams struct {
 	// Topics Comma-separated topics: `runs/<id>`, `workitems`, `workitems/<id>`, `tasks`, `agents`.
@@ -1462,6 +1529,12 @@ type ListWorkItemsParams struct {
 	LabelSelector *LabelSelectorParam `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 }
 
+// DeleteWorkItemParams defines parameters for DeleteWorkItem.
+type DeleteWorkItemParams struct {
+	// Force Cancel the active tasks and delete even while one is leased.
+	Force *bool `form:"force,omitempty" json:"force,omitempty"`
+}
+
 // RegisterAgentJSONRequestBody defines body for RegisterAgent for application/json ContentType.
 type RegisterAgentJSONRequestBody = RegisterAgentRequest
 
@@ -1486,8 +1559,14 @@ type CompleteLeaseJSONRequestBody = CompleteRequest
 // HeartbeatLeaseJSONRequestBody defines body for HeartbeatLease for application/json ContentType.
 type HeartbeatLeaseJSONRequestBody = HeartbeatRequest
 
+// UploadEnvironmentLogTextRequestBody defines body for UploadEnvironmentLog for text/plain ContentType.
+type UploadEnvironmentLogTextRequestBody = UploadEnvironmentLogTextBody
+
 // CreateEffectJSONRequestBody defines body for CreateEffect for application/json ContentType.
 type CreateEffectJSONRequestBody = EffectRequest
+
+// CloseWorkItemJSONRequestBody defines body for CloseWorkItem for application/json ContentType.
+type CloseWorkItemJSONRequestBody = CloseWorkItemRequest
 
 // Getter for additional properties for ActionIntent. Returns the specified
 // element and whether it was found
@@ -1883,6 +1962,9 @@ type ServerInterface interface {
 	// Revoke an enrollment
 	// (DELETE /enrollments/{id})
 	DeleteEnrollment(ctx echo.Context, id EnrollmentID) error
+	// Replay a stored event through the rules
+	// (POST /events/{id}/replay)
+	ReplayEvent(ctx echo.Context, id EventID) error
 	// Hand a leased task back
 	// (POST /leases/{id}/abandon)
 	AbandonLease(ctx echo.Context, id LeaseID) error
@@ -1904,6 +1986,12 @@ type ServerInterface interface {
 	// Get a run with its effects
 	// (GET /runs/{id})
 	GetRun(ctx echo.Context, id RunID) error
+	// Download a run's environment log
+	// (GET /runs/{id}/environment-log)
+	GetEnvironmentLog(ctx echo.Context, id RunID) error
+	// Upload a run's environment log
+	// (PUT /runs/{id}/environment-log)
+	UploadEnvironmentLog(ctx echo.Context, id RunID) error
 	// Download a run's transcript
 	// (GET /runs/{id}/transcript)
 	GetTranscript(ctx echo.Context, id RunID) error
@@ -1934,9 +2022,15 @@ type ServerInterface interface {
 	// List work items
 	// (GET /workitems)
 	ListWorkItems(ctx echo.Context, params ListWorkItemsParams) error
+	// Delete a work item and everything keyed to it
+	// (DELETE /workitems/{id})
+	DeleteWorkItem(ctx echo.Context, id WorkItemID, params DeleteWorkItemParams) error
 	// Get a work item with its timeline
 	// (GET /workitems/{id})
 	GetWorkItem(ctx echo.Context, id WorkItemID) error
+	// Close a work item
+	// (POST /workitems/{id}/close)
+	CloseWorkItem(ctx echo.Context, id WorkItemID) error
 }
 
 // ServerInterfaceWrapper converts echo contexts to parameters.
@@ -2300,6 +2394,26 @@ func (w *ServerInterfaceWrapper) DeleteEnrollment(ctx echo.Context) error {
 	return err
 }
 
+// ReplayEvent converts echo context to params.
+func (w *ServerInterfaceWrapper) ReplayEvent(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "id" -------------
+	var id EventID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", ctx.Param("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter id: %s", err))
+	}
+
+	ctx.Set(string(UiSessionScopes), []string{})
+
+	ctx.Set(string(CliTokenScopes), []string{})
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.ReplayEvent(ctx, id)
+	return err
+}
+
 // AbandonLease converts echo context to params.
 func (w *ServerInterfaceWrapper) AbandonLease(ctx echo.Context) error {
 	var err error
@@ -2479,6 +2593,46 @@ func (w *ServerInterfaceWrapper) GetRun(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.GetRun(ctx, id)
+	return err
+}
+
+// GetEnvironmentLog converts echo context to params.
+func (w *ServerInterfaceWrapper) GetEnvironmentLog(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "id" -------------
+	var id RunID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", ctx.Param("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter id: %s", err))
+	}
+
+	ctx.Set(string(UiSessionScopes), []string{})
+
+	ctx.Set(string(CliTokenScopes), []string{})
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.GetEnvironmentLog(ctx, id)
+	return err
+}
+
+// UploadEnvironmentLog converts echo context to params.
+func (w *ServerInterfaceWrapper) UploadEnvironmentLog(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "id" -------------
+	var id RunID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", ctx.Param("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter id: %s", err))
+	}
+
+	ctx.Set(string(AgentTokenScopes), []string{})
+
+	ctx.Set(string(RunTokenScopes), []string{})
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.UploadEnvironmentLog(ctx, id)
 	return err
 }
 
@@ -2749,6 +2903,35 @@ func (w *ServerInterfaceWrapper) ListWorkItems(ctx echo.Context) error {
 	return err
 }
 
+// DeleteWorkItem converts echo context to params.
+func (w *ServerInterfaceWrapper) DeleteWorkItem(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "id" -------------
+	var id WorkItemID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", ctx.Param("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter id: %s", err))
+	}
+
+	ctx.Set(string(UiSessionScopes), []string{})
+
+	ctx.Set(string(CliTokenScopes), []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteWorkItemParams
+	// ------------- Optional query parameter "force" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "force", ctx.QueryParams(), &params.Force, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter force: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.DeleteWorkItem(ctx, id, params)
+	return err
+}
+
 // GetWorkItem converts echo context to params.
 func (w *ServerInterfaceWrapper) GetWorkItem(ctx echo.Context) error {
 	var err error
@@ -2766,6 +2949,26 @@ func (w *ServerInterfaceWrapper) GetWorkItem(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.GetWorkItem(ctx, id)
+	return err
+}
+
+// CloseWorkItem converts echo context to params.
+func (w *ServerInterfaceWrapper) CloseWorkItem(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "id" -------------
+	var id WorkItemID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", ctx.Param("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter id: %s", err))
+	}
+
+	ctx.Set(string(UiSessionScopes), []string{})
+
+	ctx.Set(string(CliTokenScopes), []string{})
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.CloseWorkItem(ctx, id)
 	return err
 }
 
@@ -2835,6 +3038,7 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 	router.GET(options.BaseURL+"/enrollments", wrapper.ListEnrollments, options.OperationMiddlewares["listEnrollments"]...)
 	router.POST(options.BaseURL+"/enrollments", wrapper.CreateEnrollment, options.OperationMiddlewares["createEnrollment"]...)
 	router.DELETE(options.BaseURL+"/enrollments/:id", wrapper.DeleteEnrollment, options.OperationMiddlewares["deleteEnrollment"]...)
+	router.POST(options.BaseURL+"/events/:id/replay", wrapper.ReplayEvent, options.OperationMiddlewares["replayEvent"]...)
 	router.POST(options.BaseURL+"/leases/:id/abandon", wrapper.AbandonLease, options.OperationMiddlewares["abandonLease"]...)
 	router.POST(options.BaseURL+"/leases/:id/complete", wrapper.CompleteLease, options.OperationMiddlewares["completeLease"]...)
 	router.POST(options.BaseURL+"/leases/:id/heartbeat", wrapper.HeartbeatLease, options.OperationMiddlewares["heartbeatLease"]...)
@@ -2842,6 +3046,8 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 	router.GET(options.BaseURL+"/providers", wrapper.ListProviders, options.OperationMiddlewares["listProviders"]...)
 	router.GET(options.BaseURL+"/queues", wrapper.ListQueues, options.OperationMiddlewares["listQueues"]...)
 	router.GET(options.BaseURL+"/runs/:id", wrapper.GetRun, options.OperationMiddlewares["getRun"]...)
+	router.GET(options.BaseURL+"/runs/:id/environment-log", wrapper.GetEnvironmentLog, options.OperationMiddlewares["getEnvironmentLog"]...)
+	router.PUT(options.BaseURL+"/runs/:id/environment-log", wrapper.UploadEnvironmentLog, options.OperationMiddlewares["uploadEnvironmentLog"]...)
 	router.GET(options.BaseURL+"/runs/:id/transcript", wrapper.GetTranscript, options.OperationMiddlewares["getTranscript"]...)
 	router.PUT(options.BaseURL+"/runs/:id/transcript", wrapper.UploadTranscript, options.OperationMiddlewares["uploadTranscript"]...)
 	router.GET(options.BaseURL+"/stream", wrapper.StreamEvents, options.OperationMiddlewares["streamEvents"]...)
@@ -2852,7 +3058,9 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 	router.GET(options.BaseURL+"/tasks/:id/output-schema", wrapper.GetTaskOutputSchema, options.OperationMiddlewares["getTaskOutputSchema"]...)
 	router.GET(options.BaseURL+"/tasks/:id/prompt", wrapper.GetTaskPrompt, options.OperationMiddlewares["getTaskPrompt"]...)
 	router.GET(options.BaseURL+"/workitems", wrapper.ListWorkItems, options.OperationMiddlewares["listWorkItems"]...)
+	router.DELETE(options.BaseURL+"/workitems/:id", wrapper.DeleteWorkItem, options.OperationMiddlewares["deleteWorkItem"]...)
 	router.GET(options.BaseURL+"/workitems/:id", wrapper.GetWorkItem, options.OperationMiddlewares["getWorkItem"]...)
+	router.POST(options.BaseURL+"/workitems/:id/close", wrapper.CloseWorkItem, options.OperationMiddlewares["closeWorkItem"]...)
 
 }
 
@@ -4306,6 +4514,109 @@ func (response DeleteEnrollmentdefaultApplicationProblemPlusJSONResponse) VisitD
 	return err
 }
 
+type ReplayEventRequestObject struct {
+	Id EventID `json:"id"`
+}
+
+type ReplayEventResponseObject interface {
+	VisitReplayEventResponse(w http.ResponseWriter) error
+}
+
+type ReplayEvent200JSONResponse ReplayResult
+
+func (response ReplayEvent200JSONResponse) VisitReplayEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplayEvent401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ReplayEvent401ApplicationProblemPlusJSONResponse) VisitReplayEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplayEvent403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ReplayEvent403ApplicationProblemPlusJSONResponse) VisitReplayEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplayEvent404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ReplayEvent404ApplicationProblemPlusJSONResponse) VisitReplayEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplayEvent503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response ReplayEvent503ApplicationProblemPlusJSONResponse) VisitReplayEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplayEventdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ReplayEventdefaultApplicationProblemPlusJSONResponse) VisitReplayEventResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type AbandonLeaseRequestObject struct {
 	Id   LeaseID `json:"id"`
 	Body *AbandonLeaseJSONRequestBody
@@ -4927,6 +5238,194 @@ type GetRundefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response GetRundefaultApplicationProblemPlusJSONResponse) VisitGetRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnvironmentLogRequestObject struct {
+	Id RunID `json:"id"`
+}
+
+type GetEnvironmentLogResponseObject interface {
+	VisitGetEnvironmentLogResponse(w http.ResponseWriter) error
+}
+
+type GetEnvironmentLog200TextResponse string
+
+func (response GetEnvironmentLog200TextResponse) VisitGetEnvironmentLogResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(200)
+
+	_, err := w.Write([]byte(response))
+	return err
+}
+
+type GetEnvironmentLog401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetEnvironmentLog401ApplicationProblemPlusJSONResponse) VisitGetEnvironmentLogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnvironmentLog404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetEnvironmentLog404ApplicationProblemPlusJSONResponse) VisitGetEnvironmentLogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEnvironmentLogdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetEnvironmentLogdefaultApplicationProblemPlusJSONResponse) VisitGetEnvironmentLogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadEnvironmentLogRequestObject struct {
+	Id   RunID `json:"id"`
+	Body *UploadEnvironmentLogTextRequestBody
+}
+
+type UploadEnvironmentLogResponseObject interface {
+	VisitUploadEnvironmentLogResponse(w http.ResponseWriter) error
+}
+
+type UploadEnvironmentLog200JSONResponse EnvironmentLogUpload
+
+func (response UploadEnvironmentLog200JSONResponse) VisitUploadEnvironmentLogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadEnvironmentLog400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response UploadEnvironmentLog400ApplicationProblemPlusJSONResponse) VisitUploadEnvironmentLogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadEnvironmentLog401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UploadEnvironmentLog401ApplicationProblemPlusJSONResponse) VisitUploadEnvironmentLogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadEnvironmentLog403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response UploadEnvironmentLog403ApplicationProblemPlusJSONResponse) VisitUploadEnvironmentLogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadEnvironmentLog404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UploadEnvironmentLog404ApplicationProblemPlusJSONResponse) VisitUploadEnvironmentLogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadEnvironmentLog413ApplicationProblemPlusJSONResponse struct {
+	PayloadTooLargeApplicationProblemPlusJSONResponse
+}
+
+func (response UploadEnvironmentLog413ApplicationProblemPlusJSONResponse) VisitUploadEnvironmentLogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadEnvironmentLogdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UploadEnvironmentLogdefaultApplicationProblemPlusJSONResponse) VisitUploadEnvironmentLogResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -5888,6 +6387,110 @@ func (response ListWorkItemsdefaultApplicationProblemPlusJSONResponse) VisitList
 	return err
 }
 
+type DeleteWorkItemRequestObject struct {
+	Id     WorkItemID `json:"id"`
+	Params DeleteWorkItemParams
+}
+
+type DeleteWorkItemResponseObject interface {
+	VisitDeleteWorkItemResponse(w http.ResponseWriter) error
+}
+
+type DeleteWorkItem200JSONResponse WorkItemDeleted
+
+func (response DeleteWorkItem200JSONResponse) VisitDeleteWorkItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteWorkItem401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteWorkItem401ApplicationProblemPlusJSONResponse) VisitDeleteWorkItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteWorkItem403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteWorkItem403ApplicationProblemPlusJSONResponse) VisitDeleteWorkItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteWorkItem404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteWorkItem404ApplicationProblemPlusJSONResponse) VisitDeleteWorkItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteWorkItem409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteWorkItem409ApplicationProblemPlusJSONResponse) VisitDeleteWorkItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteWorkItemdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DeleteWorkItemdefaultApplicationProblemPlusJSONResponse) VisitDeleteWorkItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetWorkItemRequestObject struct {
 	Id WorkItemID `json:"id"`
 }
@@ -5959,6 +6562,110 @@ func (response GetWorkItemdefaultApplicationProblemPlusJSONResponse) VisitGetWor
 	return err
 }
 
+type CloseWorkItemRequestObject struct {
+	Id   WorkItemID `json:"id"`
+	Body *CloseWorkItemJSONRequestBody
+}
+
+type CloseWorkItemResponseObject interface {
+	VisitCloseWorkItemResponse(w http.ResponseWriter) error
+}
+
+type CloseWorkItem200JSONResponse WorkItem
+
+func (response CloseWorkItem200JSONResponse) VisitCloseWorkItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloseWorkItem400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CloseWorkItem400ApplicationProblemPlusJSONResponse) VisitCloseWorkItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloseWorkItem401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CloseWorkItem401ApplicationProblemPlusJSONResponse) VisitCloseWorkItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloseWorkItem403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CloseWorkItem403ApplicationProblemPlusJSONResponse) VisitCloseWorkItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloseWorkItem404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CloseWorkItem404ApplicationProblemPlusJSONResponse) VisitCloseWorkItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloseWorkItemdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CloseWorkItemdefaultApplicationProblemPlusJSONResponse) VisitCloseWorkItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// List agents
@@ -6018,6 +6725,9 @@ type StrictServerInterface interface {
 	// Revoke an enrollment
 	// (DELETE /enrollments/{id})
 	DeleteEnrollment(ctx context.Context, request DeleteEnrollmentRequestObject) (DeleteEnrollmentResponseObject, error)
+	// Replay a stored event through the rules
+	// (POST /events/{id}/replay)
+	ReplayEvent(ctx context.Context, request ReplayEventRequestObject) (ReplayEventResponseObject, error)
 	// Hand a leased task back
 	// (POST /leases/{id}/abandon)
 	AbandonLease(ctx context.Context, request AbandonLeaseRequestObject) (AbandonLeaseResponseObject, error)
@@ -6039,6 +6749,12 @@ type StrictServerInterface interface {
 	// Get a run with its effects
 	// (GET /runs/{id})
 	GetRun(ctx context.Context, request GetRunRequestObject) (GetRunResponseObject, error)
+	// Download a run's environment log
+	// (GET /runs/{id}/environment-log)
+	GetEnvironmentLog(ctx context.Context, request GetEnvironmentLogRequestObject) (GetEnvironmentLogResponseObject, error)
+	// Upload a run's environment log
+	// (PUT /runs/{id}/environment-log)
+	UploadEnvironmentLog(ctx context.Context, request UploadEnvironmentLogRequestObject) (UploadEnvironmentLogResponseObject, error)
 	// Download a run's transcript
 	// (GET /runs/{id}/transcript)
 	GetTranscript(ctx context.Context, request GetTranscriptRequestObject) (GetTranscriptResponseObject, error)
@@ -6069,9 +6785,15 @@ type StrictServerInterface interface {
 	// List work items
 	// (GET /workitems)
 	ListWorkItems(ctx context.Context, request ListWorkItemsRequestObject) (ListWorkItemsResponseObject, error)
+	// Delete a work item and everything keyed to it
+	// (DELETE /workitems/{id})
+	DeleteWorkItem(ctx context.Context, request DeleteWorkItemRequestObject) (DeleteWorkItemResponseObject, error)
 	// Get a work item with its timeline
 	// (GET /workitems/{id})
 	GetWorkItem(ctx context.Context, request GetWorkItemRequestObject) (GetWorkItemResponseObject, error)
+	// Close a work item
+	// (POST /workitems/{id}/close)
+	CloseWorkItem(ctx context.Context, request CloseWorkItemRequestObject) (CloseWorkItemResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx echo.Context, request any) (any, error)
@@ -6575,6 +7297,31 @@ func (sh *strictHandler) DeleteEnrollment(ctx echo.Context, id EnrollmentID) err
 	return nil
 }
 
+// ReplayEvent operation middleware
+func (sh *strictHandler) ReplayEvent(ctx echo.Context, id EventID) error {
+	var request ReplayEventRequestObject
+
+	request.Id = id
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplayEvent(ctx.Request().Context(), request.(ReplayEventRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplayEvent")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ReplayEventResponseObject); ok {
+		return validResponse.VisitReplayEventResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // AbandonLease operation middleware
 func (sh *strictHandler) AbandonLease(ctx echo.Context, id LeaseID) error {
 	var request AbandonLeaseRequestObject
@@ -6762,6 +7509,63 @@ func (sh *strictHandler) GetRun(ctx echo.Context, id RunID) error {
 		return err
 	} else if validResponse, ok := response.(GetRunResponseObject); ok {
 		return validResponse.VisitGetRunResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetEnvironmentLog operation middleware
+func (sh *strictHandler) GetEnvironmentLog(ctx echo.Context, id RunID) error {
+	var request GetEnvironmentLogRequestObject
+
+	request.Id = id
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.GetEnvironmentLog(ctx.Request().Context(), request.(GetEnvironmentLogRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetEnvironmentLog")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetEnvironmentLogResponseObject); ok {
+		return validResponse.VisitGetEnvironmentLogResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// UploadEnvironmentLog operation middleware
+func (sh *strictHandler) UploadEnvironmentLog(ctx echo.Context, id RunID) error {
+	var request UploadEnvironmentLogRequestObject
+
+	request.Id = id
+
+	data, err := io.ReadAll(ctx.Request().Body)
+	if err != nil {
+		return err
+	}
+	body := UploadEnvironmentLogTextRequestBody(data)
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.UploadEnvironmentLog(ctx.Request().Context(), request.(UploadEnvironmentLogRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UploadEnvironmentLog")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(UploadEnvironmentLogResponseObject); ok {
+		return validResponse.VisitUploadEnvironmentLogResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}
@@ -7027,6 +7831,32 @@ func (sh *strictHandler) ListWorkItems(ctx echo.Context, params ListWorkItemsPar
 	return nil
 }
 
+// DeleteWorkItem operation middleware
+func (sh *strictHandler) DeleteWorkItem(ctx echo.Context, id WorkItemID, params DeleteWorkItemParams) error {
+	var request DeleteWorkItemRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteWorkItem(ctx.Request().Context(), request.(DeleteWorkItemRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteWorkItem")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DeleteWorkItemResponseObject); ok {
+		return validResponse.VisitDeleteWorkItemResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // GetWorkItem operation middleware
 func (sh *strictHandler) GetWorkItem(ctx echo.Context, id WorkItemID) error {
 	var request GetWorkItemRequestObject
@@ -7046,6 +7876,37 @@ func (sh *strictHandler) GetWorkItem(ctx echo.Context, id WorkItemID) error {
 		return err
 	} else if validResponse, ok := response.(GetWorkItemResponseObject); ok {
 		return validResponse.VisitGetWorkItemResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// CloseWorkItem operation middleware
+func (sh *strictHandler) CloseWorkItem(ctx echo.Context, id WorkItemID) error {
+	var request CloseWorkItemRequestObject
+
+	request.Id = id
+
+	var body CloseWorkItemJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.CloseWorkItem(ctx.Request().Context(), request.(CloseWorkItemRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CloseWorkItem")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CloseWorkItemResponseObject); ok {
+		return validResponse.VisitCloseWorkItemResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

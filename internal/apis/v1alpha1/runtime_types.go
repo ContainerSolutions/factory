@@ -88,6 +88,40 @@ type WorkItemStatus struct {
 	// Decisions are bounded to the newest MaxDecisions.
 	Decisions []Decision `json:"decisions,omitzero"`
 	Reporter  *Actor     `json:"reporter,omitzero"`
+	// Closed is set when an admin closed the work item: the rules evaluate nothing for it
+	// any more (its events are still stored).
+	Closed *WorkItemClosed `json:"closed,omitzero"`
+}
+
+// WorkItemClosed records why and when an admin closed a work item.
+type WorkItemClosed struct {
+	Reason CloseReason `json:"reason" jsonschema:"enum=done,enum=wont-do,enum=duplicate"`
+	Note   string      `json:"note,omitzero"`
+	At     time.Time   `json:"at"`
+	// By is the admin's actor id (provider-instance:login, or cli).
+	By string `json:"by,omitzero"`
+}
+
+// CloseReason is why a work item was closed.
+type CloseReason string
+
+// Close reasons.
+const (
+	CloseDone      CloseReason = "done"
+	CloseWontDo    CloseReason = "wont-do"
+	CloseDuplicate CloseReason = "duplicate"
+)
+
+// CloseReasons lists the close reasons, in the order of WorkItemClosed.Reason's enum.
+func CloseReasons() []CloseReason { return []CloseReason{CloseDone, CloseWontDo, CloseDuplicate} }
+
+// Valid reports whether r is a close reason.
+func (r CloseReason) Valid() bool {
+	switch r {
+	case CloseDone, CloseWontDo, CloseDuplicate:
+		return true
+	}
+	return false
 }
 
 // MaxDecisions is how many decisions a work item keeps.
@@ -111,6 +145,9 @@ type Decision struct {
 	Rails   []RailVerdict  `json:"rails,omitzero"`
 	Actions []string       `json:"actions,omitzero"`
 	Reason  string         `json:"reason,omitzero"`
+	// Replay marks a decision an admin's replay of its event made (replayEvent): only the
+	// decisions that differ from the event's earlier ones are recorded.
+	Replay bool `json:"replay,omitzero"`
 }
 
 // RailVerdict is one safety rail's verdict on a decision as the work item stores it
@@ -296,9 +333,12 @@ type GitCredentialSpec struct {
 
 // TaskStatus is a Task's status. Agent is null until the task is leased.
 type TaskStatus struct {
-	Phase          TaskPhase `json:"phase"`
-	Agent          *string   `json:"agent" jsonschema:"nullable"`
-	Reason         string    `json:"reason,omitzero"`
+	Phase  TaskPhase `json:"phase"`
+	Agent  *string   `json:"agent" jsonschema:"nullable"`
+	Reason string    `json:"reason,omitzero"`
+	// ReasonDetail is a human sentence for a pending task's reason: for git-credential, the
+	// App identity, the repo and the fix.
+	ReasonDetail   string    `json:"reasonDetail,omitzero"`
 	Attempts       int       `json:"attempts,omitzero"`
 	LeaseExpiresAt time.Time `json:"leaseExpiresAt,omitzero"`
 }
@@ -334,7 +374,10 @@ type RunStatus struct {
 	Progress      []ProgressEvent `json:"progress,omitzero"`
 	Result        *Result         `json:"result,omitzero"`
 	TranscriptRef string          `json:"transcriptRef,omitzero"`
-	Usage         *Usage          `json:"usage,omitzero"`
+	// EnvironmentLogRef is set once the agent uploaded the workspace's environment log (the
+	// TaskSpec environment's scripts' output, redacted).
+	EnvironmentLogRef string `json:"environmentLogRef,omitzero"`
+	Usage             *Usage `json:"usage,omitzero"`
 }
 
 // RunEnd is how a run ended.

@@ -279,7 +279,7 @@ func (s *Server) registerAPI() {
 	mw := make(map[string][]echo.MiddlewareFunc, len(operations))
 	for op, acc := range operations {
 		limit := s.opts.BodyLimit
-		if op == "uploadTranscript" {
+		if op == "uploadTranscript" || op == "uploadEnvironmentLog" {
 			limit = s.opts.TranscriptLimit
 		}
 		mw[op] = []echo.MiddlewareFunc{s.authorize(acc), bodyLimit(limit)}
