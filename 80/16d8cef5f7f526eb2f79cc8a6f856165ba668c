@@ -1,0 +1,4 @@
+lisa-selfreview:
+Pass 1 (final, lenient): approve. No blocker/must-fix.
+- should-fix (deferred, stack 2): implement.yaml declares no workspace.hosts for the npm/yarn registries, unlike docs-review and release-docs, so a deny-by-default egress could fail its installs (then the check is not-run, which the rule covers). Stack 2 replaces workspace.hosts with environment.egress (P1 "What gets removed").
+- nit (kept): `yarn install --frozen-lockfile` is yarn 1's flag (berry uses --immutable); it is an example, matching docs-release's step 5.
