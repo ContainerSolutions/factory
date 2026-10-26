@@ -44,6 +44,18 @@ Also open for this track:
 - VM size from the TaskSpec's `limits` (today a fixed 8 GiB / 6 vCPU);
 - the opt-in container test layer (#116, `make e2e-run-container`), which has never run.
 
+Fixes found while building and running it (stack #174–#189, 2026-10-26):
+
+| # | Fix | Notes |
+|---|---|---|
+| a | **The gateway port is hard-coded** | The runner listens on 3128 (`workspace.GatewayPort`, `runner.go`), while the pf anchor (tart) and the nft table (kata) open `workspace.gatewayPort`. Any other port opens the wrong one. Pass the config's port to the runner. Since phase 5 on tart. |
+| b | **tart doesn't follow `workspace.size`** | supervise gives tart `Spec{}` (6 vCPUs, 8 GiB) whatever the config says; kata uses `workspace.size` (#187). |
+| c | **supervise doesn't re-read physical memory on SIGHUP** | The concurrency cap's memory is read once at start (#187); SIGHUP only re-applies the cap to the reloaded `maxConcurrent`. |
+| d | **An interrupted `host init` leaves `warm-load` running** | The Runner kills sudo with SIGKILL, which sudo can't relay, so the helper's `warm-load` runs on until its own bound (30 min). Same for a killed `image-build`, which also leaves its context copy (≤ 16 MiB) in `/var/lib/factory-agent/build`. |
+| e | **A declined privileges prompt fails the image steps** | `kataimage` and `katawarm` then fail with sudo's "a password is required" instead of being skipped with a warning naming the declined step. |
+| f | **Digest-pinned kind images are unverified on a real host** | The warm build's `docker tag <ref> <tag>` after `nerdctl save` and `docker load` in the workspace is only tested against fakes. If it doesn't resolve, tag on the host before saving. |
+| g | **The `local` Pool caps every agent at one task** | `catalog/pools/local.yaml` has `lease.maxTasksPerAgent: 1`, and the scheduler takes the smaller of that and the agent's `lending.maxConcurrent`, so the workstation's 3 parallel tasks wait as `agent-busy`. Fixed in #190 (`maxTasksPerAgent: 3`). |
+
 ### 3. P1 phase 10: removal
 
 After phase 9, since it removes the host runtime that Linux uses until the kata driver exists.
