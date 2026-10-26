@@ -25,7 +25,7 @@ type fakeNerdctl struct {
 	err       error
 }
 
-func (f *fakeNerdctl) Run(_ context.Context, env []string, stdout, stderr io.Writer, name string, args ...string) error {
+func (f *fakeNerdctl) Run(_ context.Context, env []string, _ io.Reader, stdout, stderr io.Writer, name string, args ...string) error {
 	f.calls = append(f.calls, fmt.Sprintf("env %s\n%s %s", strings.Join(env, " "), name, strings.Join(args, " ")))
 	_, _ = io.WriteString(stdout, f.out)
 	_, _ = io.WriteString(stderr, f.errs)
@@ -34,21 +34,21 @@ func (f *fakeNerdctl) Run(_ context.Context, env []string, stdout, stderr io.Wri
 
 func run(t *testing.T, r Runner, args ...string) (int, string, string) {
 	t.Helper()
-	return runIn(t, Options{Runner: r}, args...)
+	return runIn(t, Options{Runner: r}, nil, args...)
 }
 
-// runIn runs a verb with o and fresh stdout and stderr.
-func runIn(t *testing.T, o Options, args ...string) (int, string, string) {
+// runIn runs a verb with o, stdin and fresh stdout and stderr.
+func runIn(t *testing.T, o Options, stdin io.Reader, args ...string) (int, string, string) {
 	t.Helper()
 	var out, errOut bytes.Buffer
-	o.Stdout, o.Stderr = &out, &errOut
+	o.Stdin, o.Stdout, o.Stderr = stdin, &out, &errOut
 	code := Run(context.Background(), o, args)
 	return code, out.String(), errOut.String()
 }
 
 func TestUsage(t *testing.T) {
 	for _, args := range [][]string{nil, {""}, {"help"}, {"create"}, {"protocol", "x"}, {"list", "--all"}, {"-h"},
-		{"create", ws, "2", "4096", "60", "warm"}, {"rm"}, {"rm", ws, ws}, {"start", ws}} {
+		{"create", ws, "2", "4096", "60", "warm"}, {"start"}, {"rm", ws, ws}, {"inspect"}, {"stop", "-t", "1", ws}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			f := &fakeNerdctl{}
 			code, out, errOut := run(t, f, args...)
@@ -61,7 +61,7 @@ func TestUsage(t *testing.T) {
 
 func TestProtocol(t *testing.T) {
 	f := &fakeNerdctl{}
-	if code, out, errOut := run(t, f, "protocol"); code != 0 || out != "2\n" || errOut != "" || len(f.calls) > 0 {
+	if code, out, errOut := run(t, f, "protocol"); code != 0 || out != fmt.Sprintln(Protocol) || errOut != "" || len(f.calls) > 0 {
 		t.Errorf("code %d, stdout %q, stderr %q, calls %v", code, out, errOut, f.calls)
 	}
 }
@@ -106,7 +106,7 @@ func TestExecRunner(t *testing.T) {
 	}
 	t.Setenv("FACTORY_SECRET", "x")
 	var out bytes.Buffer
-	if err := (ExecRunner{}).Run(context.Background(), Env, &out, io.Discard, env); err != nil {
+	if err := (ExecRunner{}).Run(context.Background(), Env, nil, &out, io.Discard, env); err != nil {
 		t.Fatal(err)
 	}
 	got := strings.Split(strings.TrimSpace(out.String()), "\n")
@@ -115,7 +115,7 @@ func TestExecRunner(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("environment %q, want %q", got, want)
 	}
-	if err := (ExecRunner{}).Run(context.Background(), Env, io.Discard, io.Discard, "/nonexistent/nerdctl"); err == nil {
+	if err := (ExecRunner{}).Run(context.Background(), Env, nil, io.Discard, io.Discard, "/nonexistent/nerdctl"); err == nil {
 		t.Error("a missing program ran")
 	}
 }

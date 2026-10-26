@@ -28,11 +28,13 @@ const (
 // imageRE is the workspace image's reference: ImageRepo and factory-agent's version as its tag.
 var imageRE = regexp.MustCompile(`^` + ImageRepo + `:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
-// Info is create's output: the workspace's slot and addresses.
+// Info is create's and inspect's output: the workspace's slot and addresses; inspect adds
+// whether it runs.
 type Info struct {
 	Slot    int        `json:"slot"`
 	VM      netip.Addr `json:"vm"`
 	Gateway netip.Addr `json:"gateway"`
+	Running *bool      `json:"running,omitempty"`
 }
 
 // slotInfo is slot n's addresses.
@@ -345,4 +347,26 @@ func (h *helper) removeContainer(ctx context.Context, name, id string) error {
 func exitedWith(err error, code int) bool {
 	var ec interface{ ExitCode() int }
 	return errors.As(err, &ec) && ec.ExitCode() == code
+}
+
+// inspect prints the workspace's slot, addresses and whether it runs.
+func (h *helper) inspect(ctx context.Context, name string) error {
+	n, err := h.slotOf(name)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("%s has no slot", name)
+	}
+	var out bytes.Buffer
+	if err := h.nerdctl(ctx, &out, "inspect", "--format", "{{.State.Running}}", name); err != nil {
+		return err
+	}
+	running, err := strconv.ParseBool(strings.TrimSpace(out.String()))
+	if err != nil {
+		return fmt.Errorf("nerdctl inspect: %w", err)
+	}
+	info := slotInfo(n)
+	info.Running = &running
+	return json.NewEncoder(h.o.Stdout).Encode(info)
 }

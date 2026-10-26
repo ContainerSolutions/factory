@@ -9,7 +9,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -21,7 +23,8 @@ import (
 // factory-agent needs sudo again only when the helper changed.
 //
 // 2: create and rm, a workspace's slot, network, disk and container.
-const Protocol = 2
+// 3: start, stop, inspect and exec.
+const Protocol = 3
 
 // Env is the whole environment of the commands the helper runs: nothing comes from the
 // caller's. NERDCTL_TOML names /dev/null, so no /etc/nerdctl/nerdctl.toml changes nerdctl's
@@ -34,23 +37,23 @@ var NerdctlGlobal = []string{
 	"--cni-path", CNIPluginDir, "--cni-netconfpath", CNIConfDir,
 }
 
-// cmdTimeout bounds each command the helper runs: a hung containerd mustn't hang the caller's
-// sudo.
+// cmdTimeout bounds each command the helper runs but exec's: a hung containerd mustn't hang
+// the caller's sudo.
 const cmdTimeout = 2 * time.Minute
 
-// Runner runs a command with exactly env as its environment.
+// Runner runs a command with exactly env as its environment; stdin may be nil.
 type Runner interface {
-	Run(ctx context.Context, env []string, stdout, stderr io.Writer, name string, args ...string) error
+	Run(ctx context.Context, env []string, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error
 }
 
 // ExecRunner runs real programs.
 type ExecRunner struct{}
 
 // Run implements Runner.
-func (ExecRunner) Run(ctx context.Context, env []string, stdout, stderr io.Writer, name string, args ...string) error {
+func (ExecRunner) Run(ctx context.Context, env []string, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env, cmd.Dir = env, "/"
-	cmd.Stdout, cmd.Stderr = stdout, stderr
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, stdout, stderr
 	cmd.WaitDelay = 10 * time.Second
 	return cmd.Run()
 }
@@ -62,6 +65,7 @@ type Options struct {
 	// lock, the disks it checks and removes, /sys): "" but in tests. The commands it runs get
 	// the real paths.
 	Root           string
+	Stdin          io.Reader
 	Stdout, Stderr io.Writer
 	// Bound is rm's limit on each nerdctl stop and rm -f (60 s); KillWait its pause after
 	// killing a hung workspace's processes (2 s).
@@ -69,13 +73,20 @@ type Options struct {
 }
 
 // Main runs one verb: kata-helper <verb> [args]. It returns the exit code: 0 on success, 2 for
-// usage, 1 for any other failure (with one line on stderr).
-func Main(args []string, stdout, stderr io.Writer) int {
-	return Run(context.Background(), Options{Runner: ExecRunner{}, Stdout: stdout, Stderr: stderr}, args)
+// usage, 1 for any other failure (with one line on stderr); exec's are execVerb's.
+func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	ctx := context.Background()
+	if len(args) > 0 && args[0] == "exec" {
+		// a signal stops nerdctl exec and the helper says so, rather than leaving it behind.
+		var stop context.CancelFunc
+		ctx, stop = signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+		defer stop()
+	}
+	return Run(ctx, Options{Runner: ExecRunner{}, Stdin: stdin, Stdout: stdout, Stderr: stderr}, args)
 }
 
 // Usage is the helper's usage line.
-const Usage = "usage: kata-helper protocol | list | create <name> <cpus> <memMiB> <diskGiB> warm|empty <image> | rm <name>"
+const Usage = "usage: kata-helper protocol | list | create <name> <cpus> <memMiB> <diskGiB> warm|empty <image> | start|stop|rm|inspect <name> | exec [-i] <name> <argv…>"
 
 // usageError is a usage error: exit 2.
 type usageError struct{ msg string }
@@ -96,6 +107,9 @@ func Run(ctx context.Context, o Options, args []string) int {
 		o.KillWait = 2 * time.Second
 	}
 	h := &helper{o: o}
+	if len(args) > 0 && args[0] == "exec" {
+		return h.execVerb(ctx, args[1:])
+	}
 	err := h.dispatch(ctx, args)
 	var ue *usageError
 	switch {
@@ -139,14 +153,23 @@ func (h *helper) dispatch(ctx context.Context, args []string) error {
 			return err
 		}
 		return h.create(ctx, a)
-	case "rm":
+	case "start", "stop", "rm", "inspect":
 		if len(rest) != 1 {
 			return errUsage
 		}
-		if err := workspace.ValidName(rest[0]); err != nil {
+		name := rest[0]
+		if err := workspace.ValidName(name); err != nil {
 			return badArg("%v", err)
 		}
-		return h.rm(ctx, rest[0])
+		switch verb {
+		case "start":
+			return h.nerdctl(ctx, nil, "start", name)
+		case "stop":
+			return h.nerdctl(ctx, nil, "stop", "-t", "30", name)
+		case "rm":
+			return h.rm(ctx, name)
+		}
+		return h.inspect(ctx, name)
 	}
 	return errUsage
 }
@@ -157,7 +180,7 @@ func (h *helper) run(ctx context.Context, timeout time.Duration, what, name stri
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var out, errOut bytes.Buffer
-	if err := h.o.Runner.Run(ctx, Env, &out, &errOut, name, args...); err != nil {
+	if err := h.o.Runner.Run(ctx, Env, nil, &out, &errOut, name, args...); err != nil {
 		if l := lastLine(errOut.String()); l != "" {
 			err = fmt.Errorf("%w: %s", err, l)
 		}

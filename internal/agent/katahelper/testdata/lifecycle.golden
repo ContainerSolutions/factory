@@ -5,6 +5,9 @@
 /usr/sbin/nft add element inet factory_workspaces ws_allow { "fws1" . 10.213.1.2 . 10.213.1.1 }
 /usr/bin/cp --sparse=always -- /var/lib/factory-agent/kata/warm-docker.img /var/lib/factory-agent/kata/disks/ws-tsk_0123456789abcdef0123.img
 nerdctl create --name ws-tsk_0123456789abcdef0123 --hostname ws-tsk_0123456789abcdef0123 --runtime io.containerd.kata.v2 --privileged --security-opt privileged-without-host-devices --cpus 5 --memory 8192m --network ws-1 --dns 10.213.1.1 -e container=docker --tmpfs /run --tmpfs /run/lock -v /var/lib/factory-agent/kata/disks/ws-tsk_0123456789abcdef0123.img:/var/lib/factory/docker.img factory-agent-base:0.1.0
+nerdctl start ws-tsk_0123456789abcdef0123
+nerdctl inspect --format {{.State.Running}} ws-tsk_0123456789abcdef0123
+nerdctl stop -t 30 ws-tsk_0123456789abcdef0123
 nerdctl ps -a --no-trunc --format {{.ID}} {{.Names}}
 nerdctl stop -t 30 ws-tsk_0123456789abcdef0123
 nerdctl rm -f ws-tsk_0123456789abcdef0123

@@ -30,6 +30,8 @@ type fakeHost struct {
 	containers map[string]bool // name -> running
 	fail, hang string
 	hangs      int
+	// exec is what nerdctl exec does.
+	exec func(stdin io.Reader, stdout, stderr io.Writer) error
 }
 
 func newHost(t *testing.T) *fakeHost {
@@ -48,7 +50,7 @@ func (e fakeExit) ExitCode() int { return int(e) }
 
 func id(name string) string { s := sha256.Sum256([]byte(name)); return hex.EncodeToString(s[:]) }
 
-func (f *fakeHost) Run(ctx context.Context, env []string, stdout, stderr io.Writer, name string, args ...string) error {
+func (f *fakeHost) Run(ctx context.Context, env []string, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error {
 	if !slices.Equal(env, Env) {
 		f.t.Errorf("%s ran with environment %q", name, env)
 	}
@@ -75,6 +77,9 @@ func (f *fakeHost) Run(ctx context.Context, env []string, stdout, stderr io.Writ
 	case fail:
 		_, _ = io.WriteString(stderr, "a warning\nboom\n")
 		return fakeExit(1)
+	}
+	if name == Nerdctl && args[0] == "exec" {
+		return f.exec(stdin, stdout, stderr)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -150,16 +155,19 @@ func TestCreateArgs(t *testing.T) {
 		{ws, "2", "4096", "60", "warm", "factory-agent-base:dev@sha256:00"},
 	} {
 		f := newHost(t)
-		code, _, errOut := runIn(t, f.opts(), append([]string{"create"}, args...)...)
+		code, _, errOut := runIn(t, f.opts(), nil, append([]string{"create"}, args...)...)
 		if code != 2 || !strings.HasPrefix(errOut, "kata-helper create: ") || len(f.calls) > 0 || len(f.files()) > 0 {
 			t.Errorf("%q: code %d, stderr %q, calls %v, files %v", args, code, errOut, f.calls, f.files())
 		}
 	}
-	f := newHost(t)
-	if code, _, _ := runIn(t, f.opts(), "rm", "ws-1"); code != 2 || len(f.calls) > 0 {
-		t.Errorf("rm ws-1: code %d, calls %v", code, f.calls)
+	for _, verb := range []string{"start", "stop", "rm", "inspect"} {
+		f := newHost(t)
+		if code, _, _ := runIn(t, f.opts(), nil, verb, "ws-1"); code != 2 || len(f.calls) > 0 {
+			t.Errorf("%s ws-1: code %d, calls %v", verb, code, f.calls)
+		}
 	}
-	if code, _, errOut := runIn(t, f.opts(), "create", ws, "16", "65536", "500", "empty", "factory-agent-base:v1.2.3-rc.1_x"); code != 0 {
+	f := newHost(t)
+	if code, _, errOut := runIn(t, f.opts(), nil, "create", ws, "16", "65536", "500", "empty", "factory-agent-base:v1.2.3-rc.1_x"); code != 0 {
 		t.Errorf("the largest size: code %d, stderr %q", code, errOut)
 	}
 	if !slices.Contains(f.calls, Truncate+" -s 500G -- "+DisksDir+"/"+ws+".img") {
@@ -167,8 +175,7 @@ func TestCreateArgs(t *testing.T) {
 	}
 }
 
-// TestLifecycle: create's and rm's exact commands (golden), create's output, files and
-// conflist.
+// TestLifecycle: every verb's exact commands (golden), create's output, files and conflist.
 func TestLifecycle(t *testing.T) {
 	f := newHost(t)
 	if err := os.MkdirAll(f.root+KataStateDir, 0o700); err != nil {
@@ -177,7 +184,7 @@ func TestLifecycle(t *testing.T) {
 	if err := os.WriteFile(f.root+WarmDisk, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, out, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "60", "warm", "factory-agent-base:0.1.0")
+	code, out, errOut := runIn(t, f.opts(), nil, "create", ws, "5", "8192", "60", "warm", "factory-agent-base:0.1.0")
 	if code != 0 || out != `{"slot":1,"vm":"10.213.1.2","gateway":"10.213.1.1"}`+"\n" {
 		t.Fatalf("create: code %d, stdout %q, stderr %q", code, out, errOut)
 	}
@@ -190,7 +197,14 @@ func TestLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	golden(t, "conflist.golden", string(conf))
-	if code, _, errOut := runIn(t, f.opts(), "rm", ws); code != 0 {
+	for _, args := range [][]string{{"start", ws}, {"inspect", ws}, {"stop", ws}} {
+		if code, out, errOut := runIn(t, f.opts(), nil, args...); code != 0 || (args[0] == "inspect") != (out != "") {
+			t.Fatalf("%v: code %d, stdout %q, stderr %q", args, code, out, errOut)
+		} else if args[0] == "inspect" && out != `{"slot":1,"vm":"10.213.1.2","gateway":"10.213.1.1","running":true}`+"\n" {
+			t.Errorf("inspect: %q", out)
+		}
+	}
+	if code, _, errOut := runIn(t, f.opts(), nil, "rm", ws); code != 0 {
 		t.Fatalf("rm: code %d, stderr %q", code, errOut)
 	}
 	if got := f.files(); !slices.Equal(got, []string{WarmDisk}) {
@@ -205,7 +219,7 @@ func TestCreateUndo(t *testing.T) {
 		t.Run(stage, func(t *testing.T) {
 			f := newHost(t)
 			f.fail = strings.TrimPrefix(strings.TrimPrefix(stage, "ip "), "nerdctl ")
-			code, out, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "60", "empty", "factory-agent-base:dev")
+			code, out, errOut := runIn(t, f.opts(), nil, "create", ws, "5", "8192", "60", "empty", "factory-agent-base:dev")
 			if code != 1 || out != "" || !strings.Contains(errOut, "boom") {
 				t.Fatalf("code %d, stdout %q, stderr %q", code, out, errOut)
 			}
@@ -225,7 +239,7 @@ func TestCreateUndo(t *testing.T) {
 		if err := os.WriteFile(f.root+DisksDir+"/"+ws+".img", []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if code, _, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "60", "empty", "factory-agent-base:dev"); code != 1 || !strings.Contains(errOut, "already has a disk") || len(f.calls) > 0 {
+		if code, _, errOut := runIn(t, f.opts(), nil, "create", ws, "5", "8192", "60", "empty", "factory-agent-base:dev"); code != 1 || !strings.Contains(errOut, "already has a disk") || len(f.calls) > 0 {
 			t.Errorf("code %d, stderr %q, calls %v", code, errOut, f.calls)
 		}
 		if b, _ := os.ReadFile(f.root + DisksDir + "/" + ws + ".img"); string(b) != "x" {
@@ -234,7 +248,7 @@ func TestCreateUndo(t *testing.T) {
 	})
 	t.Run("no warm disk", func(t *testing.T) {
 		f := newHost(t)
-		if code, _, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "60", "warm", "factory-agent-base:dev"); code != 1 || !strings.Contains(errOut, "no warm disk") || len(f.calls) > 0 {
+		if code, _, errOut := runIn(t, f.opts(), nil, "create", ws, "5", "8192", "60", "warm", "factory-agent-base:dev"); code != 1 || !strings.Contains(errOut, "no warm disk") || len(f.calls) > 0 {
 			t.Errorf("code %d, stderr %q, calls %v", code, errOut, f.calls)
 		}
 	})
@@ -245,7 +259,7 @@ func TestCreateUndo(t *testing.T) {
 func TestSlots(t *testing.T) {
 	f := newHost(t)
 	create := func(name string) (int, string) {
-		code, out, errOut := runIn(t, f.opts(), "create", name, "1", "2048", "20", "empty", "factory-agent-base:dev")
+		code, out, errOut := runIn(t, f.opts(), nil, "create", name, "1", "2048", "20", "empty", "factory-agent-base:dev")
 		return code, out + errOut
 	}
 	var wg sync.WaitGroup
@@ -273,7 +287,7 @@ func TestSlots(t *testing.T) {
 			n = s
 		}
 	}
-	if code, out, errOut := runIn(t, f.opts(), "rm", "ws-tsk_07"); code != 0 {
+	if code, out, errOut := runIn(t, f.opts(), nil, "rm", "ws-tsk_07"); code != 0 {
 		t.Fatalf("rm: %d %s %s", code, out, errOut)
 	}
 	if code, out := create("ws-tsk_new"); code != 0 || !strings.HasPrefix(out, fmt.Sprintf(`{"slot":%d,`, n)) {
@@ -286,13 +300,13 @@ func TestSlots(t *testing.T) {
 func TestRm(t *testing.T) {
 	t.Run("missing", func(t *testing.T) {
 		f := newHost(t)
-		if code, _, errOut := runIn(t, f.opts(), "rm", ws); code != 0 || len(f.calls) != 1 {
+		if code, _, errOut := runIn(t, f.opts(), nil, "rm", ws); code != 0 || len(f.calls) != 1 {
 			t.Errorf("code %d, stderr %q, calls %v", code, errOut, f.calls)
 		}
 	})
 	created := func(t *testing.T) *fakeHost {
 		f := newHost(t)
-		if code, _, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "60", "empty", "factory-agent-base:dev"); code != 0 {
+		if code, _, errOut := runIn(t, f.opts(), nil, "create", ws, "5", "8192", "60", "empty", "factory-agent-base:dev"); code != 0 {
 			t.Fatal(errOut)
 		}
 		f.calls = nil
@@ -301,7 +315,7 @@ func TestRm(t *testing.T) {
 	t.Run("hung", func(t *testing.T) {
 		f := created(t)
 		f.hang, f.hangs = "rm -f", 1
-		if code, _, errOut := runIn(t, f.opts(), "rm", ws); code != 0 {
+		if code, _, errOut := runIn(t, f.opts(), nil, "rm", ws); code != 0 {
 			t.Fatalf("code %d, stderr %q", code, errOut)
 		}
 		want := []string{"nerdctl ps", "nerdctl stop -t 30 " + ws, "nerdctl rm -f " + ws, Pkill + " -KILL -f -- " + id(ws), "nerdctl rm -f " + ws, NFT + " destroy"}
@@ -317,12 +331,76 @@ func TestRm(t *testing.T) {
 	t.Run("still hung", func(t *testing.T) {
 		f := created(t)
 		f.hang, f.hangs = "rm -f", 2
-		code, _, errOut := runIn(t, f.opts(), "rm", ws)
+		code, _, errOut := runIn(t, f.opts(), nil, "rm", ws)
 		if code != 1 || !strings.Contains(errOut, "after killing its processes") || !strings.Contains(errOut, "timed out") {
 			t.Fatalf("code %d, stderr %q", code, errOut)
 		}
 		if got := f.files(); !slices.Contains(got, SlotsDir+"/1") {
 			t.Errorf("the slot was freed: %q", got)
+		}
+	})
+}
+
+func TestInspectNoSlot(t *testing.T) {
+	f := newHost(t)
+	if code, _, errOut := runIn(t, f.opts(), nil, "inspect", ws); code != 1 || !strings.Contains(errOut, "has no slot") || len(f.calls) > 0 {
+		t.Errorf("code %d, stderr %q, calls %v", code, errOut, f.calls)
+	}
+}
+
+func TestExec(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		exec func(stdin io.Reader, stdout, stderr io.Writer) error
+		code int
+		out  string
+		err  string // stderr's suffix
+	}{
+		{"ok, stdin", []string{"-i", ws, "cat"}, func(in io.Reader, out, _ io.Writer) error { _, err := io.Copy(out, in); return err }, 0, "in", ""},
+		{"remote status", []string{ws, "sh", "-c", "exit 7"}, func(_ io.Reader, _, e io.Writer) error {
+			_, _ = io.WriteString(e, "out of the command\ntime=x level=fatal msg=\"exec failed with exit code 7\"\n")
+			return fakeExit(1)
+		}, 7, "", "exit code 7\"\n"},
+		{"the remote's own 125", []string{ws, "false"}, func(_ io.Reader, _, e io.Writer) error {
+			_, _ = io.WriteString(e, "msg=\"exec failed with exit code 125\"\n")
+			return fakeExit(1)
+		}, 125, "", "code 125\"\n"},
+		{"nerdctl fails", []string{ws, "true"}, func(_ io.Reader, _, e io.Writer) error {
+			_, _ = io.WriteString(e, "no such container")
+			return fakeExit(1)
+		}, 125, "", "no such container\nkata-helper: nerdctl exec: exit status 1\n"},
+		{"not a workspace", []string{"ws-gw", "true"}, nil, 125, "", "kata-helper: workspace name \"ws-gw\" isn't ws-<task id> (want ^ws-tsk_[A-Za-z0-9_-]{1,64}$)\n"},
+		{"no command", []string{"-i", ws}, nil, 125, "", "kata-helper: " + Usage + "\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newHost(t)
+			f.exec = tt.exec
+			code, out, errOut := runIn(t, f.opts(), strings.NewReader("in"), append([]string{"exec"}, tt.args...)...)
+			if code != tt.code || out != tt.out || !strings.HasSuffix(errOut, tt.err) {
+				t.Errorf("code %d, stdout %q, stderr %q", code, out, errOut)
+			}
+			if tt.exec != nil {
+				want := "nerdctl exec " + strings.Join(tt.args, " ")
+				if len(f.calls) != 1 || f.calls[0] != want {
+					t.Errorf("calls %q, want %q", f.calls, want)
+				}
+			} else if len(f.calls) > 0 {
+				t.Errorf("ran %q", f.calls)
+			}
+		})
+	}
+	t.Run("signal", func(t *testing.T) {
+		f := newHost(t)
+		f.hang, f.hangs = "exec", 1
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		var errOut strings.Builder
+		o := f.opts()
+		o.Stdout, o.Stderr = io.Discard, &errOut
+		if code := Run(ctx, o, []string{"exec", ws, "sleep", "inf"}); code != 125 || !strings.HasSuffix(errOut.String(), "context canceled\n") {
+			t.Errorf("code %d, stderr %q", code, errOut.String())
 		}
 	})
 }
