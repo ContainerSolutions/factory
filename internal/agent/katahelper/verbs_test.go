@@ -197,7 +197,8 @@ func TestLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	golden(t, "conflist.golden", string(conf))
-	for _, args := range [][]string{{"start", ws}, {"inspect", ws}, {"stop", ws}} {
+	f.exec = func(io.Reader, io.Writer, io.Writer) error { return nil }
+	for _, args := range [][]string{{"start", ws}, {"inspect", ws}, {"exec", ws, "true"}, {"stop", ws}} {
 		if code, out, errOut := runIn(t, f.opts(), nil, args...); code != 0 || (args[0] == "inspect") != (out != "") {
 			t.Fatalf("%v: code %d, stdout %q, stderr %q", args, code, out, errOut)
 		} else if args[0] == "inspect" && out != `{"slot":1,"vm":"10.213.1.2","gateway":"10.213.1.1","running":true}`+"\n" {
@@ -382,7 +383,12 @@ func TestExec(t *testing.T) {
 				t.Errorf("code %d, stdout %q, stderr %q", code, out, errOut)
 			}
 			if tt.exec != nil {
-				want := "nerdctl exec " + strings.Join(tt.args, " ")
+				args := tt.args
+				want := "nerdctl exec "
+				if args[0] == "-i" {
+					want, args = want+"-i ", args[1:]
+				}
+				want += "--user admin " + strings.Join(args, " ")
 				if len(f.calls) != 1 || f.calls[0] != want {
 					t.Errorf("calls %q, want %q", f.calls, want)
 				}

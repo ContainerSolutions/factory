@@ -24,7 +24,8 @@ import (
 //
 // 2: create and rm, a workspace's slot, network, disk and container.
 // 3: start, stop, inspect and exec.
-const Protocol = 3
+// 4: exec runs as admin (3's ran as root).
+const Protocol = 4
 
 // Env is the whole environment of the commands the helper runs: nothing comes from the
 // caller's. NERDCTL_TOML names /dev/null, so no /etc/nerdctl/nerdctl.toml changes nerdctl's

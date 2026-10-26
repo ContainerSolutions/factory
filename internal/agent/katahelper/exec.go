@@ -18,6 +18,10 @@ const (
 	ExecFailedPrefix = Name + ": "
 )
 
+// ExecUser runs every exec'd command: the image's admin (uid 1000, passwordless sudo), as tart
+// exec's user, never the caller's choice. Anything that needs root goes through sudo -n.
+const ExecUser = "admin"
+
 // execStatusRE is nerdctl's last stderr line when the remote command exits non-zero: nerdctl
 // exits 1 and prints the status only here (Q8 H01).
 var execStatusRE = regexp.MustCompile(`exec failed with exit code ([0-9]+)"?$`)
@@ -55,7 +59,7 @@ func (h *helper) exec(ctx context.Context, args []string, tail *tailBuffer) (int
 		return 0, err
 	}
 	// nerdctl exec stops parsing its flags at the container's name: argv is passed as it is.
-	nargs = append(nargs, args...)
+	nargs = append(append(nargs, "--user", ExecUser), args...)
 	err := h.o.Runner.Run(ctx, Env, stdin, h.o.Stdout, io.MultiWriter(h.o.Stderr, tail), Nerdctl, nargs...)
 	if err == nil {
 		return 0, nil
