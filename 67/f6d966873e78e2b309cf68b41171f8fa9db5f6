@@ -1,0 +1,2 @@
+lisa-selfreview:
+pass 1: [must-fix CORE-TEST-001 ed3f593b5496] set_arch/set_mode never run by a test -> fix. [nit CORE-STYLE-001 7e10bbc2cc61] reflow two long comments in base.sh -> fix.

@@ -1,0 +1,5 @@
+lisa-addressed:
+- PRRT_kwDOVK0lgs6wUomM: routesIn skips the kata workspaces' own slot routes (10.213.<n>.0/29 dev fws<n>, n 1-63) so running or leftover workspaces don't fail host check; any other route in the pool, incl. a slot prefix on another dev, still fails.
+
+lisa-design:
+- (human, #175 review) The slot-pool route check skips exactly a slot's connected route (10.213.<n>.0/29 dev fws<n>, n 1-63): supervise's host check runs before its orphan cleanup. init --driver kata running its two steps and exiting 0 is settled (LLD row fixed on #174).

@@ -1,0 +1,6 @@
+lisa-addressed:
+- 10dd8be85225 CORE-TEST-002: the kata job loops `command -v "$t" || exit 1` per tool.
+- fe82ae0e81d5, 35478abdf67c CORE-STYLE-001: nolint directives dropped; the changes job's comment says every job.
+
+lisa-selfreview:
+pass 3: [blocker CORE-VERIFY-001] the kata job's `command -v playwright` fails on the real image (playwright is in npm's global prefix by base.sh's design) -> fix with npx --no -- playwright --version.

@@ -1,0 +1,4 @@
+lisa-addressed:
+- PRRT_kwDOVK0lgs6wVO9O (CORE-DOC-001): workspace-host.md's provisioning section: an "Architecture and mode" paragraph (pin pairs, set_arch, FACTORY_BASE_MODE vm/image, links workspace-kata.md's image section), the table's asset names per architecture, cleanup's cloud-init marked vm mode, the tests line.
+- PRRT_kwDOVK0lgs6wVO7W (CORE-DOC-001): AGENTS.md's Commands lists make kata-context KATA_CONTEXT_DIR=dir && docker build dir.
+- PRRT_kwDOVK0lgs6wVO_t (nit): Makefile DIR -> KATA_CONTEXT_DIR (comment, help, recipe) and ci.yml's step.
