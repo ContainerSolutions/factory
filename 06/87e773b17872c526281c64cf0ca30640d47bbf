@@ -1,2 +1,5 @@
 lisa-addressed:
 - TestCreateArgs: create with 16 CPUs, 65536 MiB and a release-style tag succeeds.
+
+lisa-selfreview:
+pass 2 (4b): approve, no findings.
