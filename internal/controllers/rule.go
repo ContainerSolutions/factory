@@ -309,41 +309,63 @@ func (r *RuleController) observeItem(ctx context.Context, wiID string, links []v
 // process evaluates and applies one event for one work item under the item's lock.
 func (r *RuleController) process(ctx context.Context, cat *catalog.Catalog, ev v1alpha1.Event, wiID string) error {
 	return withItemLock(ctx, r.s, wiID, r.opts.LockTTL, func(ctx context.Context) error {
-		return r.processLocked(ctx, cat, ev, wiID)
+		_, err := r.processLocked(ctx, cat, ev, wiID, false)
+		return err
 	})
 }
 
-// processLocked is process with the work item's lock held.
-func (r *RuleController) processLocked(ctx context.Context, cat *catalog.Catalog, ev v1alpha1.Event, wiID string) error {
+// processLocked is process with the work item's lock held. It returns the decision records it
+// appended. On a replay, only the records that differ from the event's earlier ones on the
+// item (sameDecision) are appended, marked Replay, and only their rules' decisions are
+// applied: a rule that already acted on the event is not applied again, so a set, link or
+// cancel it made isn't redone over what happened since. The dispatches, notifications and
+// effects of the rules that do apply keep their idempotency keys, so one the event already
+// made is not made twice either.
+func (r *RuleController) processLocked(ctx context.Context, cat *catalog.Catalog, ev v1alpha1.Event, wiID string, replay bool) ([]v1alpha1.Decision, error) {
 	var wi v1alpha1.WorkItem
 	switch err := r.s.Get(ctx, store.Key{Kind: v1alpha1.KindWorkItem, Name: wiID}, &wi); {
 	case errors.Is(err, store.ErrNotFound):
-		return r.markProcessed(ctx, ev.ID, "") // deleted (retention) since it was found
+		return nil, r.markProcessed(ctx, ev.ID, "") // deleted (retention) since it was found
 	case err != nil:
-		return fmt.Errorf("get work item %s: %w", wiID, err)
+		return nil, fmt.Errorf("get work item %s: %w", wiID, err)
 	}
 	tasks, err := listTasks(ctx, r.s, wiID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	runs, err := runsBySpec(ctx, r.s, tasks)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	obs, err := r.observeItem(ctx, wiID, wi.Spec.Links)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	now := r.opts.Clock.Now()
 	rails, err := newStoreRails(ctx, r.s, r.opts.KillSwitches, railsInput{
 		cat: cat, event: ev.ID, workItem: &wi, tasks: tasks, obs: obs, runCap: r.opts.RunCap, now: now,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	eval, err := r.engine.Evaluate(ctx, cat, ev, buildView(&wi, runs, obs), rails)
 	if err != nil {
-		return err
+		return nil, err
+	}
+
+	recs := eval.Records(now)
+	// fresh are the rules whose record is new: all of them, except on a replay.
+	fresh := map[[2]string]bool{}
+	var earlier []v1alpha1.Decision
+	if replay && wi.Status != nil {
+		for _, d := range wi.Status.Decisions {
+			if d.Event == ev.ID {
+				earlier = append(earlier, d)
+			}
+		}
+	}
+	for _, rec := range recs {
+		fresh[[2]string{rec.RuleSet, rec.Rule}] = !slices.ContainsFunc(earlier, func(d v1alpha1.Decision) bool { return sameDecision(d, rec) })
 	}
 
 	ac := &applyCtx{cat: cat, ev: ev, wi: &wi, now: now}
@@ -352,31 +374,131 @@ func (r *RuleController) processLocked(ctx context.Context, cat *catalog.Catalog
 	for _, d := range eval.Decisions {
 		i := perRule[d.Rule]
 		perRule[d.Rule]++
+		k := [2]string{d.RuleSet, d.Rule}
+		if !fresh[k] {
+			continue
+		}
 		note, err := r.apply.apply(ctx, ac, applied{
 			ruleSet: d.RuleSet, rule: d.Rule, action: d.Action, verdict: d.Rail,
 			key: fmt.Sprintf("evt/%s/%s/%d", ev.ID, d.Rule, i),
 		})
 		if err != nil {
-			return fmt.Errorf("event %s, rule %s: %s: %w", ev.ID, d.Rule, d.Action, err)
+			return nil, fmt.Errorf("event %s, rule %s: %s: %w", ev.ID, d.Rule, d.Action, err)
 		}
 		if note != "" {
-			k := [2]string{d.RuleSet, d.Rule}
 			notes[k] = append(notes[k], d.Action.String()+": "+note)
 		}
 	}
-	recs := eval.Records(now)
-	for i := range recs {
-		if n := notes[[2]string{recs[i].RuleSet, recs[i].Rule}]; len(n) > 0 {
-			recs[i].Reason = strings.TrimPrefix(recs[i].Reason+"; apply failed: "+strings.Join(n, "; "), "; ")
+	kept := recs[:0]
+	for _, rec := range recs {
+		k := [2]string{rec.RuleSet, rec.Rule}
+		if !fresh[k] {
+			continue
+		}
+		if n := notes[k]; len(n) > 0 {
+			rec.Reason = strings.TrimPrefix(rec.Reason+"; apply failed: "+strings.Join(n, "; "), "; ")
+		}
+		rec.Replay = replay
+		kept = append(kept, rec)
+	}
+	appendDecisions(&wi, kept)
+	if err := r.s.Update(ctx, &wi); err != nil {
+		return nil, fmt.Errorf("update work item %s: %w", wiID, err)
+	}
+	r.log.DebugContext(ctx, "event applied", "event", ev.ID, "type", ev.Type, "workItem", wiID, "decisions", len(eval.Decisions), "replay", replay)
+	if replay {
+		return kept, r.markReplayed(ctx, ev.ID, wiID)
+	}
+	return kept, r.markProcessed(ctx, ev.ID, wiID)
+}
+
+// sameDecision reports whether two records of one event say the same: the same rule, fired
+// or not, with the same actions, rail verdicts and reason. The inputs and the time may differ.
+func sameDecision(a, b v1alpha1.Decision) bool {
+	if a.RuleSet != b.RuleSet || a.Rule != b.Rule || a.Fired != b.Fired || a.Reason != b.Reason ||
+		!slices.Equal(a.Actions, b.Actions) || len(a.Rails) != len(b.Rails) {
+		return false
+	}
+	for i := range a.Rails {
+		if a.Rails[i].Rail != b.Rails[i].Rail || a.Rails[i].Verdict != b.Rails[i].Verdict {
+			return false
 		}
 	}
-	appendDecisions(&wi, recs)
-	if err := r.s.Update(ctx, &wi); err != nil {
-		return fmt.Errorf("update work item %s: %w", wiID, err)
-	}
-	r.log.DebugContext(ctx, "event applied", "event", ev.ID, "type", ev.Type, "workItem", wiID, "decisions", len(eval.Decisions))
-	return r.markProcessed(ctx, ev.ID, wiID)
+	return true
 }
+
+// ReplayResult is what a replay recorded: the event's work item ("" when no rule fires for
+// it) and the decision records it appended there.
+type ReplayResult struct {
+	WorkItem  string
+	Decisions []v1alpha1.Decision
+}
+
+// Replay evaluates the stored event id again, with its own id, against the live catalog and
+// its work item as it is now (creating the item when a rule now fires for an event that had
+// none), and applies it under the item's lock, as processLocked does on a replay: only the
+// rules whose decision differs from the event's earlier records act, and those records are
+// appended marked Replay. A missing event is store.ErrNotFound; with no catalog loaded yet it
+// is ErrNoCatalog.
+func (r *RuleController) Replay(ctx context.Context, id string) (ReplayResult, error) {
+	var ev v1alpha1.Event
+	if err := r.s.Get(ctx, store.Key{Kind: v1alpha1.KindEvent, Name: id}, &ev); err != nil {
+		return ReplayResult{}, fmt.Errorf("get event %s: %w", id, err)
+	}
+	cat := r.cat.Current()
+	if cat == nil {
+		return ReplayResult{}, ErrNoCatalog
+	}
+	wiID, err := r.workItemFor(ctx, cat, ev)
+	if err != nil {
+		return ReplayResult{}, err
+	}
+	if wiID == "" {
+		return ReplayResult{}, r.markProcessed(ctx, ev.ID, "")
+	}
+	var recs []v1alpha1.Decision
+	err = withItemLock(ctx, r.s, wiID, r.opts.LockTTL, func(ctx context.Context) error {
+		var err error
+		recs, err = r.processLocked(ctx, cat, ev, wiID, true)
+		return err
+	})
+	if err != nil {
+		return ReplayResult{}, err
+	}
+	return ReplayResult{WorkItem: wiID, Decisions: recs}, nil
+}
+
+// markReplayed marks a replayed event processed for workItem: a mark that names no work
+// item, or another, is updated, so the item's timeline finds the event.
+func (r *RuleController) markReplayed(ctx context.Context, id, workItem string) error {
+	for range maxReplayCAS {
+		var st EventStatus
+		switch err := r.s.Get(ctx, store.Key{Kind: KindEventStatus, Name: id}, &st); {
+		case errors.Is(err, store.ErrNotFound):
+			return r.markProcessed(ctx, id, workItem)
+		case err != nil:
+			return fmt.Errorf("get status of event %s: %w", id, err)
+		}
+		if st.WorkItem == workItem {
+			return nil
+		}
+		st.WorkItem = workItem
+		err := r.s.Update(ctx, &st)
+		if !errors.Is(err, store.ErrConflict) {
+			if err != nil {
+				return fmt.Errorf("mark event %s processed: %w", id, err)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("mark event %s processed: %w", id, store.ErrConflict)
+}
+
+// maxReplayCAS bounds markReplayed's compare-and-swap retries.
+const maxReplayCAS = 10
+
+// ErrNoCatalog is a call that needs the live catalog before the first one has loaded.
+var ErrNoCatalog = errors.New("no catalog loaded yet")
 
 // DryRun evaluates ev as the rule controller would, but applies nothing and writes nothing to
 // the store (the API's dry-run): against the work item wiID as it is now (state, runs,

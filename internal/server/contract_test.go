@@ -497,13 +497,28 @@ func TestContract(t *testing.T) {
 		t.Errorf("resyncs %d", e.status.resyncs)
 	}
 
-	// replay, close and delete: stubs until group 1's PRs 2 and 3.
-	rp, err := e.c.ReplayEventWithResponse(ctx, "gh-1", session(gus))
+	// replay: a stored event again through the rules.
+	replayed := &v1alpha1.Event{TypeMeta: v1alpha1.TypeMeta{Kind: v1alpha1.KindEvent}, ID: "github-public/gh-replay", Source: ghProvider,
+		Type: "issue.opened", Time: t0, Data: v1alpha1.EventData{Provider: ghProvider, Repo: docsRepo}}
+	if err := e.st.Create(ctx, replayed); err != nil {
+		t.Fatal(err)
+	}
+	rp, err := e.c.ReplayEventWithResponse(ctx, replayed.ID, session(gus))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantProblem(t, "replayEvent", rp.HTTPResponse, rp.Body, http.StatusNotImplemented, CodeNotImplemented)
-	sh.check("replayEvent", rp.HTTPResponse, rp.Body, http.StatusNotImplemented)
+	sh.check("replayEvent", rp.HTTPResponse, rp.Body, http.StatusOK)
+	if rp.JSON200.Event != replayed.ID || rp.JSON200.Decisions == nil {
+		t.Errorf("replay %s", rp.Body)
+	}
+	rp, err = e.c.ReplayEventWithResponse(ctx, "github-public/gh-nope", bearer(cliToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "replayEvent", rp.HTTPResponse, rp.Body, http.StatusNotFound, CodeNotFound)
+	sh.check("replayEvent", rp.HTTPResponse, rp.Body, http.StatusNotFound)
+
+	// close and delete: stubs until group 1's PR 3.
 	cw, err := e.c.CloseWorkItemWithResponse(ctx, workItemID, apiclient.CloseWorkItemRequest{Reason: apiclient.CloseWorkItemRequestReasonDone}, session(gus))
 	if err != nil {
 		t.Fatal(err)
