@@ -62,8 +62,6 @@ const (
 	WarmDisk = KataStateDir + "/warm-docker.img"
 	// GuestDisk is where a workspace's disk file appears in it.
 	GuestDisk = "/var/lib/factory/docker.img"
-	// DiskSize is an empty workspace disk's size (sparse; the config's default size.disk).
-	DiskSize = "60G"
 	// CNIStateDir is host-local IPAM's dataDir: a network's leases are in CNIStateDir/<network>.
 	CNIStateDir = StateDir + "/cni"
 	// LockFile is flocked around every slot allocation and release.

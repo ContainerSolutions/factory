@@ -48,7 +48,7 @@ func runIn(t *testing.T, o Options, args ...string) (int, string, string) {
 
 func TestUsage(t *testing.T) {
 	for _, args := range [][]string{nil, {""}, {"help"}, {"create"}, {"protocol", "x"}, {"list", "--all"}, {"-h"},
-		{"create", ws, "2", "4096", "warm"}, {"rm"}, {"rm", ws, ws}, {"start", ws}} {
+		{"create", ws, "2", "4096", "60", "warm"}, {"rm"}, {"rm", ws, ws}, {"start", ws}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			f := &fakeNerdctl{}
 			code, out, errOut := run(t, f, args...)

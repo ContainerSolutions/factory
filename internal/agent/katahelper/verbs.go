@@ -17,10 +17,12 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/workspace"
 )
 
-// The sizes create accepts: the config's bounds (config.Workspace's size.cpus, size.memory).
+// The sizes create accepts: the config's bounds (config.Workspace's size.cpus, size.memory,
+// size.disk).
 const (
-	minCPUs, maxCPUs     = 1, 16
-	minMemMiB, maxMemMiB = 2 << 10, 64 << 10
+	minCPUs, maxCPUs       = 1, 16
+	minMemMiB, maxMemMiB   = 2 << 10, 64 << 10
+	minDiskGiB, maxDiskGiB = 20, 500
 )
 
 // imageRE is the workspace image's reference: ImageRepo and factory-agent's version as its tag.
@@ -54,15 +56,15 @@ func nftElement(n int) string {
 
 // createArgs are create's validated arguments.
 type createArgs struct {
-	name      string
-	cpus, mem int
-	warm      bool
-	image     string
+	name            string
+	cpus, mem, disk int
+	warm            bool
+	image           string
 }
 
-// parseCreate validates <name> <cpus> <memMiB> warm|empty <image>.
+// parseCreate validates <name> <cpus> <memMiB> <diskGiB> warm|empty <image>.
 func parseCreate(a []string) (createArgs, error) {
-	c := createArgs{name: a[0], image: a[4]}
+	c := createArgs{name: a[0], image: a[5]}
 	if err := workspace.ValidName(c.name); err != nil {
 		return c, badArg("%v", err)
 	}
@@ -73,12 +75,15 @@ func parseCreate(a []string) (createArgs, error) {
 	if c.mem, err = intIn(a[2], "memMiB", minMemMiB, maxMemMiB); err != nil {
 		return c, err
 	}
-	switch a[3] {
+	if c.disk, err = intIn(a[3], "diskGiB", minDiskGiB, maxDiskGiB); err != nil {
+		return c, err
+	}
+	switch a[4] {
 	case "warm":
 		c.warm = true
 	case "empty":
 	default:
-		return c, badArg("%q is neither warm nor empty", a[3])
+		return c, badArg("%q is neither warm nor empty", a[4])
 	}
 	if !imageRE.MatchString(c.image) {
 		return c, badArg("image %q isn't %s:<version>", c.image, ImageRepo)
@@ -145,7 +150,7 @@ func (h *helper) create(ctx context.Context, a createArgs) (err error) {
 	if a.warm {
 		_, err = h.run(ctx, cmdTimeout, "cp", CP, "--sparse=always", "--", WarmDisk, disk(a.name))
 	} else {
-		_, err = h.run(ctx, cmdTimeout, "truncate", Truncate, "-s", DiskSize, "--", disk(a.name))
+		_, err = h.run(ctx, cmdTimeout, "truncate", Truncate, "-s", strconv.Itoa(a.disk)+"G", "--", disk(a.name))
 	}
 	if err != nil {
 		return err

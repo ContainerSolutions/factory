@@ -75,7 +75,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 }
 
 // Usage is the helper's usage line.
-const Usage = "usage: kata-helper protocol | list | create <name> <cpus> <memMiB> warm|empty <image> | rm <name>"
+const Usage = "usage: kata-helper protocol | list | create <name> <cpus> <memMiB> <diskGiB> warm|empty <image> | rm <name>"
 
 // usageError is a usage error: exit 2.
 type usageError struct{ msg string }
@@ -131,7 +131,7 @@ func (h *helper) dispatch(ctx context.Context, args []string) error {
 		_, err := fmt.Fprintln(h.o.Stdout, Protocol)
 		return err
 	case "create":
-		if len(rest) != 5 {
+		if len(rest) != 6 {
 			return errUsage
 		}
 		a, err := parseCreate(rest)

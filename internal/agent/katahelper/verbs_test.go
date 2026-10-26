@@ -133,19 +133,21 @@ func (f *fakeHost) files() []string {
 
 func TestCreateArgs(t *testing.T) {
 	for _, args := range [][]string{
-		{"ws-gw", "2", "4096", "warm", "factory-agent-base:dev"},
-		{"ws-tsk_a/../b", "2", "4096", "warm", "factory-agent-base:dev"},
-		{ws, "0", "4096", "warm", "factory-agent-base:dev"},
-		{ws, "17", "4096", "warm", "factory-agent-base:dev"},
-		{ws, "02", "4096", "warm", "factory-agent-base:dev"},
-		{ws, "+2", "4096", "warm", "factory-agent-base:dev"},
-		{ws, "2", "2047", "warm", "factory-agent-base:dev"},
-		{ws, "2", "65537", "warm", "factory-agent-base:dev"},
-		{ws, "2", "4096", "hot", "factory-agent-base:dev"},
-		{ws, "2", "4096", "warm", "ubuntu:24.04"},
-		{ws, "2", "4096", "warm", "factory-agent-base:-x"},
-		{ws, "2", "4096", "warm", "factory-agent-base:a b"},
-		{ws, "2", "4096", "warm", "factory-agent-base:dev@sha256:00"},
+		{"ws-gw", "2", "4096", "60", "warm", "factory-agent-base:dev"},
+		{"ws-tsk_a/../b", "2", "4096", "60", "warm", "factory-agent-base:dev"},
+		{ws, "0", "4096", "60", "warm", "factory-agent-base:dev"},
+		{ws, "17", "4096", "60", "warm", "factory-agent-base:dev"},
+		{ws, "02", "4096", "60", "warm", "factory-agent-base:dev"},
+		{ws, "+2", "4096", "60", "warm", "factory-agent-base:dev"},
+		{ws, "2", "2047", "60", "warm", "factory-agent-base:dev"},
+		{ws, "2", "65537", "60", "warm", "factory-agent-base:dev"},
+		{ws, "2", "4096", "19", "warm", "factory-agent-base:dev"},
+		{ws, "2", "4096", "501", "warm", "factory-agent-base:dev"},
+		{ws, "2", "4096", "60", "hot", "factory-agent-base:dev"},
+		{ws, "2", "4096", "60", "warm", "ubuntu:24.04"},
+		{ws, "2", "4096", "60", "warm", "factory-agent-base:-x"},
+		{ws, "2", "4096", "60", "warm", "factory-agent-base:a b"},
+		{ws, "2", "4096", "60", "warm", "factory-agent-base:dev@sha256:00"},
 	} {
 		f := newHost(t)
 		code, _, errOut := runIn(t, f.opts(), append([]string{"create"}, args...)...)
@@ -157,8 +159,11 @@ func TestCreateArgs(t *testing.T) {
 	if code, _, _ := runIn(t, f.opts(), "rm", "ws-1"); code != 2 || len(f.calls) > 0 {
 		t.Errorf("rm ws-1: code %d, calls %v", code, f.calls)
 	}
-	if code, _, errOut := runIn(t, f.opts(), "create", ws, "16", "65536", "empty", "factory-agent-base:v1.2.3-rc.1_x"); code != 0 {
+	if code, _, errOut := runIn(t, f.opts(), "create", ws, "16", "65536", "500", "empty", "factory-agent-base:v1.2.3-rc.1_x"); code != 0 {
 		t.Errorf("the largest size: code %d, stderr %q", code, errOut)
+	}
+	if !slices.Contains(f.calls, Truncate+" -s 500G -- "+DisksDir+"/"+ws+".img") {
+		t.Errorf("the empty disk isn't 500G: %q", f.calls)
 	}
 }
 
@@ -172,7 +177,7 @@ func TestLifecycle(t *testing.T) {
 	if err := os.WriteFile(f.root+WarmDisk, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, out, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "warm", "factory-agent-base:0.1.0")
+	code, out, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "60", "warm", "factory-agent-base:0.1.0")
 	if code != 0 || out != `{"slot":1,"vm":"10.213.1.2","gateway":"10.213.1.1"}`+"\n" {
 		t.Fatalf("create: code %d, stdout %q, stderr %q", code, out, errOut)
 	}
@@ -200,7 +205,7 @@ func TestCreateUndo(t *testing.T) {
 		t.Run(stage, func(t *testing.T) {
 			f := newHost(t)
 			f.fail = strings.TrimPrefix(strings.TrimPrefix(stage, "ip "), "nerdctl ")
-			code, out, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "empty", "factory-agent-base:dev")
+			code, out, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "60", "empty", "factory-agent-base:dev")
 			if code != 1 || out != "" || !strings.Contains(errOut, "boom") {
 				t.Fatalf("code %d, stdout %q, stderr %q", code, out, errOut)
 			}
@@ -220,7 +225,7 @@ func TestCreateUndo(t *testing.T) {
 		if err := os.WriteFile(f.root+DisksDir+"/"+ws+".img", []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if code, _, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "empty", "factory-agent-base:dev"); code != 1 || !strings.Contains(errOut, "already has a disk") || len(f.calls) > 0 {
+		if code, _, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "60", "empty", "factory-agent-base:dev"); code != 1 || !strings.Contains(errOut, "already has a disk") || len(f.calls) > 0 {
 			t.Errorf("code %d, stderr %q, calls %v", code, errOut, f.calls)
 		}
 		if b, _ := os.ReadFile(f.root + DisksDir + "/" + ws + ".img"); string(b) != "x" {
@@ -229,7 +234,7 @@ func TestCreateUndo(t *testing.T) {
 	})
 	t.Run("no warm disk", func(t *testing.T) {
 		f := newHost(t)
-		if code, _, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "warm", "factory-agent-base:dev"); code != 1 || !strings.Contains(errOut, "no warm disk") || len(f.calls) > 0 {
+		if code, _, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "60", "warm", "factory-agent-base:dev"); code != 1 || !strings.Contains(errOut, "no warm disk") || len(f.calls) > 0 {
 			t.Errorf("code %d, stderr %q, calls %v", code, errOut, f.calls)
 		}
 	})
@@ -240,7 +245,7 @@ func TestCreateUndo(t *testing.T) {
 func TestSlots(t *testing.T) {
 	f := newHost(t)
 	create := func(name string) (int, string) {
-		code, out, errOut := runIn(t, f.opts(), "create", name, "1", "2048", "empty", "factory-agent-base:dev")
+		code, out, errOut := runIn(t, f.opts(), "create", name, "1", "2048", "20", "empty", "factory-agent-base:dev")
 		return code, out + errOut
 	}
 	var wg sync.WaitGroup
@@ -287,7 +292,7 @@ func TestRm(t *testing.T) {
 	})
 	created := func(t *testing.T) *fakeHost {
 		f := newHost(t)
-		if code, _, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "empty", "factory-agent-base:dev"); code != 0 {
+		if code, _, errOut := runIn(t, f.opts(), "create", ws, "5", "8192", "60", "empty", "factory-agent-base:dev"); code != 0 {
 			t.Fatal(errOut)
 		}
 		f.calls = nil
