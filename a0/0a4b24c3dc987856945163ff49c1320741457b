@@ -1,0 +1,4 @@
+lisa-design:
+- run-pipeline.md and harness-adapters.md keep their links/mentions of local-stack.md and worker.md: they are stack 2's to rewrite with the host pipeline, per the brief.
+- base.sh's comment naming worker.md stays: editing base.sh changes its sha256 (basevm.json), which rebuilds every host's base VM.
+- definitions.md's AGT-S1-T01/T06 task specs keep their history and point at the new sections.
