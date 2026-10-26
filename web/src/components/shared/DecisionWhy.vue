@@ -52,6 +52,13 @@ const title = computed(() =>
             :label="decision.fired ? 'fired' : 'did not fire'"
             :tone="decision.fired ? 'success' : 'neutral'"
           />
+          <StatusPill
+            v-if="decision.replay"
+            class="ms-1"
+            label="replay"
+            tone="info"
+            data-testid="why-replay"
+          />
         </dd>
         <dt class="font-medium text-ccf-600 dark:text-ccf-400">At</dt>
         <dd>

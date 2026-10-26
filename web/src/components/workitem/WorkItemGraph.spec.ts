@@ -80,6 +80,45 @@ describe('WorkItemGraph', () => {
     ]);
   });
 
+  it("marks a replay's actions on their rule, and says why a task waits in its tooltip", () => {
+    const decisions = pipeline.workItem.status!.decisions!.map((d) =>
+      d.rule === 'review-factory-prs' ? { ...d, replay: true } : d,
+    );
+    const tasks = pipeline.tasks.map((t) =>
+      t.status?.phase === 'Pending'
+        ? {
+            ...t,
+            status: { ...t.status, reasonDetail: 'Only the author is online.' },
+          }
+        : t,
+    );
+    const wrapper = mount(WorkItemGraph, {
+      props: {
+        detail: {
+          ...pipeline,
+          tasks,
+          workItem: {
+            ...pipeline.workItem,
+            status: { ...pipeline.workItem.status, decisions },
+          },
+        },
+      },
+    });
+    const review = wrapper.findAll('[data-testid="graph-action"]')[5]!;
+    expect(review.get('[data-testid="graph-rule"]').text()).toBe(
+      'docs/review-factory-prs (replay)',
+    );
+    expect(review.attributes('aria-label')).toContain(
+      'by docs/review-factory-prs (replay)',
+    );
+    const pending = wrapper
+      .findAll('[data-testid="graph-task"]')
+      .find((t) => t.attributes('data-phase') === 'Pending')!;
+    expect(pending.get('title').text()).toMatch(
+      /waiting: anti-affinity.*\nOnly the author is online\.$/s,
+    );
+  });
+
   it('renders event text as text', () => {
     const wrapper = mount(WorkItemGraph, {
       props: {

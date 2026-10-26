@@ -101,7 +101,8 @@ export function stateOf(item: WorkItem): Record<string, unknown> {
 }
 
 /**
- * The lane a work item belongs in: done for a closed value, whatever else is set (a closed item
+ * The lane a work item belongs in: done when an admin closed it (`status.closed`) or for a closed
+ * value, whatever else is set (a closed item
  * has no more work, so stale needs-human, running or open values and pending approvals don't
  * count); needs-human for any needs-human value or a pending approval; running for any running
  * value; done for at least one done value and no needs-human, running or open value; waiting
@@ -113,7 +114,7 @@ export function laneOf(item: WorkItem): LaneId {
   );
   const any = (vocabulary: readonly string[]) =>
     values.some((v) => vocabulary.includes(v));
-  if (values.includes(CLOSED_VALUE)) return 'done';
+  if (item.status?.closed || values.includes(CLOSED_VALUE)) return 'done';
   const pending = (item.status?.approvals ?? []).some(
     (a) => a.phase === 'Pending',
   );
@@ -124,18 +125,26 @@ export function laneOf(item: WorkItem): LaneId {
 }
 
 /**
- * The work item's last known activity: its newest decision, else its creation. The contract has
- * no `updatedAt`, so this is the closest it gets.
+ * The work item's last known activity: its newest decision or its close, else its creation. The
+ * contract has no `updatedAt`, so this is the closest it gets.
  */
 export function lastActivity(item: WorkItem): Date | undefined {
   const times = [
     item.metadata.createdAt,
+    item.status?.closed?.at,
     ...(item.status?.decisions ?? []).map((d) => d.at),
   ]
     .filter((t): t is string => !!t)
     .map((t) => Date.parse(t))
     .filter((t) => !Number.isNaN(t));
   return times.length ? new Date(Math.max(...times)) : undefined;
+}
+
+/** How a close reason reads: `done`, `won't do`, `duplicate`. */
+export function closeReasonText(
+  reason: Schemas['WorkItemClosed']['reason'],
+): string {
+  return reason === 'wont-do' ? "won't do" : reason;
 }
 
 /** The repository of a provider ref: `owner/repo#42` and `owner/repo@main` → `owner/repo`. */

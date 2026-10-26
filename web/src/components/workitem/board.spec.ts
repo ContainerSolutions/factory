@@ -157,6 +157,14 @@ describe('laneOf', () => {
       'done',
     ],
     [
+      'closed by an admin beats needs-human and running',
+      {
+        state: { review: 'needs-human', plan: 'planning' },
+        closed: { reason: 'wont-do', at: '2026-10-12T00:00:00Z' },
+      },
+      'done',
+    ],
+    [
       'a granted approval',
       {
         state: { ...stack },
@@ -179,6 +187,14 @@ describe('lastActivity', () => {
       ],
     });
     expect(lastActivity(item)?.toISOString()).toBe('2026-10-14T00:00:00.000Z');
+  });
+
+  it('counts an admin closing it', () => {
+    const item = wi({
+      decisions: [{ at: '2026-10-12T00:00:00Z' }],
+      closed: { reason: 'done', at: '2026-10-15T00:00:00Z' },
+    });
+    expect(lastActivity(item)?.toISOString()).toBe('2026-10-15T00:00:00.000Z');
   });
 
   it('falls back to the creation time', () => {

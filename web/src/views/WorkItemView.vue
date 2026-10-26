@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import PauseControls from '@/components/controls/PauseControls.vue';
+import WorkItemAdmin from '@/components/controls/WorkItemAdmin.vue';
 import DecisionWhy from '@/components/shared/DecisionWhy.vue';
 import PageHeader from '@/components/shared/PageHeader.vue';
 import TabList from '@/components/shared/TabList.vue';
@@ -43,6 +44,16 @@ function selectTab(id: string): void {
 function showEvent(key: string): void {
   focus.value = key;
   selectTab('timeline');
+}
+
+/** A replay recorded decisions: reload the work item, keeping the page as it is meanwhile. */
+function replayed(): void {
+  store.loadItem(props.id, { quiet: true });
+}
+
+/** The work item is gone: back to the board. */
+function deleted(): void {
+  router.push({ name: 'board' });
 }
 
 function showTask(id: string): void {
@@ -95,11 +106,10 @@ const catalogSHA = computed(() =>
     <PageHeader :title="titleOf(detail.workItem)">
       Work item <code class="text-xs">{{ detail.workItem.metadata.name }}</code>
     </PageHeader>
-    <PauseControls
-      scope="workitem"
-      :name="detail.workItem.metadata.name"
-      class="-mt-3 mb-6"
-    />
+    <div class="-mt-3 mb-6 flex flex-wrap items-center gap-4">
+      <PauseControls scope="workitem" :name="detail.workItem.metadata.name" />
+      <WorkItemAdmin :item="detail.workItem" @deleted="deleted" />
+    </div>
     <WorkItemHeader :item="detail.workItem" />
     <TabList
       :tabs="tabs"
@@ -127,6 +137,7 @@ const catalogSHA = computed(() =>
         :detail="detail"
         :focus="focus"
         @why="whyIndex = $event"
+        @replayed="replayed"
       />
     </div>
     <DecisionWhy

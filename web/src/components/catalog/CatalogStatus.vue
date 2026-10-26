@@ -7,7 +7,10 @@ import StatusPill from '@/components/shared/StatusPill.vue';
 import { formatTime, safeURL, type Tone } from '@/components/shared/format';
 import { shortSHA } from './catalog';
 
-/** The loaded catalog: its commit and load status, its errors, what it holds, and a resync control. */
+/**
+ * The loaded catalog: its commit and load status, its errors and warnings (among them the App
+ * installations missing on a repo it touches), what it holds, and a resync control.
+ */
 const props = defineProps<{ summary: Schemas['CatalogSummary'] }>();
 
 const emit = defineEmits<{ resynced: [Schemas['CommandAccepted']] }>();
@@ -27,6 +30,10 @@ const counts = computed(() => {
   return [...by.entries()];
 });
 const command = resyncCatalogCommand();
+
+const WARNING_LABEL: Record<string, string> = {
+  'app-not-installed': 'App not installed',
+};
 </script>
 
 <template>
@@ -110,6 +117,26 @@ const command = resyncCatalogCommand();
             >{{ e.file }}<template v-if="e.line">:{{ e.line }}</template></span
           >
           <span>{{ e.message }}</span>
+        </li>
+      </ul>
+    </template>
+
+    <template v-if="summary.warnings?.length">
+      <h2 class="mt-4 mb-2 text-sm font-semibold">Warnings</h2>
+      <ul class="flex flex-col gap-1 text-sm" data-testid="catalog-warnings">
+        <li
+          v-for="(w, i) in summary.warnings"
+          :key="i"
+          class="flex flex-wrap items-baseline gap-2"
+        >
+          <StatusPill
+            :label="(w.code && WARNING_LABEL[w.code]) || w.code || 'warning'"
+            tone="warn"
+          />
+          <span v-if="w.file" class="font-mono text-xs"
+            >{{ w.file }}<template v-if="w.line">:{{ w.line }}</template></span
+          >
+          <span class="[overflow-wrap:anywhere]">{{ w.message }}</span>
         </li>
       </ul>
     </template>

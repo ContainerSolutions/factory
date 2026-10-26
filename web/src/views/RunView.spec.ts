@@ -90,6 +90,50 @@ describe('RunView', () => {
     );
   });
 
+  it('shows the environment log in its own tab when the run has one', async () => {
+    const { wrapper } = await mountRun(EXAMPLE);
+    expect(wrapper.find('[role="tablist"]').exists()).toBe(false);
+    mounted!.unmount();
+    const { wrapper: withLog } = await mountRun(
+      'run_01JAC0PIPELINETRIAGE000000',
+    );
+    mounted = withLog;
+    expect(withLog.findAll('[role="tab"]').map((t) => t.text())).toEqual([
+      'Transcript',
+      'Environment log',
+    ]);
+    expect(withLog.find('#transcript-heading').exists()).toBe(true);
+    await withLog.get('[data-tab="environment-log"]').trigger('click');
+    await flushPromises();
+    await vi.waitFor(() =>
+      expect(withLog.get('[data-testid="environment-log"]').text()).toContain(
+        '# environment.up',
+      ),
+    );
+    expect(withLog.find('#transcript-heading').exists()).toBe(false);
+  });
+
+  it("says why the run's task waits, with the dispatcher's sentence", async () => {
+    server.use(
+      http.get('/api/v1/tasks/:id', () =>
+        HttpResponse.json<Schemas['Task']>({
+          ...exampleTask,
+          status: {
+            phase: 'Pending',
+            agent: null,
+            reason: 'git-credential',
+            reasonDetail:
+              "the reviewer App (ccf-factory-reviewer) isn't installed on compliance-framework/local-dev: install it, the next retry is at 12:05",
+          },
+        }),
+      ),
+    );
+    const { wrapper } = await mountRun(EXAMPLE);
+    expect(wrapper.get('[data-testid="task-waiting"]').text()).toBe(
+      "The task is waiting: git-credential · the reviewer App (ccf-factory-reviewer) isn't installed on compliance-framework/local-dev: install it, the next retry is at 12:05",
+    );
+  });
+
   it('streams the progress of a running run (mocked SSE)', async () => {
     const { wrapper, es } = await mountRun(LIVE);
     const source = es.last!;

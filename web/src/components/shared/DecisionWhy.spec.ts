@@ -69,6 +69,16 @@ describe('DecisionWhy', () => {
     ]);
   });
 
+  it('marks a decision a replay recorded', async () => {
+    let dialog = await open({ decision });
+    expect(dialog!.querySelector('[data-testid="why-replay"]')).toBeNull();
+    wrapper!.unmount();
+    dialog = await open({ decision: { ...decision, replay: true } });
+    expect(
+      dialog!.querySelector('[data-testid="why-replay"]')?.textContent?.trim(),
+    ).toBe('replay');
+  });
+
   it('says what the decision lacks', async () => {
     const dialog = await open({
       decision: { ruleSet: 'docs', rule: 'r', fired: false },

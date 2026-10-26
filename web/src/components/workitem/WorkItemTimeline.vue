@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import type { Schemas } from '@/api/client';
+import ReplayButton from '@/components/controls/ReplayButton.vue';
 import { runStateOf } from '@/components/run/run';
 import StatusPill from '@/components/shared/StatusPill.vue';
 import {
@@ -19,7 +20,8 @@ import { eventRows, unattached, type RowDecision } from './timeline';
 /**
  * The work item's events as collapsible rows, oldest first. Open, a row shows the decisions
  * that fired, with their actions and rails, and keeps the others behind "show N not fired",
- * each with why it didn't: its reason, the inputs `where` saw, and the rails.
+ * each with why it didn't: its reason, the inputs `where` saw, and the rails. A decision an admin's
+ * replay recorded is marked as one; an admin can replay each event.
  */
 const props = defineProps<{
   detail: Schemas['WorkItemDetail'];
@@ -30,6 +32,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   /** Open the "why" panel for `workItem.status.decisions[index]`. */
   why: [index: number];
+  /** An event was replayed: the work item has new decisions. */
+  replayed: [Schemas['ReplayResult']];
 }>();
 
 const graph = computed(() => graphOf(props.detail));
@@ -163,6 +167,11 @@ const KIND_LABEL = { task: 'Task', run: 'Run', effect: 'Effect' } as const;
           <p v-if="!row.node.event" class="mb-2 text-xs text-ccf-600">
             The work item no longer holds this event; its decisions name it.
           </p>
+          <ReplayButton
+            :event="row.node.id"
+            class="mb-2"
+            @replayed="emit('replayed', $event)"
+          />
 
           <ul v-if="row.fired.length" class="flex flex-col gap-2">
             <li
@@ -176,6 +185,12 @@ const KIND_LABEL = { task: 'Task', run: 'Run', effect: 'Effect' } as const;
                   >{{ d.decision.ruleSet }} / {{ d.decision.rule }}</span
                 >
                 <StatusPill label="fired" tone="success" />
+                <StatusPill
+                  v-if="d.decision.replay"
+                  label="replay"
+                  tone="info"
+                  data-testid="decision-replay"
+                />
                 <StatusPill
                   v-for="rail in heldRails(d.decision)"
                   :key="rail.rail"
@@ -291,6 +306,12 @@ const KIND_LABEL = { task: 'Task', run: 'Run', effect: 'Effect' } as const;
                     >{{ d.decision.ruleSet }} / {{ d.decision.rule }}</span
                   >
                   <StatusPill label="did not fire" tone="neutral" />
+                  <StatusPill
+                    v-if="d.decision.replay"
+                    label="replay"
+                    tone="info"
+                    data-testid="decision-replay"
+                  />
                   <span class="text-xs" data-testid="not-fired-why">{{
                     whyNot(d)
                   }}</span>

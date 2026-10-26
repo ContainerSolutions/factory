@@ -81,6 +81,12 @@ watch(
         >
           {{ t.task.status.phase === 'Pending' ? 'Waiting: ' : ''
           }}{{ t.task.status.reason }}
+          <span
+            v-if="t.task.status.reasonDetail"
+            class="block text-ccf-800 dark:text-ccf-200"
+            data-testid="llm-task-reason-detail"
+            >{{ t.task.status.reasonDetail }}</span
+          >
         </p>
         <p v-if="t.summary" class="mb-2" data-testid="llm-task-summary">
           {{ t.summary }}

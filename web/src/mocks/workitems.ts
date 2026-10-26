@@ -1,6 +1,7 @@
 import { http, HttpResponse, type HttpHandler } from 'msw';
 import { API_BASE, type Schemas } from '@/api/client';
 import { examples } from './examples';
+import { mockSession, problem } from './session';
 
 type WorkItem = Schemas['WorkItem'];
 type Detail = Schemas['WorkItemDetail'];
@@ -1022,6 +1023,8 @@ const epicImplementTask: Schemas['Task'] = {
     attempts: 0,
     reason:
       'no-capable-agent: no agent in pool maintainer-agents lends queue poc',
+    reasonDetail:
+      'No agent in pool maintainer-agents lends queue poc: lend it from an enrolled agent (factory-agent lend poc), the next try is when one does.',
   },
 };
 const epicDetail: Detail = {
@@ -1327,10 +1330,154 @@ export const workItemDetails: readonly Detail[] = [
   bare(doneOld),
 ];
 
+function findItem(id: string): Detail | undefined {
+  return workItemDetails.find((d) => d.workItem.metadata.name === id);
+}
+
+/** The work item an event belongs to: one that holds it, or whose decisions name it. */
+function itemOfEvent(id: string): Detail | undefined {
+  return workItemDetails.find(
+    (d) =>
+      d.events.some((e) => e.id === id) ||
+      (d.workItem.status?.decisions ?? []).some((x) => x.event === id),
+  );
+}
+
+/** 401 without a session, 403 for a reader: the admin routes need the maintainers Group. */
+function notAdmin(cookies: Record<string, string>): Response | undefined {
+  switch (mockSession(cookies)) {
+    case 'signed-out':
+      return problem(401, 'Unauthorized', 'unauthenticated', 'no session');
+    case 'reader':
+      return problem(
+        403,
+        'Forbidden',
+        'forbidden',
+        'needs the maintainers Group',
+      );
+    default:
+      return undefined;
+  }
+}
+
+const exampleReplay = examples.get('replayEvent') as Schemas['ReplayResult'];
+const exampleClose = examples.get('closeWorkItem') as WorkItem;
+const LEASED = new Set(['Leased', 'Running', 'Cancelling']);
+const CLOSE_REASONS = ['done', 'wont-do', 'duplicate'];
+
+/**
+ * The admin routes over the mock work items. Nothing changes: a replay answers the example's
+ * decision for the event, a close the item with `status.closed`, and a delete what it would
+ * remove, refusing (409 task-leased) while a task is leased unless `force=true`.
+ */
+const adminHandlers: HttpHandler[] = [
+  http.post<{ id: string }>(
+    `${API_BASE}/events/:id/replay`,
+    ({ params, cookies }) => {
+      const refused = notAdmin(cookies);
+      if (refused) return refused;
+      const detail = itemOfEvent(params.id);
+      if (!detail) {
+        return problem(
+          404,
+          'Not Found',
+          'not-found',
+          `no event "${params.id}"`,
+        );
+      }
+      return HttpResponse.json<Schemas['ReplayResult']>({
+        event: params.id,
+        workItem: detail.workItem.metadata.name,
+        decisions: exampleReplay.decisions.map((d) => ({
+          ...d,
+          event: params.id,
+        })),
+      });
+    },
+  ),
+  http.post<{ id: string }>(
+    `${API_BASE}/workitems/:id/close`,
+    async ({ params, cookies, request }) => {
+      const refused = notAdmin(cookies);
+      if (refused) return refused;
+      const detail = findItem(params.id);
+      if (!detail) {
+        return problem(
+          404,
+          'Not Found',
+          'not-found',
+          `no work item ${params.id}`,
+        );
+      }
+      const body = (await request.json().catch(() => null)) as
+        | Schemas['CloseWorkItemRequest']
+        | null;
+      if (!body || !CLOSE_REASONS.includes(body.reason)) {
+        return problem(
+          400,
+          'Bad Request',
+          'invalid',
+          'reason: done, wont-do or duplicate',
+          [{ field: 'reason', message: 'done, wont-do or duplicate' }],
+        );
+      }
+      const closed: Schemas['WorkItemClosed'] = {
+        ...exampleClose.status!.closed!,
+        reason: body.reason,
+      };
+      if (body.note) closed.note = body.note;
+      else delete closed.note;
+      return HttpResponse.json<WorkItem>({
+        ...detail.workItem,
+        status: { ...detail.workItem.status, closed },
+      });
+    },
+  ),
+  http.delete<{ id: string }>(
+    `${API_BASE}/workitems/:id`,
+    ({ params, cookies, request }) => {
+      const refused = notAdmin(cookies);
+      if (refused) return refused;
+      const detail = findItem(params.id);
+      if (!detail) {
+        return problem(
+          404,
+          'Not Found',
+          'not-found',
+          `no work item ${params.id}`,
+        );
+      }
+      const force = new URL(request.url).searchParams.get('force') === 'true';
+      const leased = detail.tasks.filter((t) =>
+        LEASED.has(t.status?.phase ?? ''),
+      );
+      if (leased.length && !force) {
+        return problem(
+          409,
+          'Conflict',
+          'task-leased',
+          `task ${leased[0]!.metadata.id} is ${leased[0]!.status!.phase}: cancel it first, or force`,
+        );
+      }
+      return HttpResponse.json<Schemas['WorkItemDeleted']>({
+        workItem: params.id,
+        deleted: {
+          WorkItem: 1,
+          Task: detail.tasks.length,
+          Run: detail.runs.length,
+          Effect: detail.effects.length,
+          Event: detail.events.length,
+        },
+      });
+    },
+  ),
+];
+
 /**
  * `GET /workitems` and `GET /workitems/{id}` over the mock work items, so the board has every
  * lane, several providers, repos and RuleSets, and the work-item page answers per id (404 for an
- * unknown one). Registered before the example handlers, which they override.
+ * unknown one), plus the admin routes (replay, close, delete). Registered before the example
+ * handlers, which they override.
  */
 export const workItemHandlers: HttpHandler[] = [
   http.get(`${API_BASE}/workitems`, () =>
@@ -1360,4 +1507,5 @@ export const workItemHandlers: HttpHandler[] = [
       );
     },
   ),
+  ...adminHandlers,
 ];

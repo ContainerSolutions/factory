@@ -54,10 +54,14 @@ export function describeScope(scope: PauseScope, name?: string): string {
     : `${scope === 'workitem' ? 'work item' : scope} ${name ?? ''}`.trim();
 }
 
-/** Why a command was refused, as one line. A 403 says who may send commands. */
+/**
+ * Why a command (or another admin request) was refused, as one line. A 403 says who may do
+ * `what`: send commands, by default.
+ */
 export function describeCommandFailure(
   problem: unknown,
   response: Response,
+  what = 'send commands',
 ): string {
   const p = (problem ?? {}) as Partial<Schemas['Problem']>;
   const fields = (p.errors ?? [])
@@ -69,7 +73,7 @@ export function describeCommandFailure(
     case 401:
       return 'Your session has expired: sign in again.';
     case 403:
-      return `Only members of the maintainers Group can send commands. The server said: ${detail}`;
+      return `Only members of the maintainers Group can ${what}. The server said: ${detail}`;
     default:
       return detail;
   }

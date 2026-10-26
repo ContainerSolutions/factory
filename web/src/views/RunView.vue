@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { runTopic } from '@/api/stream';
 import RunEffects from '@/components/run/RunEffects.vue';
+import RunEnvironmentLog from '@/components/run/RunEnvironmentLog.vue';
 import RunHarness from '@/components/run/RunHarness.vue';
 import RunOverview from '@/components/run/RunOverview.vue';
 import RunProgress from '@/components/run/RunProgress.vue';
@@ -11,6 +12,8 @@ import { isRunning } from '@/components/run/run';
 import RunControls from '@/components/controls/RunControls.vue';
 import JsonViewer from '@/components/shared/JsonViewer.vue';
 import PageHeader from '@/components/shared/PageHeader.vue';
+import TabList from '@/components/shared/TabList.vue';
+import { tabPanelAttrs, type Tab } from '@/components/shared/tabs';
 import { useStream } from '@/composables/useStream';
 import { useRunsStore } from '@/stores/runs';
 import Message from '@/volt/Message.vue';
@@ -19,9 +22,13 @@ const props = defineProps<{ id: string }>();
 
 const store = useRunsStore();
 
+/** The transcript, or the environment log (a tab only when the run has one). */
+const tab = ref('transcript');
+
 watch(
   () => props.id,
   (id) => {
+    tab.value = 'transcript';
     store.loadRun(id);
   },
   { immediate: true },
@@ -30,6 +37,23 @@ watch(
 const detail = computed(() => store.current);
 const run = computed(() => detail.value?.run);
 const running = computed(() => !!run.value && isRunning(run.value));
+
+const hasEnvironmentLog = computed(
+  () => !!run.value?.status?.environmentLogRef,
+);
+const tabs: Tab[] = [
+  { id: 'transcript', label: 'Transcript' },
+  { id: 'environment-log', label: 'Environment log' },
+];
+const shown = computed(() =>
+  hasEnvironmentLog.value ? tab.value : 'transcript',
+);
+
+/** Why the run's task waits (for its next attempt), with the dispatcher's sentence for it. */
+const waiting = computed(() => {
+  const status = store.task?.status;
+  return status?.phase === 'Pending' && status.reason ? status : null;
+});
 
 // Subscribed while the run loads (so nothing between the snapshot and the subscription is lost)
 // and while it runs. The `runs/<id>` topic carries progress only, so the run is reloaded when its
@@ -46,6 +70,7 @@ const stream = useStream(
     progress: (progress) => store.addProgress(progress),
     'task.updated': (task) => {
       if (run.value && task.metadata.id === run.value.spec.task) {
+        store.setTask(task);
         store.loadRun(props.id, { quiet: true });
       }
     },
@@ -71,6 +96,17 @@ const stream = useStream(
       <code class="text-xs">{{ run.spec.task }}</code>
     </PageHeader>
     <RunControls :run="run" :running="running" class="mb-6" />
+    <Message
+      v-if="waiting"
+      severity="warn"
+      class="mb-6"
+      data-testid="task-waiting"
+    >
+      The task is waiting: {{ waiting.reason
+      }}<template v-if="waiting.reasonDetail">
+        · {{ waiting.reasonDetail }}</template
+      >
+    </Message>
 
     <div class="grid gap-6 lg:grid-cols-3">
       <div class="flex flex-col gap-6 lg:col-span-2">
@@ -79,13 +115,32 @@ const stream = useStream(
           :running="running"
           :stream="stream.status.value"
         />
-        <RunTranscript
-          :available="!!run.status?.transcriptRef"
-          :state="store.transcriptState"
-          :entries="store.transcript"
-          :error="store.transcriptError"
-          @load="store.loadTranscript()"
-        />
+        <div>
+          <TabList
+            v-if="hasEnvironmentLog"
+            v-model="tab"
+            :tabs="tabs"
+            label="Run logs"
+            id-prefix="run"
+          />
+          <div v-bind="hasEnvironmentLog ? tabPanelAttrs('run', shown) : {}">
+            <RunEnvironmentLog
+              v-if="shown === 'environment-log'"
+              :state="store.environmentLogState"
+              :text="store.environmentLog"
+              :error="store.environmentLogError"
+              @load="store.loadEnvironmentLog()"
+            />
+            <RunTranscript
+              v-else
+              :available="!!run.status?.transcriptRef"
+              :state="store.transcriptState"
+              :entries="store.transcript"
+              :error="store.transcriptError"
+              @load="store.loadTranscript()"
+            />
+          </div>
+        </div>
       </div>
       <aside
         class="flex flex-col gap-6 rounded-lg border border-ccf-200 p-4 dark:border-ccf-800"
