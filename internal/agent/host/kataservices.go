@@ -114,13 +114,21 @@ disabled_plugins = ["io.containerd.grpc.v1.cri", "io.containerd.cri.v1.images", 
 `
 }
 
-// BuildkitdConfig is buildkitd's config. Its unit passes every setting as a flag; the file is
-// there so buildkitd reads it (--config) and never /etc/buildkit/buildkitd.toml, another
-// BuildKit's.
+// BuildkitdConfig is buildkitd's config. Its unit passes every setting but the build steps'
+// resolver option as a flag; the file is there so buildkitd reads it (--config) and never
+// /etc/buildkit/buildkitd.toml, another BuildKit's. [dns] sets only options: buildkitd keeps the
+// host's nameservers and search domains in the resolv.conf it writes for host-network steps.
 func BuildkitdConfig() string {
 	return `# ` + buildkitdConfigPath + ` (factory-agent host init)
-# factory-agent-buildkit.service sets everything with flags; buildkitd reads this file instead
-# of /etc/buildkit/buildkitd.toml, so another BuildKit's config never applies.
+# factory-agent-buildkit.service sets everything else with flags; buildkitd reads this file
+# instead of /etc/buildkit/buildkitd.toml, so another BuildKit's config never applies.
+
+# Build steps run on the host network. no-aaaa makes their glibc lookups return IPv4 addresses
+# only, as in Docker's builds (an IPv4-only bridge), so a host whose IPv6 route is advertised
+# but broken can't stall a download (Playwright waits 5 s on each address). The nameservers
+# stay the host's.
+[dns]
+  options = ["no-aaaa"]
 `
 }
 
