@@ -1,0 +1,2 @@
+lisa-addressed:
+review #186 thread PRRT_kwDOVK0lgs6wZ56v (blocker): the fake host's save wrote warm-load's pipe under f.mu while the load waited for f.mu to record itself; save now writes outside the lock, as exec. go test -race -count=400 -cpu 1,2,8 -run TestWarmLoad passes. Fixed in 79f52d7b6b35b223f12bd7510f471ae10c1bd302.
