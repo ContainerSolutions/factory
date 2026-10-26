@@ -1,0 +1,10 @@
+lisa-selfreview:
+pass 1 (lenient, final): approve. ccf-review core/go/repo-factory rules on the diff.
+- FACTORY-CRED-001/CORE-SEC-001: tokens never logged or in errors (Login redacts; errors carry the status and a known error code only); every chatgpt test's log is scanned for JWT headers and refresh tokens. The store stays 0600 (TestChatGPTStore).
+- CORE-CONC-001: cur/perm/unsaved/flight under mu; write-backs serialised by saveMu, so the newest login is saved last; -race clean.
+- GO-RES-001: the flight goroutine is bounded by 30 s (+10 s save); a caller that goes away doesn't abandon a spent refresh token.
+- deferred should-fix: no workspace-runner test asserts the ChatGPTUnauthorized wiring (one line; the gateway and refresher tests cover the behaviour).
+- deferred nit: a re-import is seen only at the next refresh (as the LLD says), not on every request as before.
+
+lisa-design:
+Login drops IDToken (nothing reads a stored one). The error code also falls back to a top-level `code`, as the pinned oauth/error.rs does. A 200 with a bad body is not retried (the refresh token may be spent), per the LLD; codex treats it as transient.
