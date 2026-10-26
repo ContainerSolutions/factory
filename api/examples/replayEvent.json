@@ -1,0 +1,23 @@
+{
+  "event": "github-public/gh-7f3c2a10-8b1d-11ef-9a6e-0242ac120002",
+  "workItem": "wi_01JAB3J9T1D2E3F4G5H6J7K8LM",
+  "decisions": [
+    {
+      "at": "2026-10-16T11:02:10Z",
+      "event": "github-public/gh-7f3c2a10-8b1d-11ef-9a6e-0242ac120002",
+      "ruleSet": "docs",
+      "rule": "label-docs-issues",
+      "fired": true,
+      "rails": [
+        {
+          "rail": "kill-switch",
+          "verdict": "allowed"
+        }
+      ],
+      "actions": [
+        "effect"
+      ],
+      "replay": true
+    }
+  ]
+}

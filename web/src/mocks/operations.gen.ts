@@ -148,6 +148,13 @@ export const operations: readonly MockOperation[] = [
     contentType: '',
   },
   {
+    id: 'replayEvent',
+    method: 'post',
+    path: '/api/v1/events/{id}/replay',
+    status: 200,
+    contentType: 'application/json',
+  },
+  {
     id: 'getHealthz',
     method: 'get',
     path: '/healthz',
@@ -225,6 +232,20 @@ export const operations: readonly MockOperation[] = [
     contentType: 'application/json',
   },
   {
+    id: 'getEnvironmentLog',
+    method: 'get',
+    path: '/api/v1/runs/{id}/environment-log',
+    status: 200,
+    contentType: 'text/plain',
+  },
+  {
+    id: 'uploadEnvironmentLog',
+    method: 'put',
+    path: '/api/v1/runs/{id}/environment-log',
+    status: 200,
+    contentType: 'application/json',
+  },
+  {
     id: 'getTranscript',
     method: 'get',
     path: '/api/v1/runs/{id}/transcript',
@@ -295,9 +316,23 @@ export const operations: readonly MockOperation[] = [
     contentType: 'application/json',
   },
   {
+    id: 'deleteWorkItem',
+    method: 'delete',
+    path: '/api/v1/workitems/{id}',
+    status: 200,
+    contentType: 'application/json',
+  },
+  {
     id: 'getWorkItem',
     method: 'get',
     path: '/api/v1/workitems/{id}',
+    status: 200,
+    contentType: 'application/json',
+  },
+  {
+    id: 'closeWorkItem',
+    method: 'post',
+    path: '/api/v1/workitems/{id}/close',
     status: 200,
     contentType: 'application/json',
   },

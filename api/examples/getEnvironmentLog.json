@@ -1,0 +1,1 @@
+"# environment.up\nCreating cluster \"ccf\" ...\n ✓ Ensuring node image (kindest/node:v1.31.0)\nnamespace/ccf created\n# environment.ready\nGET http://127.0.0.1:8080/api/health: 200\n"

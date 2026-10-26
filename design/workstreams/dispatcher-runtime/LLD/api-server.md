@@ -58,6 +58,12 @@ Body: `{type, target, args}`.
 | `dispatch` | `args: {event}` | validates + stores an injected Event (source must be a configured provider or `factory`), used by `factory dispatch` and the UI dry-run "run for real" |
 | `resync-catalog` | — | triggers catalog-sync |
 
+Outside `POST /commands`, three more admin routes (group 1):
+
+- `POST /events/{id}/replay`: the rule controller evaluates the stored event again, with its own id, against the live catalog and the work item as it is now. Only the rules that have no earlier *fired* record for the event on the item are applied (their effects and tasks keep the `evt/<event>/<rule>/<i>` keys); a rule that already fired is never applied again, whatever changed since (a rail that suppressed it then, an action the catalog added), and its new evaluation isn't recorded. The new records that differ from the event's earlier ones are appended with `replay: true` and returned. When the event's processed mark names the item but none of its records remain there (aged out of the 200-decision bound), the replay can't tell what already acted: `409 replay-history-gone`.
+- `POST /workitems/{id}/close` `{reason, note?}`: sets `status.closed`, moves the item's active tasks to `Cancelling` (as `cancel` does) and appends a decision. The rule controller then evaluates nothing for the item: its events are stored, marked processed, and each gets a decision saying the item is closed.
+- `DELETE /workitems/{id}?force=`: deletes the item and its tasks, prompts, runs (the store drops their transcripts and environment logs), effects, events, event marks and debounces. `409 task-leased` while a task is Leased, Running or Cancelling, unless `force=true`, which cancels them first.
+
 ## SSE (`GET /stream?topics=…`)
 
 - Hub with per-topic subscribers; topics: `runs/<id>`, `workitems`, `workitems/<id>`, `tasks`, `agents`.

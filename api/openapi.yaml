@@ -14,7 +14,8 @@ info:
     - Components marked `x-go-type` are the `internal/apis/v1alpha1` Go types, in full. They are
       generated from the Go types (`api/componentsgen`, between the GENERATED markers at the end
       of this file), and every example is strictly decoded into them by `api/spec_test.go`.
-    - `getTranscript` and `uploadTranscript` carry `application/gzip` (gzip-compressed JSON Lines).
+    - `getTranscript` and `uploadTranscript` carry `application/gzip` (gzip-compressed JSON Lines);
+      `getEnvironmentLog` and `uploadEnvironmentLog` carry `text/plain`.
     - Webhooks (`/hooks/{provider}`) are served outside `/api/v1` and are handled by the provider
       adapter (`Conn.Handler()`), not by the generated server.
     - The ops routes (`/healthz`, `/readyz`, `/metrics`, tag `ops`) are served only on the
@@ -46,7 +47,7 @@ tags:
   - name: dry-run
     description: Catalog evaluation without side effects.
   - name: commands
-    description: Operator commands (pause, resume, cancel, redispatch, dispatch, resync-catalog).
+    description: Operator commands (pause, resume, cancel, redispatch, dispatch, resync-catalog), event replay, and closing or deleting a work item.
   - name: events
     description: Server-sent events for live UI updates.
   - name: auth
@@ -675,6 +676,70 @@ paths:
         default:
           $ref: '#/components/responses/Error'
 
+  /runs/{id}/environment-log:
+    parameters:
+      - $ref: '#/components/parameters/RunID'
+    get:
+      operationId: getEnvironmentLog
+      tags: [tasks]
+      summary: Download a run's environment log
+      description: |
+        The workspace's environment log as the agent uploaded it: the TaskSpec environment's
+        scripts' stdout and stderr, redacted, as plain text. `404` when none was uploaded.
+      security:
+        - uiSession: []
+        - cliToken: []
+      responses:
+        '200':
+          description: The environment log.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: uploadEnvironmentLog
+      tags: [tasks]
+      summary: Upload a run's environment log
+      description: |
+        The workspace's environment log as plain text (redacted and capped by the agent), at
+        most 20 MB. Uploading again replaces it. It is kept with the run, under the
+        transcripts' caps and retention. A run token works only for its own run.
+      security:
+        - agentToken: []
+        - runToken: []
+      requestBody:
+        description: The environment log.
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: Stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvironmentLogUpload'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        default:
+          $ref: '#/components/responses/Error'
+
   # ---- effects -----------------------------------------------------------------------------
   /tasks/{id}/effects:
     parameters:
@@ -769,6 +834,43 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteWorkItem
+      tags: [commands]
+      summary: Delete a work item and everything keyed to it
+      description: |
+        Removes the work item and its tasks, prompts, runs (with their transcripts and
+        environment logs), effects, events and debounces from the store. While one of its
+        tasks is leased (Leased, Running or Cancelling) it answers `409 task-leased`, unless
+        `force=true`, which cancels the active tasks first. Admin only.
+      security:
+        - uiSession: []
+        - cliToken: []
+      parameters:
+        - name: force
+          in: query
+          required: false
+          description: Cancel the active tasks and delete even while one is leased.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: What was deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkItemDeleted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         default:
           $ref: '#/components/responses/Error'
   /runs/{id}:
@@ -1055,6 +1157,86 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CommandAccepted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /events/{id}/replay:
+    parameters:
+      - $ref: '#/components/parameters/EventID'
+    post:
+      operationId: replayEvent
+      tags: [commands]
+      summary: Replay a stored event through the rules
+      description: |
+        Evaluates the stored event again, with its own id, against the live catalog and its
+        work item as it is now, and applies the decisions. A rule that already acted on the
+        event dedupes on its idempotency key, so only the rules that act now and didn't then
+        change anything. The decisions that differ from the event's earlier ones are recorded
+        on the work item with `replay: true` and returned. A rule that already fired for the
+        event is never applied again, whatever changed since (its rails, its actions). When the
+        event was applied to its work item but none of its earlier decisions remain there (aged
+        out of the bounded history), the replay can't tell what already acted and answers
+        `409 replay-history-gone`. A UI session must belong to the `maintainers` Group; the CLI
+        token is a full admin.
+      security:
+        - uiSession: []
+        - cliToken: []
+      responses:
+        '200':
+          description: The replay's new decisions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReplayResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        default:
+          $ref: '#/components/responses/Error'
+  /workitems/{id}/close:
+    parameters:
+      - $ref: '#/components/parameters/WorkItemID'
+    post:
+      operationId: closeWorkItem
+      tags: [commands]
+      summary: Close a work item
+      description: |
+        Sets `status.closed`, cancels the work item's active tasks (as the cancel command does)
+        and records a decision. The rules then evaluate nothing for the item: its events are
+        still stored, and their decisions say it is closed. Closing a closed item updates its
+        reason and note. Admin only.
+      security:
+        - uiSession: []
+        - cliToken: []
+      requestBody:
+        description: Why it is closed.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloseWorkItemRequest'
+      responses:
+        '200':
+          description: The closed work item.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkItem'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1462,6 +1644,14 @@ components:
       in: path
       required: true
       description: The work item's name (`wi_…`).
+      schema:
+        type: string
+        minLength: 1
+    EventID:
+      name: id
+      in: path
+      required: true
+      description: The event's id (a provider delivery's, `factory/…` or `inject/…`).
       schema:
         type: string
         minLength: 1
@@ -1873,6 +2063,16 @@ components:
         bytes:
           type: integer
           format: int64
+    EnvironmentLogUpload:
+      type: object
+      description: Where the environment log was stored.
+      required: [environmentLogRef, bytes]
+      properties:
+        environmentLogRef:
+          type: string
+        bytes:
+          type: integer
+          format: int64
     EffectRequest:
       type: object
       description: One effect. The dispatcher maps the catalog's inline effect fields to `args`.
@@ -2188,6 +2388,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CatalogError'
+        warnings:
+          type: array
+          description: |
+            The live catalog's warnings, and the missing App installations (code
+            `app-not-installed`): an identity's App that isn't installed on a repo a TaskSpec or
+            RuleSet can touch.
+          items:
+            $ref: '#/components/schemas/CatalogError'
         objects:
           type: array
           items:
@@ -2380,6 +2588,44 @@ components:
           $ref: '#/components/schemas/HarnessRequest'
         event:
           $ref: '#/components/schemas/Event'
+    ReplayResult:
+      type: object
+      description: A replay's outcome.
+      required: [event, decisions]
+      properties:
+        event:
+          type: string
+        workItem:
+          type: string
+          description: The work item the event was evaluated for; absent when no rule fires for it.
+        decisions:
+          type: array
+          description: The decisions the replay recorded (each with `replay`), none when it changed nothing.
+          items:
+            $ref: '#/components/schemas/Decision'
+    CloseWorkItemRequest:
+      type: object
+      description: Why a work item is closed.
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          enum: [done, wont-do, duplicate]
+        note:
+          type: string
+          maxLength: 1000
+    WorkItemDeleted:
+      type: object
+      description: What deleting a work item removed, by kind.
+      required: [workItem, deleted]
+      properties:
+        workItem:
+          type: string
+        deleted:
+          type: object
+          description: How many objects of each kind were deleted (Task, Run, Effect, Event, …).
+          additionalProperties:
+            type: integer
     CommandAccepted:
       type: object
       description: The accepted command and the event it became, if any.
@@ -2817,6 +3063,11 @@ components:
             type: string
         reason:
           type: string
+        replay:
+          description: |-
+            Replay marks a decision an admin's replay of its event made (replayEvent): only the
+            decisions that differ from the event's earlier ones are recorded.
+          type: boolean
       additionalProperties: false
     Destination:
       x-go-type: v1alpha1.Destination
@@ -4431,6 +4682,11 @@ components:
           $ref: '#/components/schemas/Result'
         transcriptRef:
           type: string
+        environmentLogRef:
+          description: |-
+            EnvironmentLogRef is set once the agent uploaded the workspace's environment log (the
+            TaskSpec environment's scripts' output, redacted).
+          type: string
         usage:
           $ref: '#/components/schemas/Usage'
       additionalProperties: false
@@ -4823,6 +5079,11 @@ components:
           nullable: true
         reason:
           type: string
+        reasonDetail:
+          description: |-
+            ReasonDetail is a human sentence for a pending task's reason: for git-credential, the
+            App identity, the repo and the fix.
+          type: string
         attempts:
           type: integer
         leaseExpiresAt:
@@ -4996,6 +5257,31 @@ components:
         status:
           $ref: '#/components/schemas/WorkItemStatus'
       additionalProperties: false
+    WorkItemClosed:
+      x-go-type: v1alpha1.WorkItemClosed
+      x-go-type-import:
+        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+      description: WorkItemClosed records why and when an admin closed a work item.
+      type: object
+      required:
+        - reason
+        - at
+      properties:
+        reason:
+          type: string
+          enum:
+            - done
+            - wont-do
+            - duplicate
+        note:
+          type: string
+        at:
+          type: string
+          format: date-time
+        by:
+          description: By is the admin's actor id (provider-instance:login, or cli).
+          type: string
+      additionalProperties: false
     WorkItemSpec:
       x-go-type: v1alpha1.WorkItemSpec
       x-go-type-import:
@@ -5034,6 +5320,8 @@ components:
             $ref: '#/components/schemas/Decision'
         reporter:
           $ref: '#/components/schemas/Actor'
+        closed:
+          $ref: '#/components/schemas/WorkItemClosed'
       additionalProperties: false
     Workspace:
       x-go-type: v1alpha1.Workspace

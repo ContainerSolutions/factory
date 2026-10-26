@@ -326,6 +326,20 @@ func TestContract(t *testing.T) {
 		}
 	}
 
+	// environment log: a stub until group 1's PR 5.
+	ue, err := e.c.UploadEnvironmentLogWithTextBodyWithResponse(ctx, run, "# environment.up\nready\n", bearer(tok))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "uploadEnvironmentLog", ue.HTTPResponse, ue.Body, http.StatusNotImplemented, CodeNotImplemented)
+	sh.check("uploadEnvironmentLog", ue.HTTPResponse, ue.Body, http.StatusNotImplemented)
+	ge, err := e.c.GetEnvironmentLogWithResponse(ctx, run, session(gus))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "getEnvironmentLog", ge.HTTPResponse, ge.Body, http.StatusNotImplemented, CodeNotImplemented)
+	sh.check("getEnvironmentLog", ge.HTTPResponse, ge.Body, http.StatusNotImplemented)
+
 	// resources
 	gr, err := e.c.GetRunWithResponse(ctx, run, session(gus))
 	if err != nil {
@@ -482,6 +496,26 @@ func TestContract(t *testing.T) {
 	if e.status.resyncs != 1 {
 		t.Errorf("resyncs %d", e.status.resyncs)
 	}
+
+	// replay, close and delete: stubs until group 1's PRs 2 and 3.
+	rp, err := e.c.ReplayEventWithResponse(ctx, "gh-1", session(gus))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "replayEvent", rp.HTTPResponse, rp.Body, http.StatusNotImplemented, CodeNotImplemented)
+	sh.check("replayEvent", rp.HTTPResponse, rp.Body, http.StatusNotImplemented)
+	cw, err := e.c.CloseWorkItemWithResponse(ctx, workItemID, apiclient.CloseWorkItemRequest{Reason: apiclient.CloseWorkItemRequestReasonDone}, session(gus))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "closeWorkItem", cw.HTTPResponse, cw.Body, http.StatusNotImplemented, CodeNotImplemented)
+	sh.check("closeWorkItem", cw.HTTPResponse, cw.Body, http.StatusNotImplemented)
+	dw, err := e.c.DeleteWorkItemWithResponse(ctx, workItemID, &apiclient.DeleteWorkItemParams{}, bearer(cliToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "deleteWorkItem", dw.HTTPResponse, dw.Body, http.StatusNotImplemented, CodeNotImplemented)
+	sh.check("deleteWorkItem", dw.HTTPResponse, dw.Body, http.StatusNotImplemented)
 
 	// enrollments: stubs until P1 phase 6, so an admin gets a 501 problem.
 	ce, err := e.c.CreateEnrollmentWithResponse(ctx, apiclient.EnrollmentRequest{Pool: "local", Owner: "gus", Name: "mac2"}, session(gus))

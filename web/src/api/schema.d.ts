@@ -393,6 +393,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/runs/{id}/environment-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The run's name (`run_…`). */
+                id: components["parameters"]["RunID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Download a run's environment log
+         * @description The workspace's environment log as the agent uploaded it: the TaskSpec environment's
+         *     scripts' stdout and stderr, redacted, as plain text. `404` when none was uploaded.
+         */
+        get: operations["getEnvironmentLog"];
+        /**
+         * Upload a run's environment log
+         * @description The workspace's environment log as plain text (redacted and capped by the agent), at
+         *     most 20 MB. Uploading again replaces it. It is kept with the run, under the
+         *     transcripts' caps and retention. A run token works only for its own run.
+         */
+        put: operations["uploadEnvironmentLog"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tasks/{id}/effects": {
         parameters: {
             query?: never;
@@ -458,7 +488,14 @@ export interface paths {
         get: operations["getWorkItem"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete a work item and everything keyed to it
+         * @description Removes the work item and its tasks, prompts, runs (with their transcripts and
+         *     environment logs), effects, events and debounces from the store. While one of its
+         *     tasks is leased (Leased, Running or Cancelling) it answers `409 task-leased`, unless
+         *     `force=true`, which cancels the active tasks first. Admin only.
+         */
+        delete: operations["deleteWorkItem"];
         options?: never;
         head?: never;
         patch?: never;
@@ -675,6 +712,64 @@ export interface paths {
          *     `factory.command.*` event or an injected event.
          */
         post: operations["postCommand"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/events/{id}/replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The event's id (a provider delivery's, `factory/…` or `inject/…`). */
+                id: components["parameters"]["EventID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replay a stored event through the rules
+         * @description Evaluates the stored event again, with its own id, against the live catalog and its
+         *     work item as it is now, and applies the decisions. A rule that already acted on the
+         *     event dedupes on its idempotency key, so only the rules that act now and didn't then
+         *     change anything. The decisions that differ from the event's earlier ones are recorded
+         *     on the work item with `replay: true` and returned. A rule that already fired for the
+         *     event is never applied again, whatever changed since (its rails, its actions). When the
+         *     event was applied to its work item but none of its earlier decisions remain there (aged
+         *     out of the bounded history), the replay can't tell what already acted and answers
+         *     `409 replay-history-gone`. A UI session must belong to the `maintainers` Group; the CLI
+         *     token is a full admin.
+         */
+        post: operations["replayEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workitems/{id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The work item's name (`wi_…`). */
+                id: components["parameters"]["WorkItemID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close a work item
+         * @description Sets `status.closed`, cancels the work item's active tasks (as the cancel command does)
+         *     and records a decision. The rules then evaluate nothing for the item: its events are
+         *     still stored, and their decisions say it is closed. Closing a closed item updates its
+         *     reason and note. Admin only.
+         */
+        post: operations["closeWorkItem"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1086,6 +1181,12 @@ export interface components {
             /** Format: int64 */
             bytes: number;
         };
+        /** @description Where the environment log was stored. */
+        EnvironmentLogUpload: {
+            environmentLogRef: string;
+            /** Format: int64 */
+            bytes: number;
+        };
         /** @description One effect. The dispatcher maps the catalog's inline effect fields to `args`. */
         EffectRequest: {
             op: components["schemas"]["EffectOp"];
@@ -1259,6 +1360,12 @@ export interface components {
              */
             status: "loaded" | "loading" | "error";
             errors?: components["schemas"]["CatalogError"][];
+            /**
+             * @description The live catalog's warnings, and the missing App installations (code
+             *     `app-not-installed`): an identity's App that isn't installed on a repo a TaskSpec or
+             *     RuleSet can touch.
+             */
+            warnings?: components["schemas"]["CatalogError"][];
             objects: components["schemas"]["CatalogObjectRef"][];
         };
         /** @description One catalog load error. */
@@ -1370,6 +1477,28 @@ export interface components {
         CommandArgs: {
             harness?: components["schemas"]["HarnessRequest"];
             event?: components["schemas"]["Event"];
+        };
+        /** @description A replay's outcome. */
+        ReplayResult: {
+            event: string;
+            /** @description The work item the event was evaluated for; absent when no rule fires for it. */
+            workItem?: string;
+            /** @description The decisions the replay recorded (each with `replay`), none when it changed nothing. */
+            decisions: components["schemas"]["Decision"][];
+        };
+        /** @description Why a work item is closed. */
+        CloseWorkItemRequest: {
+            /** @enum {string} */
+            reason: "done" | "wont-do" | "duplicate";
+            note?: string;
+        };
+        /** @description What deleting a work item removed, by kind. */
+        WorkItemDeleted: {
+            workItem: string;
+            /** @description How many objects of each kind were deleted (Task, Run, Effect, Event, …). */
+            deleted: {
+                [key: string]: number;
+            };
         };
         /** @description The accepted command and the event it became, if any. */
         CommandAccepted: {
@@ -1549,6 +1678,11 @@ export interface components {
             rails?: components["schemas"]["RailVerdict"][];
             actions?: string[];
             reason?: string;
+            /**
+             * @description Replay marks a decision an admin's replay of its event made (replayEvent): only the
+             *     decisions that differ from the event's earlier ones are recorded.
+             */
+            replay?: boolean;
         };
         /** @description Destination is one recipient of a notification. */
         Destination: {
@@ -2203,6 +2337,11 @@ export interface components {
             progress?: components["schemas"]["ProgressEvent"][];
             result?: components["schemas"]["Result"];
             transcriptRef?: string;
+            /**
+             * @description EnvironmentLogRef is set once the agent uploaded the workspace's environment log (the
+             *     TaskSpec environment's scripts' output, redacted).
+             */
+            environmentLogRef?: string;
             usage?: components["schemas"]["Usage"];
         };
         /** @description Scaling bounds an ephemeral pool's size. */
@@ -2366,6 +2505,11 @@ export interface components {
             phase: components["schemas"]["TaskPhase"];
             agent: string | null;
             reason?: string;
+            /**
+             * @description ReasonDetail is a human sentence for a pending task's reason: for git-credential, the
+             *     App identity, the repo and the fix.
+             */
+            reasonDetail?: string;
             attempts?: number;
             /** Format: date-time */
             leaseExpiresAt?: string;
@@ -2438,6 +2582,16 @@ export interface components {
             spec: components["schemas"]["WorkItemSpec"];
             status?: components["schemas"]["WorkItemStatus"];
         };
+        /** @description WorkItemClosed records why and when an admin closed a work item. */
+        WorkItemClosed: {
+            /** @enum {string} */
+            reason: "done" | "wont-do" | "duplicate";
+            note?: string;
+            /** Format: date-time */
+            at: string;
+            /** @description By is the admin's actor id (provider-instance:login, or cli). */
+            by?: string;
+        };
         /** @description WorkItemSpec is the spec of a WorkItem. */
         WorkItemSpec: {
             links?: components["schemas"]["Link"][];
@@ -2455,6 +2609,7 @@ export interface components {
             /** @description Decisions are bounded to the newest MaxDecisions. */
             decisions?: components["schemas"]["Decision"][];
             reporter?: components["schemas"]["Actor"];
+            closed?: components["schemas"]["WorkItemClosed"];
         };
         /** @description Workspace says what the agent checks out. */
         Workspace: {
@@ -2578,6 +2733,8 @@ export interface components {
         RunID: string;
         /** @description The work item's name (`wi_…`). */
         WorkItemID: string;
+        /** @description The event's id (a provider delivery's, `factory/…` or `inject/…`). */
+        EventID: string;
         /** @description The `nextCursor` of the previous page. Opaque. */
         Cursor: string;
         /** @description The page size. */
@@ -3130,6 +3287,66 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    getEnvironmentLog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The run's name (`run_…`). */
+                id: components["parameters"]["RunID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The environment log. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    uploadEnvironmentLog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The run's name (`run_…`). */
+                id: components["parameters"]["RunID"];
+            };
+            cookie?: never;
+        };
+        /** @description The environment log. */
+        requestBody: {
+            content: {
+                "text/plain": string;
+            };
+        };
+        responses: {
+            /** @description Stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnvironmentLogUpload"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            413: components["responses"]["PayloadTooLarge"];
+            default: components["responses"]["Error"];
+        };
+    };
     createEffect: {
         parameters: {
             query?: never;
@@ -3217,6 +3434,37 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteWorkItem: {
+        parameters: {
+            query?: {
+                /** @description Cancel the active tasks and delete even while one is leased. */
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The work item's name (`wi_…`). */
+                id: components["parameters"]["WorkItemID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What was deleted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkItemDeleted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             default: components["responses"]["Error"];
         };
     };
@@ -3485,6 +3733,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CommandAccepted"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            default: components["responses"]["Error"];
+        };
+    };
+    replayEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The event's id (a provider delivery's, `factory/…` or `inject/…`). */
+                id: components["parameters"]["EventID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The replay's new decisions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplayResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            503: components["responses"]["ServiceUnavailable"];
+            default: components["responses"]["Error"];
+        };
+    };
+    closeWorkItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The work item's name (`wi_…`). */
+                id: components["parameters"]["WorkItemID"];
+            };
+            cookie?: never;
+        };
+        /** @description Why it is closed. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloseWorkItemRequest"];
+            };
+        };
+        responses: {
+            /** @description The closed work item. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkItem"];
                 };
             };
             400: components["responses"]["BadRequest"];

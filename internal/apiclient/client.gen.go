@@ -162,6 +162,27 @@ func (e CatalogSummaryStatus) Valid() bool {
 	}
 }
 
+// Defines values for CloseWorkItemRequestReason.
+const (
+	CloseWorkItemRequestReasonDone      CloseWorkItemRequestReason = "done"
+	CloseWorkItemRequestReasonDuplicate CloseWorkItemRequestReason = "duplicate"
+	CloseWorkItemRequestReasonWontDo    CloseWorkItemRequestReason = "wont-do"
+)
+
+// Valid indicates whether the value is a known member of the CloseWorkItemRequestReason enum.
+func (e CloseWorkItemRequestReason) Valid() bool {
+	switch e {
+	case CloseWorkItemRequestReasonDone:
+		return true
+	case CloseWorkItemRequestReasonDuplicate:
+		return true
+	case CloseWorkItemRequestReasonWontDo:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CommandType.
 const (
 	CommandTypeCancel        CommandType = "cancel"
@@ -462,6 +483,11 @@ type CatalogSummary struct {
 
 	// Status `error` keeps serving the last good catalog.
 	Status CatalogSummaryStatus `json:"status"`
+
+	// Warnings The live catalog's warnings, and the missing App installations (code
+	// `app-not-installed`): an identity's App that isn't installed on a repo a TaskSpec or
+	// RuleSet can touch.
+	Warnings []CatalogError `json:"warnings,omitempty"`
 }
 
 // CatalogSummaryStatus `error` keeps serving the last good catalog.
@@ -469,6 +495,15 @@ type CatalogSummaryStatus string
 
 // ChannelRef ChannelRef is a channel on a provider.
 type ChannelRef = v1alpha1.ChannelRef
+
+// CloseWorkItemRequest Why a work item is closed.
+type CloseWorkItemRequest struct {
+	Note   *string                    `json:"note,omitempty"`
+	Reason CloseWorkItemRequestReason `json:"reason"`
+}
+
+// CloseWorkItemRequestReason defines model for CloseWorkItemRequest.Reason.
+type CloseWorkItemRequestReason string
 
 // Command An operator command (api-server.md §Commands).
 type Command struct {
@@ -662,6 +697,12 @@ type EnrollmentRequest struct {
 
 // Environment Environment is what a task's workspace brings up before the harness runs (P1 §4): plain commands run as root inside the task's VM workspace, which has its own Docker.
 type Environment = v1alpha1.Environment
+
+// EnvironmentLogUpload Where the environment log was stored.
+type EnvironmentLogUpload struct {
+	Bytes             int64  `json:"bytes"`
+	EnvironmentLogRef string `json:"environmentLogRef"`
+}
 
 // Evaluation What the rule engine decided for an event (internal/rules Evaluation).
 type Evaluation struct {
@@ -1061,6 +1102,16 @@ type RegisterAgentRequest struct {
 	Pool string `json:"pool"`
 }
 
+// ReplayResult A replay's outcome.
+type ReplayResult struct {
+	// Decisions The decisions the replay recorded (each with `replay`), none when it changed nothing.
+	Decisions []Decision `json:"decisions"`
+	Event     string     `json:"event"`
+
+	// WorkItem The work item the event was evaluated for; absent when no rule fires for it.
+	WorkItem *string `json:"workItem,omitempty"`
+}
+
 // RepoMount RepoMount is one repo in the workspace.
 type RepoMount = v1alpha1.RepoMount
 
@@ -1237,6 +1288,16 @@ type Webhook = v1alpha1.Webhook
 // WorkItem WorkItem groups the provider objects that are about one piece of work.
 type WorkItem = v1alpha1.WorkItem
 
+// WorkItemClosed WorkItemClosed records why and when an admin closed a work item.
+type WorkItemClosed = v1alpha1.WorkItemClosed
+
+// WorkItemDeleted What deleting a work item removed, by kind.
+type WorkItemDeleted struct {
+	// Deleted How many objects of each kind were deleted (Task, Run, Effect, Event, …).
+	Deleted  map[string]int `json:"deleted"`
+	WorkItem string         `json:"workItem"`
+}
+
 // WorkItemDetail A work item and its timeline.
 type WorkItemDetail struct {
 	Effects []Effect `json:"effects"`
@@ -1273,6 +1334,9 @@ type Cursor = string
 
 // EnrollmentID defines model for EnrollmentID.
 type EnrollmentID = string
+
+// EventID defines model for EventID.
+type EventID = string
 
 // LabelSelectorParam defines model for LabelSelectorParam.
 type LabelSelectorParam = string
@@ -1430,6 +1494,9 @@ type ListQueuesParams struct {
 	LabelSelector *LabelSelectorParam `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 }
 
+// UploadEnvironmentLogTextBody defines parameters for UploadEnvironmentLog.
+type UploadEnvironmentLogTextBody = string
+
 // StreamEventsParams defines parameters for StreamEvents.
 type StreamEventsParams struct {
 	// Topics Comma-separated topics: `runs/<id>`, `workitems`, `workitems/<id>`, `tasks`, `agents`.
@@ -1463,6 +1530,12 @@ type ListWorkItemsParams struct {
 	LabelSelector *LabelSelectorParam `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 }
 
+// DeleteWorkItemParams defines parameters for DeleteWorkItem.
+type DeleteWorkItemParams struct {
+	// Force Cancel the active tasks and delete even while one is leased.
+	Force *bool `form:"force,omitempty" json:"force,omitempty"`
+}
+
 // RegisterAgentJSONRequestBody defines body for RegisterAgent for application/json ContentType.
 type RegisterAgentJSONRequestBody = RegisterAgentRequest
 
@@ -1487,8 +1560,14 @@ type CompleteLeaseJSONRequestBody = CompleteRequest
 // HeartbeatLeaseJSONRequestBody defines body for HeartbeatLease for application/json ContentType.
 type HeartbeatLeaseJSONRequestBody = HeartbeatRequest
 
+// UploadEnvironmentLogTextRequestBody defines body for UploadEnvironmentLog for text/plain ContentType.
+type UploadEnvironmentLogTextRequestBody = UploadEnvironmentLogTextBody
+
 // CreateEffectJSONRequestBody defines body for CreateEffect for application/json ContentType.
 type CreateEffectJSONRequestBody = EffectRequest
+
+// CloseWorkItemJSONRequestBody defines body for CloseWorkItem for application/json ContentType.
+type CloseWorkItemJSONRequestBody = CloseWorkItemRequest
 
 // Getter for additional properties for ActionIntent. Returns the specified
 // element and whether it was found
@@ -1965,6 +2044,9 @@ type ClientInterface interface {
 	// DeleteEnrollment request
 	DeleteEnrollment(ctx context.Context, id EnrollmentID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ReplayEvent request
+	ReplayEvent(ctx context.Context, id EventID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// AbandonLeaseWithBody request with any body
 	AbandonLeaseWithBody(ctx context.Context, id LeaseID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1991,6 +2073,14 @@ type ClientInterface interface {
 
 	// GetRun request
 	GetRun(ctx context.Context, id RunID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetEnvironmentLog request
+	GetEnvironmentLog(ctx context.Context, id RunID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UploadEnvironmentLogWithBody request with any body
+	UploadEnvironmentLogWithBody(ctx context.Context, id RunID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	UploadEnvironmentLogWithTextBody(ctx context.Context, id RunID, body UploadEnvironmentLogTextRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetTranscript request
 	GetTranscript(ctx context.Context, id RunID, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2024,8 +2114,16 @@ type ClientInterface interface {
 	// ListWorkItems request
 	ListWorkItems(ctx context.Context, params *ListWorkItemsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// DeleteWorkItem request
+	DeleteWorkItem(ctx context.Context, id WorkItemID, params *DeleteWorkItemParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetWorkItem request
 	GetWorkItem(ctx context.Context, id WorkItemID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CloseWorkItemWithBody request with any body
+	CloseWorkItemWithBody(ctx context.Context, id WorkItemID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	CloseWorkItem(ctx context.Context, id WorkItemID, body CloseWorkItemJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) ListAgents(ctx context.Context, params *ListAgentsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2316,6 +2414,18 @@ func (c *Client) DeleteEnrollment(ctx context.Context, id EnrollmentID, reqEdito
 	return c.Client.Do(req)
 }
 
+func (c *Client) ReplayEvent(ctx context.Context, id EventID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReplayEventRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) AbandonLeaseWithBody(ctx context.Context, id LeaseID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAbandonLeaseRequestWithBody(c.Server, id, contentType, body)
 	if err != nil {
@@ -2426,6 +2536,42 @@ func (c *Client) ListQueues(ctx context.Context, params *ListQueuesParams, reqEd
 
 func (c *Client) GetRun(ctx context.Context, id RunID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetRunRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetEnvironmentLog(ctx context.Context, id RunID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetEnvironmentLogRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UploadEnvironmentLogWithBody(ctx context.Context, id RunID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUploadEnvironmentLogRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) UploadEnvironmentLogWithTextBody(ctx context.Context, id RunID, body UploadEnvironmentLogTextRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUploadEnvironmentLogRequestWithTextBody(c.Server, id, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2568,8 +2714,44 @@ func (c *Client) ListWorkItems(ctx context.Context, params *ListWorkItemsParams,
 	return c.Client.Do(req)
 }
 
+func (c *Client) DeleteWorkItem(ctx context.Context, id WorkItemID, params *DeleteWorkItemParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteWorkItemRequest(c.Server, id, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) GetWorkItem(ctx context.Context, id WorkItemID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetWorkItemRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CloseWorkItemWithBody(ctx context.Context, id WorkItemID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCloseWorkItemRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) CloseWorkItem(ctx context.Context, id WorkItemID, body CloseWorkItemJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCloseWorkItemRequest(c.Server, id, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3398,6 +3580,40 @@ func NewDeleteEnrollmentRequest(server string, id EnrollmentID) (*http.Request, 
 	return req, nil
 }
 
+// NewReplayEventRequest generates requests for ReplayEvent
+func NewReplayEventRequest(server string, id EventID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/events/%s/replay", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewAbandonLeaseRequest calls the generic AbandonLease builder with application/json body
 func NewAbandonLeaseRequest(server string, id LeaseID, body AbandonLeaseJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -3803,6 +4019,87 @@ func NewGetRunRequest(server string, id RunID) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewGetEnvironmentLogRequest generates requests for GetEnvironmentLog
+func NewGetEnvironmentLogRequest(server string, id RunID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/runs/%s/environment-log", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUploadEnvironmentLogRequestWithTextBody calls the generic UploadEnvironmentLog builder with text/plain body
+func NewUploadEnvironmentLogRequestWithTextBody(server string, id RunID, body UploadEnvironmentLogTextRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	if stringer, ok := interface{}(body).(fmt.Stringer); ok {
+		bodyReader = strings.NewReader(stringer.String())
+	} else {
+		bodyReader = strings.NewReader(fmt.Sprint(body))
+	}
+	return NewUploadEnvironmentLogRequestWithBody(server, id, "text/plain", bodyReader)
+}
+
+// NewUploadEnvironmentLogRequestWithBody generates requests for UploadEnvironmentLog with any type of body
+func NewUploadEnvironmentLogRequestWithBody(server string, id RunID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/runs/%s/environment-log", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -4292,6 +4589,67 @@ func NewListWorkItemsRequest(server string, params *ListWorkItemsParams) (*http.
 	return req, nil
 }
 
+// NewDeleteWorkItemRequest generates requests for DeleteWorkItem
+func NewDeleteWorkItemRequest(server string, id WorkItemID, params *DeleteWorkItemParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/workitems/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Force != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "force", *params.Force, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetWorkItemRequest generates requests for GetWorkItem
 func NewGetWorkItemRequest(server string, id WorkItemID) (*http.Request, error) {
 	var err error
@@ -4322,6 +4680,53 @@ func NewGetWorkItemRequest(server string, id WorkItemID) (*http.Request, error) 
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewCloseWorkItemRequest calls the generic CloseWorkItem builder with application/json body
+func NewCloseWorkItemRequest(server string, id WorkItemID, body CloseWorkItemJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCloseWorkItemRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewCloseWorkItemRequestWithBody generates requests for CloseWorkItem with any type of body
+func NewCloseWorkItemRequestWithBody(server string, id WorkItemID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/workitems/%s/close", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -4436,6 +4841,9 @@ type ClientWithResponsesInterface interface {
 	// DeleteEnrollmentWithResponse request
 	DeleteEnrollmentWithResponse(ctx context.Context, id EnrollmentID, reqEditors ...RequestEditorFn) (*DeleteEnrollmentResponse, error)
 
+	// ReplayEventWithResponse request
+	ReplayEventWithResponse(ctx context.Context, id EventID, reqEditors ...RequestEditorFn) (*ReplayEventResponse, error)
+
 	// AbandonLeaseWithBodyWithResponse request with any body
 	AbandonLeaseWithBodyWithResponse(ctx context.Context, id LeaseID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AbandonLeaseResponse, error)
 
@@ -4462,6 +4870,14 @@ type ClientWithResponsesInterface interface {
 
 	// GetRunWithResponse request
 	GetRunWithResponse(ctx context.Context, id RunID, reqEditors ...RequestEditorFn) (*GetRunResponse, error)
+
+	// GetEnvironmentLogWithResponse request
+	GetEnvironmentLogWithResponse(ctx context.Context, id RunID, reqEditors ...RequestEditorFn) (*GetEnvironmentLogResponse, error)
+
+	// UploadEnvironmentLogWithBodyWithResponse request with any body
+	UploadEnvironmentLogWithBodyWithResponse(ctx context.Context, id RunID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadEnvironmentLogResponse, error)
+
+	UploadEnvironmentLogWithTextBodyWithResponse(ctx context.Context, id RunID, body UploadEnvironmentLogTextRequestBody, reqEditors ...RequestEditorFn) (*UploadEnvironmentLogResponse, error)
 
 	// GetTranscriptWithResponse request
 	GetTranscriptWithResponse(ctx context.Context, id RunID, reqEditors ...RequestEditorFn) (*GetTranscriptResponse, error)
@@ -4495,8 +4911,16 @@ type ClientWithResponsesInterface interface {
 	// ListWorkItemsWithResponse request
 	ListWorkItemsWithResponse(ctx context.Context, params *ListWorkItemsParams, reqEditors ...RequestEditorFn) (*ListWorkItemsResponse, error)
 
+	// DeleteWorkItemWithResponse request
+	DeleteWorkItemWithResponse(ctx context.Context, id WorkItemID, params *DeleteWorkItemParams, reqEditors ...RequestEditorFn) (*DeleteWorkItemResponse, error)
+
 	// GetWorkItemWithResponse request
 	GetWorkItemWithResponse(ctx context.Context, id WorkItemID, reqEditors ...RequestEditorFn) (*GetWorkItemResponse, error)
+
+	// CloseWorkItemWithBodyWithResponse request with any body
+	CloseWorkItemWithBodyWithResponse(ctx context.Context, id WorkItemID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CloseWorkItemResponse, error)
+
+	CloseWorkItemWithResponse(ctx context.Context, id WorkItemID, body CloseWorkItemJSONRequestBody, reqEditors ...RequestEditorFn) (*CloseWorkItemResponse, error)
 }
 
 type ListAgentsResponse struct {
@@ -5125,6 +5549,42 @@ func (r DeleteEnrollmentResponse) ContentType() string {
 	return ""
 }
 
+type ReplayEventResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *ReplayResult
+	ApplicationproblemJSON401     *Unauthorized
+	ApplicationproblemJSON403     *Forbidden
+	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSON409     *Conflict
+	ApplicationproblemJSON503     *ServiceUnavailable
+	ApplicationproblemJSONDefault *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r ReplayEventResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReplayEventResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReplayEventResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type AbandonLeaseResponse struct {
 	Body                          []byte
 	HTTPResponse                  *http.Response
@@ -5357,6 +5817,74 @@ func (r GetRunResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetRunResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetEnvironmentLogResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	ApplicationproblemJSON401     *Unauthorized
+	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSONDefault *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r GetEnvironmentLogResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetEnvironmentLogResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetEnvironmentLogResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UploadEnvironmentLogResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *EnvironmentLogUpload
+	ApplicationproblemJSON400     *BadRequest
+	ApplicationproblemJSON401     *Unauthorized
+	ApplicationproblemJSON403     *Forbidden
+	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSON413     *PayloadTooLarge
+	ApplicationproblemJSONDefault *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r UploadEnvironmentLogResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UploadEnvironmentLogResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UploadEnvironmentLogResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5702,6 +6230,41 @@ func (r ListWorkItemsResponse) ContentType() string {
 	return ""
 }
 
+type DeleteWorkItemResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *WorkItemDeleted
+	ApplicationproblemJSON401     *Unauthorized
+	ApplicationproblemJSON403     *Forbidden
+	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSON409     *Conflict
+	ApplicationproblemJSONDefault *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteWorkItemResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteWorkItemResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteWorkItemResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetWorkItemResponse struct {
 	Body                          []byte
 	HTTPResponse                  *http.Response
@@ -5729,6 +6292,41 @@ func (r GetWorkItemResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetWorkItemResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CloseWorkItemResponse struct {
+	Body                          []byte
+	HTTPResponse                  *http.Response
+	JSON200                       *WorkItem
+	ApplicationproblemJSON400     *BadRequest
+	ApplicationproblemJSON401     *Unauthorized
+	ApplicationproblemJSON403     *Forbidden
+	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSONDefault *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r CloseWorkItemResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CloseWorkItemResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CloseWorkItemResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5946,6 +6544,15 @@ func (c *ClientWithResponses) DeleteEnrollmentWithResponse(ctx context.Context, 
 	return ParseDeleteEnrollmentResponse(rsp)
 }
 
+// ReplayEventWithResponse request returning *ReplayEventResponse
+func (c *ClientWithResponses) ReplayEventWithResponse(ctx context.Context, id EventID, reqEditors ...RequestEditorFn) (*ReplayEventResponse, error) {
+	rsp, err := c.ReplayEvent(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReplayEventResponse(rsp)
+}
+
 // AbandonLeaseWithBodyWithResponse request with arbitrary body returning *AbandonLeaseResponse
 func (c *ClientWithResponses) AbandonLeaseWithBodyWithResponse(ctx context.Context, id LeaseID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AbandonLeaseResponse, error) {
 	rsp, err := c.AbandonLeaseWithBody(ctx, id, contentType, body, reqEditors...)
@@ -6031,6 +6638,32 @@ func (c *ClientWithResponses) GetRunWithResponse(ctx context.Context, id RunID, 
 		return nil, err
 	}
 	return ParseGetRunResponse(rsp)
+}
+
+// GetEnvironmentLogWithResponse request returning *GetEnvironmentLogResponse
+func (c *ClientWithResponses) GetEnvironmentLogWithResponse(ctx context.Context, id RunID, reqEditors ...RequestEditorFn) (*GetEnvironmentLogResponse, error) {
+	rsp, err := c.GetEnvironmentLog(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetEnvironmentLogResponse(rsp)
+}
+
+// UploadEnvironmentLogWithBodyWithResponse request with arbitrary body returning *UploadEnvironmentLogResponse
+func (c *ClientWithResponses) UploadEnvironmentLogWithBodyWithResponse(ctx context.Context, id RunID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadEnvironmentLogResponse, error) {
+	rsp, err := c.UploadEnvironmentLogWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUploadEnvironmentLogResponse(rsp)
+}
+
+func (c *ClientWithResponses) UploadEnvironmentLogWithTextBodyWithResponse(ctx context.Context, id RunID, body UploadEnvironmentLogTextRequestBody, reqEditors ...RequestEditorFn) (*UploadEnvironmentLogResponse, error) {
+	rsp, err := c.UploadEnvironmentLogWithTextBody(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUploadEnvironmentLogResponse(rsp)
 }
 
 // GetTranscriptWithResponse request returning *GetTranscriptResponse
@@ -6131,6 +6764,15 @@ func (c *ClientWithResponses) ListWorkItemsWithResponse(ctx context.Context, par
 	return ParseListWorkItemsResponse(rsp)
 }
 
+// DeleteWorkItemWithResponse request returning *DeleteWorkItemResponse
+func (c *ClientWithResponses) DeleteWorkItemWithResponse(ctx context.Context, id WorkItemID, params *DeleteWorkItemParams, reqEditors ...RequestEditorFn) (*DeleteWorkItemResponse, error) {
+	rsp, err := c.DeleteWorkItem(ctx, id, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteWorkItemResponse(rsp)
+}
+
 // GetWorkItemWithResponse request returning *GetWorkItemResponse
 func (c *ClientWithResponses) GetWorkItemWithResponse(ctx context.Context, id WorkItemID, reqEditors ...RequestEditorFn) (*GetWorkItemResponse, error) {
 	rsp, err := c.GetWorkItem(ctx, id, reqEditors...)
@@ -6138,6 +6780,23 @@ func (c *ClientWithResponses) GetWorkItemWithResponse(ctx context.Context, id Wo
 		return nil, err
 	}
 	return ParseGetWorkItemResponse(rsp)
+}
+
+// CloseWorkItemWithBodyWithResponse request with arbitrary body returning *CloseWorkItemResponse
+func (c *ClientWithResponses) CloseWorkItemWithBodyWithResponse(ctx context.Context, id WorkItemID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CloseWorkItemResponse, error) {
+	rsp, err := c.CloseWorkItemWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCloseWorkItemResponse(rsp)
+}
+
+func (c *ClientWithResponses) CloseWorkItemWithResponse(ctx context.Context, id WorkItemID, body CloseWorkItemJSONRequestBody, reqEditors ...RequestEditorFn) (*CloseWorkItemResponse, error) {
+	rsp, err := c.CloseWorkItem(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCloseWorkItemResponse(rsp)
 }
 
 // ParseListAgentsResponse parses an HTTP response from a ListAgentsWithResponse call
@@ -7026,6 +7685,74 @@ func ParseDeleteEnrollmentResponse(rsp *http.Response) (*DeleteEnrollmentRespons
 	return response, nil
 }
 
+// ParseReplayEventResponse parses an HTTP response from a ReplayEventWithResponse call
+func ParseReplayEventResponse(rsp *http.Response) (*ReplayEventResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReplayEventResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ReplayResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseAbandonLeaseResponse parses an HTTP response from a AbandonLeaseWithResponse call
 func ParseAbandonLeaseResponse(rsp *http.Response) (*AbandonLeaseResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7391,6 +8118,114 @@ func ParseGetRunResponse(rsp *http.Response) (*GetRunResponse, error) {
 			return nil, err
 		}
 		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetEnvironmentLogResponse parses an HTTP response from a GetEnvironmentLogWithResponse call
+func ParseGetEnvironmentLogResponse(rsp *http.Response) (*GetEnvironmentLogResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetEnvironmentLogResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUploadEnvironmentLogResponse parses an HTTP response from a UploadEnvironmentLogWithResponse call
+func ParseUploadEnvironmentLogResponse(rsp *http.Response) (*UploadEnvironmentLogResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UploadEnvironmentLogResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EnvironmentLogUpload
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest PayloadTooLarge
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON413 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -7937,6 +8772,67 @@ func ParseListWorkItemsResponse(rsp *http.Response) (*ListWorkItemsResponse, err
 	return response, nil
 }
 
+// ParseDeleteWorkItemResponse parses an HTTP response from a DeleteWorkItemWithResponse call
+func ParseDeleteWorkItemResponse(rsp *http.Response) (*DeleteWorkItemResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteWorkItemResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkItemDeleted
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetWorkItemResponse parses an HTTP response from a GetWorkItemWithResponse call
 func ParseGetWorkItemResponse(rsp *http.Response) (*GetWorkItemResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7964,6 +8860,67 @@ func ParseGetWorkItemResponse(rsp *http.Response) (*GetWorkItemResponse, error) 
 			return nil, err
 		}
 		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCloseWorkItemResponse parses an HTTP response from a CloseWorkItemWithResponse call
+func ParseCloseWorkItemResponse(rsp *http.Response) (*CloseWorkItemResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CloseWorkItemResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkItem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest NotFound

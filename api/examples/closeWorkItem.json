@@ -1,0 +1,65 @@
+{
+  "kind": "WorkItem",
+  "metadata": {
+    "name": "wi_01JAB3J9T1D2E3F4G5H6J7K8LM",
+    "resourceVersion": "512",
+    "createdAt": "2026-10-16T09:29:59Z"
+  },
+  "spec": {
+    "links": [
+      {
+        "provider": "github-public",
+        "ref": "compliance-framework/docs#42",
+        "kind": "issue",
+        "primary": true
+      }
+    ]
+  },
+  "status": {
+    "state": {
+      "triage": "running"
+    },
+    "counters": {
+      "triage": 1
+    },
+    "decisions": [
+      {
+        "at": "2026-10-16T09:30:00Z",
+        "event": "github-public/gh-7f3c2a10-8b1d-11ef-9a6e-0242ac120002",
+        "ruleSet": "docs",
+        "rule": "triage-outside-issues",
+        "fired": true,
+        "inputs": {
+          "actor.tier": "contributor"
+        },
+        "rails": [
+          {
+            "rail": "run-cap",
+            "verdict": "allowed"
+          }
+        ],
+        "actions": [
+          "dispatch",
+          "set"
+        ]
+      },
+      {
+        "at": "2026-10-16T11:05:00Z",
+        "reason": "closed as done by github-public:gus: fixed in docs#43",
+        "actions": [
+          "close"
+        ]
+      }
+    ],
+    "reporter": {
+      "id": "github-public:octocat",
+      "tier": "contributor"
+    },
+    "closed": {
+      "reason": "done",
+      "note": "fixed in docs#43",
+      "at": "2026-10-16T11:05:00Z",
+      "by": "github-public:gus"
+    }
+  }
+}
