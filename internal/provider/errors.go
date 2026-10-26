@@ -51,3 +51,37 @@ func (e *RetryableError) Unwrap() error { return e.Err }
 
 // Is makes errors.Is(err, ErrRetryable) true.
 func (e *RetryableError) Is(target error) bool { return target == ErrRetryable }
+
+// NotInstalledError is a credential an identity's App can't mint because the App isn't
+// installed on the repo. errors.Is(err, ErrNotFound) is true.
+type NotInstalledError struct {
+	// Identity is the factory identity (author, reviewer); App is its App's slug, when known.
+	Identity, App string
+	// Repo is "owner/name".
+	Repo string
+	Err  error
+}
+
+func (e *NotInstalledError) Error() string {
+	return NotInstalledMessage(e.Identity, e.App, e.Repo) + ": " + e.Err.Error()
+}
+
+// Unwrap returns the underlying error.
+func (e *NotInstalledError) Unwrap() error { return e.Err }
+
+// Is makes errors.Is(err, ErrNotFound) true.
+func (e *NotInstalledError) Is(target error) bool { return target == ErrNotFound }
+
+// appSuffix is " (<slug>)", or "" when the slug is unknown.
+func appSuffix(slug string) string {
+	if slug == "" {
+		return ""
+	}
+	return " (" + slug + ")"
+}
+
+// NotInstalledMessage is the human sentence for an App that isn't installed on a repo: "the
+// reviewer App (ccf-factory-reviewer) isn't installed on owner/name".
+func NotInstalledMessage(identity, app, repo string) string {
+	return fmt.Sprintf("the %s App%s isn't installed on %s", identity, appSuffix(app), repo)
+}

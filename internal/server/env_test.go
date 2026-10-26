@@ -193,12 +193,19 @@ type env struct {
 	status *statusSource
 	sched  *scheduler.Scheduler
 	rule   *controllers.RuleController
-	srv    *Server
-	ts     *httptest.Server
-	github *httptest.Server
-	c      *apiclient.ClientWithResponses
-	hc     *http.Client
+	// installs are the App installation gaps getCatalog reports.
+	installs *staticGaps
+	srv      *Server
+	ts       *httptest.Server
+	github   *httptest.Server
+	c        *apiclient.ClientWithResponses
+	hc       *http.Client
 }
+
+// staticGaps is a fixed InstallationReporter.
+type staticGaps struct{ gaps []controllers.InstallationGap }
+
+func (s *staticGaps) Gaps() []controllers.InstallationGap { return s.gaps }
 
 type envOption func(*Options)
 
@@ -269,8 +276,9 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 	for _, f := range opts {
 		f(&o)
 	}
+	installs := &staticGaps{}
 	srv, err := New(Deps{
-		Store: st, Transcripts: st, Catalog: cp, CatalogStatus: status, Resync: status,
+		Store: st, Transcripts: st, Catalog: cp, CatalogStatus: status, Resync: status, Installations: installs,
 		Conns: conns, Sink: &sink{}, Scheduler: sched, Factory: factory,
 		KillSwitches: controllers.StoreKillSwitches{Store: st}, Evaluator: rule, Replayer: rule, Auth: authn,
 	}, o)
@@ -289,7 +297,7 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 	}
 	e := &env{
 		t: t, ctx: context.Background(), clk: clk, st: st, cat: cat, gh: gh, status: status,
-		sched: sched, rule: rule, srv: srv, ts: ts, github: github, c: c, hc: hc,
+		sched: sched, rule: rule, srv: srv, ts: ts, github: github, c: c, hc: hc, installs: installs,
 	}
 	e.sink = srv.d.Sink.(*sink)
 	return e

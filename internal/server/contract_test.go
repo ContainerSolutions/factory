@@ -18,6 +18,7 @@ import (
 	"github.com/compliance-framework/factory/api"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/compliance-framework/factory/internal/catalog"
 	"github.com/compliance-framework/factory/internal/controllers"
 	"github.com/compliance-framework/factory/internal/provider"
 	"github.com/compliance-framework/factory/internal/store"
@@ -392,6 +393,10 @@ func TestContract(t *testing.T) {
 	if p := lpv.JSON200.Items; len(p) != 1 || p[0].Health.Status != apiclient.ProviderHealthStatusOk {
 		t.Errorf("providers %+v", p)
 	}
+	e.status.mu.Lock()
+	e.status.st.Warnings = []catalog.Error{{Severity: catalog.SeverityWarning, Code: "unused-template", File: "templates/x.yaml", Line: 3, Message: "template x is unused"}}
+	e.status.mu.Unlock()
+	e.installs.gaps = []controllers.InstallationGap{{Provider: ghProvider, Identity: "reviewer", App: "ccf-factory-reviewer", Repo: "compliance-framework/local-dev"}}
 	gcat, err := e.c.GetCatalogWithResponse(ctx, session(gus))
 	if err != nil {
 		t.Fatal(err)
@@ -399,6 +404,10 @@ func TestContract(t *testing.T) {
 	sh.check("getCatalog", gcat.HTTPResponse, gcat.Body, http.StatusOK)
 	if c := gcat.JSON200; c.Status != apiclient.CatalogSummaryStatusLoaded || c.Sha != e.cat.SHA || c.Ref != "main" || len(c.Objects) == 0 {
 		t.Errorf("catalog %+v", c)
+	}
+	if w := gcat.JSON200.Warnings; len(w) != 2 || *w[0].Code != "unused-template" || *w[0].Line != 3 || *w[1].Code != CodeAppNotInstalled ||
+		w[1].Message != "the reviewer App (ccf-factory-reviewer) isn't installed on compliance-framework/local-dev (provider github-public): install it there" {
+		t.Errorf("catalog warnings %s", gcat.Body)
 	}
 	gco, err := e.c.GetCatalogObjectWithResponse(ctx, apiclient.CatalogKindTaskSpec, "implement", session(gus))
 	if err != nil {

@@ -280,6 +280,8 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	}
 	group.Go(runCtx, "provider", pc.Run)
 	group.Go(runCtx, "provider-health", func(ctx context.Context) error { return followHealth(ctx, cs, pc, log) })
+	installs := controllers.NewInstallationCheck(pc, controllers.InstallationCheckOptions{SkillsBase: cfg.SkillsBase, Logger: log})
+	group.Go(runCtx, "installations", func(ctx context.Context) error { return installs.Follow(ctx, cs) })
 	if err := pc.Recover(ctx, startedAt); err != nil {
 		log.Warn("recovering deliveries failed; continuing", "err", err)
 	}
@@ -351,7 +353,7 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		repo, ref = gitsource.RedactURL(cfg.CatalogRepo), cfg.CatalogRef
 	}
 	srv, err := server.New(server.Deps{
-		Store: st, Transcripts: st, Catalog: cs, CatalogStatus: cs, Resync: cs,
+		Store: st, Transcripts: st, Catalog: cs, CatalogStatus: cs, Resync: cs, Installations: installs,
 		Conns: pc, Sink: pc, Scheduler: sched, Factory: factory,
 		KillSwitches: controllers.StoreKillSwitches{Store: st}, Evaluator: rule, Replayer: rule, Auth: authn, Skills: skills,
 	}, server.Options{

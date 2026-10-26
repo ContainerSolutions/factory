@@ -28,6 +28,8 @@ type Minter interface {
 
 Implemented in GH-S1-T01 as `internal/provider/tokens`; the shape differs from the sketch above, see [§Decisions taken in GH-S1-T01](#decisions-taken-in-gh-s1-t01).
 
+**Installations (group 1).** A mint that fails because the App isn't installed on the repo (the installation lookup's 404, or the token request's 422 when the owner's cached installation doesn't cover it) is a `*provider.NotInstalledError{identity, app slug, repo}` (it matches `provider.ErrNotFound`). The Conn is a `provider.InstallationChecker`: `MissingInstallations(identity, repos)` lists each owner's installation repos (`Minter.InstallationRepos`; no installation on the owner misses all its repos). `factory serve` runs `controllers.InstallationCheck` at start and on every catalog swap over `controllers.InstallationTargets`: per github Provider identity, the literal scope repos of the RuleSets (as the TaskSpecs' identities they dispatch, and as the rule identity for notify and effect rules), and the TaskSpecs' literal workspace repos, literal dispatch targets and skill sources on the git host. Each gap is a WARN and a `getCatalog` warning (`app-not-installed`); a glob scope names no repo, so it isn't checked.
+
 ## Ingress and normalisation
 
 `Conn.Handler()` for `POST /hooks/github-public`:

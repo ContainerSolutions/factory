@@ -57,29 +57,47 @@ func (s *Server) GetCatalog(_ context.Context, _ gen.GetCatalogRequestObject) (g
 		out.Status = gen.CatalogSummaryStatusLoaded
 	}
 	for _, e := range st.Errors {
-		ce := gen.CatalogError{Message: e.Message}
-		if e.Code != "" {
-			c := e.Code
-			ce.Code = &c
-		}
-		if e.File != "" {
-			f := e.File
-			ce.File = &f
-		}
-		if e.Line > 0 {
-			l := e.Line
-			ce.Line = &l
-		}
-		out.Errors = append(out.Errors, ce)
+		out.Errors = append(out.Errors, catalogError(e))
 	}
 	if st.SourceError != "" {
 		c := "source"
 		out.Errors = append(out.Errors, gen.CatalogError{Code: &c, Message: st.SourceError})
 	}
+	for _, w := range st.Warnings {
+		out.Warnings = append(out.Warnings, catalogError(w))
+	}
+	if s.d.Installations != nil {
+		for _, g := range s.d.Installations.Gaps() {
+			c := CodeAppNotInstalled
+			out.Warnings = append(out.Warnings, gen.CatalogError{Code: &c, Message: g.Message()})
+		}
+	}
 	if cat != nil {
 		out.Objects = catalogRefs(cat)
 	}
 	return gen.GetCatalog200JSONResponse(out), nil
+}
+
+// CodeAppNotInstalled is the getCatalog warning of an identity's App that isn't installed on
+// a repo the catalog can touch.
+const CodeAppNotInstalled = "app-not-installed"
+
+// catalogError is a catalog diagnostic as the API shows it.
+func catalogError(e catalog.Error) gen.CatalogError {
+	ce := gen.CatalogError{Message: e.Message}
+	if e.Code != "" {
+		c := e.Code
+		ce.Code = &c
+	}
+	if e.File != "" {
+		f := e.File
+		ce.File = &f
+	}
+	if e.Line > 0 {
+		l := e.Line
+		ce.Line = &l
+	}
+	return ce
 }
 
 // catalogRefs lists every object of the catalog by kind (in ConfigKinds order), then name.
