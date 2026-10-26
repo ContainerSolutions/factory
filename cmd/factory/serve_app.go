@@ -353,7 +353,7 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	srv, err := server.New(server.Deps{
 		Store: st, Transcripts: st, Catalog: cs, CatalogStatus: cs, Resync: cs,
 		Conns: pc, Sink: pc, Scheduler: sched, Factory: factory,
-		KillSwitches: controllers.StoreKillSwitches{Store: st}, Evaluator: rule, Auth: authn, Skills: skills,
+		KillSwitches: controllers.StoreKillSwitches{Store: st}, Evaluator: rule, Replayer: rule, Auth: authn, Skills: skills,
 	}, server.Options{
 		PublicURL: cfg.PublicURL, CatalogRepo: repo, CatalogRef: ref, Ready: ready,
 		Controllers: []*controllers.Controller{

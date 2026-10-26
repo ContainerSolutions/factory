@@ -340,6 +340,11 @@ func TestUIAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantProblem(t, "a reader's command", pc.HTTPResponse, pc.Body, http.StatusForbidden, CodeNotAdmin)
+	rp, err := e.c.ReplayEventWithResponse(ctx, "github-public/gh-1", session(rita))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "a reader's replay", rp.HTTPResponse, rp.Body, http.StatusForbidden, CodeNotAdmin)
 
 	// A maintainer's command from another site is refused; from the same origin it's accepted.
 	res, b := e.do(http.MethodPost, BasePath+"/commands", []byte(`{"type":"resync-catalog"}`), withSession(gus),

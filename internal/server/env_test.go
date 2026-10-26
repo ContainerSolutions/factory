@@ -272,7 +272,7 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 	srv, err := New(Deps{
 		Store: st, Transcripts: st, Catalog: cp, CatalogStatus: status, Resync: status,
 		Conns: conns, Sink: &sink{}, Scheduler: sched, Factory: factory,
-		KillSwitches: controllers.StoreKillSwitches{Store: st}, Evaluator: rule, Auth: authn,
+		KillSwitches: controllers.StoreKillSwitches{Store: st}, Evaluator: rule, Replayer: rule, Auth: authn,
 	}, o)
 	if err != nil {
 		t.Fatal(err)

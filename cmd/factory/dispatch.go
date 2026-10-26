@@ -9,13 +9,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/server"
 )
 
 // envServer is the default --server of factory dispatch.
@@ -65,14 +62,8 @@ func runDispatch(ctx context.Context, args []string, getenv func(string) string,
 		fmt.Fprintln(stderr, "factory dispatch: --event is required")
 		return exitUsage
 	}
-	token := getenv(envCLIToken)
-	if token == "" {
-		fmt.Fprintf(stderr, "factory dispatch: %s is not set\n", envCLIToken)
-		return exitUsage
-	}
-	base, err := url.Parse(*srvURL)
-	if err != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" {
-		fmt.Fprintf(stderr, "factory dispatch: --server %q must be an absolute http(s) URL\n", *srvURL)
+	c := cliClient("factory dispatch", *srvURL, getenv, stderr)
+	if c == nil {
 		return exitUsage
 	}
 	f, err := os.Open(*eventFile)
@@ -96,16 +87,6 @@ func runDispatch(ctx context.Context, args []string, getenv func(string) string,
 		return exitUsage
 	}
 
-	c, err := apiclient.NewClientWithResponses(strings.TrimRight(base.String(), "/")+server.BasePath,
-		apiclient.WithHTTPClient(&http.Client{Timeout: dispatchTimeout}),
-		apiclient.WithRequestEditorFn(func(_ context.Context, r *http.Request) error {
-			r.Header.Set("Authorization", "Bearer "+token)
-			return nil
-		}))
-	if err != nil {
-		fmt.Fprintf(stderr, "factory dispatch: %v\n", err)
-		return exitUsage
-	}
 	res, err := c.PostCommandWithResponse(ctx, apiclient.Command{
 		Type: apiclient.CommandTypeDispatch,
 		Args: &apiclient.CommandArgs{Event: &ev},

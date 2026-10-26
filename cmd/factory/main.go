@@ -21,6 +21,7 @@ var commands = []command{
 	rulesCommand(),
 	serveCommand(),
 	dispatchCommand(),
+	eventsCommand(),
 	stateCommand(),
 }
 

@@ -64,6 +64,11 @@ type Evaluator interface {
 	DryRun(ctx context.Context, ev v1alpha1.Event, workItem string) (rules.Evaluation, error)
 }
 
+// Replayer replays a stored event through the rules (*controllers.RuleController).
+type Replayer interface {
+	Replay(ctx context.Context, event string) (controllers.ReplayResult, error)
+}
+
 // CatalogStatus reports catalog-sync's status (*controllers.CatalogSync).
 type CatalogStatus interface {
 	Status() controllers.CatalogStatus
@@ -96,7 +101,9 @@ type Deps struct {
 	Factory      *controllers.FactoryProvider
 	KillSwitches KillSwitchWriter
 	Evaluator    Evaluator
-	Auth         *auth.Authenticator
+	// Replayer is replayEvent's; optional (none: 503).
+	Replayer Replayer
+	Auth     *auth.Authenticator
 	// Skills resolves a redispatched task's skills (the rule controller's resolver); nil:
 	// controllers.KeepSkills.
 	Skills controllers.SkillResolver
