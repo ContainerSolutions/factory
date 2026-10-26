@@ -1062,11 +1062,14 @@ func TestInitRootBeforeVMs(t *testing.T) {
 // codex: comments, pins, the install lines and the [ -x ] checks. None runs either binary.
 var harnessLineREs = []*regexp.Regexp{
 	regexp.MustCompile(`^#`),
-	regexp.MustCompile(`^(CLAUDE_CODE|CODEX)_(VERSION|SHA256)=[A-Za-z0-9.-]+$`),
-	regexp.MustCompile(`^CODEX_CODE_MODE_HOST_SHA256=[0-9a-f]{64}$`),
+	regexp.MustCompile(`^(CLAUDE_CODE|CODEX)_VERSION=[A-Za-z0-9.-]+$`),
+	regexp.MustCompile(`^CODEX_(CODE_MODE_HOST_)?SHA256_(amd64|arm64)=[0-9a-f]{64}$`),
+	// set_arch's list of the per-architecture pins: names only.
+	regexp.MustCompile(`^ARCH_PINS=\([A-Z0-9_ ]+\)$`),
 	regexp.MustCompile(`^echo "== harness CLIs \(installed, never run\)"$`),
 	regexp.MustCompile(`^CLAUDE_CODE_DIR=/usr/local/lib/node_modules/@anthropic-ai/claude-code$`),
-	regexp.MustCompile(`^CLAUDE_CODE_NATIVE_DIR=/usr/local/lib/node_modules/@anthropic-ai/claude-code/node_modules/@anthropic-ai/claude-code-linux-arm64$`),
+	regexp.MustCompile(`^CLAUDE_CODE_NATIVE_DIR=""$`),
+	regexp.MustCompile(`^CLAUDE_CODE_NATIVE_DIR="\$CLAUDE_CODE_DIR/node_modules/@anthropic-ai/claude-code-linux-\$NODE_ARCH"$`),
 	// claude_code_installed reads the files: versions, ELF magic, -x, cmp and readlink.
 	regexp.MustCompile(`^claude_code_installed\(\) \{$`),
 	regexp.MustCompile(`^\[ "\$\(version "\$CLAUDE_CODE_(NATIVE_)?DIR"\)" = "\$CLAUDE_CODE_VERSION" \] &&$`),
@@ -1079,18 +1082,18 @@ var harnessLineREs = []*regexp.Regexp{
 	regexp.MustCompile(`^claude_code_installed \|\| \{ echo "claude-code's native binary isn't in place: \$CLAUDE_CODE_DIR/bin/claude\.exe" >&2; exit 1; \}$`),
 	regexp.MustCompile(`^\[ -x /usr/local/bin/codex \] \|\| \{ echo "[^"$` + "`" + `]*" >&2; exit 1; \}$`),
 	regexp.MustCompile(`^if \[ "\$\(cat /var/lib/factory/codex\.tar\.sha256 2>/dev/null \|\| true\)" != "\$CODEX_SHA256" \] \|\| \[ ! -x /usr/local/bin/codex \]; then$`),
-	regexp.MustCompile(`^fetch "https://github\.com/openai/codex/releases/download/\$CODEX_VERSION/codex-aarch64-unknown-linux-musl\.tar\.gz" "\$CODEX_SHA256" "\$TMP/codex\.tar\.gz"$`),
+	regexp.MustCompile(`^fetch "https://github\.com/openai/codex/releases/download/\$CODEX_VERSION/codex-\$TRIPLE_ARCH-unknown-linux-musl\.tar\.gz" "\$CODEX_SHA256" "\$TMP/codex\.tar\.gz"$`),
 	regexp.MustCompile(`^mkdir "\$TMP/codex"$`),
 	regexp.MustCompile(`^tar -xzf "\$TMP/codex\.tar\.gz" -C "\$TMP/codex" --no-same-owner$`),
-	regexp.MustCompile(`^sudo install -m 0755 "\$TMP/codex/codex-aarch64-unknown-linux-musl" /usr/local/bin/codex$`),
+	regexp.MustCompile(`^sudo install -m 0755 "\$TMP/codex/codex-\$TRIPLE_ARCH-unknown-linux-musl" /usr/local/bin/codex$`),
 	regexp.MustCompile(`^echo "\$CODEX_SHA256" \| sudo tee /var/lib/factory/codex\.tar\.sha256 >/dev/null$`),
 	// codex's code-mode host, installed beside it the same way.
 	regexp.MustCompile(`^\[ -x /usr/local/bin/codex-code-mode-host \] \|\| \{ echo "[^"$` + "`" + `]*" >&2; exit 1; \}$`),
 	regexp.MustCompile(`^if \[ "\$\(cat /var/lib/factory/codex-code-mode-host\.tar\.sha256 2>/dev/null \|\| true\)" != "\$CODEX_CODE_MODE_HOST_SHA256" \] \|\| \[ ! -x /usr/local/bin/codex-code-mode-host \]; then$`),
-	regexp.MustCompile(`^fetch "https://github\.com/openai/codex/releases/download/\$CODEX_VERSION/codex-code-mode-host-aarch64-unknown-linux-musl\.tar\.gz" "\$CODEX_CODE_MODE_HOST_SHA256" "\$TMP/codex-code-mode-host\.tar\.gz"$`),
+	regexp.MustCompile(`^fetch "https://github\.com/openai/codex/releases/download/\$CODEX_VERSION/codex-code-mode-host-\$TRIPLE_ARCH-unknown-linux-musl\.tar\.gz" "\$CODEX_CODE_MODE_HOST_SHA256" "\$TMP/codex-code-mode-host\.tar\.gz"$`),
 	regexp.MustCompile(`^mkdir "\$TMP/codex-code-mode-host"$`),
 	regexp.MustCompile(`^tar -xzf "\$TMP/codex-code-mode-host\.tar\.gz" -C "\$TMP/codex-code-mode-host" --no-same-owner$`),
-	regexp.MustCompile(`^sudo install -m 0755 "\$TMP/codex-code-mode-host/codex-code-mode-host-aarch64-unknown-linux-musl" /usr/local/bin/codex-code-mode-host$`),
+	regexp.MustCompile(`^sudo install -m 0755 "\$TMP/codex-code-mode-host/codex-code-mode-host-\$TRIPLE_ARCH-unknown-linux-musl" /usr/local/bin/codex-code-mode-host$`),
 	regexp.MustCompile(`^echo "\$CODEX_CODE_MODE_HOST_SHA256" \| sudo tee /var/lib/factory/codex-code-mode-host\.tar\.sha256 >/dev/null$`),
 }
 
@@ -1130,6 +1133,74 @@ func ghLines(script string) []string {
 	return bad
 }
 
+// archPinRE is one half of a per-architecture sha256 pin.
+var archPinRE = regexp.MustCompile(`(?m)^([A-Z0-9_]+_SHA256)_(amd64|arm64)=[0-9a-f]{64}$`)
+
+// archPins checks the script's per-architecture pins: each has both halves, set_arch's
+// ARCH_PINS names exactly those, and none is also set without a suffix.
+func archPins(script string) error {
+	halves := map[string][]string{}
+	for _, m := range archPinRE.FindAllStringSubmatch(script, -1) {
+		halves[m[1]] = append(halves[m[1]], m[2])
+	}
+	list := regexp.MustCompile(`(?m)^ARCH_PINS=\(([A-Z0-9_ ]+)\)$`).FindStringSubmatch(script)
+	if list == nil {
+		return errors.New("no ARCH_PINS")
+	}
+	listed := strings.Fields(list[1])
+	var errs []error
+	for name, h := range halves {
+		slices.Sort(h)
+		if !slices.Equal(h, []string{"amd64", "arm64"}) {
+			errs = append(errs, fmt.Errorf("%s has %v, want amd64 and arm64", name, h))
+		}
+		if !slices.Contains(listed, name) {
+			errs = append(errs, fmt.Errorf("ARCH_PINS lacks %s", name))
+		}
+	}
+	for _, name := range listed {
+		if halves[name] == nil {
+			errs = append(errs, fmt.Errorf("ARCH_PINS names %s, which has no pins", name))
+		}
+		if regexp.MustCompile(`(?m)^` + name + `=`).MatchString(script) {
+			errs = append(errs, fmt.Errorf("%s is also set without an architecture", name))
+		}
+	}
+	if len(halves) < 12 {
+		errs = append(errs, fmt.Errorf("%d per-architecture pins, want at least 12", len(halves)))
+	}
+	return errors.Join(errs...)
+}
+
+// imageRE is what the image mode must never run: systemctl --now, start, stop, restart or
+// disable (nothing runs in an OCI build), sysctl --system, cloud-init.
+var imageRE = regexp.MustCompile(`systemctl\b.*(--now|\b(start|stop|restart|reload|disable)\b)|sysctl\b.*--system|cloud-init`)
+
+// imageLines are the script's lines matching imageRE outside an `if ! image; then` block (to
+// its else or fi at the same indentation), comments aside.
+func imageLines(script string) []string {
+	var bad []string
+	vmOnly := "" // the indentation of the open `if ! image; then`, when inside one
+	inVM := false
+	for l := range strings.Lines(script) {
+		l = strings.TrimRight(l, "\n")
+		t := strings.TrimSpace(l)
+		indent := l[:len(l)-len(strings.TrimLeft(l, " \t"))]
+		switch {
+		case !inVM && t == "if ! image; then":
+			inVM, vmOnly = true, indent
+			continue
+		case inVM && (t == "fi" || t == "else") && indent == vmOnly:
+			inVM = false
+			continue
+		}
+		if !inVM && !strings.HasPrefix(t, "#") && imageRE.MatchString(t) {
+			bad = append(bad, t)
+		}
+	}
+	return bad
+}
+
 func TestProvisionScript(t *testing.T) {
 	if bad := harnessLines(string(provisionScript)); len(bad) > 0 {
 		t.Errorf("provision/base.sh names claude or codex outside the install lines and existence checks:\n%s", strings.Join(bad, "\n"))
@@ -1139,9 +1210,11 @@ func TestProvisionScript(t *testing.T) {
 			t.Errorf("the check misses %q", l)
 		}
 	}
-	for _, w := range []string{"set -euo pipefail", "KIND_VERSION=v0.33.0", "KUBECTL_VERSION=v1.37.1", "CODEX_SHA256=a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4", "CODEX_CODE_MODE_HOST_SHA256=284356aefb197f00b76b912efdfdbae8ccf3ea1f89b976dde064b7ccb43214ef", `main "$@" </dev/null`,
-		"GH_PR_REVIEW_VERSION=v1.6.2", "GH_PR_REVIEW_SHA256=fea079f78e7224200d23de847b6210134ccec1a4d2dcff96ca8ca4ce1060fdde",
-		"GH_STACK_VERSION=v0.2.0", "GH_STACK_SHA256=d29684746f337a580667605b34877e5624792bcc390e61473a050bd4839557bf",
+	for _, w := range []string{"set -euo pipefail", "KIND_VERSION=v0.33.0", "KUBECTL_VERSION=v1.37.1", `main "$@" </dev/null`,
+		"CODEX_SHA256_amd64=beb339e8ecd9ba057a6bb2dc81ad8ca474812edfbf0fc5056ca818797648dde4", "CODEX_SHA256_arm64=a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4",
+		"CODEX_CODE_MODE_HOST_SHA256_amd64=314263128ba6592e7e807c265deeaf928a692b72dcbfeb5e0b20c9423b703529", "CODEX_CODE_MODE_HOST_SHA256_arm64=284356aefb197f00b76b912efdfdbae8ccf3ea1f89b976dde064b7ccb43214ef",
+		"GH_PR_REVIEW_VERSION=v1.6.2", "GH_PR_REVIEW_SHA256_amd64=2b7d4f2416f195e98010cb3e2b5684b285808e62864f89dea8497dbe691d7ed0", "GH_PR_REVIEW_SHA256_arm64=fea079f78e7224200d23de847b6210134ccec1a4d2dcff96ca8ca4ce1060fdde",
+		"GH_STACK_VERSION=v0.2.0", "GH_STACK_SHA256_amd64=577065033b49d4505730ea0ad43ab1b0374b0d9b1308e9765647a6aa8eba3cb7", "GH_STACK_SHA256_arm64=d29684746f337a580667605b34877e5624792bcc390e61473a050bd4839557bf",
 		"ispinned: true",
 		// claude-code's postinstall only places the native binary (see the script's comment).
 		"--allow-scripts=@anthropic-ai/claude-code",
@@ -1150,11 +1223,29 @@ func TestProvisionScript(t *testing.T) {
 		"sudo systemctl mask apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service unattended-upgrades.service",
 		// docs-gif's tools; the in-VM runtime exports the browsers' directory.
 		"PLAYWRIGHT_BROWSERS=" + vmrun.PlaywrightBrowsersPath + "\n",
-		"VHS_VERSION=v0.12.1", "VHS_SHA256=0b27029809fcc2ca2c381cceb854cbe03479a0f229b963e9bc3a2f2c36ffd3e7",
+		"VHS_VERSION=v0.12.1", "VHS_SHA256_amd64=eb33787a5b1cebf91fe0b18bd231e2d71d36c1ff4babd99ddac1a6ab411efd10", "VHS_SHA256_arm64=0b27029809fcc2ca2c381cceb854cbe03479a0f229b963e9bc3a2f2c36ffd3e7",
+		// the mode: vm unless the kata Dockerfile says image.
+		`FACTORY_BASE_MODE="${FACTORY_BASE_MODE:-vm}"`, `ARCH="$(dpkg --print-architecture)"`,
 		"GIFSKI_VERSION=1.34.0", "GIFSKI_SHA256=c246c795a61d4a2476fb1c8ab70bedfaa825c734882adc40e117fc837df81190",
 		"cargo install --locked", "\tsection_gif_tools\n"} {
 		if !bytes.Contains(provisionScript, []byte(w)) {
 			t.Errorf("the script lacks %q", w)
+		}
+	}
+	if err := archPins(string(provisionScript)); err != nil {
+		t.Error(err)
+	}
+	for _, bad := range []string{"FOO_SHA256_amd64=" + strings.Repeat("a", 64), "KIND_SHA256=" + strings.Repeat("a", 64)} {
+		if archPins(string(provisionScript)+bad+"\n") == nil {
+			t.Errorf("the pin check misses %q", bad)
+		}
+	}
+	if bad := imageLines(string(provisionScript)); len(bad) > 0 {
+		t.Errorf("provision/base.sh runs these in the image mode, outside an `if ! image; then` block:\n%s", strings.Join(bad, "\n"))
+	}
+	for _, l := range []string{"sudo systemctl enable --now docker", "sudo systemctl start docker", "sudo sysctl --system", "sudo cloud-init clean", "if image; then\nsudo systemctl restart x\nfi", "if ! image; then\nfi\nsudo cloud-init status", "if ! image; then\n:\nelse\nsudo systemctl start x\nfi"} {
+		if bad := imageLines(string(provisionScript) + l + "\n"); len(bad) != 1 {
+			t.Errorf("the image check misses %q", l)
 		}
 	}
 	// every download goes through fetch's sha256 check, the apt keys included.

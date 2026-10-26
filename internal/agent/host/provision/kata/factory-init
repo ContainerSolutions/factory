@@ -1,0 +1,15 @@
+#!/bin/sh
+# The kata workspace's entrypoint, PID 1 before systemd (workspace-kata.md, "The image"). Two
+# things the Q8 dry run found necessary, then systemd:
+#
+# - On cgroup v2, Kata's agent puts every exec'd process into the container cgroup's "init"
+#   child when it exists (rustjail's cgroup_has_init_subcgroup, Docker-in-Docker's convention),
+#   else into the container's cgroup itself. systemd turns on controllers in that cgroup, after
+#   which the kernel refuses to add a process to it: every exec after boot failed with EBUSY.
+#   So the empty leaf is made first; systemd leaves cgroups it doesn't own alone.
+# - kubelet (kind's nodes) reads /dev/kmsg, which privileged-without-host-devices leaves out:
+#   without it kind's control plane never started (Q8 T15, W02).
+set -eu
+mkdir -p /sys/fs/cgroup/init
+[ -e /dev/kmsg ] || mknod -m 0600 /dev/kmsg c 1 11
+exec /sbin/init "$@"

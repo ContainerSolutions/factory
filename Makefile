@@ -30,6 +30,13 @@ tart-up: ## Set up this Mac as a tart agent host: build bin/factory-agent (darwi
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/factory-agent-linux-arm64 ./cmd/factory-agent
 	bin/factory-agent host init --driver tart --agent-linux bin/factory-agent-linux-arm64 $(HOST_INIT_FLAGS)
 
+# KATA_CONTEXT_DIR is where kata-context writes the kata image's build context.
+KATA_CONTEXT_DIR ?= bin/kata-context
+
+.PHONY: kata-context
+kata-context: ## Write the kata image's build context (provision/kata and base.sh) to KATA_CONTEXT_DIR (default bin/kata-context) and print its sha256; then docker build KATA_CONTEXT_DIR
+	go run ./internal/agent/host/provision/katacontext -out $(KATA_CONTEXT_DIR)
+
 .PHONY: test
 test: ## Run Go tests with the race detector
 	go test -race -count=1 ./...
