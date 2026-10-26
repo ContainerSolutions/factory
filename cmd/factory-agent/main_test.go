@@ -49,7 +49,7 @@ func writeConfig(t *testing.T, dir, dispatcher string, extra string) string {
 	}
 	p := filepath.Join(dir, "agent.yaml")
 	cfg := "dispatcher: " + dispatcher + "\npool: local\njoinTokenFile: " + tok + "\nhost: cmd-test\n" +
-		"labels: [has-local-stack, gif-tooling]\nlocalDev: ~/local-dev\n" +
+		"labels: [fast-disk, gpu]\n" +
 		"harnesses:\n  codex:\n    home: ~/codex\n    models: [gpt-5-codex]\n    efforts: [low, high]\n    default: gpt-5-codex\n" +
 		"lending:\n  queues: [poc]\n" + extra
 	if err := os.WriteFile(p, []byte(cfg), 0o600); err != nil {
@@ -76,7 +76,7 @@ func probeOpts(missing string) probe.Options {
 	return probe.Options{
 		Tooling: fakeTooling{missing: missing},
 		Labels: map[string]probe.LabelChecker{
-			"gif-tooling": probe.LabelFunc(func(context.Context, *config.Config) error { return errors.New("vhs not found") }),
+			"gpu": probe.LabelFunc(func(context.Context, *config.Config) error { return errors.New("no GPU found") }),
 		},
 	}
 }
@@ -95,7 +95,7 @@ func TestProbeCommand(t *testing.T) {
 	}
 	for _, want := range []string{
 		"codex: auth subscription, models gpt-5-codex (default gpt-5-codex), efforts low, high",
-		"labels: has-local-stack\n", "label gif-tooling: vhs not found", "gh-stack: ok",
+		"labels: fast-disk\n", "label gpu: no GPU found", "gh-stack: ok",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("probe output lacks %q:\n%s", want, out.String())

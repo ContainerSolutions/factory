@@ -17,10 +17,10 @@ import (
 )
 
 // probeOptions is how the commands probe: each registered harness adapter's Probe (a
-// configured harness without one is probed with probe.Configured) and local-stack.md's label
-// probes (has-local-stack, gif-tooling).
+// configured harness without one is probed with probe.Configured) and the base tooling.
+// Labels are advertised as configured.
 func probeOptions() probe.Options {
-	o := probe.Options{Tooling: probe.BaseTooling{}, Harnesses: map[string]probe.Prober{}, Labels: probe.Labels(probe.ExecCommands{})}
+	o := probe.Options{Tooling: probe.BaseTooling{}, Harnesses: map[string]probe.Prober{}}
 	for name, mk := range harnessAdapters {
 		// Probe takes the harness's config as an argument: the adapter's own is unused.
 		o.Harnesses[name] = mk(config.Harness{})

@@ -51,9 +51,6 @@ func Harnesses() []string { return []string{HarnessClaudeCode, HarnessCodex} }
 // effort mappings).
 func Efforts() []string { return []string{"minimal", "low", "medium", "high", "max"} }
 
-// LabelLocalStack is the label that needs localDev (local-stack.md §Labels and probes).
-const LabelLocalStack = "has-local-stack"
-
 // maxFileSize bounds the config and join-token files.
 const maxFileSize = 1 << 20
 
@@ -73,12 +70,10 @@ type Config struct {
 	// GitHubURL is the GitHub the owner's device-flow login runs against; default
 	// https://github.com (a GHE host, or a fake in tests).
 	GitHubURL string `json:"githubURL,omitzero"`
-	// Labels are the capability labels to advertise (each verified by its probe).
+	// Labels are the capability labels to advertise.
 	Labels []string `json:"labels,omitzero"`
 	// Harnesses configures each harness by name (codex, claude-code).
 	Harnesses map[string]Harness `json:"harnesses"`
-	// LocalDev is the local-dev checkout; required for has-local-stack.
-	LocalDev string `json:"localDev,omitzero"`
 	// WorkRoot holds the per-task scratch workspaces; default ~/.factory-agent/work.
 	WorkRoot string `json:"workRoot,omitzero"`
 	// Lending is the owner's consent: what the agent may take. Sent at registration and again
@@ -282,7 +277,7 @@ func (c *Config) complete(o Options) error {
 		*p = v
 		return err
 	}
-	for _, p := range []*string{&c.JoinTokenFile, &c.LocalDev, &c.WorkRoot} {
+	for _, p := range []*string{&c.JoinTokenFile, &c.WorkRoot} {
 		if err := expand(p); err != nil {
 			return err
 		}
@@ -353,13 +348,8 @@ func (c *Config) validate() []string {
 		}
 		seen[l] = true
 	}
-	if seen[LabelLocalStack] && c.LocalDev == "" {
-		add("localDev: required with the %s label", LabelLocalStack)
-	}
-	for _, p := range []struct{ key, v string }{{"localDev", c.LocalDev}, {"workRoot", c.WorkRoot}} {
-		if p.v != "" && !filepath.IsAbs(p.v) {
-			add("%s: %q must be absolute or start with ~/", p.key, p.v)
-		}
+	if c.WorkRoot != "" && !filepath.IsAbs(c.WorkRoot) {
+		add("workRoot: %q must be absolute or start with ~/", c.WorkRoot)
 	}
 	if len(c.Harnesses) == 0 {
 		add("harnesses: at least one of %s", strings.Join(Harnesses(), ", "))

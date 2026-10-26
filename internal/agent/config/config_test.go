@@ -12,7 +12,7 @@ const validYAML = `# the LLD's example
 dispatcher: https://factory.example.dev
 pool: local
 joinTokenFile: ~/.config/factory-agent/join-token
-labels: [has-local-stack, gif-tooling]
+labels: [fast-disk, arm64]
 harnesses:
   codex:
     home: ~/.factory-agent/codex-home
@@ -24,7 +24,6 @@ harnesses:
     models: [claude-sonnet-5-5, claude-opus-5-5]
     efforts: [low, medium, high, max]
     default: claude-sonnet-5-5
-localDev: ~/repos/cs/ccf/local-dev
 workRoot: ~/.factory-agent/work
 lending:
   unlimited: true
@@ -44,7 +43,7 @@ func TestParseValid(t *testing.T) {
 	}
 	if c.Dispatcher != "https://factory.example.dev" || c.Pool != "local" || c.Host != "gus-mbp" ||
 		c.JoinTokenFile != "/home/owner/.config/factory-agent/join-token" ||
-		c.WorkRoot != "/home/owner/.factory-agent/work" || c.LocalDev != "/home/owner/repos/cs/ccf/local-dev" ||
+		c.WorkRoot != "/home/owner/.factory-agent/work" ||
 		c.GitHubURL != DefaultGitHubURL || !c.Lending.Unlimited || c.MaxConcurrent() != 1 {
 		t.Errorf("config %+v", c)
 	}
@@ -99,9 +98,8 @@ func TestParseInvalid(t *testing.T) {
 		{"relative dispatcher", base("https://factory.example.dev", "factory.example.dev"), []string{"absolute http(s) URL"}},
 		{"bad github url", base("lending:", "githubURL: ftp://github.com\nlending:"), []string{"githubURL:"}},
 		{"bad host", base("lending:", "host: Gus_MBP\nlending:"), []string{"host: \"Gus_MBP\" must match"}},
-		{"bad label", base("[has-local-stack, gif-tooling]", "[Has_Local]"), []string{"labels[0]"}},
-		{"duplicate label", base("[has-local-stack, gif-tooling]", "[gif-tooling, gif-tooling]"), []string{"labels[1]: \"gif-tooling\" is listed twice"}},
-		{"local stack without localDev", base("localDev: ~/repos/cs/ccf/local-dev\n", ""), []string{"localDev: required with the has-local-stack label"}},
+		{"bad label", base("[fast-disk, arm64]", "[Fast_Disk]"), []string{"labels[0]"}},
+		{"duplicate label", base("[fast-disk, arm64]", "[arm64, arm64]"), []string{"labels[1]: \"arm64\" is listed twice"}},
 		{"unknown harness", base("  claude-code:", "  aider:\n    models: [x]\n  claude-code:"), []string{"harnesses.aider.unknown harness"}},
 		{"codex without home", base("    home: ~/.factory-agent/codex-home\n", ""), []string{"harnesses.codex.home: required"}},
 		{"codex with configDir", base("    home: ~/.factory-agent/codex-home\n", "    home: ~/.factory-agent/codex-home\n    configDir: /x\n"), []string{"harnesses.codex.configDir: not a codex key"}},

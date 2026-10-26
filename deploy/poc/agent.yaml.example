@@ -22,13 +22,10 @@ joinTokenFile: ~/.config/factory-agent/join-token
 # Optional: the GitHub the owner's device-flow login runs against. Default https://github.com.
 # githubURL: https://github.com
 
-# Capability labels to advertise. Each is probed at start, and a failing one is dropped with a
-# warning. No catalog TaskSpec requires them any more (release-docs and docs-review-verify
-# declare their environment, which a VM workspace brings up).
-labels: [has-local-stack, gif-tooling]
-
-# The local-dev checkout the local stack runs from. Required with has-local-stack.
-localDev: ~/repos/local-dev
+# Optional: capability labels to advertise, as configured (a TaskSpec's requires.labels). No
+# catalog TaskSpec requires one: release-docs and docs-review-verify declare their environment,
+# which a VM workspace brings up.
+# labels: [fast-disk]
 
 # Optional: where per-task workspaces go. Default ~/.factory-agent/work.
 # workRoot: ~/.factory-agent/work

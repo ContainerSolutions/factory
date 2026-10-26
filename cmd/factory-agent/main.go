@@ -20,7 +20,6 @@ var commands = []command{
 	probeCommand(),
 	fxCommand(),
 	mcpCommand(),
-	stackCommand(),
 	hostCommand(),
 	runCommand(),
 	loginCommand(),

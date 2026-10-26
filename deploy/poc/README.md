@@ -106,7 +106,7 @@ In its own terminal, with `FACTORY_PUBLIC_URL` in the environment (for example `
 ngrok http --url="$FACTORY_PUBLIC_URL" --traffic-policy-file=deploy/poc/ngrok-policy.yml 8800
 ```
 
-The dispatcher listens on **8800**, not 8080 or 8000: local-dev's CCF stack binds those (its API and UI), and release-docs and docs-review bring that stack up on this machine. `make poc-up POC_ADDR=127.0.0.1:<port>` picks another; if your `.env` sets `FACTORY_ADDR`, that wins, so update it too. The tunnel reaches only the public listener on port 8800: the UI, `/api/v1/*` and `/hooks/*`. The ops routes are on a separate loopback-only listener, and the policy denies their paths too. Set ccf-factory's webhook URL to `$FACTORY_PUBLIC_URL/hooks/github-public` and its callback URL to `$FACTORY_PUBLIC_URL/api/v1/auth/callback`.
+The dispatcher listens on **8800**, not 8080 or 8000: local-dev's CCF stack binds those (its API and UI). `make poc-up POC_ADDR=127.0.0.1:<port>` picks another; if your `.env` sets `FACTORY_ADDR`, that wins, so update it too. The tunnel reaches only the public listener on port 8800: the UI, `/api/v1/*` and `/hooks/*`. The ops routes are on a separate loopback-only listener, and the policy denies their paths too. Set ccf-factory's webhook URL to `$FACTORY_PUBLIC_URL/hooks/github-public` and its callback URL to `$FACTORY_PUBLIC_URL/api/v1/auth/callback`.
 
 ## 6. Start the dispatcher
 
@@ -190,26 +190,15 @@ The agent is `factory-agent supervise`: it runs each leased task in its own VM w
    Paste the token, press Enter, then Ctrl-D.
 2. **The config.** Copy `deploy/poc/agent.yaml.example` to `~/.config/factory-agent/agent.yaml`, then `chmod 600` it. Edit:
    - `dispatcher`: `$FACTORY_PUBLIC_URL`, or `http://127.0.0.1:8800` on the dispatcher's own machine;
-   - `localDev`;
-   - the harnesses and models your plans allow. The codex model in the example (`gpt-6.1-sol`) is a placeholder: put `<a gpt-5* or gpt-6* model your codex sign-in offers>` (see `/model` in codex) in `models` and `default`. A configured harness is offered when its login is stored (step 4);
+   - the harnesses and models your plans allow. The codex model in the example (`gpt-6.1-sol`) is a placeholder: put `<a gpt-5* or gpt-6* model your codex sign-in offers>` (see `/model` in codex) in `models` and `default`. A configured harness is offered when its login is stored (step 3);
    - `lending`;
    - `workspace`, whose driver defaults to tart on a Mac and kata on Linux.
 
    Unknown keys are errors.
-3. **Labels.** supervise advertises each as configured; `factory-agent probe` checks them.
-   - `has-local-stack`: Docker running with at least 8 GB of memory, compose v2, and a `local-dev` checkout (with its `.env`) set as `localDev`.
-   - `gif-tooling`: `npm install -g playwright && npx playwright install chromium`, plus `brew install gifski vhs ffmpeg`.
-
-   No TaskSpec requires them any more: release-docs and docs-review-verify declare their environment (local-dev's showcase), which a VM workspace brings up. To see the stack a train would bring up, without running anything:
-
-   ```bash
-   factory-agent stack up --train compliance-framework/workflows#132 --dry-run
-   ```
-
-4. **The host and the model logins:** a Mac as below, or a Linux host as in [A Linux workspace host](#a-linux-workspace-host-kata).
+3. **The host and the model logins:** a Mac as below, or a Linux host as in [A Linux workspace host](#a-linux-workspace-host-kata).
    - `make tart-up` builds `bin/factory-agent` and `bin/factory-agent-linux-arm64`, then runs `host init --driver tart`: one sudo prompt for Softnet and pf; the base and warm VMs take a while (`HOST_INIT_FLAGS=--dry-run` prints the plan without changing anything). Then `bin/factory-agent host check`: every step ok (pf may be skipped).
    - The model logins, which only the gateway ever holds, in the agent's state dir (0600): run `claude setup-token` on its own and copy the token it prints, then `pbpaste | bin/factory-agent login claude`; and `codex login` (with ChatGPT), then `bin/factory-agent login codex`, which imports `~/.codex/auth.json`. Don't copy another machine's `auth.json`: both machines' gateways would refresh the same login, and each refresh spends the other's refresh token.
-5. **Run the agent:**
+4. **Run the agent:**
 
    ```bash
    bin/factory-agent supervise
@@ -223,7 +212,7 @@ The agent is `factory-agent supervise`: it runs each leased task in its own VM w
 
 ### A Linux workspace host (kata)
 
-On an Ubuntu x86-64 machine (KVM, cgroup v2, systemd, at least 120 GiB free on `/var/lib`) each VM is a Kata microVM, and several run at once ([workspace-kata.md](../../design/workstreams/agent/LLD/workspace-kata.md)). Docker, if installed, is left alone: the factory runs its own containerd. In place of step 4:
+On an Ubuntu x86-64 machine (KVM, cgroup v2, systemd, at least 120 GiB free on `/var/lib`) each VM is a Kata microVM, and several run at once ([workspace-kata.md](../../design/workstreams/agent/LLD/workspace-kata.md)). Docker, if installed, is left alone: the factory runs its own containerd. In place of step 3:
 
 1. `make kata-up` builds `bin/factory-agent` and runs `bin/factory-agent host init --driver kata`: it asks before installing its root helper (`/usr/local/libexec/factory-agent/kata-helper`, with a sudoers rule that lets you run only it with `sudo -n`), then prompts for sudo once. `HOST_INIT_FLAGS=--dry-run` prints the plan and the sudo script without changing anything. Then `bin/factory-agent host check`: every step ok.
 2. The model logins, which only the gateway ever holds. Both go to `~/.local/state/factory-agent/logins/` (0600).
@@ -231,7 +220,7 @@ On an Ubuntu x86-64 machine (KVM, cgroup v2, systemd, at least 120 GiB free on `
    - codex: install the codex CLI on this host ([github.com/openai/codex](https://github.com/openai/codex)), run `codex login` (with ChatGPT), then `bin/factory-agent login codex`, which imports `~/.codex/auth.json`. Don't copy another machine's `auth.json`: both machines' gateways would refresh the same login, and each refresh spends the other's refresh token. A host without a codex login runs without codex: supervise drops the harness with a warning (and exits when no configured harness has a login).
 3. In the config (step 2), `workspace: {driver: kata}` (the default on Linux) and the `lending.maxConcurrent` you want: supervise caps it by memory, `(physical memory − 4 GiB) / workspace.size.memory`, and by 63, with a warning.
 
-Then step 5. `sudo -n /usr/local/libexec/factory-agent/kata-helper list` shows the running VMs. The first run on a new host follows the checklist in [workspace-kata.md §The owner's run](../../design/workstreams/agent/LLD/workspace-kata.md#the-owners-run).
+Then step 4. `sudo -n /usr/local/libexec/factory-agent/kata-helper list` shows the running VMs. The first run on a new host follows the checklist in [workspace-kata.md §The owner's run](../../design/workstreams/agent/LLD/workspace-kata.md#the-owners-run).
 
 ## 9. First dev dispatch (use case 1 on mock-docs)
 
@@ -276,7 +265,7 @@ The commands below go to `POST /api/v1/commands` with the CLI token. The UI show
 | Inspect a decision | The UI's work item, then the decision's "why" drawer. |
 | Stop an agent | The owner presses Ctrl-C (or sends SIGTERM) to drain; a second one aborts the running task. SIGHUP re-reads `lending` only. There is no `factory-agent pause` command; to stop lending, change `lending` and send SIGHUP, or stop the agent. |
 | Dispatcher logs | `deploy/poc/logs/factory-serve-<UTC time>.log`, JSON. Follow the latest with `tail -f "$(ls -t deploy/poc/logs/factory-serve-*.log \| head -1)" \| jq -c '{time, level, msg}'`. |
-| Agent logs | supervise's stderr (§8 step 5). Each task's run directory is under `<agent state dir>/runs/<task>/`, removed after each run unless `--keep-workspace`. A failed stack up leaves make's output in `<state dir>/logs/stack-*.log` (state dir default `~/.factory-agent`; the newest 20 are kept), and the run's summary names the file. |
+| Agent logs | supervise's stderr (§8 step 4). Each task's run directory is under `<agent state dir>/runs/<task>/`, removed after each run unless `--keep-workspace`. |
 | Transcripts | `GET /api/v1/runs/<run_id>/transcript` (gzip JSONL), or the UI's run page. They are kept across restarts, as files under `<state dir>/transcripts/` (§6, State). |
 
 ## 11. Stopping
