@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 4: katahelper list's error has no dangling ': ' when nerdctl's stderr is empty (test added).

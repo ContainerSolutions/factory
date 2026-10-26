@@ -1,0 +1,12 @@
+lisa-addressed:
+pass 2: c598f66df07d parent-t-in-subtest: the closures name their own t.
+
+lisa-selfreview:
+pass 3 (strict): approve, no new findings (root lines, tool paths, helper verbs and Check paths re-read).
+- deferred to the orchestrator: [blocker 769e04d72450] CORE-SIZE-001 (~2230 lines): size-exception label or a split.
+- environment, not this diff: internal/agent/harness/claudecode TestRepair failed once under a full -race run and passed 3x alone and in a second make test.
+
+lisa-selfreview:
+pass 4 (final, lenient): approve
+- [nit] X:style/dangling-colon (katahelper list): "nerdctl ps: <err>: " when nerdctl printed nothing on stderr (seen running the built helper). Fixed: it's three lines.
+- deferred to the orchestrator: [blocker 769e04d72450] CORE-SIZE-001.
