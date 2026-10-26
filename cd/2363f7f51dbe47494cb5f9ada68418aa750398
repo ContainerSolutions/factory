@@ -1,0 +1,8 @@
+lisa-addressed:
+pass 1:
+- 103630c9d277 CORE-TEST-001: TestKataPlatform has a "no zstd" case.
+- 11bb21f909ab CORE-DUP-001: rootTmp const for the small-file steps' temp dir template.
+- 382b5a01ea2d positional-heredoc-index: rootInstallFiles returns (write, install); networkStep puts nft -c between them.
+- 3b6eadbc8b1a CORE-STYLE-001: Init's doc comment names the privileges prompt.
+- dismissed 769e04d72450 CORE-SIZE-001: not fixable within this PR's spec'd scope; raised to the orchestrator (size-exception label or a split).
+- also gofmt of katasteps_test.go.
