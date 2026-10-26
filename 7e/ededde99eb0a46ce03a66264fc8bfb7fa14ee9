@@ -7,3 +7,6 @@ lisa-design:
 - host exports HeadroomGiB, KataWarmStep, MemTotal and ReadKataBase for supervise; no logic moved.
 - The runner needed no change for several runs at once: per-task runs/<task>/ and egress logs, the CA under caMu, one chatgpt.Refresher, each gateway on its slot's address; TestSuperviseKataTwoLeases holds two Execs together under -race to prove it.
 - make kata-up builds with CGO_ENABLED=0: the binary is copied into each workspace and installed as the root helper, so it must not depend on the host's libc.
+
+lisa-selfreview:
+pass 1 (strict): CORE-TEST-001 must-fix supervise.go newDriver: Warm's false cases untested (25bd0a58236c); CORE-STYLE-001 nit supervise.go lending: tart told apart by memTotal == 0.
