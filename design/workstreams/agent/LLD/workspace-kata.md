@@ -26,7 +26,7 @@ Decided with Gustavo on 2026-10-26, after Q8:
 | The Kata config | `/etc/kata-containers/runtime-rs/configuration.toml` (runtime-rs reads only its three built-in paths; `KATA_CONF_FILE` must name one of them) | root |
 | containerd's and buildkitd's config | `/etc/factory-agent/containerd.toml`, `/etc/factory-agent/buildkitd.toml` | root |
 | Their units | `factory-agent-containerd.service`, `factory-agent-buildkit.service` in `/etc/systemd/system/` | root |
-| The workspace firewall | `/etc/factory-agent/workspaces.nft`, loaded by `factory-agent-nft.service` (oneshot, `Before=factory-agent-containerd.service`) | root |
+| The workspace firewall | `/etc/factory-agent/workspaces.nft`, loaded by `factory-agent-nft.service` (oneshot, `Before=` and `RequiredBy=factory-agent-containerd.service`, so no workspace starts without it) | root |
 | The helper and its sudoers rule | `/usr/local/libexec/factory-agent/kata-helper`; `/etc/sudoers.d/factory-agent` | root |
 | containerd's state | `/var/lib/factory-agent/containerd`, `/run/factory-agent/containerd/containerd.sock`; namespace `factory` | root |
 | CNI | conflists in `/etc/factory-agent/cni/net.d/`, IPAM state in `/var/lib/factory-agent/cni/` | root |
@@ -58,8 +58,8 @@ make kata-up [HOST_INIT_FLAGS="--dry-run"]
 | 3 | `nerdctl` | `nerdctl-full/bin/nerdctl --version` and `containerd --version` report the pin | download into the stage, check the sha256; the root lines copy it into a root-owned temp dir, check the sha256 again, extract and move it into place |
 | 4 | `kata` | `/opt/kata/.factory-agent` holds the pinned version and `runtime-rs/bin/containerd-shim-kata-v2` is executable. An `/opt/kata` without the marker (or a symlink) is `wrong` ("another Kata install: move it away"): `init` never replaces it, and the root lines check it again | as `nerdctl`: the 1 GB `kata-static-<v>-amd64.tar.zst`, extracted by root after its sha256 is checked again, and refused unless every entry `tar -t` lists is under `opt/kata` (and again after extraction) |
 | 5 | `kataconfig` | the Kata config is exactly the rendering below. One without the rendering's first comment line is another install's: `wrong`, never replaced | root renders it from the release's `share/defaults/kata-containers/runtime-rs/configuration-clh-runtime-rs.toml` with one change, `reconnect_timeout_ms = 60000` (phase 0: an 8 GiB guest outlived the default 3 s), and a first comment line naming the source. Check renders the same from the installed release and compares (`host.RenderKataConfig`; a test runs the root lines' `sed` against it) |
-| 6 | `containerd` | the two configs and two units hold exactly the rendered text; both units enabled and active | heredocs; `systemctl daemon-reload`, `enable --now` both, wait for both sockets (30 s) |
-| 7 | `network` | `workspaces.nft` and `factory-agent-nft.service` hold the rendered text; the unit is enabled and active | heredocs; `systemctl enable --now factory-agent-nft.service` |
+| 6 | `containerd` | the two configs and two units hold exactly the rendered text; both units enabled and active | heredocs; `systemctl daemon-reload`, `enable` both, `restart` both (so a changed config takes effect; the shims and VMs outlive it), wait for both sockets (30 s) |
+| 7 | `network` | `workspaces.nft` and `factory-agent-nft.service` hold the rendered text; the unit is enabled and active (no `nft list`, which needs root) | heredocs; `nft -c` of root's copy; `nft -f` the installed file (an active oneshot unit doesn't run again), `systemctl enable --now factory-agent-nft.service` |
 | 8 | `privileges` | the helper is a regular file, root:root 0755, and `kata-helper protocol` prints this binary's `katahelper.Protocol`; `/etc/sudoers.d/factory-agent` is the rendered rule, root:root 0440 | see [the privileges step](#the-privileges-step) |
 | 9 | `kataimage` | `<statedir>/katabase.json` names `factory-agent-base:<version>`, its `contextSHA256` is this binary's build context's, and `kata-helper image-exists` finds that tag | build it ([the image](#the-image-provisionkata)) |
 | 10 | `katawarm` | `<statedir>/katawarm.json`'s `image`, `imageBuiltAt` and `imagesSHA256` match the image record and `workspace.warm` (the same hash as tart's `warmbase.json`), and `kata-helper warm-exists` finds the warm disk | build it ([the warm disk](#the-warm-disk)) |
@@ -84,7 +84,7 @@ disabled_plugins = ["io.containerd.grpc.v1.cri", "io.containerd.cri.v1.images", 
   path = "/var/lib/factory-agent/containerd-opt"
 ```
 
-`factory-agent-containerd.service` runs that containerd with `Delegate=yes`, `KillMode=process` (the shims and VMs outlive a restart, as with containerd's own unit), `LimitNOFILE=infinity` and `Environment=PATH=/opt/kata/runtime-rs/bin:/usr/local/libexec/factory-agent/nerdctl-full/bin:/usr/sbin:/usr/bin:/sbin:/bin`, so containerd finds the runtime-rs shim for `io.containerd.kata.v2`. `factory-agent-buildkit.service` (`Requires=` and `After=` the containerd unit) runs `buildkitd --addr unix:///run/factory-agent/buildkit/buildkitd.sock --root /var/lib/factory-agent/buildkit --oci-worker=false --containerd-worker=true --containerd-worker-addr=<the socket> --containerd-worker-namespace=factory --containerd-worker-net=host`.
+`factory-agent-containerd.service` runs that containerd with `Delegate=yes`, `KillMode=process` (the shims and VMs outlive a restart, as with containerd's own unit), `LimitNOFILE=infinity` and `Environment=PATH=/opt/kata/runtime-rs/bin:/usr/local/libexec/factory-agent/nerdctl-full/bin:/usr/sbin:/usr/bin:/sbin:/bin`, so containerd finds the runtime-rs shim for `io.containerd.kata.v2`. Both units make their socket's directory first (`ExecStartPre=install -d -m 0711`), since `/run` is emptied at boot. `factory-agent-buildkit.service` (`Requires=` and `After=` the containerd unit) runs `buildkitd --config /etc/factory-agent/buildkitd.toml --addr unix:///run/factory-agent/buildkit/buildkitd.sock --root /var/lib/factory-agent/buildkit --oci-worker=false --containerd-worker=true --containerd-worker-addr=<the socket> --containerd-worker-namespace=factory --containerd-worker-net=host`. `buildkitd.toml` holds only comments: the flags set everything, and `--config` keeps buildkitd from reading `/etc/buildkit/buildkitd.toml`, another BuildKit's.
 
 ### The workspace network
 
@@ -92,6 +92,8 @@ Each workspace gets a **slot** `n` from 1 to 63: the bridge `fws<n>` with `10.21
 
 ```nft
 # /etc/factory-agent/workspaces.nft (factory-agent host init)
+table inet factory_workspaces
+delete table inet factory_workspaces
 table inet factory_workspaces {
 	set ws_allow {
 		type ifname . ipv4_addr . ipv4_addr
@@ -113,6 +115,7 @@ table inet factory_workspaces {
 }
 ```
 
+- **Loading it again** (`nft -f`, atomic) replaces the table: its first line creates the table when it's missing, so the second always has one to delete. That also empties `ws_allow`, which is accepted: it fails closed (a running workspace loses its gateway until its element is added again), and host init reloads only when the file or the unit isn't ok.
 - **What it allows:** from a workspace bridge, only TCP to the gateway port, only from that bridge's VM address to that bridge's gateway address (the set element `"fws<n>" . 10.213.<n>.2 . 10.213.<n>.1`, which the helper adds when it creates the workspace and removes when it destroys it). DNS is rejected so lookups fail at once; any other TCP gets a reset and anything else an ICMP reject. Nothing is forwarded to or from a workspace: no NAT, no route out.
 - **What Q8 checked against it** (I01–I18, N01): the gateway's other ports (a canary on every host address), the host's LAN and docker0 addresses, the other workspace and its gateway, a spoofed source in the own subnet and another workspace's address (to either gateway), the internet directly, IPv6 and metadata are all refused, and no spoofed source reached a gateway's own pin.
 - **The bridge is made before anything attaches** (`ip link add fws<n> type bridge`, `net.ipv6.conf.fws<n>.disable_ipv6=1`, the address, up), then the CNI conflist names it:
