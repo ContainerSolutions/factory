@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 1 fixes: warmLoad writes stderr through a syncWriter shared by the save and the load; save's result is sent before the pipe closes, and dropped only when the save was still running when a failed load stopped it. The fake save writes stderr too, so TestWarmLoad exercises the concurrent writes under -race.
