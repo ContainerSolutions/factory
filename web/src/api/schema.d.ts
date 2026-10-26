@@ -736,8 +736,12 @@ export interface paths {
          *     work item as it is now, and applies the decisions. A rule that already acted on the
          *     event dedupes on its idempotency key, so only the rules that act now and didn't then
          *     change anything. The decisions that differ from the event's earlier ones are recorded
-         *     on the work item with `replay: true` and returned. A UI session must belong to the
-         *     `maintainers` Group; the CLI token is a full admin.
+         *     on the work item with `replay: true` and returned. A rule that already fired for the
+         *     event is never applied again, whatever changed since (its rails, its actions). When the
+         *     event was applied to its work item but none of its earlier decisions remain there (aged
+         *     out of the bounded history), the replay can't tell what already acted and answers
+         *     `409 replay-history-gone`. A UI session must belong to the `maintainers` Group; the CLI
+         *     token is a full admin.
          */
         post: operations["replayEvent"];
         delete?: never;
@@ -3762,6 +3766,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };

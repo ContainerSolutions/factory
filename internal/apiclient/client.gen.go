@@ -5556,6 +5556,7 @@ type ReplayEventResponse struct {
 	ApplicationproblemJSON401     *Unauthorized
 	ApplicationproblemJSON403     *Forbidden
 	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSON409     *Conflict
 	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
@@ -7725,6 +7726,13 @@ func ParseReplayEventResponse(rsp *http.Response) (*ReplayEventResponse, error) 
 			return nil, err
 		}
 		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Conflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest ServiceUnavailable
