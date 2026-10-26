@@ -3,7 +3,7 @@
 > Workstream: [AGT](../../definitions.md#agt-agent) · Tasks: P1 phase 5 · Packages: `internal/agent/workspace`, `internal/agent/workspace/tart`, `cmd/factory-agent` (`supervise`, `login`)
 > Design: [P1 §1](../../../proposals/P1-agent-workspaces.md#1-factory-agent-supervise-replaces-worker), [§2](../../../proposals/P1-agent-workspaces.md#2-the-workspace-and-factory-agent-run), [§3](../../../proposals/P1-agent-workspaces.md#3-the-gateway-every-credential-outside-the-vm), [§5](../../../proposals/P1-agent-workspaces.md#5-credentials-injected-by-the-gateway-never-in-the-workspace) · Builds on: [workspace-host.md](workspace-host.md) (the warm base, Softnet, pf), [workspace-run.md](workspace-run.md#phase-5s-supervisor) (the bundle, `factory-agent run`, the trust model), [gateway.md](gateway.md) (`Config`, `Serve`, `Close`, `Sink`)
 
-Phase 5 is the PoC's end-to-end run on the owner's Mac: a lease becomes a fresh VM cloned from the warm base, `factory-agent run` in it behind a gateway on the Mac, and the outcome back to the dispatcher. Deferred: sizing from `limits`, rebuilding the warm base, `host init` from `supervise`, and removing `worker`. Phase 9 adds the kata driver (Linux hosts) and, with it, concurrency above 1: [workspace-kata.md](workspace-kata.md#supervise-pr-6); where this LLD says tart below, `--driver kata` does the same with the kata steps and driver unless that section says otherwise.
+Phase 5 is the PoC's end-to-end run on the owner's Mac: a lease becomes a fresh VM cloned from the warm base, `factory-agent run` in it behind a gateway on the Mac, and the outcome back to the dispatcher. Deferred: sizing from `limits`, rebuilding the warm base and `host init` from `supervise`. Phase 10 removed the host `worker` command: supervise is the agent's only runtime, on [the worker loop](#the-worker-loop-internalagentworker-internalagentconfig-internalagentowner) below. Phase 9 adds the kata driver (Linux hosts) and, with it, concurrency above 1: [workspace-kata.md](workspace-kata.md#supervise-pr-6); where this LLD says tart below, `--driver kata` does the same with the kata steps and driver unless that section says otherwise.
 
 ## Refinements of P1
 
@@ -42,7 +42,7 @@ Output a VM produces for the driver itself (the `ip` reads, stderr in errors) is
   - The Result is re-checked on the host: a throttled or cancelled outcome carries none; any other needs one for this task, with the outcome's status, valid against the bundle's schema and the task's outcomes (`pipeline.ValidateResult`), else `invalid-result`.
   - The VM's transcript is read from inside `out/` as a regular file, gunzipped up to 256 MiB, without lines over 1 MiB and without host-only lines (`factory.egress`, `factory.egress-dropped`, `factory.workspace-transcript`, under any case of the `type` key: only the gateway and the runner write those); each kept object line is stored re-marshalled from its decoded keys, so what was checked is what is stored; what was dropped, or why there is none, is a `factory.workspace-transcript` line. The gateway's records follow it (at most 50,000; then a `factory.egress-dropped` count).
   - The supervisor's own deadline is the task's wall clock plus 2 minutes (`failed{limit}` when it fires), and it waits at most `StackDownTimeout` + 30 s for `run` to exit after its `outcome` event, then stops it and collects `out/` anyway.
-  - `runs/<task>/` is replaced at start and removed after (kept with `--keep-workspace`); a cancelled run is destroyed and reports nothing, as the worker reports nothing then.
+  - `runs/<task>/` is replaced at start and removed after (kept with `--keep-workspace`); a cancelled run is destroyed and reports nothing, as the worker loop reports nothing then.
 
 ## `factory-agent supervise` (PR 3)
 
@@ -50,7 +50,7 @@ Output a VM produces for the driver itself (the `ip` reads, stderr in errors) is
 factory-agent supervise [--config <agent.yaml>] [--log-level info] [--log-format text] [--driver tart|kata] [--warm-base factory-agent-warm] [--keep-workspace] [--state-dir <dir>]
 ```
 
-Today's worker loop (`cmd/factory-agent/worker.go`'s `runAgentLoop`, shared: registration by join token and the device flow, the lease long-poll, heartbeats, lending and its SIGHUP reload, drain on the first SIGTERM, abort on the second) with the workspace runner. In order:
+[The worker loop](#the-worker-loop-internalagentworker-internalagentconfig-internalagentowner) (`cmd/factory-agent/agentloop.go`'s `runAgentLoop`: registration by join token and the device flow, the lease long-poll, heartbeats, lending and its SIGHUP reload, drain on the first SIGTERM, abort on the second) with the workspace runner. In order:
 
 1. **The config and the probe.** The harnesses run in the VM, so the host has nothing of theirs to probe: a configured harness is offered when its login is in `<state-dir>/logins` (else it's dropped with "run `factory-agent login codex`", and with none left supervise exits 1). Labels are advertised as configured; there's no host tooling check.
 2. **`host check`** (`internal/agent/host`, the config's `workspace` block; the driver is `--driver`, else `workspace.driver`, which defaults to tart on a Mac and kata on Linux). When a step isn't ok or skipped, supervise prints those steps and exits 1 with "run `factory-agent host init --driver <driver>`". It never runs init. `--warm-base` is tart's: a usage error with `--driver kata`, and a start error when the config's driver is kata.
@@ -59,7 +59,85 @@ Today's worker loop (`cmd/factory-agent/worker.go`'s `runAgentLoop`, shared: reg
 5. **The runner:** `workspace.NewRunner` with the tart driver (`Bin` host check's tart, `WarmBase` the flag's, `Log` stderr at `--log-level debug`), the host pipeline (`WorkRoot`, the adapters, the skills cache; `GitAuthHelper`), `StateDir`, `Spec{}` (6 vCPUs, 8 GiB) and `--keep-workspace`. With kata: `kata.New` (`Image` from `katabase.json`, `DiskGiB` `workspace.size.disk`, `Warm` when the `katawarm` step is ok) and `Spec` `workspace.size`.
 6. **Registration** with `lending.maxConcurrent` forced to 1 for tart, at start and on SIGHUP; kata's is capped by its slots and the host's memory ([workspace-kata.md](workspace-kata.md#supervise-pr-6)).
 
-`--state-dir` (default the host's state dir, `login`'s) holds `logins/`, `runs/` and `gateway-ca/`; host check always reads the default one. `worker`'s `--stub-result` isn't offered: it would skip the VM.
+`--state-dir` (default the host's state dir, `login`'s) holds `logins/`, `runs/` and `gateway-ca/`; host check always reads the default one.
+
+## The worker loop (`internal/agent/worker`, `internal/agent/config`, `internal/agent/owner`)
+
+supervise's registration, lease loop, heartbeats, lending and drain (AGT-S1-T01, first built for the host `worker` command, which phase 10 removed). The protocol is [scheduler-and-pools.md](../../dispatcher-runtime/LLD/scheduler-and-pools.md)'s. `cmd/factory-agent/agentloop.go`'s `runAgentLoop` wires it: load the config, probe, build the Runner, register, serve leases.
+
+### The local config
+
+```yaml
+# ~/.config/factory-agent/agent.yaml: never committed; not writable by group or others
+dispatcher: https://factory.example.dev
+pool: local
+joinTokenFile: ~/.config/factory-agent/join-token          # given by the pool owner out of band; 0600
+# host: mymac                                # default: the short host name, lower-cased
+# githubURL: https://github.com              # the device flow's GitHub (GHE, tests)
+# labels: [fast-disk]                        # advertised as configured
+harnesses:
+  codex:
+    home: ~/.factory-agent/codex-home
+    models: [gpt-5-codex]                    # what this owner's plan allows
+    efforts: [low, medium, high]
+    default: gpt-5-codex
+  claude-code:
+    configDir: ~/.factory-agent/claude
+    models: [claude-sonnet-5-5, claude-opus-5-5]
+    efforts: [low, medium, high, max]
+    default: claude-sonnet-5-5
+lending:
+  unlimited: true                            # or: queues, ruleSets, harnesses, maxConcurrent, maxRunsPerDay, maxTokensPerDay, hours
+workspace: { driver: tart }                  # supervise's and host's (above; workspace-kata.md)
+```
+
+- **Decoding.** `--config` overrides the path. YAML 1.2, strictly, like v1alpha1 (YAML node → JSON → `DisallowUnknownFields`; v1alpha1's converter is unexported, so the package has its own copy): an unknown or misspelt key is an error. Paths take `~/`. `deploy/poc/agent.yaml.example` mentions every key, and `cmd/factory-agent/deploykit_test.go` loads it.
+- **Validation.** `dispatcher`/`githubURL` absolute http(s) without credentials, query or fragment, plain http only on loopback (the agent token travels on every call); `pool` and an absolute `joinTokenFile` required; `host` reduced to the dispatcher's `^[a-z0-9][a-z0-9-]*$`; labels lower-case words joined by `-`, none twice; harnesses only `codex` (needs `home`) and `claude-code` (needs `configDir`), at least one model, efforts from `minimal, low, medium, high, max`, `default` among the models; `lending` must lend something (`unlimited: true` or `queues`), and `unlimited` with lists or daily caps is refused rather than silently ignored (`maxConcurrent` still applies; default 1). `lending.hours` is left to the dispatcher's validation.
+- **Permissions.** The config file must not be writable by group or others (whoever can write it can send the owner's login to another dispatcher; readable is only warned about), and the join-token file must not be accessible to group or others at all (0600 or stricter), checked at each registration. Errors never carry a token.
+
+### Registration
+
+- **The owner's token comes from a GitHub OAuth device flow**, never a `gh` login on the agent's user, so no personal GitHub credential sits where a task could read it. `owner.DeviceFlow` reads `{clientId, scopes}` from `GET /api/v1/auth/device-config`, runs GitHub's device flow (`/login/device/code`, then polls `/login/oauth/access_token`, honouring `slow_down`, `expired_token` and `access_denied`), and prints the verification URL and user code on stderr, never through the logger. The token goes once in `X-Factory-Owner-Token`, with the join token in `X-Factory-Join-Token`, on `POST /agents`, and is dropped; transient registration retries reuse it.
+- **The agent token lives in memory only**, so there is no `register` subcommand: supervise registers itself, and a restart means a new device login. Any agent call answered `401` registers again once (a new device login) and retries; a refused registration (no join token, a join token readable by others, the owner denied the login, `400`/`401`/`403`) is fatal: `Run` returns the error and later calls don't try again.
+- **Deregister on exit:** after a drain or an abort the agent calls `DELETE /agents/{id}`. The token can never be used again anyway, so revoking it costs nothing, and the agent shows Offline at once instead of Draining for 24 h.
+
+### Lease loop
+
+```text
+for !draining:
+    if running < lending.maxConcurrent (supervise's cap: 1 for tart, kata's slots and memory):
+        resp := GET /agents/{id}/lease?wait=30s
+        if 204: continue
+        go execute(resp)                      // the Runner: the workspace runner (above)
+    else: wait for a slot
+execute(lease):
+    hb := ticker(lease.heartbeatEvery)        // POST /leases/{id}/heartbeat with progress batch + token deltas
+    on hb response cancel=true → cancel run ctx
+    on hb response refreshedGitCredential → swap Job.Git
+    outcome := runner.Run(ctx, job, sink)
+    switch:
+      throttled  → POST abandon{reason: throttled, until}; PATCH agent {phase: Throttled, until}
+      error      → POST complete{status: failed, reason}
+      ok         → POST complete{result, transcriptRef}
+```
+
+- **The `Runner` seam** is `runner.Runner.Run(ctx, *Job, Sink) (Outcome, error)`. `Job.Lease` is the lease response passed through unchanged, `Job.Git` the current git credential, `Job.API` the dispatcher client already authenticated as the agent, and `Job.AgentToken` the agent token; the workspace runner hands `Git` and `AgentToken` to the task's gateway, never to the VM. `Job.Git` is redacted in `String`, `Format`, `LogValue` and JSON. `Sink` takes progress and usage deltas.
+- **Heartbeats.** The first one goes at once (the task turns Running and a lost lease shows up immediately), then every `lease.heartbeatEvery` on the injected clock. Progress and usage deltas are batched between beats (at most 200 events; the oldest are dropped with a note); a failed heartbeat keeps its batch for the next. Before reporting, a last heartbeat flushes what the run sent since the previous one. `cancel: true` cancels the run, which is then **abandoned with `agent-error`** ("cancelled by the dispatcher"): the run controller takes an abandon of a Cancelling task as the acknowledgement (Cancelled). `404`, `409` or `403` on a heartbeat means the lease is gone: the run is cancelled and nothing is reported.
+- **Reports.** Throttled → `abandon {throttled, until}` and `PATCH {Throttled, until}`, `until` defaulting to now + 15 min, and the agent doesn't poll again before `until`. A runner error or an Outcome without a Result → `complete` with `Result{status: failed, summary: "<reason>[: <error>]"}` (≤ 500 characters): the Result has no reason field. Otherwise `complete {result, transcriptRef}`, with `result.task` filled in. `complete` and `abandon` retry transient failures 5 times; registration and the long poll back off exponentially (1 s doubling to 1 min, no jitter: a handful of agents per pool).
+
+### Drain and SIGHUP
+
+- **Drain.** The first SIGTERM/SIGINT stops leasing at once: the parked long poll is cancelled (a lease that still arrives is abandoned with `shutdown`), then `PATCH {Draining}`. Each running task may finish until its start + `limits.maxWallClock` (1 h when the TaskSpec sets none); then it is cancelled and abandoned with `shutdown`. The second signal cancels every run at once (abandon `shutdown`). A run that produced its Result just as the shutdown hit is still completed.
+- **SIGHUP** re-reads the config and re-sends only `lending` (`PATCH /agents/{id}`, through supervise's cap), with the local concurrency; other changes need a restart.
+
+### `factory-agent probe`
+
+`factory-agent probe [--config] [--json]` prints what the host offers and never calls the dispatcher: each harness adapter's `Probe` (`probe.Prober`; `probe.Configured` offers the config's models, efforts and default with `auth: subscription` when an adapter has none), the labels as configured (a `probe.LabelChecker` can still check one; none is built in), and the base tooling (`git`, `gh`, `jq`, `python3` on PATH, and `gh-pr-review`, `gh-stack` in `gh extension list`). It exits 1 when a harness or a base tool is missing. supervise doesn't use these probes: it offers a harness by its login (above).
+
+### The loop's tests
+
+- `internal/agent/worker` against `factory-mock` built by the test (`go build ./cmd/factory-mock`, skipped with `-short`): device-config from the mock, register → lease the canned task → heartbeat → complete, drain, deregister. The same flow runs against the real dispatcher (`factory serve --dev-fake-providers` as a subprocess, the fake GitHub verifying the owner, the recorded webhook posted to `/hooks/github-public`, the plan-epic task checked through the API), also skipped with `-short`. Throttle, drain deadlines, heartbeat timing and backoff run on `clock.Fake`; every test that logs greps the logs for the join, owner, agent and git tokens.
+- `internal/agent/config`: the validation table and the permission checks.
 
 ## Tests
 

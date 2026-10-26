@@ -146,7 +146,7 @@ TaskSpecs that check claims or record media declare `requires.labels`, and only 
 3. Run the task.
 4. Tear the stack down, including volumes.
 
-One stack at a time per agent (`has-local-stack` tasks force concurrency 1 on that agent) to avoid port clashes. GIFs follow `STYLE.md` limits (size, length, resolution) and land under `static/img/<instance>/<line>/` (the docs instance and its minor line; [docs-revamp.md](workstreams/docs-revamp/LLD/docs-revamp.md), [local-stack.md](workstreams/agent/LLD/local-stack.md#media-constraints-from-docs-stylemd-enforced-by-skills)). The stack itself is pipeline-managed: skills only read it (`factory-agent stack env|wait`).
+One stack at a time per agent (`has-local-stack` tasks force concurrency 1 on that agent) to avoid port clashes. GIFs follow `STYLE.md` limits (size, length, resolution) and land under `static/img/<instance>/<line>/` (the docs instance and its minor line; [docs-revamp.md](workstreams/docs-revamp/LLD/docs-revamp.md), [workspace-run.md](workstreams/agent/LLD/workspace-run.md#local-dev-as-an-environment)). The stack itself is pipeline-managed: skills only read it (`factory-agent stack env|wait`).
 
 ## Sandbox and workspace
 
