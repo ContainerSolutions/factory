@@ -1,0 +1,10 @@
+lisa-design:
+- Root extracts both archives (GNU tar) in a root-owned mktemp -d on the destination's filesystem (libexec/factory-agent, /opt), after re-checking the sha256 of its own copy; the Go side never extracts them (host.Extract is gzip-only and 512 MiB-bounded). Kata's entries are listed (tar -t) and refused unless under opt/kata, then checked again after extraction.
+- Each kata step's root lines make and remove their own $T (umask 022, trap EXIT, `trap - EXIT` at the end), so --only works on any step and the script stays one batch.
+- The containerd step restarts the units (enable + restart, not enable --now) so a changed config takes effect; KillMode=process keeps shims/VMs.
+- workspaces.nft starts with `table …; delete table …` so a reload replaces the table atomically; it empties ws_allow (fail closed). The network step runs nft -f itself because enable --now doesn't rerun an active oneshot. factory-agent-nft.service is RequiredBy the containerd unit, and has no ExecStop.
+- buildkitd.toml is comments only: the unit's flags (Q8's) set everything; --config keeps /etc/buildkit/buildkitd.toml out.
+- kataconfig refuses (wrong, never replaced) a config without its `# factory-agent host init: ` first line, like a foreign /opt/kata.
+- privileges Check can't read the 0440 sudoers file as the owner: it checks owner/mode/size, the text when readable, and runs `sudo -n -k kata-helper protocol` (-k ignores host init's cached sudo login, so only the NOPASSWD rule passes). The owner may not be root.
+- The paths the helper and the renderings share are constants in katahelper (host imports it for them and for Protocol). The helper's commands get exactly katahelper.Env (PATH, HOME=/root, NERDCTL_TOML=/dev/null); list filters nerdctl's names with workspace.ValidName.
+- host.MaxDownload (2 GiB) bounds downloads; MaxArchive (512 MiB) still bounds Extract. zstd joins the platform step's tools.
