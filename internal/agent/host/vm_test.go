@@ -79,6 +79,9 @@ func (r *fakeRunner) RunInput(_ context.Context, in io.Reader, out io.Writer, na
 	defer r.mu.Unlock()
 	call := strings.Join(append([]string{name}, args...), " ") + " <stdin"
 	r.calls = append(r.calls, call)
+	if isHelper(name, args) {
+		return r.kata.run(call, out, in, args[2:])
+	}
 	return r.tart.run(call, out, in, args)
 }
 

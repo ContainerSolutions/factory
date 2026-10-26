@@ -25,7 +25,8 @@ import (
 // 2: create and rm, a workspace's slot, network, disk and container.
 // 3: start, stop, inspect and exec.
 // 4: exec runs as admin (3's ran as root).
-const Protocol = 4
+// 5: image-build, image-exists and image-rm.
+const Protocol = 5
 
 // Env is the whole environment of the commands the helper runs: nothing comes from the
 // caller's. NERDCTL_TOML names /dev/null, so no /etc/nerdctl/nerdctl.toml changes nerdctl's
@@ -87,7 +88,8 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 }
 
 // Usage is the helper's usage line.
-const Usage = "usage: kata-helper protocol | list | create <name> <cpus> <memMiB> <diskGiB> warm|empty <image> | start|stop|rm|inspect <name> | exec [-i] <name> <argv…>"
+const Usage = "usage: kata-helper protocol | list | create <name> <cpus> <memMiB> <diskGiB> warm|empty <image> | start|stop|rm|inspect <name> | exec [-i] <name> <argv…>" +
+	" | image-build <image> < context.tar | image-exists|image-rm <image>"
 
 // usageError is a usage error: exit 2.
 type usageError struct{ msg string }
@@ -145,6 +147,20 @@ func (h *helper) dispatch(ctx context.Context, args []string) error {
 		}
 		_, err := fmt.Fprintln(h.o.Stdout, Protocol)
 		return err
+	case "image-build", "image-exists", "image-rm":
+		if len(rest) != 1 {
+			return errUsage
+		}
+		if err := validImage(rest[0]); err != nil {
+			return err
+		}
+		switch verb {
+		case "image-build":
+			return h.imageBuild(ctx, rest[0])
+		case "image-exists":
+			return h.imageExists(ctx, rest[0])
+		}
+		return h.imageRm(ctx, rest[0])
 	case "create":
 		if len(rest) != 6 {
 			return errUsage

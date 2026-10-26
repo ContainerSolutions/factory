@@ -62,10 +62,11 @@ tart on a Mac and kata on Linux); --agent-linux <path>, the linux/arm64 factory-
 VM gets (default factory-agent-linux-arm64 next to this binary; make tart-up builds it).
 
 --driver kata: the steps so far are platform, statedir, nerdctl, kata, kataconfig, containerd,
-network and privileges (the image and the warm disk come in P1 phase 9's next PRs). privileges
+network, privileges and kataimage (the warm disk comes in P1 phase 9's next PR). privileges
 installs a root-owned copy of this binary as /usr/local/libexec/factory-agent/kata-helper and a
-sudoers rule that lets you run it with sudo -n; init asks first, unless --yes. --no-pf,
---remove-pf and --agent-linux are the tart driver's: with kata they are usage errors.
+sudoers rule that lets you run it with sudo -n; init asks first, unless --yes. kataimage builds
+the workspace image with the factory's BuildKit, through the helper. --no-pf, --remove-pf and
+--agent-linux are the tart driver's: with kata they are usage errors.
 `)
 }
 

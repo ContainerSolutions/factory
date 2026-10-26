@@ -7,7 +7,8 @@
 // It runs as root, so it trusts nothing from its environment: every path is a constant here,
 // the commands it runs get an environment it builds itself (Env), and every argument is
 // validated before anything runs. Its verbs take only workspace names, sizes, the image's tag
-// and fixed words; the image and warm-disk verbs come with the image (P1 phase 9, PR 5).
+// and fixed words; image-build reads its build context as a tar on stdin, never from a path.
+// The warm-disk verbs come with the warm step (P1 phase 9, PR 5b).
 package katahelper
 
 import "net/netip"
@@ -60,6 +61,8 @@ const (
 	SlotsDir = KataStateDir + "/slots"
 	// WarmDisk is the pre-filled disk create copies for a warm workspace.
 	WarmDisk = KataStateDir + "/warm-docker.img"
+	// BuildDir holds image-build's copies of the build contexts it receives, root-only.
+	BuildDir = StateDir + "/build"
 	// GuestDisk is where a workspace's disk file appears in it.
 	GuestDisk = "/var/lib/factory/docker.img"
 	// CNIStateDir is host-local IPAM's dataDir: a network's leases are in CNIStateDir/<network>.

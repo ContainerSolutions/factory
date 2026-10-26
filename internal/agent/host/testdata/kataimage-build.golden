@@ -1,0 +1,2 @@
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper image-build factory-agent-base:0.1.0 <stdin
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper image-rm factory-agent-base:0.0.9

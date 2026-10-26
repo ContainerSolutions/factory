@@ -2,7 +2,8 @@
 // design/workstreams/agent/LLD/workspace-host.md). For the tart driver the steps are the
 // platform, the state dir, Tart, Softnet, the pf anchor, the base VM and the warm base; for the
 // kata driver (workspace-kata.md) so far the platform, the state dir, nerdctl-full, Kata, its
-// config, the factory's containerd, the workspace network and the root helper. Check reports
+// config, the factory's containerd, the workspace network, the root helper and the workspace
+// image. Check reports
 // each step's state; Init applies the steps that aren't ok, in order, and runs their root
 // actions in one sudo script.
 package host
@@ -278,15 +279,15 @@ func firstLine(s string) string {
 	return l
 }
 
-// Steps are the workspace driver's steps, in order. The kata driver has steps 1 to 8 so far;
-// the image and the warm disk come in P1 phase 9's next PRs (workspace-kata.md#prs).
+// Steps are the workspace driver's steps, in order. The kata driver's warm disk comes in P1
+// phase 9's next PR (workspace-kata.md#prs).
 func Steps(e *Env) ([]Step, error) {
 	switch e.Workspace.Driver {
 	case config.DriverTart:
 		return []Step{platformStep{e}, stateDirStep{e}, tartStep{e}, softnetStep{e}, pfStep{e}, baseVMStep{e}, warmBaseStep{e}}, nil
 	case config.DriverKata:
 		return []Step{kataPlatformStep{e}, stateDirStep{e}, nerdctlStep{e}, kataStep{e}, kataConfigStep{e},
-			containerdStep{e}, networkStep{e}, privilegesStep{e}}, nil
+			containerdStep{e}, networkStep{e}, privilegesStep{e}, kataImageStep{e}}, nil
 	}
 	return nil, fmt.Errorf("no host steps for the %q driver", e.Workspace.Driver)
 }

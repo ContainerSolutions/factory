@@ -10,6 +10,9 @@ plan:
   network   write the workspace firewall $ROOT/etc/factory-agent/workspaces.nft (table inet factory_workspaces, fws* bridges, gateway port 3128) and factory-agent-nft.service; load it and enable the unit (sudo)
   privileges copy $HOME/bin/factory-agent (sha256 5039fa9d2883308ff76bc8cf8db363f3cca78996f411a03369753896751715cd) into the stage
   privileges install it root:root 0755 at $ROOT/usr/local/libexec/factory-agent/kata-helper and the sudoers rule $ROOT/etc/sudoers.d/factory-agent, which lets owner run it with sudo -n (sudo: root checks its copy's sha256 again, visudo -cf the rule)
+  kataimage write the image's build context (the Dockerfile, base.sh and the image's scripts) into $STAGE/kata-context
+  kataimage sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper image-build factory-agent-base:0.1.0 < the context as a tar: the factory's BuildKit builds it (Ubuntu and base.sh: many minutes)
+  kataimage write $HOME/.local/state/factory-agent/katabase.json
 sudo script (one sudo prompt):
 #!/bin/sh
 # factory-agent host init: the root actions, run once with sudo.

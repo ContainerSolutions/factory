@@ -32,10 +32,14 @@ type fakeHost struct {
 	hangs      int
 	// exec is what nerdctl exec does.
 	exec func(stdin io.Reader, stdout, stderr io.Writer) error
+	// images are the images nerdctl has; built is the context nerdctl build got: each file's
+	// mode and content.
+	images map[string]bool
+	built  map[string]string
 }
 
 func newHost(t *testing.T) *fakeHost {
-	return &fakeHost{t: t, root: t.TempDir(), containers: map[string]bool{}}
+	return &fakeHost{t: t, root: t.TempDir(), containers: map[string]bool{}, images: map[string]bool{}}
 }
 
 func (f *fakeHost) opts() Options {
@@ -119,6 +123,16 @@ func (f *fakeHost) Run(ctx context.Context, env []string, stdin io.Reader, stdou
 			delete(f.containers, last)
 		case "inspect":
 			_, _ = fmt.Fprintln(stdout, f.containers[last])
+		case "build":
+			f.built = readContext(f.t, last)
+			f.images[args[len(args)-2]] = true
+		case "image":
+			if !f.images[last] {
+				_, _ = fmt.Fprintf(stderr, "no such image: %s\n", last)
+				return fakeExit(1)
+			}
+		case "rmi":
+			delete(f.images, last)
 		}
 	}
 	return nil

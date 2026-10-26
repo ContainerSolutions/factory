@@ -87,10 +87,7 @@ func parseCreate(a []string) (createArgs, error) {
 	default:
 		return c, badArg("%q is neither warm nor empty", a[4])
 	}
-	if !imageRE.MatchString(c.image) {
-		return c, badArg("image %q isn't %s:<version>", c.image, ImageRepo)
-	}
-	return c, nil
+	return c, validImage(c.image)
 }
 
 // intIn parses a plain decimal from lo to hi: no sign, no leading zero.

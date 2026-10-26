@@ -1,0 +1,5 @@
+nerdctl build --buildkit-host unix:///run/factory-agent/buildkit/buildkitd.sock --progress plain --platform linux/amd64 -t factory-agent-base:0.1.0 /var/lib/factory-agent/build/context-N
+nerdctl image inspect factory-agent-base:0.1.0
+nerdctl image inspect factory-agent-base:other
+nerdctl rmi factory-agent-base:0.1.0
+nerdctl image inspect factory-agent-base:0.1.0
