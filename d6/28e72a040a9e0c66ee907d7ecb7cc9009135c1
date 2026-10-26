@@ -5,3 +5,6 @@ pass 1 (lenient, final): approve. ccf-review core/go/repo-factory rules on the d
 - GO-RES-001: the flight goroutine is bounded by 30 s (+10 s save); a caller that goes away doesn't abandon a spent refresh token.
 - deferred should-fix: no workspace-runner test asserts the ChatGPTUnauthorized wiring (one line; the gateway and refresher tests cover the behaviour).
 - deferred nit: a re-import is seen only at the next refresh (as the LLD says), not on every request as before.
+
+lisa-design:
+Login drops IDToken (nothing reads a stored one). The error code also falls back to a top-level `code`, as the pinned oauth/error.rs does. A 200 with a bad body is not retried (the refresh token may be spent), per the LLD; codex treats it as transient.
