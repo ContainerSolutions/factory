@@ -26,6 +26,11 @@ func workerEnv(extra ...string) func() []string {
 	return func() []string { return env }
 }
 
+// slow bounds what a loaded machine can take for what an idle one does in milliseconds:
+// starting the fake (a re-exec of the race-built test binary, which macOS also scans on its first
+// runs) or stopping it. The fakes that would hang block forever, so a hang still fails.
+const slow = time.Minute
+
 // prepared is a prepared workspace and an adapter running the fake claude.
 func prepared(t *testing.T, writable bool, plan fakePlan, environ func() []string) (*Adapter, harness.Workspace, *fakeClaude) {
 	t.Helper()
@@ -209,7 +214,7 @@ func TestRunFailures(t *testing.T) {
 			if tt.wantLimit.IsZero() != (len(s.Limits) == 0) || (len(s.Limits) > 0 && !s.Limits[0].Equal(tt.wantLimit)) {
 				t.Errorf("rate limits %v, want %v", s.Limits, tt.wantLimit)
 			}
-			if time.Since(start) > 10*time.Second {
+			if time.Since(start) > slow {
 				t.Errorf("the run took %s", time.Since(start))
 			}
 		})
@@ -283,7 +288,7 @@ func TestRunCancelKillsTheProcessTree(t *testing.T) {
 		done <- err
 	}()
 	var pids []int
-	for deadline := time.Now().Add(10 * time.Second); len(pids) < 2; {
+	for deadline := time.Now().Add(slow); len(pids) < 2; {
 		if time.Now().After(deadline) {
 			t.Fatal("the fake claude never started its child")
 		}
@@ -296,12 +301,12 @@ func TestRunCancelKillsTheProcessTree(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("Run = %v, want context.Canceled", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(slow):
 		t.Fatal("Run didn't return after cancel")
 	}
 	for _, pid := range pids {
 		gone := false
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		for deadline := time.Now().Add(slow); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 			if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
 				gone = true
 				break
@@ -324,7 +329,7 @@ func TestRunRateLimitStopsTheRun(t *testing.T) {
 	s := &harnesstest.Recorder{OnLimit: cancel}
 	start := time.Now()
 	_, err := a.Run(ctx, ws, task("claude-sonnet-5-5", "high", AuthSubscription), "p", s)
-	if !errors.Is(err, context.Canceled) || len(s.Limits) != 1 || !s.Limits[0].Equal(t0.Add(90*time.Minute)) || time.Since(start) > 10*time.Second {
+	if !errors.Is(err, context.Canceled) || len(s.Limits) != 1 || !s.Limits[0].Equal(t0.Add(90*time.Minute)) || time.Since(start) > slow {
 		t.Errorf("Run = %v after %s, limits %v", err, time.Since(start), s.Limits)
 	}
 }

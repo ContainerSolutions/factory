@@ -218,7 +218,7 @@ func TestRunEnvironmentWallClockLimit(t *testing.T) {
 	}()
 	select {
 	case <-env.started:
-	case <-time.After(30 * time.Second):
+	case <-time.After(slow):
 		t.Fatal("the environment didn't start")
 	}
 	clk.Advance(16 * time.Minute)
@@ -227,7 +227,7 @@ func TestRunEnvironmentWallClockLimit(t *testing.T) {
 		if out.Status != runner.StatusFailed || out.Reason != runner.ReasonLimit {
 			t.Errorf("outcome %+v %+v", out, out.Result)
 		}
-	case <-time.After(30 * time.Second):
+	case <-time.After(slow):
 		t.Fatal("the wall-clock limit didn't stop the environment")
 	}
 	f.checkClean("")
