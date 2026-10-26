@@ -154,9 +154,35 @@ var ipRouteTypes = map[string]bool{
 	"unreachable": true, "prohibit": true, "blackhole": true, "nat": true, "anycast": true,
 }
 
-// routesIn returns the destinations among ip -4 route show's lines that overlap pool. A line's
-// destination is its first field, after a route type; default and other lines whose
-// destination isn't an address or a prefix (multipath's nexthop lines) are never in it.
+// kataSlots is the number of workspace slots: slot n is 1 to kataSlots.
+const kataSlots = 63
+
+// kataSlotRoute reports whether a route is a kata workspace's own: its slot's connected route,
+// 10.213.<n>.0/29 on the bridge fws<n> (workspace-kata.md#the-workspace-network). Running or
+// leftover workspaces have them, and supervise's host check runs before its orphan cleanup.
+func kataSlotRoute(dst netip.Prefix, dev string) bool {
+	n, err := strconv.Atoi(strings.TrimPrefix(dev, "fws"))
+	if !strings.HasPrefix(dev, "fws") || err != nil || n < 1 || n > kataSlots || strconv.Itoa(n) != dev[3:] {
+		return false
+	}
+	p := KataSlotPool.Addr().As4()
+	return dst == netip.PrefixFrom(netip.AddrFrom4([4]byte{p[0], p[1], byte(n), 0}), 29)
+}
+
+// routeDev is the value of a route line's dev field; "" when it has none.
+func routeDev(f []string) string {
+	for i := 0; i+1 < len(f); i++ {
+		if f[i] == "dev" {
+			return f[i+1]
+		}
+	}
+	return ""
+}
+
+// routesIn returns the destinations among ip -4 route show's lines that overlap pool, but for
+// the kata workspaces' own slot routes (kataSlotRoute). A line's destination is its first
+// field, after a route type; default and other lines whose destination isn't an address or a
+// prefix (multipath's nexthop lines) are never in it.
 func routesIn(out string, pool netip.Prefix) []string {
 	var in []string
 	for l := range strings.Lines(out) {
@@ -175,7 +201,7 @@ func routesIn(out string, pool netip.Prefix) []string {
 			}
 			dst = netip.PrefixFrom(a, a.BitLen())
 		}
-		if dst.Overlaps(pool) {
+		if dst.Overlaps(pool) && !kataSlotRoute(dst, routeDev(f)) {
 			in = append(in, f[0])
 		}
 	}

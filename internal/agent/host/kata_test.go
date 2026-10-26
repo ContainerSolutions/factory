@@ -130,6 +130,12 @@ func TestKataPlatform(t *testing.T) {
 			"slot pool 10.213.0.0/16: 10.213.0.9"},
 		{"a blackhole in the pool", func(_ *testing.T, _ *Env, r *fakeRunner) { r.routes += "blackhole 10.213.0.0/16 proto static\n" }, StateWrong,
 			"slot pool 10.213.0.0/16: 10.213.0.0/16"},
+		{"a workspace's own bridge", func(_ *testing.T, _ *Env, r *fakeRunner) {
+			r.routes += "10.213.3.0/29 dev fws3 proto kernel scope link src 10.213.3.1\n10.213.63.0/29 dev fws63 proto kernel scope link src 10.213.63.1 linkdown\n"
+		}, StateOK, "linux/amd64"},
+		{"a slot's prefix on another dev", func(_ *testing.T, _ *Env, r *fakeRunner) {
+			r.routes += "10.213.3.0/29 dev br-7db5151d33fc proto kernel scope link src 10.213.3.1\n"
+		}, StateWrong, "slot pool 10.213.0.0/16: 10.213.3.0/29"},
 		{"a route next to the pool", func(_ *testing.T, _ *Env, r *fakeRunner) {
 			r.routes += "10.214.0.0/16 dev br-1 proto kernel scope link\n10.212.0.0/16 dev br-2\n"
 		}, StateOK,
@@ -179,9 +185,18 @@ func TestRoutesIn(t *testing.T) {
 		"10.208.0.0/12 via 10.0.0.1 dev eth0\n" + // 10.208.0.0 to 10.223.255.255: holds the pool
 		"nexthop via 10.213.0.1 dev eth1 weight 1\n" +
 		"10.213.255.255 dev eth0 scope link\n" +
-		"10.214.0.1 dev eth0 scope link\n"
+		"10.214.0.1 dev eth0 scope link\n" +
+		// the workspaces' own slot routes are skipped; anything else on their bridges isn't.
+		"10.213.1.0/29 dev fws1 proto kernel scope link src 10.213.1.1\n" +
+		"10.213.4.0/29 dev fws3 proto kernel scope link src 10.213.4.1\n" +
+		"10.213.0.0/16 dev fws1\n" +
+		"10.213.64.0/29 dev fws64\n" +
+		"10.213.5.0/29 dev fws05\n" +
+		"10.213.6.0/28 dev fws6\n" +
+		"10.213.7.0/29 via 10.213.7.1\n"
 	got := routesIn(out, KataSlotPool)
-	want := []string{"10.213.8.0/22", "10.208.0.0/12", "10.213.255.255"}
+	want := []string{"10.213.8.0/22", "10.208.0.0/12", "10.213.255.255",
+		"10.213.4.0/29", "10.213.0.0/16", "10.213.64.0/29", "10.213.5.0/29", "10.213.6.0/28", "10.213.7.0/29"}
 	if !slices.Equal(got, want) {
 		t.Errorf("routesIn: %q, want %q", got, want)
 	}
