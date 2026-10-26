@@ -31,7 +31,7 @@ spec:
     versions:    { type: object }                         # component → version (docs-on-release-train: the train's releases)
   instructions: { template: prompts/release-docs.md.tmpl, headless: true }
   skills:
-    - { source: ccf-skills, ref: v0.9.0, use: [docs-release, docs-style, docs-gif, ccf-test, sidebyside] }
+    - { source: ccf-skills, ref: v0.10.0, use: [docs-release, docs-style, docs-gif, ccf-test, sidebyside] }
   harness:
     allowed: [{ name: codex, models: ["gpt-{5,6}*"], reasoningEffort: "*" }, { name: claude-code, models: ["claude-*-5-*"], reasoningEffort: "*" }]
     default: { name: codex, config: { model: "gpt-{5,6}*", reasoningEffort: high } }

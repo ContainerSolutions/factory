@@ -100,8 +100,8 @@ func TestCatalog(t *testing.T) {
 			t.Errorf("%s: prompt %v, output schema %v", name, ts.Prompt != nil, ts.OutputSchema != nil)
 		}
 		for _, s := range ts.Spec.Spec.Skills {
-			if s.Source != "ccf-skills" || s.Ref != "v0.9.0" {
-				t.Errorf("%s: skills %s@%s, want ccf-skills@v0.9.0", name, s.Source, s.Ref)
+			if s.Source != "ccf-skills" || s.Ref != "v0.10.0" {
+				t.Errorf("%s: skills %s@%s, want ccf-skills@v0.10.0", name, s.Source, s.Ref)
 			}
 			// lisa's self-review runs ccf-review's ccfr, which only the ccf-review plugin brings.
 			if slices.Contains(s.Use, "lisa") && !slices.Contains(s.Use, "ccf-review:review") {

@@ -63,7 +63,9 @@ all of it.
 ## Done when
 
 - [ ] `check_changes.py` passes against the plan, and `instances.py validate` passes.
-- [ ] `yarn build` passed, or `checks.build` is `not-run` and the summary says why.
+- [ ] The docs checkout's dependencies are installed (`yarn install --frozen-lockfile`, with
+      `package.json` and `yarn.lock` unchanged) and `yarn build` passed, or `checks.build` is
+      `not-run` and the summary says why it still couldn't run.
 - [ ] The branch is pushed with `factory push` and the PR opened with `factory pr open`
       (outcome `pr-opened`), or the plan documents nothing (outcome `no-docs-change`: no
       branch, no PR).
