@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -83,7 +84,6 @@ func TestHostUsage(t *testing.T) {
 		{[]string{"init", "--remove-pf", "--yes"}, 2, "unexpected arguments or flags"},
 		{[]string{"check", "extra"}, 2, "unexpected arguments or flags"},
 		{[]string{"check", "--driver", "docker"}, 2, `--driver "docker" is not tart or kata`},
-		{[]string{"init", "--driver", "kata"}, 1, "P1 phase 9"},
 		{[]string{"check", "--config", "/nonexistent/agent.yaml"}, 1, "read config"},
 	}
 	for _, tt := range tests {
@@ -272,5 +272,112 @@ func TestOnlyStatuses(t *testing.T) {
 	sts[0].State = host.StateWrong
 	if host.AllOK(onlyStatuses(sts, []string{"basevm"})) {
 		t.Error("--only basevm with a failed platform check: AllOK, want not")
+	}
+}
+
+// linuxRunner answers like an Ubuntu amd64 host: df and ip route. Any other command fails the
+// test.
+type linuxRunner struct{ t *testing.T }
+
+func (r linuxRunner) Run(_ context.Context, out io.Writer, name string, args ...string) error {
+	answers := map[string]string{
+		"df": "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/nvme0n1p2 982797652 1 737000000 25% /",
+		"ip": "default via 192.168.1.1 dev wlp0s20f3 proto dhcp metric 600\n172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1",
+	}
+	a, ok := answers[name]
+	if !ok {
+		r.t.Errorf("unexpected command %s %v", name, args)
+		return errors.New("unexpected")
+	}
+	_, _ = io.WriteString(out, a+"\n")
+	return nil
+}
+
+// kataHostDeps is a Linux host whose kata platform step passes: its /dev, /proc, /sys and
+// /run under a temp Root (/dev/kvm a link to /dev/null, a character device), the tools on
+// PATH, and no XDG_STATE_HOME.
+func kataHostDeps(t *testing.T) hostDeps {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the kata host's fixtures need /dev/null")
+	}
+	home, root := t.TempDir(), t.TempDir()
+	for p, body := range map[string]string{
+		"proc/cpuinfo":                     "processor\t: 0\nflags\t\t: fpu vme vmx sse4_2\n",
+		"proc/meminfo":                     "MemTotal:       64395636 kB\n",
+		"sys/fs/cgroup/cgroup.controllers": "cpu io memory pids\n",
+		"run/systemd/system/.keep":         "",
+	} {
+		p = filepath.Join(root, p)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(root, "dev"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/dev/null", filepath.Join(root, "dev", "kvm")); err != nil {
+		t.Fatal(err)
+	}
+	return hostDeps{
+		Config: config.Options{Home: func() (string, error) { return home, nil }, GOOS: "linux"},
+		Env: host.Env{
+			Runner: linuxRunner{t}, Fetcher: noFetch{t}, Root: root, Home: home, GOOS: "linux", GOARCH: "amd64",
+			LookPath: func(n string) (string, error) { return "/usr/sbin/" + n, nil },
+			Getenv:   func(string) string { return "" },
+			Prompt:   func(string) (bool, error) { t.Error("unexpected prompt"); return false, nil },
+		},
+	}
+}
+
+// TestHostKata: on a Linux host whose platform passes, check --driver kata reports the
+// statedir missing, init makes it, and check then exits 0. The config's default driver on
+// Linux is kata too.
+func TestHostKata(t *testing.T) {
+	d := kataHostDeps(t)
+	run := func(args ...string) (int, string) {
+		var out, errOut bytes.Buffer
+		code := runHost(context.Background(), args, &out, &errOut, d)
+		return code, out.String() + errOut.String()
+	}
+	state := filepath.Join(d.Env.Home, ".local", "state", "factory-agent")
+	if code, out := run("check", "--driver", "kata"); code != 1 || !strings.Contains(out, "platform  ok       linux/amd64, KVM, cgroup v2, 61 GiB memory, 702 GiB free on /var/lib\n") ||
+		!strings.Contains(out, "statedir  missing  "+state+"\n") {
+		t.Fatalf("check before init: code %d\n%s", code, out)
+	}
+	if code, out := run("init", "--dry-run"); code != 0 || !strings.Contains(out, "plan:\n  statedir  create "+state+" with mode 0700\n") || strings.Contains(out, "sudo") {
+		t.Fatalf("init --dry-run: code %d\n%s", code, out)
+	}
+	if code, out := run("init", "--driver", "kata"); code != 0 {
+		t.Fatalf("init: code %d\n%s", code, out)
+	}
+	if code, out := run("check", "--driver", "kata", "--json"); code != 0 || !strings.Contains(out, `{"step":"statedir","state":"ok","detail":"`+state+`"}`) {
+		t.Fatalf("check after init: code %d\n%s", code, out)
+	}
+}
+
+// TestHostKataTartFlags: the tart driver's flags are usage errors with kata, from --driver or
+// from the config's default.
+func TestHostKataTartFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"init", "--driver", "kata", "--no-pf"},
+		{"init", "--driver", "kata", "--remove-pf"},
+		{"init", "--driver", "kata", "--remove-pf", "--dry-run"},
+		{"check", "--driver", "kata", "--agent-linux", "/x/factory-agent-linux-arm64"},
+		{"init", "--agent-linux", "/x/factory-agent-linux-arm64"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			d := kataHostDeps(t)
+			var out, errOut bytes.Buffer
+			if code := runHost(context.Background(), args, &out, &errOut, d); code != 2 || !strings.Contains(errOut.String(), "is the tart driver's, not kata's") {
+				t.Errorf("code %d, want 2; stderr %q", code, errOut.String())
+			}
+			if _, err := os.Stat(filepath.Join(d.Env.Home, ".local")); err == nil {
+				t.Error("a usage error made the state dir")
+			}
+		})
 	}
 }

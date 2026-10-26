@@ -30,7 +30,7 @@ type hostDeps struct {
 func hostCommand() command {
 	return command{
 		name:    "host",
-		summary: "check or set up this machine as a VM workspace host (Tart, Softnet, pf, the base VMs)",
+		summary: "check or set up this machine as a VM workspace host (tart on a Mac, kata on Linux)",
 		run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -40,12 +40,12 @@ func hostCommand() command {
 }
 
 func hostUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: factory-agent host <op> [flags]   (workspace-host.md)
+	fmt.Fprint(w, `usage: factory-agent host <op> [flags]   (workspace-host.md, workspace-kata.md)
 
-  check [--driver tart] [--json]
+  check [--driver tart|kata] [--json]
         one line per step (ok, missing, outdated, wrong, skipped); exit 0 when every step is
         ok or skipped, else 1. skipped is a pf step the owner opted out of (a warning)
-  init  [--driver tart] [--dry-run] [--yes] [--no-pf] [--remove-pf] [--only <steps>] [--keep-failed]
+  init  [--driver tart|kata] [--dry-run] [--yes] [--no-pf] [--remove-pf] [--only <steps>] [--keep-failed]
         applies the steps that aren't ok (one sudo prompt for Softnet and pf), then checks
         again: its exit code is that check's. --dry-run prints the plan and the sudo script
         and changes nothing. --yes installs pf without asking; --no-pf skips it and records
@@ -56,11 +56,19 @@ func hostUsage(w io.Writer) {
         --remove-pf removes the pf anchor, its LaunchDaemon and its pf.conf line.
 
 common flags: --config <agent.yaml> (only its workspace block is read; without the file, the
-defaults); --agent-linux <path>, the linux/arm64 factory-agent the base VM gets (default
-factory-agent-linux-arm64 next to this binary; make tart-up builds it). The kata driver's
-host init comes in P1 phase 9.
+defaults); --driver, the workspace driver (default: the config's workspace.driver, which is
+tart on a Mac and kata on Linux); --agent-linux <path>, the linux/arm64 factory-agent the base
+VM gets (default factory-agent-linux-arm64 next to this binary; make tart-up builds it).
+
+--driver kata: the steps so far are platform and statedir (the others come in P1 phase 9's
+next PRs). --no-pf, --remove-pf and --agent-linux are the tart driver's: with kata they are
+usage errors.
 `)
 }
+
+// tartOnlyFlags are the host flags of the tart driver's steps alone (pf, the base VM's
+// binary): usage errors with --driver kata.
+var tartOnlyFlags = []string{"no-pf", "remove-pf", "agent-linux"}
 
 func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hostDeps) int {
 	if len(args) == 0 {
@@ -81,7 +89,7 @@ func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hos
 	fs := flag.NewFlagSet("host "+op, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", config.DefaultPath, "the agent config file (its workspace block)")
-	driver := fs.String("driver", "", "the workspace driver: tart (default: the config's)")
+	driver := fs.String("driver", "", "the workspace driver: tart or kata (default: the config's)")
 	asJSON := fs.Bool("json", false, "check: print the statuses as JSON")
 	var o host.InitOptions
 	removePF := fs.Bool("remove-pf", false, "init: remove the pf anchor instead")
@@ -118,10 +126,16 @@ func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hos
 	if *driver != "" {
 		w.Driver = *driver
 	}
-	if w.Driver == config.DriverKata {
-		return fail(errors.New("the kata driver's host init comes in P1 phase 9"))
-	}
-	if w.Driver != config.DriverTart {
+	switch w.Driver {
+	case config.DriverTart:
+	case config.DriverKata:
+		for _, f := range tartOnlyFlags {
+			if set[f] {
+				fmt.Fprintf(stderr, "factory-agent host %s: --%s is the tart driver's, not kata's (see factory-agent host help)\n", op, f)
+				return 2
+			}
+		}
+	default:
 		fmt.Fprintf(stderr, "factory-agent host %s: --driver %q is not tart or kata\n", op, w.Driver)
 		return 2
 	}

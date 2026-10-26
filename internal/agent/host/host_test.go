@@ -44,6 +44,7 @@ type fakeRunner struct {
 	macOS    string
 	memory   string
 	freeKB   string
+	routes   string // ip -4 route show's output
 	script   string // the sudo script's content when sudo ran
 }
 
@@ -59,6 +60,8 @@ func (r *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...
 		_, _ = io.WriteString(out, r.macOS+"\n")
 	case name == "sysctl":
 		_, _ = io.WriteString(out, r.memory+"\n")
+	case name == "ip":
+		_, _ = io.WriteString(out, r.routes)
 	case name == "df":
 		_, _ = fmt.Fprintf(out, "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk3s5 482797652 1 %s 79%% /\n", r.freeKB)
 	case len(args) == 1 && args[0] == "--version":
@@ -609,8 +612,9 @@ func TestInitStops(t *testing.T) {
 	if _, err := Init(context.Background(), e, InitOptions{Yes: true}); err == nil || !strings.Contains(err.Error(), "platform: macOS 15.4") {
 		t.Fatalf("err = %v", err)
 	}
+	// the kata driver on this Mac: its platform step stops init.
 	e.Workspace.Driver = config.DriverKata
-	if _, err := Init(context.Background(), e, InitOptions{}); err == nil || !strings.Contains(err.Error(), "P1 phase 9") {
+	if _, err := Init(context.Background(), e, InitOptions{}); err == nil || !strings.Contains(err.Error(), "platform: the kata driver needs linux/amd64, this is darwin/arm64") {
 		t.Fatalf("kata: %v", err)
 	}
 	if _, err := os.Stat(e.StateDir()); err == nil || r.ran("sudo") != 0 {
