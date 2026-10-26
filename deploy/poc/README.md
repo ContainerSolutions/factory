@@ -196,7 +196,7 @@ The agent is `factory-agent supervise`: it runs each leased task in its own VM w
    - `workspace`, whose driver defaults to tart on a Mac and kata on Linux.
 
    Unknown keys are errors.
-3. **Labels.** Each label is probed at start.
+3. **Labels.** supervise advertises each as configured; `factory-agent probe` checks them.
    - `has-local-stack`: Docker running with at least 8 GB of memory, compose v2, and a `local-dev` checkout (with its `.env`) set as `localDev`.
    - `gif-tooling`: `npm install -g playwright && npx playwright install chromium`, plus `brew install gifski vhs ffmpeg`.
 
