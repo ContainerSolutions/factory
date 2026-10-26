@@ -34,7 +34,10 @@ type KataWarmRecord struct {
 	ImageBuiltAt string `json:"imageBuiltAt"`
 	// ImagesSHA256 is workspace.warm's hash, as warmbase.json's.
 	ImagesSHA256 string `json:"imagesSHA256"`
-	BuiltAt      string `json:"builtAt"`
+	// DiskGiB is workspace.size.disk when it was built: every warm workspace's disk is a copy
+	// of the warm disk, so a new size rebuilds it.
+	DiskGiB int    `json:"diskGiB"`
+	BuiltAt string `json:"builtAt"`
 }
 
 // KataWarmRecordPath is katawarm.json.
@@ -74,6 +77,7 @@ func (s kataWarmStep) Check(ctx context.Context) (Status, error) {
 		{"image", got.Image, b.Image},
 		{"imageBuiltAt", got.ImageBuiltAt, b.BuiltAt},
 		{"imagesSHA256", got.ImagesSHA256, warmBaseStep{e}.imagesSHA256()},
+		{"diskGiB", strconv.Itoa(got.DiskGiB), strconv.Itoa(e.Workspace.Size.DiskGiB())},
 	} {
 		if f.got != f.want {
 			return Status{State: StateOutdated, Detail: fmt.Sprintf("%s: its %s is %s, want %s: host init rebuilds it", filepath.Base(p), f.field, f.got, f.want)}, nil
@@ -192,7 +196,7 @@ func (s kataWarmStep) Apply(ctx context.Context) (err error) {
 	}
 	return writeRecord(e.KataWarmRecordPath(), KataWarmRecord{
 		Image: img.Image, ImageBuiltAt: img.BuiltAt, ImagesSHA256: warmBaseStep{e}.imagesSHA256(),
-		BuiltAt: e.Clock.Now().UTC().Format(time.RFC3339),
+		DiskGiB: e.Workspace.Size.DiskGiB(), BuiltAt: e.Clock.Now().UTC().Format(time.RFC3339),
 	})
 }
 

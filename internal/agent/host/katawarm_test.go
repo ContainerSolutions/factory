@@ -23,7 +23,7 @@ func installWarm(t *testing.T, e *Env, r *fakeRunner) {
 	if _, err := readRecord(e.KataBaseRecordPath(), &img); err != nil {
 		t.Fatal(err)
 	}
-	writeTestRecord(t, e.KataWarmRecordPath(), KataWarmRecord{Image: img.Image, ImageBuiltAt: img.BuiltAt, ImagesSHA256: warmBaseStep{e}.imagesSHA256(), BuiltAt: "2026-10-20T09:00:00Z"})
+	writeTestRecord(t, e.KataWarmRecordPath(), KataWarmRecord{Image: img.Image, ImageBuiltAt: img.BuiltAt, ImagesSHA256: warmBaseStep{e}.imagesSHA256(), DiskGiB: e.Workspace.Size.DiskGiB(), BuiltAt: "2026-10-20T09:00:00Z"})
 	r.kata.warm = true
 }
 
@@ -54,6 +54,17 @@ func TestKataWarmCheck(t *testing.T) {
 			installWarm(t, e, r)
 			e.Workspace.Warm = config.WarmImages{Images: append([]string{"kindest/node:v1.34.0"}, testWarm.Images...), KindImages: testWarm.KindImages[:1]}
 		}, StateOutdated, "its imagesSHA256 is "},
+		{"katawarm", "another disk size", func(_ *testing.T, e *Env, _ *fakeRunner) { e.Workspace.Size.Disk = "120Gi" }, StateOutdated,
+			"katawarm.json: its diskGiB is 60, want 120: host init rebuilds it"},
+		{"katawarm", "a record without the disk size", func(t *testing.T, e *Env, r *fakeRunner) {
+			installWarm(t, e, r)
+			var rec KataWarmRecord
+			if _, err := readRecord(e.KataWarmRecordPath(), &rec); err != nil {
+				t.Fatal(err)
+			}
+			rec.DiskGiB = 0
+			writeTestRecord(t, e.KataWarmRecordPath(), rec)
+		}, StateOutdated, "its diskGiB is 0, want 60"},
 		{"katawarm", "no warm disk", func(_ *testing.T, _ *Env, r *fakeRunner) { r.kata.warm = false }, StateMissing,
 			"no warm disk (kata-helper warm-exists: no warm disk /var/lib/factory-agent/kata/warm-docker.img)"},
 	})
@@ -100,7 +111,7 @@ func TestKataWarmBuild(t *testing.T) {
 	if err := json.Unmarshal([]byte(readFile(t, e.KataWarmRecordPath())), &rec); err != nil {
 		t.Fatal(err)
 	}
-	if rec != (KataWarmRecord{Image: "factory-agent-base:0.1.0", ImageBuiltAt: "2026-10-20T08:00:00Z", ImagesSHA256: warmBaseStep{e}.imagesSHA256(), BuiltAt: "2026-10-22T09:30:00Z"}) {
+	if rec != (KataWarmRecord{Image: "factory-agent-base:0.1.0", ImageBuiltAt: "2026-10-20T08:00:00Z", ImagesSHA256: warmBaseStep{e}.imagesSHA256(), DiskGiB: 60, BuiltAt: "2026-10-22T09:30:00Z"}) {
 		t.Errorf("record %+v", rec)
 	}
 	golden(t, "katawarm-build.golden", e, strings.Join(r.helperCalls(), "\n")+"\n")
