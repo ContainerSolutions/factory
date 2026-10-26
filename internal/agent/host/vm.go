@@ -652,16 +652,17 @@ type vmBuild struct {
 	renamed bool
 }
 
-// lockedWriter serialises writes: tart run's output arrives from another goroutine.
-type lockedWriter struct {
+// LockedWriter serialises writes to W: tart run's output arrives from its own goroutines (here
+// and in the tart workspace driver, where every VM's goes to one log).
+type LockedWriter struct {
 	mu sync.Mutex
-	w  io.Writer
+	W  io.Writer
 }
 
-func (l *lockedWriter) Write(p []byte) (int, error) {
+func (l *LockedWriter) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.w.Write(p)
+	return l.W.Write(p)
 }
 
 // buildVM makes final from src: it clones src into final.building, runs tart set with set
@@ -669,7 +670,7 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 // Then it renames final.building to final, replacing an older final (see replace). Any
 // failure before that deletes final.building, unless KeepFailed.
 func (e *Env) buildVM(ctx context.Context, src, final string, set []string, provision func(context.Context, *vmBuild) error) (err error) {
-	b := &vmBuild{e: e, vm: final + buildingSuffix, bin: e.tartBin(ctx), out: &lockedWriter{w: e.Out}}
+	b := &vmBuild{e: e, vm: final + buildingSuffix, bin: e.tartBin(ctx), out: &LockedWriter{W: e.Out}}
 	vms, err := e.vms(ctx, b.bin)
 	if err != nil {
 		return err

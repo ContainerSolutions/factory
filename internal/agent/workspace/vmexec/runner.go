@@ -1,4 +1,4 @@
-package tart
+package vmexec
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/host"
 )
 
-// Cmd is one tart invocation.
+// Cmd is one invocation of a driver's command (tart, or sudo and the kata helper).
 type Cmd struct {
 	Name string
 	Args []string
@@ -22,7 +22,7 @@ type Cmd struct {
 	Stderr io.Writer
 }
 
-// Runner runs tart. Tests use a fake; nothing in them runs the real tart.
+// Runner runs a driver's commands. Tests use a fake; nothing in them runs the real ones.
 type Runner interface {
 	// Run runs c to completion; ctx being done kills it.
 	Run(ctx context.Context, c Cmd) error
