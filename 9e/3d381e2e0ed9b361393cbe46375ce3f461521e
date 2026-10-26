@@ -1,0 +1,3 @@
+lisa-addressed:
+- ed3f593b5496 CORE-TEST-001: TestBaseScriptRuns (provision_test.go) runs base.sh with PATH = stubs only for amd64/image, amd64/vm, arm64/default: each arch's half of every pin (codex aside) is checked and the other's never used, the asset names, vm-only commands present only outside image mode; bogus mode and riscv64 stop before anything runs.
+- 7e10bbc2cc61 CORE-STYLE-001: reflowed the gifski and claude-code comment paragraphs.
