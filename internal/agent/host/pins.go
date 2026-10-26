@@ -31,11 +31,38 @@ const (
 	BaseImage = "ghcr.io/cirruslabs/ubuntu@sha256:51b493a05e4bc6f21c5c5052cffc1b26b5cea1d76847f5db10b97da90c16e58c"
 )
 
+// The kata driver's pins (workspace-kata.md#steps-kata-driver), the releases P1 phase 9's Q8 dry
+// run installed on the Linux workstation.
+const (
+	// NerdctlVersion is the pinned nerdctl-full, containerd, nerdctl, BuildKit, runc and the CNI
+	// plugins in one release: https://github.com/containerd/nerdctl/releases/tag/v2.4.1.
+	NerdctlVersion = "2.4.1"
+	NerdctlURL     = "https://github.com/containerd/nerdctl/releases/download/v" + NerdctlVersion + "/nerdctl-full-" + NerdctlVersion + "-linux-amd64.tar.gz"
+	// NerdctlSHA256 is the sha256 of nerdctl-full-2.4.1-linux-amd64.tar.gz: the asset's digest
+	// in GitHub's releases API, which matches the release's SHA256SUMS.
+	NerdctlSHA256 = "ff018f11ac2f1354bf7b3aaaca6e0b52d81139c746a89134744d0b7be3a0e62f"
+	// NerdctlContainerdVersion is the containerd in that release (its notes: "Update containerd
+	// (2.4.1)"); containerd --version reports it with a leading v.
+	NerdctlContainerdVersion = "2.4.1"
+
+	// KataVersion is the pinned Kata Containers static release (runtime-rs, Cloud Hypervisor,
+	// the guest kernel and image): https://github.com/kata-containers/kata-containers/releases/tag/4.2.0,
+	// the version phase 0 ran; 4.3.x was under two weeks old when pinned.
+	KataVersion = "4.2.0"
+	KataURL     = "https://github.com/kata-containers/kata-containers/releases/download/" + KataVersion + "/kata-static-" + KataVersion + "-amd64.tar.zst"
+	// KataSHA256 is the sha256 of kata-static-4.2.0-amd64.tar.zst (about 950 MiB): the asset's
+	// digest in GitHub's releases API.
+	KataSHA256 = "b828904fa3f1e49ddd7dc799c72cb1503cd1e772d354c3987c8d4189b2a623a8"
+)
+
 // Pins are the releases a host init installs; tests replace them with fakes.
 type Pins struct {
 	TartVersion, TartURL, TartSHA256, TartTeamID   string
 	SoftnetURL, SoftnetSHA256, SoftnetBinarySHA256 string
 	BaseImage                                      string
+	// The kata driver's.
+	NerdctlVersion, NerdctlURL, NerdctlSHA256, NerdctlContainerdVersion string
+	KataVersion, KataURL, KataSHA256                                    string
 }
 
 // DefaultPins are the pinned releases above.
@@ -43,6 +70,8 @@ func DefaultPins() Pins {
 	return Pins{
 		TartVersion: TartVersion, TartURL: TartURL, TartSHA256: TartSHA256, TartTeamID: TartTeamID,
 		SoftnetURL: SoftnetURL, SoftnetSHA256: SoftnetSHA256, SoftnetBinarySHA256: SoftnetBinarySHA256,
-		BaseImage: BaseImage,
+		BaseImage:      BaseImage,
+		NerdctlVersion: NerdctlVersion, NerdctlURL: NerdctlURL, NerdctlSHA256: NerdctlSHA256, NerdctlContainerdVersion: NerdctlContainerdVersion,
+		KataVersion: KataVersion, KataURL: KataURL, KataSHA256: KataSHA256,
 	}
 }

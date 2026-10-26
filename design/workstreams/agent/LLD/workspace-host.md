@@ -40,7 +40,7 @@ The tart driver (P1 phase 5) runs Tart with `/usr/local/libexec/factory-agent` f
 
 **Pins** are in `internal/agent/host/pins.go`, each with where its checksum comes from: Tart 2.41.1 (tarball sha256, Cirrus Labs' team ID) and Softnet 0.24.1 (tarball and binary sha256; Softnet isn't code-signed). A bump records the sha256 of a download made on a trusted machine.
 
-**Downloads:** each goes into a new empty temp dir, at most 512 MiB, and its sha256 is checked before extraction. `host.Extract` (`archive/tar`, `compress/gzip`) refuses absolute paths, `..` entries, symlinks pointing outside the dir, entries under a symlink the archive made, hard links and other special entries, and more than 512 MiB in all; at the end it resolves every symlink through the `os.Root`, so one whose target goes through another symlink and out of the dir is refused too. It writes through that `os.Root`, and keeps only the 0755 mode bits.
+**Downloads:** each goes into a new empty temp dir, at most 2 GiB (`host.MaxDownload`: Kata's release is about 950 MiB), and its sha256 is checked before extraction. `host.Extract` (`archive/tar`, `compress/gzip`) refuses absolute paths, `..` entries, symlinks pointing outside the dir, entries under a symlink the archive made, hard links and other special entries, and more than 512 MiB in all; at the end it resolves every symlink through the `os.Root`, so one whose target goes through another symlink and out of the dir is refused too. It writes through that `os.Root`, and keeps only the 0755 mode bits.
 
 ## The sudo batch
 

@@ -333,9 +333,9 @@ func kataHostDeps(t *testing.T) hostDeps {
 	}
 }
 
-// TestHostKata: on a Linux host whose platform passes, check --driver kata reports the
-// statedir missing, init makes it, and check then exits 0. The config's default driver on
-// Linux is kata too.
+// TestHostKata: on a Linux host whose platform passes, check --driver kata reports steps 2 to 5
+// missing; init --dry-run prints the plan and the sudo script; init --only statedir makes the
+// state dir and exits 0. The config's default driver on Linux is kata too.
 func TestHostKata(t *testing.T) {
 	d := kataHostDeps(t)
 	run := func(args ...string) (int, string) {
@@ -344,17 +344,32 @@ func TestHostKata(t *testing.T) {
 		return code, out.String() + errOut.String()
 	}
 	state := filepath.Join(d.Env.Home, ".local", "state", "factory-agent")
-	if code, out := run("check", "--driver", "kata"); code != 1 || !strings.Contains(out, "platform  ok       linux/amd64, KVM, cgroup v2, 61 GiB memory, 702 GiB free on /var/lib\n") ||
+	code, out := run("check", "--driver", "kata")
+	if code != 1 || !strings.Contains(out, "platform  ok       linux/amd64, KVM, cgroup v2, 61 GiB memory, 702 GiB free on /var/lib\n") ||
 		!strings.Contains(out, "statedir  missing  "+state+"\n") {
 		t.Fatalf("check before init: code %d\n%s", code, out)
 	}
-	if code, out := run("init", "--dry-run"); code != 0 || !strings.Contains(out, "plan:\n  statedir  create "+state+" with mode 0700\n") || strings.Contains(out, "sudo") {
+	_, out = run("check", "--driver", "kata", "--json")
+	var sts []host.Status
+	if err := json.Unmarshal([]byte(out), &sts); err != nil || len(sts) != 5 {
+		t.Fatalf("check --json: %v\n%s", err, out)
+	}
+	for _, st := range sts[1:] {
+		if st.State != host.StateMissing {
+			t.Errorf("check: %+v, want missing", st)
+		}
+	}
+	if code, out := run("init", "--dry-run"); code != 0 || !strings.Contains(out, "plan:\n  statedir  create "+state+" with mode 0700\n") ||
+		!strings.Contains(out, "sudo script (one sudo prompt):\n#!/bin/sh\n") || !strings.Contains(out, state+"/stage/nerdctl-full.tar.gz") {
 		t.Fatalf("init --dry-run: code %d\n%s", code, out)
 	}
-	if code, out := run("init", "--driver", "kata"); code != 0 {
-		t.Fatalf("init: code %d\n%s", code, out)
+	if _, err := os.Stat(state); err == nil {
+		t.Fatal("init --dry-run made the state dir")
 	}
-	if code, out := run("check", "--driver", "kata", "--json"); code != 0 || !strings.Contains(out, `{"step":"statedir","state":"ok","detail":"`+state+`"}`) {
+	if code, out := run("init", "--driver", "kata", "--only", "statedir"); code != 0 {
+		t.Fatalf("init --only statedir: code %d\n%s", code, out)
+	}
+	if code, out := run("check", "--driver", "kata", "--json"); code != 1 || !strings.Contains(out, `{"step":"statedir","state":"ok","detail":"`+state+`"}`) {
 		t.Fatalf("check after init: code %d\n%s", code, out)
 	}
 }

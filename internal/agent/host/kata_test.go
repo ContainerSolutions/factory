@@ -118,6 +118,7 @@ func TestKataPlatform(t *testing.T) {
 		{"no nft", missingTool("nft"), StateWrong, "not on PATH: nft"},
 		{"no systemctl", missingTool("systemctl"), StateWrong, "not on PATH: systemctl"},
 		{"no visudo", missingTool("visudo"), StateWrong, "not on PATH: visudo"},
+		{"no zstd", missingTool("zstd"), StateWrong, "not on PATH: zstd"},
 		{"low disk", func(_ *testing.T, _ *Env, r *fakeRunner) { r.freeKB = "104857600" }, StateWrong,
 			"100 GiB free on /var/lib's volume, want 120 GiB"},
 		{"low memory", func(_ *testing.T, e *Env, _ *fakeRunner) { e.Workspace.Size.Memory = "60Gi" }, StateWrong,
@@ -239,7 +240,7 @@ func TestKataSteps(t *testing.T) {
 	for _, s := range steps {
 		names = append(names, s.Name())
 	}
-	if !slices.Equal(names, []string{"platform", "statedir"}) {
+	if !slices.Equal(names, []string{"platform", "statedir", "nerdctl", "kata", "kataconfig"}) {
 		t.Errorf("kata steps %v", names)
 	}
 	e.Workspace.Driver = "docker"
@@ -248,10 +249,10 @@ func TestKataSteps(t *testing.T) {
 	}
 	e.Workspace.Driver = config.DriverKata
 
-	// init applies the state dir at the XDG path and stops there.
+	// init --only statedir applies the state dir at the XDG path, and nothing else.
 	e.Getenv = func(string) string { return filepath.Join(e.Home, "xdg") }
-	sts, err := Init(context.Background(), e, InitOptions{})
-	if err != nil || !AllOK(sts) {
+	sts, err := Init(context.Background(), e, InitOptions{Only: []string{"statedir"}})
+	if err != nil || !AllOK(sts[:2]) || sts[2].State != StateMissing {
 		t.Fatalf("Init: %v %+v", err, sts)
 	}
 	if fi, err := os.Stat(filepath.Join(e.Home, "xdg", "factory-agent")); err != nil || fi.Mode().Perm() != 0o700 {
