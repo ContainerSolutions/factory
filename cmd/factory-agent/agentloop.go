@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -24,14 +22,14 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/probe"
 	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/agent/stack"
 	"github.com/compliance-framework/factory/internal/agent/worker"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 	"github.com/compliance-framework/factory/internal/version"
 )
 
-// workerDeps are runWorker's injectable dependencies; the zero value is production.
+// workerDeps are the worker loop's injectable dependencies (runAgentLoop); the zero value is
+// production.
 type workerDeps struct {
 	Probe  probe.Options
 	Config config.Options
@@ -42,18 +40,11 @@ type workerDeps struct {
 	Owner owner.TokenSource
 	// HTTPClient calls the dispatcher and GitHub.
 	HTTPClient *http.Client
-	// NewRunner builds the Runner. Default: the run pipeline, or the stub with
-	// --stub-result.
-	NewRunner func(cfg *config.Config, o runnerOptions) (runner.Runner, error)
 }
 
-// runnerOptions are the worker flags and dependencies the Runner is built with.
+// runnerOptions are the dependencies the host pipeline is built with.
 type runnerOptions struct {
-	// StubResult (development): answer every task with this Result instead of running it.
-	StubResult string
-	// KeepWorkspace keeps each run's workspace (debugging).
-	KeepWorkspace bool
-	Logger        *slog.Logger
+	Logger *slog.Logger
 	// Home expands ~ (the skills cache).
 	Home func() (string, error)
 }
@@ -68,47 +59,7 @@ var harnessAdapters = map[string]func(config.Harness) harness.Adapter{
 // skillsCache is where skills checkouts are cached by commit (run-pipeline.md §Steps 5).
 const skillsCache = "~/.factory-agent/cache/ccf-skills"
 
-func workerCommand() command {
-	return command{
-		name:    "worker",
-		summary: "register with the dispatcher and run leased tasks until SIGTERM",
-		run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-			return runWorker(ctx, args, stderr, workerDeps{Probe: probeOptions()})
-		},
-	}
-}
-
-// newRunner is the Runner `factory-agent worker` uses: the run pipeline with an adapter for
-// every configured harness, or with --stub-result (development) a stub that answers every
-// task with that Result.
-func newRunner(cfg *config.Config, o runnerOptions) (runner.Runner, error) {
-	if o.StubResult != "" {
-		b, err := os.ReadFile(o.StubResult)
-		if err != nil {
-			return nil, fmt.Errorf("--stub-result: %w", err)
-		}
-		res, err := v1alpha1.DecodeResult(b)
-		if err != nil {
-			return nil, fmt.Errorf("--stub-result %s: %w", o.StubResult, err)
-		}
-		return &runner.Stub{Outcome: runner.Outcome{Result: res}}, nil
-	}
-	po, err := hostPipelineOptions(cfg, o)
-	if err != nil {
-		return nil, fmt.Errorf("%w; pass --stub-result <result.json> to run against a development dispatcher", err)
-	}
-	po.KeepWorkspace = o.KeepWorkspace
-	home := o.Home
-	if home == nil {
-		home = os.UserHomeDir
-	}
-	if po.Stack, err = newStack(cfg, home, o.Logger); err != nil {
-		return nil, err
-	}
-	return pipeline.New(po)
-}
-
-// hostPipelineOptions are the host run pipeline's options worker and supervise share: an
+// hostPipelineOptions are the host run pipeline's options supervise builds its runner on: an
 // adapter for every configured harness, the work root and the skills cache.
 func hostPipelineOptions(cfg *config.Config, o runnerOptions) (pipeline.Options, error) {
 	adapters := map[string]harness.Adapter{}
@@ -130,64 +81,7 @@ func hostPipelineOptions(cfg *config.Config, o runnerOptions) (pipeline.Options,
 	return pipeline.Options{WorkRoot: cfg.WorkRoot, Adapters: adapters, SkillsCache: cache, Logger: o.Logger}, nil
 }
 
-// newStack is the pipeline's local stack (local-stack.md) when the agent advertises
-// has-local-stack: local-dev's checkout, the lock under ~/.factory-agent, anonymous GitHub
-// reads for the trains and releases. Without the label the pipeline has none, and a task
-// needing one fails stack-error (the scheduler doesn't lease one here anyway).
-func newStack(cfg *config.Config, home func() (string, error), log *slog.Logger) (pipeline.Stack, error) {
-	if cfg.LocalDev == "" || !slices.Contains(cfg.Labels, config.LabelLocalStack) {
-		return nil, nil
-	}
-	dir, err := config.ExpandPath(stack.DefaultStateDir, home)
-	if err != nil {
-		return nil, err
-	}
-	m, err := stack.New(stack.Options{StateDir: dir})
-	if err != nil {
-		return nil, err
-	}
-	return &stack.ForPipeline{Manager: m, LocalDev: cfg.LocalDev, Logger: log}, nil
-}
-
-func runWorker(ctx context.Context, args []string, stderr io.Writer, d workerDeps) int {
-	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	path := fs.String("config", config.DefaultPath, "the agent config file")
-	stubResult := fs.String("stub-result", "", "development only: answer every task with this Result JSON instead of running it")
-	keepWorkspace := fs.Bool("keep-workspace", false, "debugging: keep each run's workspace instead of removing it")
-	logLevel := fs.String("log-level", "info", "debug, info, warn or error")
-	logFormat := fs.String("log-format", "text", "text or json")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
-	}
-	if fs.NArg() > 0 {
-		fmt.Fprintf(stderr, "factory-agent worker: unexpected arguments %v\n", fs.Args())
-		return 2
-	}
-	log, err := newLogger(stderr, *logLevel, *logFormat)
-	if err != nil {
-		fmt.Fprintln(stderr, "factory-agent worker:", err)
-		return 2
-	}
-	if d.NewRunner == nil {
-		d.NewRunner = newRunner
-	}
-	return runAgentLoop(ctx, stderr, d, agentLoop{
-		name: "worker", path: *path, log: log,
-		newRunner: func(_ context.Context, cfg *config.Config) (runner.Runner, error) {
-			rn, err := d.NewRunner(cfg, runnerOptions{StubResult: *stubResult, KeepWorkspace: *keepWorkspace, Logger: log, Home: d.Config.Home})
-			if err == nil && *stubResult != "" {
-				log.Warn("development mode: every leased task is answered with --stub-result, nothing runs", "file", *stubResult)
-			}
-			return rn, err
-		},
-	})
-}
-
-// agentLoop is what runAgentLoop needs of its command: worker's or supervise's.
+// agentLoop is what runAgentLoop needs of its command (supervise).
 type agentLoop struct {
 	// name is the command's, in the logs.
 	name string
@@ -200,8 +94,8 @@ type agentLoop struct {
 	lending func(v1alpha1.Lending) v1alpha1.Lending
 }
 
-// runAgentLoop is worker's and supervise's common part once their flags are parsed: load the
-// config, probe, build the Runner, register, and serve leases until a drain or an abort.
+// runAgentLoop is supervise's worker loop once its flags are parsed: load the config, probe,
+// build the Runner, register, and serve leases until a drain or an abort.
 func runAgentLoop(ctx context.Context, stderr io.Writer, d workerDeps, l agentLoop) int {
 	log := l.log
 	if d.HTTPClient == nil {

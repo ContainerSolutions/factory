@@ -19,7 +19,7 @@ cd web && npm ci && npm run gen:api   # after changing api/openapi.yaml or api/e
 bin/factory serve --dev-fake-providers --catalog-dir internal/catalog/testdata/poc   # local dispatcher, fake GitHub (needs FACTORY_OAUTH_CLIENT_ID/_SECRET, FACTORY_SESSION_KEY, FACTORY_CLI_TOKEN in env)
 bin/factory dispatch --event event.json --server http://127.0.0.1:8800             # inject an event (FACTORY_CLI_TOKEN in env)
 pbpaste | bin/factory-agent login claude; bin/factory-agent login codex   # the model logins a VM workspace's gateway adds (state dir, 0600); copy the token from `claude setup-token` first (Linux: run login claude, paste, Enter, Ctrl-D); `codex login` on this machine first
-bin/factory-agent supervise [--keep-workspace] [--warm-base factory-agent-warm]     # the worker loop with each task in its own tart VM (host check must pass; make tart-up)
+bin/factory-agent supervise [--keep-workspace] [--driver tart|kata]              # the agent: registers, leases tasks and runs each in its own VM (host check must pass; make tart-up or kata-up)
 ```
 
 Backend work never needs Node: without `-tags webui` the binary embeds `internal/webui/placeholder/`.

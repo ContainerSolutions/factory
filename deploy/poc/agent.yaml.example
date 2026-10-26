@@ -1,6 +1,6 @@
 # factory-agent's config (deploy/poc/README.md §Agent onboarding). Copy it to
-# ~/.config/factory-agent/agent.yaml (the default --config of worker and probe) and chmod 600 it:
-# the worker refuses a config that group or others can write. It is decoded strictly: an
+# ~/.config/factory-agent/agent.yaml (the default --config of supervise and probe) and chmod 600
+# it: the agent refuses a config that group or others can write. It is decoded strictly: an
 # unknown or misspelt key is an error. A leading ~/ in paths is the running user's home.
 # cmd/factory-agent/deploykit_test.go parses this file with the real loader.
 
@@ -33,9 +33,10 @@ localDev: ~/repos/local-dev
 # Optional: where per-task workspaces go. Default ~/.factory-agent/work.
 # workRoot: ~/.factory-agent/work
 
-# One entry per harness this machine offers (at least one). Each needs its own dedicated
-# config dir, signed in once by you (README §Agent onboarding); models are what your plan
-# allows, default one of them; efforts from minimal, low, medium, high, max.
+# One entry per harness this machine offers (at least one), offered when its model login is
+# stored (`factory-agent login`, README §Agent onboarding). Each still names a config dir;
+# models are what your plan allows, default one of them; efforts from minimal, low, medium,
+# high, max.
 harnesses:
   codex:
     home: ~/.factory-agent/codex-home          # codex's dedicated CODEX_HOME
@@ -51,7 +52,7 @@ harnesses:
     default: claude-sonnet-5-5
 
 # Your consent: what this agent may take. Either unlimited: true (only maxConcurrent then
-# applies), or a list of queues plus optional limits. SIGHUP to the worker re-reads this block.
+# applies), or a list of queues plus optional limits. SIGHUP to supervise re-reads this block.
 lending:
   unlimited: true
   # maxConcurrent: 1                # tasks at once; default 1
@@ -64,7 +65,7 @@ lending:
   # hours: "Mon-Fri 08:00-20:00 Europe/Lisbon"   # [days] HH:MM-HH:MM [zone]; default zone UTC
 
 # The VM workspaces (P1): `factory-agent host check|init` and `factory-agent supervise` read this
-# block (`worker` ignores it).
+# block.
 # workspace:
 #   driver: tart                    # tart | kata; default tart on macOS, kata on Linux
 #   size: { cpus: 6, memory: 8Gi, disk: 60Gi }

@@ -1,7 +1,7 @@
 package main
 
 // The PoC run kit's agent config (deploy/poc/agent.yaml.example, RUN-S1-T01): it parses with
-// the worker's own loader, and it mentions every key the loader accepts, so the example can't
+// the agent's own loader, and it mentions every key the loader accepts, so the example can't
 // drift from the config type.
 
 import (
