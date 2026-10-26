@@ -1,0 +1,2 @@
+lisa-addressed:
+review #186 thread PRRT_kwDOVK0lgs6wXjMC (must-fix): katawarm.json now records diskGiB (workspace.size.disk); the check is outdated naming both values when it differs, so the next host init rebuilds the warm disk. A record without the field (0) is outdated too. Fixed in efd3317ed3e213346b5bdc10a282e9307ee59b4c.
