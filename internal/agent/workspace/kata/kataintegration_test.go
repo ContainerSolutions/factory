@@ -5,9 +5,10 @@
 //
 //	go test -tags kataintegration -count=1 -v -timeout 30m ./internal/agent/workspace/kata/
 //
-// FACTORY_KATA_IMAGE names the image (default factory-agent-base:<this build's version>) and
+// FACTORY_KATA_IMAGE names the image (default factory-agent-base:<this build's version>),
+// FACTORY_KATA_DISK_GIB the empty disks' size (default 60, the config's default size.disk) and
 // FACTORY_KATA_GATEWAY_PORT the config's workspace.gatewayPort (default 3128), where the test's
-// stand-in gateways listen. The isolation checks need the host's own internet (I01, I02). Each
+// stand-in gateways listen. Commands run as the workspace's admin, as factory-agent run's do. The isolation checks need the host's own internet (I01, I02). Each
 // test destroys its workspaces; `sudo -n kata-helper list` shows a leftover.
 package kata
 
@@ -35,6 +36,10 @@ import (
 	"github.com/compliance-framework/factory/internal/version"
 )
 
+// spoofSetupFailed is a spoof check's exit when it couldn't add the spoofed address: outside
+// curl's and timeout's statuses.
+const spoofSetupFailed = 222
+
 // itDriver returns a driver for this host, or skips the test saying what's missing.
 func itDriver(t *testing.T) *Driver {
 	t.Helper()
@@ -56,7 +61,14 @@ func itDriver(t *testing.T) *Driver {
 		t.Skipf("no base image %s (kata-helper image-exists: %q, %v): host init's kataimage step builds it (P1 phase 9, PR 5)", image, out, err)
 	}
 	_, werr := helper("warm-exists")
-	return New(Config{Image: image, Warm: werr == nil})
+	disk := 60
+	if v := os.Getenv("FACTORY_KATA_DISK_GIB"); v != "" {
+		var err error
+		if disk, err = strconv.Atoi(v); err != nil {
+			t.Fatalf("FACTORY_KATA_DISK_GIB: %v", err)
+		}
+	}
+	return New(Config{Image: image, DiskGiB: disk, Warm: werr == nil})
 }
 
 // itWorkspace creates and starts a workspace whose name has tag, destroyed when the test ends.
@@ -107,7 +119,7 @@ func TestKataLifecycle(t *testing.T) {
 	if err := d.Put(ctx, name, src, "/var/lib/factory/run"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := sh(d, name, 10*time.Second, "mkdir -p /work/out && cp /var/lib/factory/run/f /work/out/g && stat -c %a /var/lib/factory/run/f"); err != nil || strings.TrimSpace(out) != "444" {
+	if out, err := sh(d, name, 10*time.Second, "mkdir -p /tmp/kit-out && cp /var/lib/factory/run/f /tmp/kit-out/g && stat -c %a /var/lib/factory/run/f"); err != nil || strings.TrimSpace(out) != "444" {
 		t.Errorf("the put file: %q, %v", out, err)
 	}
 	var out bytes.Buffer
@@ -115,7 +127,7 @@ func TestKataLifecycle(t *testing.T) {
 		t.Errorf("exec -i: %q, %v", out.String(), err)
 	}
 	dst := filepath.Join(t.TempDir(), "out")
-	if err := d.Get(ctx, name, "/work/out", dst); err != nil {
+	if err := d.Get(ctx, name, "/tmp/kit-out", dst); err != nil {
 		t.Fatal(err)
 	}
 	if b, err := os.ReadFile(filepath.Join(dst, "g")); err != nil || string(b) != "hello" {
@@ -165,8 +177,10 @@ func TestKataIsolation(t *testing.T) {
 	for i := range 2 {
 		own, other := nws[i], nws[1-i]
 		dev := `$(ip -4 route show default | awk '{for (i = 1; i < NF; i++) if ($i == "dev") print $(i + 1)}')`
+		// spoof adds addr (as root: exec runs as admin), runs cmd from it, and removes it. A failed
+		// add exits spoofSetupFailed, which fails the check: only the firewall may refuse cmd.
 		spoof := func(addr, cmd string) string {
-			return fmt.Sprintf("ip addr add %s/32 dev %s; %s; rc=$?; ip addr del %s/32 dev %s; exit $rc", addr, dev, cmd, addr, dev)
+			return fmt.Sprintf("sudo -n ip addr add %s/32 dev %s || exit %d; %s; rc=$?; sudo -n ip addr del %s/32 dev %s; exit $rc", addr, dev, spoofSetupFailed, cmd, addr, dev)
 		}
 		ownSpoof := own.Gateway.As4()
 		ownSpoof[3] = 3
@@ -196,7 +210,8 @@ func TestKataIsolation(t *testing.T) {
 		}
 		for _, c := range checks {
 			out, err := sh(d, names[i], 30*time.Second, c.cmd)
-			if (err == nil) != c.ok {
+			var ee *workspace.ExitError
+			if (err == nil) != c.ok || (errors.As(err, &ee) && ee.Code == spoofSetupFailed) {
 				t.Errorf("ws%d %s: want ok=%v, got %v: %s\n%s", i, c.id, c.ok, err, c.cmd, out)
 			}
 		}
@@ -221,7 +236,7 @@ func TestKataDestroyHung(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sh(d, name, 10*time.Second, "kill -STOP 1"); err != nil {
+	if _, err := sh(d, name, 10*time.Second, "sudo -n kill -STOP 1"); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Now()
