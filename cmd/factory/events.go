@@ -34,20 +34,15 @@ func runEvents(ctx context.Context, args []string, getenv func(string) string, s
 		fmt.Fprintln(stderr, "now and didn't then change anything. Prints the decisions the replay recorded, as JSON.")
 		fl.PrintDefaults()
 	}
-	id, rest := "", args[1:]
-	if len(rest) > 0 && rest[0] != "" && rest[0][0] != '-' {
-		id, rest = rest[0], rest[1:]
-	}
-	if err := fl.Parse(rest); err != nil {
+	id, extra, err := parseIDArgs(fl, args[1:])
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
 		return exitUsage
 	}
-	if id == "" && fl.NArg() == 1 {
-		id = fl.Arg(0)
-	} else if fl.NArg() > 0 {
-		fmt.Fprintf(stderr, "factory events replay: unexpected arguments %v\n", fl.Args())
+	if len(extra) > 0 {
+		fmt.Fprintf(stderr, "factory events replay: unexpected arguments %v\n", extra)
 		return exitUsage
 	}
 	if id == "" {
