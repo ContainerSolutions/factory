@@ -1,0 +1,5 @@
+lisa-selfreview:
+Pass 1 (final, lenient): approve, no findings. Checked the ccf-review rules for the touched files (CORE-TEST-001: the three Setup goldens pin both new variables; CORE-DOC-001: workspace-run.md's Setup table and workspace-host.md's node row updated). Verified: gofmt, go vet vmrun, GOOS=linux go build ./..., go test -race host/... vmrun/..., make reviewable (exit 0).
+
+lisa-design:
+NODE_USE_ENV_PROXY=1 in vmrun.Setup's env rather than pre-installing yarn in base.sh: node v24.21.0 bundles corepack 0.36.0, which since 0.35.0 fetches through Node's built-in fetch and honours HTTP(S)_PROXY only behind NODE_USE_ENV_PROXY (Node added it in v24.0.0). One env var fixes yarn and pnpm, any version a repo's packageManager names, and every other Node fetch/http client, with no base rebuild. yarn classic itself (request) and npm (@npmcli/agent) already read HTTPS_PROXY. Accepted trade-off: Node's NO_PROXY has no CIDR, so Node clients reaching a private IP go through the gateway.
