@@ -17,7 +17,6 @@ import (
 // commands are the subcommands, one line each.
 var commands = []command{
 	versionCommand(),
-	workerCommand(),
 	probeCommand(),
 	fxCommand(),
 	mcpCommand(),
@@ -41,7 +40,7 @@ func main() {
 	if filepath.Base(os.Args[0]) == katahelper.Name {
 		os.Exit(katahelper.Main(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	}
-	// Signals are each subcommand's own business: the worker drains on the first SIGTERM and
+	// Signals are each subcommand's own business: supervise drains on the first SIGTERM and
 	// aborts on the second.
 	os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr))
 }

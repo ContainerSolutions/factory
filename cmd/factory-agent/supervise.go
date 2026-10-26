@@ -45,7 +45,7 @@ type superviseDeps struct {
 func superviseCommand() command {
 	return command{
 		name:    "supervise",
-		summary: "like worker, but run each leased task in its own VM workspace behind a gateway",
+		summary: "register with the dispatcher and run each leased task in its own VM workspace behind a gateway",
 		run: func(ctx context.Context, args []string, _, stderr io.Writer) int {
 			return runSupervise(ctx, args, stderr, superviseDeps{})
 		},

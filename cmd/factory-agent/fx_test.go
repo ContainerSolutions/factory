@@ -16,9 +16,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/effector"
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
-	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/harness/clirun"
-	"github.com/compliance-framework/factory/internal/agent/harness/fake"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 )
 
@@ -49,25 +47,6 @@ func TestFxGitCredential(t *testing.T) {
 	gone := func(string) string { return filepath.Join(t.TempDir(), "nope") }
 	if code := runFx(context.Background(), []string{"git-credential", "get"}, strings.NewReader("protocol=https\n"), &out, &errOut, gone); code != 5 {
 		t.Errorf("a missing socket = %d, want 5", code)
-	}
-}
-
-func TestNewRunnerBuildsThePipeline(t *testing.T) {
-	prev := harnessAdapters["codex"]
-	harnessAdapters["codex"] = func(config.Harness) harness.Adapter { return &fake.Adapter{HarnessName: "codex"} }
-	t.Cleanup(func() { harnessAdapters["codex"] = prev })
-	home := t.TempDir()
-	cfg := &config.Config{WorkRoot: filepath.Join(home, "work"), Harnesses: map[string]config.Harness{"codex": {Models: []string{"m"}}}}
-	r, err := newRunner(cfg, runnerOptions{Home: func() (string, error) { return home, nil }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := r.(*pipeline.Pipeline); !ok {
-		t.Errorf("newRunner = %T, want the pipeline", r)
-	}
-	cfg.Harnesses["aider"] = config.Harness{Models: []string{"m"}}
-	if _, err := newRunner(cfg, runnerOptions{}); err == nil || !strings.Contains(err.Error(), "no harness adapter for aider") {
-		t.Errorf("a harness without an adapter: %v", err)
 	}
 }
 

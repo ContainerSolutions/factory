@@ -3,7 +3,7 @@
 How a maintainer goes from nothing to a running dispatcher and a registered agent for the PoC
 ([rollout.md](../../design/workstreams/poc-rollout/LLD/rollout.md)). The dispatcher
 (`factory serve`) runs on the operator's machine behind an ngrok tunnel. Agents
-(`factory-agent worker`) run on their owners' machines. One dispatcher serves both environments:
+(`factory-agent supervise`) run on their owners' machines. One dispatcher serves both environments:
 the `dev-*` RuleSets target `compliance-framework/mock-docs` and the `poc-*` RuleSets target
 `compliance-framework/docs`.
 
@@ -179,85 +179,59 @@ Expect `"status": "ok"`. Then:
 
 For each agent owner, on their machine (rollout.md §Agent onboarding). The owner must be a `compliance-framework` org admin: the Pool's owners are the `maintainers` Group.
 
-1. **A dedicated OS user** (for example `factory-agent`), with no `gh` login and no personal GitHub credentials in its home. Tasks get only the factory's per-task App tokens (`GH_TOKEN`). On macOS: `sudo sysadminctl -addUser factory-agent -password -` (it prompts for the password). On Linux: `sudo useradd -m factory-agent`. Run every step below as that user, for example `sudo -iu factory-agent`.
-2. **Install the agent.** `go install github.com/compliance-framework/factory/cmd/factory-agent@main` puts it in `$(go env GOPATH)/bin`. Or `make build` in a checkout, which gives `bin/factory-agent`.
-3. **Base tooling.** The worker refuses to start without `git`, `gh`, `jq`, `python3` and the `gh` extensions:
+The agent is `factory-agent supervise`: it runs each leased task in its own VM workspace behind a gateway that holds every credential, a tart VM on an Apple-silicon Mac ([supervise.md](../../design/workstreams/agent/LLD/supervise.md)) or a Kata microVM on Linux ([workspace-kata.md](../../design/workstreams/agent/LLD/workspace-kata.md)). Run every step from a checkout of this repository, as the owner's own user (not root; the workspaces are that user's).
 
-   ```bash
-   gh extension install agynio/gh-pr-review && gh extension install github/gh-stack
-   ```
-
-   No `gh auth login` is needed. On Linux, Claude Code's sandbox needs `bubblewrap` and `socat`; macOS uses `sandbox-exec`.
-4. **Labels.** Each label is probed at start.
-   - `has-local-stack`: Docker running with at least 8 GB of memory, compose v2, and a `local-dev` checkout (with its `.env`) set as `localDev`.
-   - `gif-tooling`: `npm install -g playwright && npx playwright install chromium`, plus `brew install gifski vhs ffmpeg`.
-
-   No TaskSpec requires them any more: release-docs and docs-review-verify declare their environment (local-dev's showcase), which a VM workspace (`factory-agent supervise`) brings up.
-5. **Harness logins**, once, into dedicated config dirs. You run these; the factory never does.
-   - Codex: `CODEX_HOME=~/.factory-agent/codex-home codex login --device-auth`.
-   - Claude Code: `CLAUDE_CONFIG_DIR=~/.factory-agent/claude claude`, then `/login` once. The alternative is `claude setup-token`, with `CLAUDE_CODE_OAUTH_TOKEN` in the worker's environment.
-
-   Keep `ANTHROPIC_API_KEY` out of the worker's environment unless you mean API-key billing. release-docs, implement, plan-epic and merge ask for codex; docs-review asks for claude-code. The full use case 1 needs both.
-6. **The join token**, from the dispatcher operator, in a file only you can read:
+1. **The join token**, from the dispatcher operator, in a file only you can read:
 
    ```bash
    mkdir -p ~/.config/factory-agent && (umask 077 && cat > ~/.config/factory-agent/join-token)
    ```
 
    Paste the token, press Enter, then Ctrl-D.
-7. **The config.** Copy `deploy/poc/agent.yaml.example` to `~/.config/factory-agent/agent.yaml`, then `chmod 600` it. Edit:
+2. **The config.** Copy `deploy/poc/agent.yaml.example` to `~/.config/factory-agent/agent.yaml`, then `chmod 600` it. Edit:
    - `dispatcher`: `$FACTORY_PUBLIC_URL`, or `http://127.0.0.1:8800` on the dispatcher's own machine;
    - `localDev`;
-   - the harnesses and models your plans allow. The codex model in the example (`gpt-6.1-sol`) is a placeholder: put `<a gpt-5* or gpt-6* model your codex sign-in offers>` (see `/model` in codex) in `models` and `default`;
-   - `lending`.
+   - the harnesses and models your plans allow. The codex model in the example (`gpt-6.1-sol`) is a placeholder: put `<a gpt-5* or gpt-6* model your codex sign-in offers>` (see `/model` in codex) in `models` and `default`. A configured harness is offered when its login is stored (step 4);
+   - `lending`;
+   - `workspace`, whose driver defaults to tart on a Mac and kata on Linux.
 
    Unknown keys are errors.
-8. **Probe.** This prints the harnesses, labels, dropped items and base tooling. It never calls the dispatcher:
+3. **Labels.** Each label is probed at start.
+   - `has-local-stack`: Docker running with at least 8 GB of memory, compose v2, and a `local-dev` checkout (with its `.env`) set as `localDev`.
+   - `gif-tooling`: `npm install -g playwright && npx playwright install chromium`, plus `brew install gifski vhs ffmpeg`.
 
-   ```bash
-   factory-agent probe
-   ```
-
-   To see the stack a train would bring up, without running anything:
+   No TaskSpec requires them any more: release-docs and docs-review-verify declare their environment (local-dev's showcase), which a VM workspace brings up. To see the stack a train would bring up, without running anything:
 
    ```bash
    factory-agent stack up --train compliance-framework/workflows#132 --dry-run
    ```
 
-9. **Smoke the harnesses** (maintainers, from a repo checkout as the agent user; never in CI). Each one runs a trivial task end to end through the real harness. They default to the dedicated dirs above; see `make help` for the overrides. smoke-codex has no default model: set `FACTORY_SMOKE_CODEX_MODEL` to a gpt-5* or gpt-6* model your codex sign-in offers (see `/model` in codex).
+4. **The host and the model logins:** a Mac as below, or a Linux host as in [A Linux workspace host](#a-linux-workspace-host-kata).
+   - `make tart-up` builds `bin/factory-agent` and `bin/factory-agent-linux-arm64`, then runs `host init --driver tart`: one sudo prompt for Softnet and pf; the base and warm VMs take a while (`HOST_INIT_FLAGS=--dry-run` prints the plan without changing anything). Then `bin/factory-agent host check`: every step ok (pf may be skipped).
+   - The model logins, which only the gateway ever holds, in the agent's state dir (0600): run `claude setup-token` on its own and copy the token it prints, then `pbpaste | bin/factory-agent login claude`; and `codex login` (with ChatGPT), then `bin/factory-agent login codex`, which imports `~/.codex/auth.json`. Don't copy another machine's `auth.json`: both machines' gateways would refresh the same login, and each refresh spends the other's refresh token.
+5. **Run the agent:**
 
    ```bash
-   FACTORY_SMOKE_CODEX_MODEL=<a gpt-5* or gpt-6* model your codex sign-in offers> make smoke-codex
+   bin/factory-agent supervise
    ```
 
-   ```bash
-   make smoke-claude
-   ```
+   It refuses to start while `host check` fails, and destroys the VMs a killed supervise left. `--keep-workspace` keeps each stopped VM and its run directory for a look. There is no separate `register` command. On first start it prints `To register this agent, open https://github.com/login/device and enter the code XXXX-XXXX`. Approve it as the owner. The agent then registers as `agt_<login>-<host>` and shows on the UI's Pools page (or `GET /api/v1/agents`).
 
-10. **Run the worker:**
+   The user token is used once and never stored, and the agent token lives in memory. **Every restart means a new device login**; a dispatcher restart doesn't, since it keeps the agent's (hashed) token in its state dir (§6, State), unless it starts on an empty one.
 
-    ```bash
-    factory-agent worker
-    ```
+   It logs to stderr, as text by default (`--log-format json`, `--log-level debug`). It writes no log file, so redirect it yourself, for example `bin/factory-agent supervise 2>&1 | tee -a ~/factory-agent.log`.
 
-    There is no separate `register` command. On first start the worker prints `To register this agent, open https://github.com/login/device and enter the code XXXX-XXXX`. Approve it as the owner. The agent then registers as `agt_<login>-<host>` and shows on the UI's Pools page (or `GET /api/v1/agents`).
+### A Linux workspace host (kata)
 
-    The user token is used once and never stored, and the agent token lives in memory. **Every worker restart means a new device login**; a dispatcher restart doesn't, since it keeps the agent's (hashed) token in its state dir (§6, State), unless it starts on an empty one.
-
-    The worker logs to stderr, as text by default (`--log-format json`, `--log-level debug`). It writes no log file, so redirect it yourself, for example `factory-agent worker 2>&1 | tee -a ~/factory-agent.log`.
-
-### A Linux workspace host (`factory-agent supervise`, kata)
-
-`factory-agent supervise` runs each leased task in its own VM behind a gateway that holds every credential, instead of on the host as `worker` does. On an Ubuntu x86-64 machine (KVM, cgroup v2, systemd, at least 120 GiB free on `/var/lib`) each VM is a Kata microVM, and several run at once ([workspace-kata.md](../../design/workstreams/agent/LLD/workspace-kata.md)). Docker, if installed, is left alone: the factory runs its own containerd. From a checkout, as the owner's own user (not root; the workspaces are that user's), with the join token as in step 6:
+On an Ubuntu x86-64 machine (KVM, cgroup v2, systemd, at least 120 GiB free on `/var/lib`) each VM is a Kata microVM, and several run at once ([workspace-kata.md](../../design/workstreams/agent/LLD/workspace-kata.md)). Docker, if installed, is left alone: the factory runs its own containerd. In place of step 4:
 
 1. `make kata-up` builds `bin/factory-agent` and runs `bin/factory-agent host init --driver kata`: it asks before installing its root helper (`/usr/local/libexec/factory-agent/kata-helper`, with a sudoers rule that lets you run only it with `sudo -n`), then prompts for sudo once. `HOST_INIT_FLAGS=--dry-run` prints the plan and the sudo script without changing anything. Then `bin/factory-agent host check`: every step ok.
 2. The model logins, which only the gateway ever holds. Both go to `~/.local/state/factory-agent/logins/` (0600).
    - claude: run `claude setup-token` on its own and copy its output, then `bin/factory-agent login claude`: it asks for the paste; paste, then press Enter and Ctrl-D (the token stays out of argv and the shell history). Where a clipboard tool is installed, `xclip -o -selection clipboard | bin/factory-agent login claude` or `wl-paste | bin/factory-agent login claude` does the same.
    - codex: install the codex CLI on this host ([github.com/openai/codex](https://github.com/openai/codex)), run `codex login` (with ChatGPT), then `bin/factory-agent login codex`, which imports `~/.codex/auth.json`. Don't copy another machine's `auth.json`: both machines' gateways would refresh the same login, and each refresh spends the other's refresh token. A host without a codex login runs without codex: supervise drops the harness with a warning (and exits when no configured harness has a login).
-3. The config as in step 7, with `workspace: {driver: kata}` (the default on Linux) and the `lending.maxConcurrent` you want: supervise caps it by memory, `(physical memory − 4 GiB) / workspace.size.memory`, and by 63, with a warning. Steps 3 to 5 (the base tooling, the labels' prerequisites, the harness sign-ins) don't apply to the host: the harnesses run in the VMs, and a configured harness is offered when its login is stored (the config still names its `home` or `configDir`).
-4. `bin/factory-agent supervise` (`--log-level debug`; `--keep-workspace` keeps each stopped VM and its run directory for a look). It registers like `worker` (step 10), refuses to start while `host check` fails, and destroys the VMs a killed supervise left. `sudo -n /usr/local/libexec/factory-agent/kata-helper list` shows the running ones.
+3. In the config (step 2), `workspace: {driver: kata}` (the default on Linux) and the `lending.maxConcurrent` you want: supervise caps it by memory, `(physical memory − 4 GiB) / workspace.size.memory`, and by 63, with a warning.
 
-The first run on a new host follows the checklist in [workspace-kata.md §The owner's run](../../design/workstreams/agent/LLD/workspace-kata.md#the-owners-run).
+Then step 5. `sudo -n /usr/local/libexec/factory-agent/kata-helper list` shows the running VMs. The first run on a new host follows the checklist in [workspace-kata.md §The owner's run](../../design/workstreams/agent/LLD/workspace-kata.md#the-owners-run).
 
 ## 9. First dev dispatch (use case 1 on mock-docs)
 
@@ -300,15 +274,15 @@ The commands below go to `POST /api/v1/commands` with the CLI token. The UI show
 | Cancel or re-run a task | `{"type":"cancel","target":{"task":"<tsk_id>"}}`, or `{"type":"redispatch","target":{"task":"<tsk_id>"},"args":{"harness":{"name":"claude-code"}}}`; or from the UI's run page. |
 | Re-read the catalog now | `{"type":"resync-catalog"}`, or the UI's Catalog page. |
 | Inspect a decision | The UI's work item, then the decision's "why" drawer. |
-| Stop an agent | The owner presses Ctrl-C (or sends SIGTERM) to drain; a second one aborts the running task. SIGHUP re-reads `lending` only. There is no `factory-agent pause` command; to stop lending, change `lending` and send SIGHUP, or stop the worker. |
+| Stop an agent | The owner presses Ctrl-C (or sends SIGTERM) to drain; a second one aborts the running task. SIGHUP re-reads `lending` only. There is no `factory-agent pause` command; to stop lending, change `lending` and send SIGHUP, or stop the agent. |
 | Dispatcher logs | `deploy/poc/logs/factory-serve-<UTC time>.log`, JSON. Follow the latest with `tail -f "$(ls -t deploy/poc/logs/factory-serve-*.log \| head -1)" \| jq -c '{time, level, msg}'`. |
-| Agent logs | the worker's stderr (§8 step 10). Per-task workspaces are under `~/.factory-agent/work/<task>/`, removed after each run unless `--keep-workspace`. A failed stack up leaves make's output in `<state dir>/logs/stack-*.log` (state dir default `~/.factory-agent`; the newest 20 are kept), and the run's summary names the file. |
+| Agent logs | supervise's stderr (§8 step 5). Each task's run directory is under `<agent state dir>/runs/<task>/`, removed after each run unless `--keep-workspace`. A failed stack up leaves make's output in `<state dir>/logs/stack-*.log` (state dir default `~/.factory-agent`; the newest 20 are kept), and the run's summary names the file. |
 | Transcripts | `GET /api/v1/runs/<run_id>/transcript` (gzip JSONL), or the UI's run page. They are kept across restarts, as files under `<state dir>/transcripts/` (§6, State). |
 
 ## 11. Stopping
 
 1. Pause globally (§10), so nothing new is dispatched.
-2. Stop the workers with Ctrl-C: they drain.
+2. Stop the agents with Ctrl-C: they drain.
 3. Stop the dispatcher with Ctrl-C in the `make poc-up` terminal. It shuts down gracefully (`--shutdown-timeout`, 30 s by default), and the log ends with `shutdown complete`.
 4. Stop ngrok.
 
