@@ -1,0 +1,14 @@
+lisa-design:
+- Config.Warm (bool, from katawarm.json via supervise in PR 6) chooses warm|empty instead of a helper call: warm-exists is PR 5's verb, and /var/lib/factory-agent/kata is root's 0700, so the owner can't stat the warm disk. Config.Log (LLD) is dropped: kata starts no long-running process to log.
+- Start's network read is cross-checked against kata-helper inspect's slot addresses (the nft element binds exactly those): a mismatch fails Start. Start never cleans up on failure; the runner destroys.
+- The agent binary is copied into a fresh temp dir (only that file, 0755) and Put at /var/lib/factory/bin (root's, read-only, 0555), then ln -sfn to /usr/local/bin/factory-agent.
+- Exec tees stderr into a last-line keeper (1 KiB) so the status func can tell the helper's 125 + "kata-helper: " last line (exec failure) from a remote 125 (ExitError).
+- Destroy gives the helper's rm 5 minutes past ctx (WithoutCancel): its own bounds are ps 2 min, stop 60 s, rm -f 60 s, the kill, rm -f 60 s. Stop uses vmexec.CleanupCtx (1 min) like tart.
+- The driver holds no per-workspace state (no tart run to reap), so concurrent use on different workspaces needs no lock.
+- PR split: 4c (driver + unit tests, ~940 counted lines) and 4d (kataintegration tests), for the 1000-line limit.
+
+lisa-selfreview:
+pass 1 (4c): should-fix stop-bound-below-helpers (Driver.Stop's 1-minute cleanup ctx under the helper's 2-minute stop bound).
+
+lisa-addressed:
+- kata Stop and Destroy run past ctx for stopBound (3 min) and rmBound (5 min), above the helper's own bounds.
