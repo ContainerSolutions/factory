@@ -1,2 +1,5 @@
 lisa-design:
 Close and delete live in internal/controllers (CloseWorkItem, DeleteWorkItem) so they take the work item lock the rule and debounce controllers hold while applying. Close cancels tasks directly (no factory.command.cancel events). A closed item's events get one "the work item is closed (<reason>): no rules evaluated" decision each (deduped on replay). Delete finds rule effects by idempotency key: evt/<event>/... with the event taken as the longest known event id prefix (event ids and inline rule names hold "/"), and dbn/<debounce>/... ; leases are the scheduler's kind, so the server deletes them after the controller returns the task ids. CLI positional ids may sit before, between or after flags (parseIDArgs, also used by events replay).
+
+lisa-selfreview:
+Pass 1 (lenient, final): approve. No blockers or must-fix. Deferred (should-fix): delete lists every Event, EventStatus, Effect and Debounce to find the item's (fine at PoC sizes, not indexed); the item's kill switch (workitem scope pause), approvals and its "wi/<id>" lock record are left; a forced delete removes a running task under its agent, which learns from its next heartbeat's 404.
