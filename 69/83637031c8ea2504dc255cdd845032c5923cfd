@@ -6,3 +6,6 @@ lisa-design:
 - warm-load pulls with --platform linux/amd64 --unpack=false (no host snapshot) and leaves the pulled image in the factory namespace as a cache for rebuilds.
 - Warm refs are validated by config.ValidWarmImage, now stricter (image-reference characters only), shared by config and the root helper.
 - The warm build uses workspace.size (cpus-1 as the driver, memory, disk GiB) with `empty`; with no warm images the freshly formatted disk is still promoted (one boot formats it).
+
+lisa-selfreview:
+pass 1 (5b): [must-fix CORE-CONC-001 7ca1c6305fd3] warm.go warmLoad: save's and load's stderr written to one writer from two goroutines. [must-fix CORE-ERR-001] warm.go warmLoad: a real nerdctl save failure could be dropped as "stopped by the load".
