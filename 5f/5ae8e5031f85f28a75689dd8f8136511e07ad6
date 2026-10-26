@@ -1,0 +1,2 @@
+lisa-addressed:
+review must-fix (security read): Unauthorized refreshed on every sequential 401 for the cached token. Now a 401 within minUnauthorizedRefresh (1 min, injected clock) of the last refresh returns the cached login unrefreshed; TestUnauthorizedMinInterval covers within/after the interval and Current's expiry path. gateway.md updated.
