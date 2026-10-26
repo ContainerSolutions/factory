@@ -1,0 +1,4 @@
+lisa-design:
+- localDev is removed from the config type outright, so a config that still sets it fails to load (strict decoding); no deprecation shim, per the PoC's lean rule. The PR body says to delete the key.
+- probe.Options.Labels and LabelFunc stay: generic labels can still get a checker; only the built-in has-local-stack/gif-tooling checkers go.
+- The pipeline's stack step (pipeline.Stack, stackUpIfNeeded and its has-local-stack gate) and the scheduler's rowLocalStack stay for stack 2.
