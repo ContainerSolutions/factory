@@ -2,3 +2,6 @@ lisa-design:
 - The fix is a buildkitd [dns] options = ["no-aaaa"] (BuildKit rewrites only the fields set, keeping the host's nameservers), not a bridge network for build steps or RES_OPTIONS in base.sh: it covers every build step and keeps --containerd-worker-net=host.
 - No TOML library in go.mod, so no dependency added: the rendering is checked by buildkitd v0.33.1 itself (by hand, in a user namespace) and python3 tomllib; the test asserts the text and the upgrade transition.
 - No new code path for existing hosts: containerdStep's Check reports the changed file wrong and its Plan rewrites both configs and restarts both units (KillMode=process keeps VMs).
+
+lisa-selfreview:
+pass 1: CORE-DOC-001 should-fix (1b51e9d9ff64): the LLD's PR table doesn't list this PR (row 7, fx/p9-7-build-ipv4).
