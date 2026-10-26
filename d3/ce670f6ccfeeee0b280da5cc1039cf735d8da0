@@ -1,0 +1,8 @@
+lisa-selfreview:
+pass 1 (lenient, final): approve. Checked the ccf-review core/go/repo-factory rules on the diff.
+- idempotent (FACTORY-IDEM-001): an interrupt after the rename but before the record leaves the old agentSHA256 in the record, so the next init copies again; a failure before the rename deletes the .building clone and leaves the VM and record as they were (TestAgentOnlyFails).
+- tests (CORE-TEST-001): TestAgentOnlyUpdate (Init end to end, golden), TestAgentOnlyPlan (when it falls back to a rebuild), TestAgentOnlyFails.
+- deferred nit: host check runs tart list several times per step (agentOnly re-checks); harmless.
+
+lisa-design:
+The binary-only update boots a clone of the base (buildVM src==final), not the base itself: the LLD forbids booting the base (every later clone would share its machine-id), and the rename keeps the old VM on failure. A warm base without images is cloned again instead (cheaper than a boot). A warmbase.json without agentSHA256 (written before this PR) is outdated: one cheap copy on the next init.
