@@ -82,6 +82,16 @@ func (d *DebounceController) fireLocked(ctx context.Context, cat *catalog.Catalo
 	case err != nil:
 		return fmt.Errorf("get work item %s: %w", rec.Spec.WorkItem, err)
 	}
+	if Closed(&wi) {
+		// Closed since: the held actions are dropped, and the record says why.
+		d := closedRecord(&wi, rec.Spec.Event, r.opts.Clock.Now())
+		d.RuleSet, d.Rule = rec.Spec.RuleSet, rec.Spec.Rule
+		appendDecisions(&wi, []v1alpha1.Decision{d})
+		if err := r.s.Update(ctx, &wi); err != nil {
+			return fmt.Errorf("update work item %s: %w", wi.Metadata.Name, err)
+		}
+		return nil
+	}
 	ev := v1alpha1.Event{ID: rec.Spec.Event}
 	if err := r.s.Get(ctx, store.Key{Kind: v1alpha1.KindEvent, Name: rec.Spec.Event}, &ev); err != nil && !errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("get event %s: %w", rec.Spec.Event, err)

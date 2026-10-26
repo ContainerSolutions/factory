@@ -335,6 +335,9 @@ func (r *RuleController) processLocked(ctx context.Context, cat *catalog.Catalog
 	case err != nil:
 		return nil, fmt.Errorf("get work item %s: %w", wiID, err)
 	}
+	if Closed(&wi) {
+		return r.closedLocked(ctx, &wi, ev, replay)
+	}
 	var earlier []v1alpha1.Decision
 	if replay {
 		if wi.Status != nil {
@@ -450,6 +453,26 @@ func (r *RuleController) checkHistory(ctx context.Context, id, wiID string, earl
 // ErrReplayHistoryGone is a replay of an event whose earlier decision records aged out of its
 // work item: which rules already fired is unknown, so nothing is replayed.
 var ErrReplayHistoryGone = errors.New("the event's earlier decisions are gone from its work item")
+
+// closedLocked records an event of a closed work item: no rule is evaluated, one decision
+// says so (on a replay, unless the event already has that record), and the event is marked
+// processed.
+func (r *RuleController) closedLocked(ctx context.Context, wi *v1alpha1.WorkItem, ev v1alpha1.Event, replay bool) ([]v1alpha1.Decision, error) {
+	rec := closedRecord(wi, ev.ID, r.opts.Clock.Now())
+	rec.Replay = replay
+	if replay && slices.ContainsFunc(wi.Status.Decisions, func(d v1alpha1.Decision) bool { return d.Event == ev.ID && sameDecision(d, rec) }) {
+		return nil, r.markReplayed(ctx, ev.ID, wi.Metadata.Name, 0)
+	}
+	appendDecisions(wi, []v1alpha1.Decision{rec})
+	if err := r.s.Update(ctx, wi); err != nil {
+		return nil, fmt.Errorf("update work item %s: %w", wi.Metadata.Name, err)
+	}
+	r.log.DebugContext(ctx, "event of a closed work item", "event", ev.ID, "type", ev.Type, "workItem", wi.Metadata.Name)
+	if replay {
+		return []v1alpha1.Decision{rec}, r.markReplayed(ctx, ev.ID, wi.Metadata.Name, 1)
+	}
+	return []v1alpha1.Decision{rec}, r.markProcessed(ctx, ev.ID, wi.Metadata.Name, 1)
+}
 
 // sameDecision reports whether two records of one event say the same: the same rule, fired
 // or not, with the same actions, rail verdicts and reason. The inputs and the time may differ.

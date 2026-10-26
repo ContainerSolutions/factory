@@ -535,19 +535,46 @@ func TestContract(t *testing.T) {
 	wantProblem(t, "replayEvent", rp.HTTPResponse, rp.Body, http.StatusNotFound, CodeNotFound)
 	sh.check("replayEvent", rp.HTTPResponse, rp.Body, http.StatusNotFound)
 
-	// close and delete: stubs until group 1's PR 3.
-	cw, err := e.c.CloseWorkItemWithResponse(ctx, workItemID, apiclient.CloseWorkItemRequest{Reason: apiclient.CloseWorkItemRequestReasonDone}, session(gus))
+	// close, then delete: a leased task refuses the delete until it is forced.
+	cw, err := e.c.CloseWorkItemWithResponse(ctx, workItemID, apiclient.CloseWorkItemRequest{Reason: apiclient.CloseWorkItemRequestReasonDone, Note: ptr("fixed")}, session(gus))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantProblem(t, "closeWorkItem", cw.HTTPResponse, cw.Body, http.StatusNotImplemented, CodeNotImplemented)
-	sh.check("closeWorkItem", cw.HTTPResponse, cw.Body, http.StatusNotImplemented)
+	sh.check("closeWorkItem", cw.HTTPResponse, cw.Body, http.StatusOK)
+	if c := cw.JSON200.Status.Closed; c == nil || c.Reason != v1alpha1.CloseDone || c.Note != "fixed" || c.By != "github-public:gus" {
+		t.Errorf("closed %s", cw.Body)
+	}
+	cw, err = e.c.CloseWorkItemWithResponse(ctx, workItemID, apiclient.CloseWorkItemRequest{Reason: "later"}, session(gus))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "closeWorkItem", cw.HTTPResponse, cw.Body, http.StatusBadRequest, CodeInvalid)
+	sh.check("closeWorkItem", cw.HTTPResponse, cw.Body, http.StatusBadRequest)
+	e.task("tsk_3", func(t *v1alpha1.Task) {
+		t.Metadata.WorkItem = workItemID
+		agent := "agt_gus-mac1"
+		t.Status = &v1alpha1.TaskStatus{Phase: v1alpha1.TaskRunning, Agent: &agent}
+	})
 	dw, err := e.c.DeleteWorkItemWithResponse(ctx, workItemID, &apiclient.DeleteWorkItemParams{}, bearer(cliToken))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantProblem(t, "deleteWorkItem", dw.HTTPResponse, dw.Body, http.StatusNotImplemented, CodeNotImplemented)
-	sh.check("deleteWorkItem", dw.HTTPResponse, dw.Body, http.StatusNotImplemented)
+	wantProblem(t, "deleteWorkItem", dw.HTTPResponse, dw.Body, http.StatusConflict, CodeTaskLeased)
+	sh.check("deleteWorkItem", dw.HTTPResponse, dw.Body, http.StatusConflict)
+	dw, err = e.c.DeleteWorkItemWithResponse(ctx, workItemID, &apiclient.DeleteWorkItemParams{Force: ptr(true)}, bearer(cliToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh.check("deleteWorkItem", dw.HTTPResponse, dw.Body, http.StatusOK)
+	if d := dw.JSON200; d.WorkItem != workItemID || d.Deleted[v1alpha1.KindWorkItem] != 1 || d.Deleted[v1alpha1.KindTask] == 0 {
+		t.Errorf("deleted %s", dw.Body)
+	}
+	dw, err = e.c.DeleteWorkItemWithResponse(ctx, workItemID, &apiclient.DeleteWorkItemParams{}, session(gus))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "deleteWorkItem", dw.HTTPResponse, dw.Body, http.StatusNotFound, CodeNotFound)
+	sh.check("deleteWorkItem", dw.HTTPResponse, dw.Body, http.StatusNotFound)
 
 	// enrollments: stubs until P1 phase 6, so an admin gets a 501 problem.
 	ce, err := e.c.CreateEnrollmentWithResponse(ctx, apiclient.EnrollmentRequest{Pool: "local", Owner: "gus", Name: "mac2"}, session(gus))

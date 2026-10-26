@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,4 +46,23 @@ func printJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
+}
+
+// parseIDArgs parses args with fl, allowing one positional argument (the id) before, between
+// or after the flags. extra are the positional arguments past the first.
+func parseIDArgs(fl *flag.FlagSet, args []string) (id string, extra []string, err error) {
+	for {
+		if err := fl.Parse(args); err != nil {
+			return "", nil, err
+		}
+		if fl.NArg() == 0 {
+			return id, extra, nil
+		}
+		if id == "" {
+			id = fl.Arg(0)
+		} else {
+			extra = append(extra, fl.Arg(0))
+		}
+		args = fl.Args()[1:]
+	}
 }
