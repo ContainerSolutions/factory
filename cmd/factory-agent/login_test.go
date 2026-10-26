@@ -68,7 +68,7 @@ func TestLogin(t *testing.T) {
 				t.Errorf("codex login: %v", err)
 			}
 		}},
-		{name: "codex, no auth.json", args: []string{"codex"}, code: 1, err: "auth.json"},
+		{name: "codex, no auth.json", args: []string{"codex"}, code: 1, err: "auth.json: log codex in on this machine first"},
 		{name: "unknown", args: []string{"gemini"}, code: 2, err: "unknown login"},
 		{name: "none", args: nil, code: 2, err: "usage"},
 	}
@@ -81,6 +81,7 @@ func TestLogin(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			code := runLogin(tt.args, &stdout, &stderr, loginDeps{
 				Home: func() (string, error) { return home, nil }, Getenv: noEnv, Stdin: strings.NewReader(tt.stdin),
+				IsTerminal: func() bool { return false },
 			})
 			if code != tt.code || !strings.Contains(stderr.String(), tt.err) {
 				t.Fatalf("code %d, stderr %q; want %d with %q", code, stderr.String(), tt.code, tt.err)
@@ -114,5 +115,71 @@ func TestLoginCodexPaths(t *testing.T) {
 	}
 	if _, err := login.ForStateDir(state).Codex(); err != nil {
 		t.Errorf("codex login: %v", err)
+	}
+}
+
+// login claude prompts for the paste only when stdin is a terminal (a pipe needs no prompt), and
+// says where the login went without printing it.
+func TestLoginClaudePrompt(t *testing.T) {
+	const prompt = "Paste `claude setup-token`'s output, then press Enter and Ctrl-D.\n"
+	for _, tt := range []struct {
+		name     string
+		terminal bool
+		stderr   string
+	}{
+		{name: "a terminal", terminal: true, stderr: prompt},
+		{name: "a pipe", terminal: false, stderr: ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			state := t.TempDir()
+			var stdout, stderr bytes.Buffer
+			code := runLogin([]string{"claude", "--state-dir", state}, &stdout, &stderr, loginDeps{
+				Home: func() (string, error) { return t.TempDir(), nil }, Getenv: noEnv,
+				Stdin: strings.NewReader("sk-ant-oat01-abc\n"), IsTerminal: func() bool { return tt.terminal },
+			})
+			if code != 0 || stderr.String() != tt.stderr {
+				t.Fatalf("code %d, stderr %q; want 0 with %q", code, stderr.String(), tt.stderr)
+			}
+			want := "stored the claude login in " + filepath.Join(state, login.Dir, login.ClaudeFile) + "\n"
+			if stdout.String() != want {
+				t.Errorf("stdout %q, want %q", stdout.String(), want)
+			}
+		})
+	}
+}
+
+// Without an auth.json, login codex names the path and says what to do, and why not to copy one.
+func TestLoginCodexMissing(t *testing.T) {
+	home := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := runLogin([]string{"codex"}, &stdout, &stderr, loginDeps{
+		Home: func() (string, error) { return home, nil }, Getenv: noEnv, IsTerminal: func() bool { return false },
+	})
+	want := "factory-agent login codex: no codex login at " + filepath.Join(home, ".codex", "auth.json") +
+		": log codex in on this machine first (install the codex CLI, then `codex login` with ChatGPT), then run " +
+		"this again. Don't copy another machine's auth.json: both machines' gateways would refresh the same " +
+		"login, and each refresh spends the other's refresh token\n"
+	if code != 1 || stderr.String() != want {
+		t.Fatalf("code %d, stderr %q; want 1 with %q", code, stderr.String(), want)
+	}
+}
+
+// The usage covers macOS's clipboard, Linux's paste and clipboard tools, and codex's login.
+func TestLoginUsage(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runLogin([]string{"help"}, &stdout, &stderr, loginDeps{}); code != 0 {
+		t.Fatalf("code %d: %s", code, stderr.String())
+	}
+	for _, want := range []string{
+		"macOS: pbpaste | factory-agent login claude",
+		"Linux: factory-agent login claude, paste, then Enter and Ctrl-D",
+		"xclip -o -selection clipboard | factory-agent login claude",
+		"wl-paste | factory-agent login claude",
+		"install the codex CLI, then codex login (with",
+		"Don't copy another machine's auth.json",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("usage lacks %q:\n%s", want, stdout.String())
+		}
 	}
 }

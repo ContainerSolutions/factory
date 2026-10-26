@@ -22,6 +22,16 @@ type loginDeps struct {
 	Getenv func(string) string
 	// Stdin is where `login claude` reads setup-token's output; default os.Stdin.
 	Stdin io.Reader
+	// IsTerminal says whether Stdin is a terminal, where `login claude` prompts for the paste
+	// first; default stdinIsTerminal.
+	IsTerminal func() bool
+}
+
+// stdinIsTerminal is true when os.Stdin is a character device: a terminal (or /dev/null, where
+// the prompt is harmless), not a pipe or a file.
+func stdinIsTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
 func loginCommand() command {
@@ -38,10 +48,16 @@ func loginUsage(w io.Writer) {
 	fmt.Fprint(w, `usage: factory-agent login <claude|codex> [flags]   (supervise.md)
 
   claude                 reads claude setup-token's output on stdin and stores the one token in it.
-                         Run claude setup-token on its own (it is interactive), copy what it
-                         prints, then: pbpaste | factory-agent login claude
-                         (the token stays out of argv and the shell history)
-  codex [--auth-json p]  imports codex's ChatGPT login (default ~/.codex/auth.json)
+                         Run claude setup-token on its own (it is interactive) and copy what it
+                         prints, then (the token stays out of argv and the shell history):
+                           macOS: pbpaste | factory-agent login claude
+                           Linux: factory-agent login claude, paste, then Enter and Ctrl-D;
+                                  or xclip -o -selection clipboard | factory-agent login claude,
+                                  or wl-paste | factory-agent login claude, where installed
+  codex [--auth-json p]  imports codex's ChatGPT login (default ~/.codex/auth.json). Log codex in
+                         on this machine first: install the codex CLI, then codex login (with
+                         ChatGPT). Don't copy another machine's auth.json: both would refresh the
+                         same login, each spending the other's refresh token.
 
 Each goes to <state-dir>/logins/{claude,codex}.json (0600, in a 0700 directory); the
 workspace gateway adds it to the model hosts' requests, and refreshes the codex login there
@@ -74,6 +90,9 @@ func runLogin(args []string, stdout, stderr io.Writer, d loginDeps) int {
 	if d.Stdin == nil {
 		d.Stdin = os.Stdin
 	}
+	if d.IsTerminal == nil {
+		d.IsTerminal = stdinIsTerminal
+	}
 	fs := flag.NewFlagSet("login "+which, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	stateDir := fs.String("state-dir", "", "the agent's state dir (default: the agent's per OS, ~/Library/Application Support/factory-agent on a Mac, $XDG_STATE_HOME/factory-agent or ~/.local/state/factory-agent on Linux)")
@@ -105,6 +124,9 @@ func runLogin(args []string, stdout, stderr io.Writer, d loginDeps) int {
 	}
 	store := login.ForStateDir(*stateDir)
 	if which == "claude" {
+		if d.IsTerminal() {
+			fmt.Fprintln(stderr, "Paste `claude setup-token`'s output, then press Enter and Ctrl-D.")
+		}
 		b, err := io.ReadAll(io.LimitReader(d.Stdin, maxStdinToken+1))
 		if err != nil {
 			return fail(fmt.Errorf("stdin: %w", err))
@@ -127,6 +149,11 @@ func runLogin(args []string, stdout, stderr io.Writer, d loginDeps) int {
 		path = filepath.Join(home, ".codex", "auth.json")
 	}
 	b, err := readCapped(path, 1<<20)
+	if errors.Is(err, os.ErrNotExist) {
+		return fail(fmt.Errorf("no codex login at %s: log codex in on this machine first (install the codex CLI, "+
+			"then `codex login` with ChatGPT), then run this again. Don't copy another machine's auth.json: both "+
+			"machines' gateways would refresh the same login, and each refresh spends the other's refresh token", path))
+	}
 	if err != nil {
 		return fail(err)
 	}
