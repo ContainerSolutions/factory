@@ -2,9 +2,9 @@
 // design/workstreams/agent/LLD/workspace-host.md). For the tart driver the steps are the
 // platform, the state dir, Tart, Softnet, the pf anchor, the base VM and the warm base; for the
 // kata driver (workspace-kata.md) so far the platform, the state dir, nerdctl-full, Kata, its
-// config, the factory's containerd and the workspace network. Check reports each step's state;
-// Init applies the steps that aren't ok, in order, and runs their root actions in one sudo
-// script.
+// config, the factory's containerd, the workspace network and the root helper. Check reports
+// each step's state; Init applies the steps that aren't ok, in order, and runs their root
+// actions in one sudo script.
 package host
 
 import (
@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -114,8 +115,14 @@ type Env struct {
 	Owner func(fs.FileInfo) (uid, gid int, ok bool)
 	// LookPath finds a program on PATH.
 	LookPath func(string) (string, error)
-	// Prompt asks a y/N question; Init asks it before the pf step unless --yes.
+	// Prompt asks a y/N question; Init asks it before the pf and privileges steps unless --yes.
 	Prompt func(question string) (bool, error)
+	// Executable is the running factory-agent, which the privileges step installs as the kata
+	// helper; default os.Executable().
+	Executable string
+	// Username is the user running host init, the owner the kata helper's sudoers rule names;
+	// default os/user's current user.
+	Username func() (string, error)
 	// Clock dates the pf opt-out and the VM records' builtAt.
 	Clock clock.Clock
 	// AgentVersion names the base VM (factory-agent-base-<version>); default version.Version.
@@ -202,7 +209,24 @@ func (e *Env) Defaults() error {
 		e.Getenv = os.Getenv
 	}
 	if e.Prompt == nil {
-		e.Prompt = func(string) (bool, error) { return false, errors.New("no terminal to ask: pass --yes or --no-pf") }
+		e.Prompt = func(string) (bool, error) {
+			return false, errors.New("no terminal to ask: pass --yes (or, for the pf step, --no-pf)")
+		}
+	}
+	if e.Executable == "" {
+		// without it, the privileges step's plan and apply fail, naming it.
+		if exe, err := os.Executable(); err == nil {
+			e.Executable = exe
+		}
+	}
+	if e.Username == nil {
+		e.Username = func() (string, error) {
+			u, err := user.Current()
+			if err != nil {
+				return "", err
+			}
+			return u.Username, nil
+		}
 	}
 	if e.Clock == nil {
 		e.Clock = clock.Real{}
@@ -254,15 +278,15 @@ func firstLine(s string) string {
 	return l
 }
 
-// Steps are the workspace driver's steps, in order. The kata driver has steps 1 to 7 so far;
-// the rest come in P1 phase 9's next PRs (workspace-kata.md#prs).
+// Steps are the workspace driver's steps, in order. The kata driver has steps 1 to 8 so far;
+// the image and the warm disk come in P1 phase 9's next PRs (workspace-kata.md#prs).
 func Steps(e *Env) ([]Step, error) {
 	switch e.Workspace.Driver {
 	case config.DriverTart:
 		return []Step{platformStep{e}, stateDirStep{e}, tartStep{e}, softnetStep{e}, pfStep{e}, baseVMStep{e}, warmBaseStep{e}}, nil
 	case config.DriverKata:
 		return []Step{kataPlatformStep{e}, stateDirStep{e}, nerdctlStep{e}, kataStep{e}, kataConfigStep{e},
-			containerdStep{e}, networkStep{e}}, nil
+			containerdStep{e}, networkStep{e}, privilegesStep{e}}, nil
 	}
 	return nil, fmt.Errorf("no host steps for the %q driver", e.Workspace.Driver)
 }
@@ -294,7 +318,7 @@ func AllOK(sts []Status) bool {
 // InitOptions are host init's flags.
 type InitOptions struct {
 	DryRun bool
-	// Yes installs the pf step without asking.
+	// Yes applies the pf and privileges steps without asking.
 	Yes bool
 	// NoPF skips the pf step and records the opt-out in the state dir.
 	NoPF bool
@@ -317,9 +341,10 @@ other listening services. `+"`factory-agent host init --remove-pf`"+` undoes it.
 // returns the final check (the first one with DryRun, which changes nothing), also when an
 // Apply or the sudo script fails. A failed platform check stops it before anything changes.
 // A pf step skipped (--no-pf, or the prompt declined) is recorded as an opt-out in the state
-// dir; one that's installed removes it. With o.Only, the statedir step is applied too when it
-// isn't ok, since the applies need the dir. The applies hold <statedir>/host.lock: a second
-// Init fails while one runs.
+// dir; one that's installed removes it. The kata driver's privileges step is asked about the
+// same way (unless o.Yes); declined, it's left out. With o.Only, the statedir step is applied
+// too when it isn't ok, since the applies need the dir. The applies hold <statedir>/host.lock:
+// a second Init fails while one runs.
 func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	// the kata driver stages its downloads (about 1.3 GB) in <statedir>/stage, not in $TMPDIR,
 	// which may be a tmpfs: it's made once the host lock is held (the dir exists by then) and
@@ -371,6 +396,16 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 			if !yes {
 				fmt.Fprintln(e.Out, "warning: pf skipped: workspaces can reach every listening service on this Mac's bridge address")
 				optOut = "declined at host init's prompt"
+				continue
+			}
+		case s.Name() == privilegesName && !o.Yes && !o.DryRun:
+			fmt.Fprint(e.Out, privilegesNotice())
+			yes, err := e.Prompt("Install the kata helper and its sudoers rule? [y/N] ")
+			if err != nil {
+				return sts, err
+			}
+			if !yes {
+				fmt.Fprintln(e.Out, "warning: privileges skipped: supervise --driver kata can't run a workspace without the helper")
 				continue
 			}
 		}

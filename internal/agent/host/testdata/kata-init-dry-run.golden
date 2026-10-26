@@ -1,0 +1,201 @@
+plan:
+  statedir  create $HOME/.local/state/factory-agent with mode 0700
+  nerdctl   download https://github.com/containerd/nerdctl/releases/download/v2.4.1/nerdctl-full-2.4.1-linux-amd64.tar.gz into the stage and check its sha256
+  nerdctl   install nerdctl-full 2.4.1 at $ROOT/usr/local/libexec/factory-agent/nerdctl-full (sudo: root checks its copy's sha256 again, then extracts it)
+  kata      download https://github.com/kata-containers/kata-containers/releases/download/4.2.0/kata-static-4.2.0-amd64.tar.zst (about 950 MiB) into the stage and check its sha256
+  kata      install Kata 4.2.0 at $ROOT/opt/kata (sudo: root checks its copy's sha256 again, refuses any entry outside opt/kata, then extracts it)
+  kataconfig render $ROOT/etc/kata-containers/runtime-rs/configuration.toml from $ROOT/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-clh-runtime-rs.toml with reconnect_timeout_ms = 60000 (sudo)
+  containerd write $ROOT/etc/factory-agent/containerd.toml, $ROOT/etc/factory-agent/buildkitd.toml and the units factory-agent-containerd.service and factory-agent-buildkit.service (sudo)
+  containerd enable and restart them, and wait for their sockets (30 s)
+  network   write the workspace firewall $ROOT/etc/factory-agent/workspaces.nft (table inet factory_workspaces, fws* bridges, gateway port 3128) and factory-agent-nft.service; load it and enable the unit (sudo)
+  privileges copy $HOME/bin/factory-agent (sha256 5039fa9d2883308ff76bc8cf8db363f3cca78996f411a03369753896751715cd) into the stage
+  privileges install it root:root 0755 at $ROOT/usr/local/libexec/factory-agent/kata-helper and the sudoers rule $ROOT/etc/sudoers.d/factory-agent, which lets owner run it with sudo -n (sudo: root checks its copy's sha256 again, visudo -cf the rule)
+sudo script (one sudo prompt):
+#!/bin/sh
+# factory-agent host init: the root actions, run once with sudo.
+set -eu
+/usr/bin/install -d -o root -g root -m 0755 $ROOT/usr/local/libexec/factory-agent
+umask 022
+T=$(/usr/bin/mktemp -d $ROOT/usr/local/libexec/factory-agent/.nerdctl-full.XXXXXX)
+trap '/usr/bin/rm -rf "$T"' EXIT
+/usr/bin/install -o root -g root -m 0600 $STAGE/nerdctl-full.tar.gz "$T/nerdctl-full.tar.gz"
+printf '%s  %s\n' ff018f11ac2f1354bf7b3aaaca6e0b52d81139c746a89134744d0b7be3a0e62f "$T/nerdctl-full.tar.gz" | /usr/bin/sha256sum -c -
+if /usr/bin/tar -tzf "$T/nerdctl-full.tar.gz" | /usr/bin/grep -qE '^/|(^|/)\.\.(/|$)'; then { echo 'factory-agent host init: nerdctl-full has an absolute or .. entry' >&2; exit 1; }; fi
+/usr/bin/install -d -m 0755 "$T/x"
+/usr/bin/tar -xzf "$T/nerdctl-full.tar.gz" -C "$T/x" --no-same-owner --no-same-permissions
+if [ -e $ROOT/usr/local/libexec/factory-agent/nerdctl-full ] || [ -L $ROOT/usr/local/libexec/factory-agent/nerdctl-full ]; then /usr/bin/mv $ROOT/usr/local/libexec/factory-agent/nerdctl-full "$T/old"; fi
+/usr/bin/mv "$T/x" $ROOT/usr/local/libexec/factory-agent/nerdctl-full
+/usr/bin/rm -rf "$T"; trap - EXIT
+if [ -L $ROOT/opt/kata ] || { [ -e $ROOT/opt/kata ] && [ ! -f $ROOT/opt/kata/.factory-agent ]; }; then { echo 'factory-agent host init: $ROOT/opt/kata is another Kata install: move it away' >&2; exit 1; }; fi
+umask 022
+T=$(/usr/bin/mktemp -d $ROOT/opt/.factory-agent-kata.XXXXXX)
+trap '/usr/bin/rm -rf "$T"' EXIT
+/usr/bin/install -o root -g root -m 0600 $STAGE/kata-static.tar.zst "$T/kata-static.tar.zst"
+printf '%s  %s\n' b828904fa3f1e49ddd7dc799c72cb1503cd1e772d354c3987c8d4189b2a623a8 "$T/kata-static.tar.zst" | /usr/bin/sha256sum -c -
+/usr/bin/tar --zstd -tf "$T/kata-static.tar.zst" > "$T/entries"
+if /usr/bin/grep -qvE -e '^\.$' -e '^\./$' -e '^(\./)?opt/?$' -e '^(\./)?opt/kata(/.*)?$' "$T/entries" || /usr/bin/grep -qE '(^|/)\.\.(/|$)' "$T/entries"; then { echo 'factory-agent host init: the Kata release has entries outside opt/kata' >&2; exit 1; }; fi
+/usr/bin/install -d -m 0755 "$T/x"
+/usr/bin/tar --zstd -xf "$T/kata-static.tar.zst" -C "$T/x" --no-same-owner --no-same-permissions
+[ "$(cd "$T/x" && /usr/bin/find . -mindepth 1 -maxdepth 2 | /usr/bin/sort | /usr/bin/tr '\n' ' ')" = './opt ./opt/kata ' ] || { echo 'factory-agent host init: the Kata release extracted outside opt/kata' >&2; exit 1; }
+/usr/bin/rm -f "$T/x/opt/kata/.factory-agent"
+printf '%s\n' 4.2.0 > "$T/x/opt/kata/.factory-agent"
+if [ -e $ROOT/opt/kata ]; then /usr/bin/mv $ROOT/opt/kata "$T/old"; fi
+/usr/bin/mv "$T/x/opt/kata" $ROOT/opt/kata
+/usr/bin/rm -rf "$T"; trap - EXIT
+if [ -e $ROOT/etc/kata-containers/runtime-rs/configuration.toml ] && ! /usr/bin/head -n 1 $ROOT/etc/kata-containers/runtime-rs/configuration.toml | /usr/bin/grep -qF '# factory-agent host init: '; then { echo 'factory-agent host init: $ROOT/etc/kata-containers/runtime-rs/configuration.toml is another Kata install'\''s config: move it away' >&2; exit 1; }; fi
+[ -f $ROOT/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-clh-runtime-rs.toml ] || { echo 'factory-agent host init: no $ROOT/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-clh-runtime-rs.toml: the kata step installs it' >&2; exit 1; }
+umask 022
+T=$(/usr/bin/mktemp -d /tmp/factory-agent-root.XXXXXX)
+trap '/usr/bin/rm -rf "$T"' EXIT
+{ printf '%s\n' '# factory-agent host init: configuration-clh-runtime-rs.toml of the Kata 4.2.0 static release, reconnect_timeout_ms = 60000'; /usr/bin/sed -E 's/^(reconnect_timeout_ms)[[:space:]]*=.*/\1 = 60000/' $ROOT/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-clh-runtime-rs.toml; } > "$T/configuration.toml"
+/usr/bin/grep -qx 'reconnect_timeout_ms = 60000' "$T/configuration.toml" || { echo 'factory-agent host init: $ROOT/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-clh-runtime-rs.toml has no reconnect_timeout_ms line' >&2; exit 1; }
+/usr/bin/install -d -o root -g root -m 0755 $ROOT/etc/kata-containers $ROOT/etc/kata-containers/runtime-rs
+/usr/bin/install -o root -g root -m 0644 "$T/configuration.toml" $ROOT/etc/kata-containers/runtime-rs/configuration.toml
+/usr/bin/rm -rf "$T"; trap - EXIT
+umask 022
+T=$(/usr/bin/mktemp -d /tmp/factory-agent-root.XXXXXX)
+trap '/usr/bin/rm -rf "$T"' EXIT
+/usr/bin/install -d -o root -g root -m 0755 $ROOT/etc/factory-agent
+/bin/cat > "$T/containerd.toml" <<'FACTORY_AGENT_EOF'
+# /etc/factory-agent/containerd.toml (factory-agent host init)
+version = 3
+root = "/var/lib/factory-agent/containerd"
+state = "/run/factory-agent/containerd"
+disabled_plugins = ["io.containerd.grpc.v1.cri", "io.containerd.cri.v1.images", "io.containerd.cri.v1.runtime", "io.containerd.nri.v1.nri"]
+[grpc]
+  address = "/run/factory-agent/containerd/containerd.sock"
+[ttrpc]
+  address = "/run/factory-agent/containerd/containerd.sock.ttrpc"
+[debug]
+  address = "/run/factory-agent/containerd/debug.sock"
+[plugins."io.containerd.internal.v1.opt"]
+  path = "/var/lib/factory-agent/containerd-opt"
+FACTORY_AGENT_EOF
+/bin/cat > "$T/buildkitd.toml" <<'FACTORY_AGENT_EOF'
+# /etc/factory-agent/buildkitd.toml (factory-agent host init)
+# factory-agent-buildkit.service sets everything with flags; buildkitd reads this file instead
+# of /etc/buildkit/buildkitd.toml, so another BuildKit's config never applies.
+FACTORY_AGENT_EOF
+/bin/cat > "$T/factory-agent-containerd.service" <<'FACTORY_AGENT_EOF'
+# /etc/systemd/system/factory-agent-containerd.service (factory-agent host init)
+[Unit]
+Description=factory-agent's containerd for the kata workspaces (apart from Docker's)
+Documentation=https://github.com/compliance-framework/factory/blob/main/design/workstreams/agent/LLD/workspace-kata.md
+After=network.target local-fs.target
+
+[Service]
+Environment=PATH=/opt/kata/runtime-rs/bin:/usr/local/libexec/factory-agent/nerdctl-full/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStartPre=/usr/bin/install -d -m 0711 /run/factory-agent/containerd
+ExecStart=/usr/local/libexec/factory-agent/nerdctl-full/bin/containerd --config /etc/factory-agent/containerd.toml
+Type=notify
+Delegate=yes
+KillMode=process
+Restart=always
+RestartSec=5
+LimitNPROC=infinity
+LimitCORE=infinity
+LimitNOFILE=infinity
+TasksMax=infinity
+OOMScoreAdjust=-999
+
+[Install]
+WantedBy=multi-user.target
+FACTORY_AGENT_EOF
+/bin/cat > "$T/factory-agent-buildkit.service" <<'FACTORY_AGENT_EOF'
+# /etc/systemd/system/factory-agent-buildkit.service (factory-agent host init)
+[Unit]
+Description=factory-agent's BuildKit for the kata workspace image
+Documentation=https://github.com/compliance-framework/factory/blob/main/design/workstreams/agent/LLD/workspace-kata.md
+Requires=factory-agent-containerd.service
+After=factory-agent-containerd.service
+
+[Service]
+Environment=PATH=/opt/kata/runtime-rs/bin:/usr/local/libexec/factory-agent/nerdctl-full/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStartPre=/usr/bin/install -d -m 0711 /run/factory-agent/buildkit
+ExecStart=/usr/local/libexec/factory-agent/nerdctl-full/bin/buildkitd --config /etc/factory-agent/buildkitd.toml \
+  --addr unix:///run/factory-agent/buildkit/buildkitd.sock --root /var/lib/factory-agent/buildkit \
+  --oci-worker=false --containerd-worker=true --containerd-worker-addr=/run/factory-agent/containerd/containerd.sock \
+  --containerd-worker-namespace=factory --containerd-worker-net=host
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+FACTORY_AGENT_EOF
+/usr/bin/install -o root -g root -m 0644 "$T/containerd.toml" $ROOT/etc/factory-agent/containerd.toml
+/usr/bin/install -o root -g root -m 0644 "$T/buildkitd.toml" $ROOT/etc/factory-agent/buildkitd.toml
+/usr/bin/install -o root -g root -m 0644 "$T/factory-agent-containerd.service" $ROOT/etc/systemd/system/factory-agent-containerd.service
+/usr/bin/install -o root -g root -m 0644 "$T/factory-agent-buildkit.service" $ROOT/etc/systemd/system/factory-agent-buildkit.service
+/usr/bin/systemctl daemon-reload
+/usr/bin/systemctl enable factory-agent-containerd.service factory-agent-buildkit.service
+/usr/bin/systemctl restart factory-agent-containerd.service factory-agent-buildkit.service
+i=0; until [ -S /run/factory-agent/containerd/containerd.sock ] && [ -S /run/factory-agent/buildkit/buildkitd.sock ]; do i=$((i+1)); if [ "$i" -gt 60 ]; then { echo 'factory-agent host init: containerd and buildkitd didn'\''t open their sockets within 30 s: journalctl -u factory-agent-containerd.service -u factory-agent-buildkit.service' >&2; exit 1; }; fi; /usr/bin/sleep 0.5; done
+/usr/bin/rm -rf "$T"; trap - EXIT
+umask 022
+T=$(/usr/bin/mktemp -d /tmp/factory-agent-root.XXXXXX)
+trap '/usr/bin/rm -rf "$T"' EXIT
+/usr/bin/install -d -o root -g root -m 0755 $ROOT/etc/factory-agent
+/bin/cat > "$T/workspaces.nft" <<'FACTORY_AGENT_EOF'
+# /etc/factory-agent/workspaces.nft (factory-agent host init)
+# Kata workspaces reach only their own gateway's port, from their own address on their own
+# bridge; nothing is forwarded to or from them. The first two lines make loading this file
+# again replace the table.
+table inet factory_workspaces
+delete table inet factory_workspaces
+table inet factory_workspaces {
+	set ws_allow {
+		type ifname . ipv4_addr . ipv4_addr
+	}
+	chain input {
+		type filter hook input priority filter - 10; policy accept;
+		iifname != "fws*" accept
+		tcp dport 3128 iifname . ip saddr . ip daddr @ws_allow accept
+		udp dport 53 reject
+		tcp dport 53 reject with tcp reset
+		meta l4proto tcp reject with tcp reset
+		reject
+	}
+	chain forward {
+		type filter hook forward priority filter - 10; policy accept;
+		iifname "fws*" drop
+		oifname "fws*" drop
+	}
+}
+FACTORY_AGENT_EOF
+/bin/cat > "$T/factory-agent-nft.service" <<'FACTORY_AGENT_EOF'
+# /etc/systemd/system/factory-agent-nft.service (factory-agent host init)
+[Unit]
+Description=factory-agent's kata workspace firewall (nft table inet factory_workspaces)
+Documentation=https://github.com/compliance-framework/factory/blob/main/design/workstreams/agent/LLD/workspace-kata.md
+Before=factory-agent-containerd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/factory-agent/workspaces.nft
+
+[Install]
+WantedBy=multi-user.target
+RequiredBy=factory-agent-containerd.service
+FACTORY_AGENT_EOF
+/usr/sbin/nft -c -f "$T/workspaces.nft"
+/usr/bin/install -o root -g root -m 0644 "$T/workspaces.nft" $ROOT/etc/factory-agent/workspaces.nft
+/usr/bin/install -o root -g root -m 0644 "$T/factory-agent-nft.service" $ROOT/etc/systemd/system/factory-agent-nft.service
+/usr/bin/systemctl daemon-reload
+/usr/sbin/nft -f $ROOT/etc/factory-agent/workspaces.nft
+/usr/bin/systemctl enable --now factory-agent-nft.service
+/usr/bin/rm -rf "$T"; trap - EXIT
+/usr/bin/install -d -o root -g root -m 0755 $ROOT/usr/local/libexec/factory-agent
+umask 022
+T=$(/usr/bin/mktemp -d $ROOT/usr/local/libexec/factory-agent/.kata-helper.XXXXXX)
+trap '/usr/bin/rm -rf "$T"' EXIT
+/usr/bin/install -o root -g root -m 0700 $STAGE/kata-helper "$T/kata-helper"
+printf '%s  %s\n' 5039fa9d2883308ff76bc8cf8db363f3cca78996f411a03369753896751715cd "$T/kata-helper" | /usr/bin/sha256sum -c -
+/usr/bin/install -o root -g root -m 0755 "$T/kata-helper" $ROOT/usr/local/libexec/factory-agent/kata-helper
+/bin/cat > "$T/sudoers" <<'FACTORY_AGENT_EOF'
+# /etc/sudoers.d/factory-agent (factory-agent host init): the kata driver's root helper.
+owner ALL=(root) NOPASSWD: /usr/local/libexec/factory-agent/kata-helper
+FACTORY_AGENT_EOF
+/usr/sbin/visudo -cf "$T/sudoers"
+/usr/bin/install -o root -g root -m 0440 "$T/sudoers" $ROOT/etc/sudoers.d/factory-agent
+/usr/bin/rm -rf "$T"; trap - EXIT

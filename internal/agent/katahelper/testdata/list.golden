@@ -1,0 +1,2 @@
+env PATH=/opt/kata/runtime-rs/bin:/usr/local/libexec/factory-agent/nerdctl-full/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root NERDCTL_TOML=/dev/null
+/usr/local/libexec/factory-agent/nerdctl-full/bin/nerdctl --address /run/factory-agent/containerd/containerd.sock --namespace factory --data-root /var/lib/factory-agent/nerdctl --cni-path /usr/local/libexec/factory-agent/nerdctl-full/libexec/cni --cni-netconfpath /etc/factory-agent/cni/net.d ps -a --format {{.Names}}
