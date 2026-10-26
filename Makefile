@@ -100,7 +100,7 @@ e2e-run-container: ## Opt-in, needs docker (E2E_CONTAINER_CLI) and pulls E2E_CON
 	fi
 
 # POC_ADDR is the PoC dispatcher's public listener (what ngrok forwards to). Not 8080 or 8000:
-# local-dev's CCF stack (the agent's has-local-stack runs) binds those.
+# local-dev's CCF stack binds those.
 POC_ADDR ?= 127.0.0.1:8800
 
 .PHONY: poc-up

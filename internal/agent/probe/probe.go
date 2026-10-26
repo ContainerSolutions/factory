@@ -4,7 +4,7 @@
 //
 // Harness detection proper (versions, auth status) is each adapter's Probe (AGT-S1-T03/T04,
 // harness-adapters.md); until an adapter is registered, Configured reports what the local
-// config says. Label checks (local-stack.md §Labels and probes) plug in as LabelCheckers.
+// config says. Label checks plug in as LabelCheckers (none are built in).
 package probe
 
 import (

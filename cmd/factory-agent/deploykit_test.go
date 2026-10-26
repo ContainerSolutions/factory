@@ -42,9 +42,6 @@ func TestDeployAgentExample(t *testing.T) {
 			t.Errorf("no %s harness", h)
 		}
 	}
-	if !slices.Contains(cfg.Labels, config.LabelLocalStack) || !slices.Contains(cfg.Labels, "gif-tooling") || cfg.LocalDev == "" {
-		t.Errorf("labels %v, localDev %q: release-docs needs has-local-stack and gif-tooling", cfg.Labels, cfg.LocalDev)
-	}
 
 	// The loader is strict, so a misspelt key in a copy of the example is an error.
 	if _, err := config.Parse(append(slices.Clone(data), "\nunknownKey: true\n"...), exampleOptions()); err == nil ||
