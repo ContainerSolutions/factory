@@ -37,8 +37,9 @@ const (
 func codexHome(ws harness.Workspace) string { return filepath.Join(ws.Home, homeDir) }
 
 // Prepare implements harness.Adapter: the scratch CODEX_HOME with the owner's login linked
-// (not copied), config.toml, AGENTS.md (the headless preamble) and skills/<name>/ for every
-// skill the pipeline materialised in its plugin layout.
+// (not copied), config.toml, AGENTS.md (the headless preamble), skills/<name>/ for every
+// skill the pipeline materialised in its plugin layout and skills/<plugin>/bin linked to each
+// plugin's bin/ (linkPluginBins).
 //
 // Under IsolationVM there is no owner's login: the scratch CODEX_HOME gets a placeholder
 // auth.json instead (prepareVM).
@@ -74,7 +75,7 @@ func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, t v1alpha1.Ta
 	if err := os.MkdirAll(cache, 0o700); err != nil {
 		return fmt.Errorf("codex home: %w", err)
 	}
-	return writeHome(home, renderConfig(ws, cache), agentsMD(ws), ws.SkillList)
+	return writeHome(home, renderConfig(ws, cache), agentsMD(ws), ws)
 }
 
 // prepareVM is Prepare under IsolationVM: the task must run on the subscription (an API-key
@@ -109,18 +110,22 @@ func (a *Adapter) prepareVM(ws harness.Workspace, t v1alpha1.Task) error {
 	if err := writeNew(filepath.Join(home, authFile), auth); err != nil {
 		return fmt.Errorf("codex home: the placeholder login: %w", err)
 	}
-	return writeHome(home, renderVMConfig(ws), vmAgentsMD(ws), ws.SkillList)
+	return writeHome(home, renderVMConfig(ws), vmAgentsMD(ws), ws)
 }
 
-// writeHome writes the scratch CODEX_HOME's config.toml, AGENTS.md and skills/.
-func writeHome(home, config, agents string, skills []harness.Skill) error {
+// writeHome writes the scratch CODEX_HOME's config.toml, AGENTS.md and skills/: ws's skill
+// folders and its plugins' bin/ links.
+func writeHome(home, config, agents string, ws harness.Workspace) error {
 	if err := os.WriteFile(filepath.Join(home, configFile), []byte(config), 0o600); err != nil {
 		return fmt.Errorf("codex home: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(home, agentsFile), []byte(agents), 0o600); err != nil {
 		return fmt.Errorf("codex home: %w", err)
 	}
-	if err := flattenSkills(skills, filepath.Join(home, skillsDir)); err != nil {
+	if err := flattenSkills(ws.SkillList, filepath.Join(home, skillsDir)); err != nil {
+		return fmt.Errorf("codex skills: %w", err)
+	}
+	if err := linkPluginBins(ws, filepath.Join(home, skillsDir)); err != nil {
 		return fmt.Errorf("codex skills: %w", err)
 	}
 	return nil
@@ -347,6 +352,44 @@ func flattenSkills(skills []harness.Skill, dst string) error {
 		used[name] = true
 		if err := copyTree(s.Dir, filepath.Join(dst, name)); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// linkPluginBins links dst/<plugin>/bin to the pipeline's skills/<plugin>/bin for every plugin
+// of ws's skills that has a bin/ directory, unless dst/<plugin>/bin is already there (a skill
+// folder of that name with its own bin/). A skill finds another plugin's CLI beside its own
+// folder: lisa's self-review runs <lisa skill dir>/../ccf-review/bin/ccfr, which is
+// skills/ccf-review/bin/ccfr in codex's flat layout. A link rather than a copy: ccfr finds its
+// lib/ and rules from its real path, the plugin root that stays in the pipeline's skills/.
+func linkPluginBins(ws harness.Workspace, dst string) error {
+	if ws.Skills == "" {
+		return nil
+	}
+	var done []string
+	for _, s := range ws.SkillList {
+		p := s.Plugin
+		if p == "" || slices.Contains(done, p) {
+			continue
+		}
+		done = append(done, p)
+		if strings.ContainsAny(p, `/\`) || p == "." || p == ".." {
+			return fmt.Errorf("plugin %q: can't name its folder", p)
+		}
+		src := filepath.Join(ws.Skills, p, "bin")
+		if st, err := os.Stat(src); err != nil || !st.IsDir() {
+			continue
+		}
+		link := filepath.Join(dst, p, "bin")
+		if _, err := os.Lstat(link); err == nil {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Join(dst, p), 0o700); err != nil {
+			return err
+		}
+		if err := os.Symlink(src, link); err != nil {
+			return fmt.Errorf("plugin %s: link bin/: %w", p, err)
 		}
 	}
 	return nil
