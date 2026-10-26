@@ -208,7 +208,7 @@ The more specific range wins (`::1` is `loopback`, not `reserved`). `64:ff9b::/9
 - **the agent host's own addresses and their on-link prefixes**, which the `gateway` package reads from `net.InterfaceAddrs` (re-read when older than 30 s) and passes to `policy`, which stays pure (a new VM bridge appears with each workspace). This covers a public IPv6 address on the host, and the LAN's public IPv6 neighbours;
 - `Egress.Deny`: extra prefixes from the supervisor (other workspaces' subnets, if a driver ever uses public ones).
 
-**Exceptions** are exact `netip.AddrPort`s in `Egress.OpenAddrs` (named apart from #100's `allow`, which is `AllowHosts`): the Linux registry mirror (phase 9) and the tests' upstreams. Nothing else opens a denied address. Other workspaces are covered by the private ranges (Softnet's /29s and the kata CNI subnets are private), and by `Clients` on the way in.
+**Exceptions** are exact `netip.AddrPort`s in `Egress.OpenAddrs` (named apart from #100's `allow`, which is `AllowHosts`): the tests' upstreams. Phase 9 needs none: its warm Docker disk replaced the registry mirror P1 planned here ([workspace-kata.md](workspace-kata.md#the-warm-disk)). Nothing else opens a denied address. Other workspaces are covered by the private ranges (Softnet's /29s and the kata CNI subnets are private), and by `Clients` on the way in.
 
 ### Tunnels
 
