@@ -1,2 +1,5 @@
 lisa-addressed:
 - CORE-VERIFY-001 (pass 3): the kata job checks playwright with `npx --no -- playwright --version` (1.63.0 on the real image), command -v for the rest, chromium and codex-code-mode-host added.
+
+lisa-selfreview:
+pass 4 (final, lenient): approve. Deferred: [should-fix CORE-DOC-001] workspace-host.md's provisioning table still cites only the arm64 assets and AGENTS.md's command list lacks `make kata-context` (left to the reviewers: design docs belong to the LLD PR); [nit] the image keeps root's /tmp/node-compile-cache from the build (systemd-tmpfiles empties /tmp at boot).
