@@ -1,0 +1,5 @@
+lisa-design:
+- worker.go is renamed to agentloop.go and only worker's parts are cut, rather than folding the loop into supervise.go: the diff stays a pure deletion, and stack 2 shrinks the host pipeline options further.
+- internal/agent/worker stays: it is supervise's lease loop (registration, heartbeats, lending, drain), not the worker command.
+- Code unused only because worker is gone (runner.Stub, the pipeline's Stack option, the Effector's host runtime, the probe command's host probes, the credential-helper socket) stays for stack 2, which removes it with the adapters.
+- No `--runtime host` flag exists in the tree; the host/VM choice was the worker vs supervise subcommand itself.
