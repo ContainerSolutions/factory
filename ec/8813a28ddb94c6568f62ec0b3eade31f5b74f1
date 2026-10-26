@@ -1,0 +1,6 @@
+lisa-design:
+- image-build takes the build context as a tar on stdin, not a <context dir> path (the spec/LLD had a path): a root helper reading any owner-named directory into an image the owner can then run is a read-anything escalation, and a path is open to symlink swaps. The helper accepts only flat regular files with plain names (<=32 files, <=16 MiB, a Dockerfile), copies them into root-only /var/lib/factory-agent/build/context-*, builds from the copy, removes it. LLD updated.
+- image-rm is never forced; any failure of the previous image's removal is a warning naming the manual `sudo -n kata-helper image-rm <tag>` (the LLD's "the next init deletes it" was not implementable without a record field, since the record now names the new image and the step is then ok).
+- kataimage's check runs `sudo -n kata-helper image-exists` (read-only), as the LLD's step 9 says; failures (helper missing, old protocol, no image) are `missing` with the helper's line.
+- The tag is factory-agent-base:<version> with BaseVMName's rules (Env.KataImage).
+- The dry-run plan doesn't print contextSHA256, so a base.sh edit doesn't churn kata-init-dry-run.golden.
