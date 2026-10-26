@@ -38,6 +38,23 @@ Notes for the Linux box agent:
 Stack 1 status (2026-10-26): **merged.** The PRs are listed in IMPROVEMENTS_DONE.md; what it
 left for stack 2 is under "Left over from stack 1, for stack 2" below.
 
+Stack 3 status (2026-10-26): **design agreed with Gustavo; starting.** One stack on main,
+`fx/p9f-<n>-<slug>`, as `ccf-lisa[bot]`:
+
+| PR | Branch | Fix |
+|---|---|---|
+| 1 | `fx/p9f-1-gateway-port` | a: `RunnerOptions.GatewayPort` from `workspace.gatewayPort` |
+| 2 | `fx/p9f-2-tart-size` | b: tart's `Spec` from `workspace.size` (real check on the Mac) |
+| 3 | `fx/p9f-3-sighup-memory` | c: SIGHUP re-reads `/proc/meminfo` and recomputes the cap |
+| 4 | `fx/p9f-4-sudo-signals` | d: `sudo -n` in its own process group, SIGTERM then grace; the helper handles signals for every verb and kills nerdctl's group; stale build contexts swept; a host-side bound on `image-build` |
+| 5 | `fx/p9f-5-declined-privileges` | e: kataimage/katawarm skipped with a warning; asked again on the next init |
+| 6 | `fx/p9f-6-kind-digest` | f: only if T4 fails: tag on the host in `warm-load` (protocol bump) |
+| 7 | `fx/p9f-7-e2e-container` | h: run it (T5), fix it, add it to CI as a job that isn't required |
+| 8 | `fx/p9f-8-limits-size` | g, contract: `Limits.cpus` and `Limits.memory` |
+| 9 | `fx/p9f-9-task-size` | g: the runner sizes each VM from the task's limits, capped at `workspace.size` with a warning |
+
+T2 runs last, after stack 2 is merged.
+
 ### 1. Phase 9 follow-ups
 
 #### Fixes
@@ -183,6 +200,8 @@ so docs builds stay `not-run`.
     start" at 32 s). #168 widened its bound; watch it.
 
 ### P1 leftovers
+- **A memory budget for tasks bigger than `workspace.size`** (stack 3 caps a task's
+  `limits.cpus`/`limits.memory` at `workspace.size`, since `kataConcurrency` assumes it).
 - **Phase 6, run tokens and enrollment:**
   - the run token (#101's `Lease.runToken`) and the lease credential bundle;
   - enrollment (#102) replacing the join token and device flow. Decide how an agent's owner is
@@ -275,6 +294,11 @@ so docs builds stay `not-run`.
   passed while every real claude task failed.
 
 ### Housekeeping
+- **The org move to `ContainerSolutions/factory`:** the Go module path is still
+  `github.com/compliance-framework/factory`, and `DefaultCatalogRepo`
+  (`internal/controllers/catalogsource.go`), the POC files and the docs still name the old org;
+  clones work only through GitHub's redirect. ccf-review's default owner is still
+  `compliance-framework`, so pass it full `ContainerSolutions/factory#N` refs.
 - **Deferred review findings** (should-fix and nits) are in each PR's
   `~/.ccf-review/sessions/compliance-framework-factory-<N>/triaged.json`:
   - #118: test gaps in the gateway policy;
