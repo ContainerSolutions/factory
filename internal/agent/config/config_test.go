@@ -261,6 +261,8 @@ func TestWorkspace(t *testing.T) {
 		{"images", "{warm: {images: ['', 'a b', " + long + "], kindImages: " + many + "}}", "darwin", Workspace{},
 			[]string{"workspace.warm.images[0]", "workspace.warm.images[1]", "workspace.warm.images[2]", "workspace.warm.kindImages: 101 images"}},
 		{"image flag", "{warm: {kindImages: ['--help']}}", "darwin", Workspace{}, []string{`workspace.warm.kindImages[0]: "--help"`}},
+		{"image characters", "{warm: {images: ['postgres;id', 'ghcr.io/x/$(id)', 'x\\u00e9']}}", "darwin", Workspace{},
+			[]string{`workspace.warm.images[0]: "postgres;id" must be an image reference`, "workspace.warm.images[1]", "workspace.warm.images[2]"}},
 		{"kind digest without a tag", "{warm: {images: ['postgres@sha256:ab'], kindImages: ['ghcr.io/x/agent:0.7.1@sha256:ab', 'localhost:5000/agent@sha256:ab']}}", "darwin", Workspace{},
 			[]string{`workspace.warm.kindImages[1]: "localhost:5000/agent@sha256:ab" has a digest but no tag`}},
 		{"unknown key", "{size: {gpus: 1}}", "darwin", Workspace{}, []string{`unknown field "gpus"`}},

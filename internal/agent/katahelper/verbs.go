@@ -355,15 +355,24 @@ func (h *helper) inspect(ctx context.Context, name string) error {
 	if n == 0 {
 		return fmt.Errorf("%s has no slot", name)
 	}
-	var out bytes.Buffer
-	if err := h.nerdctl(ctx, &out, "inspect", "--format", "{{.State.Running}}", name); err != nil {
-		return err
-	}
-	running, err := strconv.ParseBool(strings.TrimSpace(out.String()))
+	running, err := h.running(ctx, name)
 	if err != nil {
-		return fmt.Errorf("nerdctl inspect: %w", err)
+		return err
 	}
 	info := slotInfo(n)
 	info.Running = &running
 	return json.NewEncoder(h.o.Stdout).Encode(info)
+}
+
+// running reports whether the workspace's container runs.
+func (h *helper) running(ctx context.Context, name string) (bool, error) {
+	var out bytes.Buffer
+	if err := h.nerdctl(ctx, &out, "inspect", "--format", "{{.State.Running}}", name); err != nil {
+		return false, err
+	}
+	running, err := strconv.ParseBool(strings.TrimSpace(out.String()))
+	if err != nil {
+		return false, fmt.Errorf("nerdctl inspect: %w", err)
+	}
+	return running, nil
 }

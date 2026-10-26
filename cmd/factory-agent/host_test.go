@@ -338,7 +338,7 @@ func kataHostDeps(t *testing.T) hostDeps {
 	}
 }
 
-// TestHostKata: on a Linux host whose platform passes, check --driver kata reports steps 2 to 9
+// TestHostKata: on a Linux host whose platform passes, check --driver kata reports steps 2 to 10
 // missing; init --dry-run prints the plan and the sudo script; init --only statedir makes the
 // state dir and exits 0. The config's default driver on Linux is kata too.
 func TestHostKata(t *testing.T) {
@@ -356,7 +356,7 @@ func TestHostKata(t *testing.T) {
 	}
 	_, out = run("check", "--driver", "kata", "--json")
 	var sts []host.Status
-	if err := json.Unmarshal([]byte(out), &sts); err != nil || len(sts) != 9 {
+	if err := json.Unmarshal([]byte(out), &sts); err != nil || len(sts) != 10 {
 		t.Fatalf("check --json: %v\n%s", err, out)
 	}
 	for _, st := range sts[1:] {
@@ -367,7 +367,7 @@ func TestHostKata(t *testing.T) {
 	if code, out := run("init", "--dry-run"); code != 0 || !strings.Contains(out, "plan:\n  statedir  create "+state+" with mode 0700\n") ||
 		!strings.Contains(out, "sudo script (one sudo prompt):\n#!/bin/sh\n") || !strings.Contains(out, state+"/stage/nerdctl-full.tar.gz") ||
 		!strings.Contains(out, "owner ALL=(root) NOPASSWD: /usr/local/libexec/factory-agent/kata-helper\n") ||
-		!strings.Contains(out, "\n  kataimage sudo -n ") {
+		!strings.Contains(out, "\n  kataimage sudo -n ") || !strings.Contains(out, "\n  katawarm  kata-helper stop ") {
 		t.Fatalf("init --dry-run: code %d\n%s", code, out)
 	}
 	if _, err := os.Stat(state); err == nil {

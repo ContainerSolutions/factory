@@ -27,6 +27,11 @@ type fakeKata struct {
 	inUse  bool
 	// built is the last image-build's context: each file's name and mode.
 	built []string
+	// warm is whether the warm disk exists; ws are the workspaces (created, running or
+	// stopped); dockerDown is how many docker info execs fail before dockerd answers.
+	warm       bool
+	ws         map[string]string
+	dockerDown int
 }
 
 func (k *fakeKata) run(call string, out io.Writer, in io.Reader, args []string) error {
@@ -39,6 +44,15 @@ func (k *fakeKata) run(call string, out io.Writer, in io.Reader, args []string) 
 	}
 	if k.images == nil {
 		k.images = map[string]bool{}
+	}
+	if k.ws == nil {
+		k.ws = map[string]string{}
+	}
+	switch args[0] {
+	case "start", "stop", "exec", "warm-load", "warm-promote":
+		if k.ws[args[1]] == "" {
+			return fail("no workspace " + args[1])
+		}
 	}
 	switch args[0] {
 	case "image-build":
@@ -64,6 +78,35 @@ func (k *fakeKata) run(call string, out io.Writer, in io.Reader, args []string) 
 			return fail("nerdctl rmi: exit status 1: image is being used by stopped container ws-tsk_1")
 		}
 		delete(k.images, args[1])
+	case "warm-exists":
+		if !k.warm {
+			return fail("no warm disk /var/lib/factory-agent/kata/warm-docker.img")
+		}
+	case "create":
+		if k.ws[args[1]] != "" {
+			return fail(args[1] + " already exists (slot 1)")
+		}
+		k.ws[args[1]] = "created"
+	case "start":
+		k.ws[args[1]] = "running"
+	case "stop":
+		k.ws[args[1]] = "stopped"
+	case "rm":
+		delete(k.ws, args[1])
+	case "exec", "warm-load":
+		if k.ws[args[1]] != "running" {
+			return fail("nerdctl exec: " + args[1] + " isn't running")
+		}
+		if strings.HasSuffix(call, " docker info") && k.dockerDown > 0 {
+			k.dockerDown--
+			_, _ = io.WriteString(out, "Cannot connect to the Docker daemon at unix:///var/run/docker.sock.\n")
+			return errors.New("exit status 1")
+		}
+	case "warm-promote":
+		if k.ws[args[1]] != "stopped" {
+			return fail(args[1] + " is running: stop it first")
+		}
+		k.warm = true
 	default:
 		return fail("unexpected " + call)
 	}

@@ -1,0 +1,16 @@
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper image-exists factory-agent-base:0.1.0
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper rm ws-tsk_factory-warm-build
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper create ws-tsk_factory-warm-build 5 8192 60 empty factory-agent-base:0.1.0
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper start ws-tsk_factory-warm-build
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper exec ws-tsk_factory-warm-build sudo -n docker info
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper exec ws-tsk_factory-warm-build sudo -n docker info
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper exec ws-tsk_factory-warm-build sudo -n docker info
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper warm-load ws-tsk_factory-warm-build postgres:17.5
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper warm-load ws-tsk_factory-warm-build ghcr.io/x/agent:0.7.1@sha256:ab
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper exec ws-tsk_factory-warm-build sudo -n docker tag ghcr.io/x/agent:0.7.1@sha256:ab ghcr.io/x/agent:0.7.1
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper exec ws-tsk_factory-warm-build sudo -n docker save -o /var/lib/factory/kind-images/ghcr.io_x_agent_0.7.1.tar ghcr.io/x/agent:0.7.1
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper warm-load ws-tsk_factory-warm-build kindest/node:v1.34.0
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper exec ws-tsk_factory-warm-build sudo -n docker save -o /var/lib/factory/kind-images/kindest_node_v1.34.0.tar kindest/node:v1.34.0
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper stop ws-tsk_factory-warm-build
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper warm-promote ws-tsk_factory-warm-build
+sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper rm ws-tsk_factory-warm-build

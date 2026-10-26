@@ -6,9 +6,9 @@
 //
 // It runs as root, so it trusts nothing from its environment: every path is a constant here,
 // the commands it runs get an environment it builds itself (Env), and every argument is
-// validated before anything runs. Its verbs take only workspace names, sizes, the image's tag
-// and fixed words; image-build reads its build context as a tar on stdin, never from a path.
-// The warm-disk verbs come with the warm step (P1 phase 9, PR 5b).
+// validated before anything runs. Its verbs take only workspace names, sizes, the image's tag,
+// warm image references and fixed words; image-build reads its build context as a tar on
+// stdin, never from a path.
 package katahelper
 
 import "net/netip"

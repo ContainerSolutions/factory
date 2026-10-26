@@ -133,6 +133,9 @@ func (f *fakeHost) Run(ctx context.Context, env []string, stdin io.Reader, stdou
 			}
 		case "rmi":
 			delete(f.images, last)
+		case "save":
+			_, err := io.WriteString(stdout, "image tar of "+last)
+			return err
 		}
 	}
 	return nil
