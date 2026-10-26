@@ -245,6 +245,7 @@ Stacked, each on the one before; each passes `make reviewable` on its own.
 | 5a | `fx/p9-5a-kata-image` | step 9 (`kataimage`): the image build; the helper's `image-build`, `image-exists` and `image-rm` |
 | 5b | `fx/p9-5b-kata-warm` | step 10 (`katawarm`): the warm disk; the helper's `warm-load`, `warm-promote` and `warm-exists`; the kind archives on the disk |
 | 6 | `fx/p9-6-supervise-kata` | `supervise --driver kata` with concurrency above 1, `make kata-up`, the owner's run below |
+| 7 | `fx/p9-7-build-ipv4` | buildkitd's `[dns] options = ["no-aaaa"]`: the image build's steps look up IPv4 addresses only ([containerd and buildkitd](#containerd-and-buildkitd)) |
 
 ## Tests
 
