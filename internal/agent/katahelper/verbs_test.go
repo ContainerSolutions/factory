@@ -157,6 +157,9 @@ func TestCreateArgs(t *testing.T) {
 	if code, _, _ := runIn(t, f.opts(), "rm", "ws-1"); code != 2 || len(f.calls) > 0 {
 		t.Errorf("rm ws-1: code %d, calls %v", code, f.calls)
 	}
+	if code, _, errOut := runIn(t, f.opts(), "create", ws, "16", "65536", "empty", "factory-agent-base:v1.2.3-rc.1_x"); code != 0 {
+		t.Errorf("the largest size: code %d, stderr %q", code, errOut)
+	}
 }
 
 // TestLifecycle: create's and rm's exact commands (golden), create's output, files and
