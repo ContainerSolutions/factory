@@ -1,2 +1,5 @@
 lisa-design:
 Environment log storage: a second blob in the TranscriptStore named store.EnvironmentLogBlob(run) = "<run>.environment-log" rather than a new store interface: it inherits the per-blob and total caps, the age sweep and the filestore's crash-safe writes, and both stores drop it with its Run. Upload through Pipeline.StoreEnvironmentLog (Bundler gains the method): redaction of the whole text at once (multi-line key blocks), cap 10 MiB cut on a line. Uploaded before the transcript, so a transcript failure doesn't lose it; a failed upload is a warning, not a run failure.
+
+lisa-selfreview:
+Pass 1 (lenient, final): approve. No blockers or must-fix. Deferred (should-fix): the supervisor collects out/ right after the outcome event, while environment.down may still append to the log, so the down section can be missing; the env log shares the transcripts' total cap, so a large one can evict an old transcript.
