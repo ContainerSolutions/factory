@@ -1,0 +1,4 @@
+lisa-selfreview:
+pass 1 (lenient, final):
+- CORE-DOC-001 should-fix deploy/poc/README.md §8 step 3: "Each label is probed at start" is the worker's behaviour; supervise advertises labels as configured. Fixed.
+- CORE-REL-001 should-fix: removing the worker subcommand is a breaking CLI change; the title isn't marked `!`. Deferred: PoC, the owner chose the title, no released consumer runs worker.
