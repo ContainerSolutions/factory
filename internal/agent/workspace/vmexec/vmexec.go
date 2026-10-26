@@ -29,6 +29,10 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/workspace"
 )
 
+// MaxGet is the drivers' default bound on Get's compressed stream; host.Extract bounds what
+// it unpacks to.
+const MaxGet = 64 << 20
+
 // Config is a driver's exec command and its cancel grace.
 type Config struct {
 	Runner Runner

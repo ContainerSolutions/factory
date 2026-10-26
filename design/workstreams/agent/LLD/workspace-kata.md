@@ -205,11 +205,11 @@ The step (10) builds a workspace from the image with an **empty** disk (`create 
 
 ## The driver: `internal/agent/workspace/kata`
 
-`kata.New(Config{Helper, Sudo, Runner, Image, AgentBinary, Log, Boot, Poll, Grace, MaxGet})` implements `workspace.Driver`. `Helper` defaults to the installed path, `Sudo` to `sudo -n`, `AgentBinary` to `os.Executable()`. Every call is a helper verb.
+`kata.New(Config{Helper, Sudo, Runner, Image, Warm, AgentBinary, Boot, Poll, Grace, MaxGet})` implements `workspace.Driver`. `Helper` defaults to the installed path, `Sudo` to `sudo -n`, `AgentBinary` to `os.Executable()`; `Image` (`katabase.json`'s) and `Warm` (whether `katawarm.json`'s disk exists) come from supervise. Every call is a helper verb.
 
 | Call | What it does |
 |---|---|
-| `Create` | `kata-helper create <name> <cpu-1> <MiB> warm` (warm when the warm disk exists, else `empty`) |
+| `Create` | `kata-helper create <name> <cpu-1> <MiB> warm <image>` (`empty` unless `Warm`) |
 | `Start` | `kata-helper start`; poll `exec <name> test -S /run/systemd/private` every `Poll` until `Boot` (3 min): this also proves exec works after systemd's boot. Then the network read, as tart's: `ip -4 route show default`'s `via` and `ip -4 route get <via>`'s `src`, which must be the slot's addresses from `inspect`; then `Put` the agent binary's directory (only that file) at `/var/lib/factory/bin` and `ln -sfn /var/lib/factory/bin/factory-agent /usr/local/bin/factory-agent`. Any failure destroys nothing (the runner does) but returns the error |
 | `Put`, `Get`, `Exec` | tart's, over `kata-helper exec [-i] <name> …` instead of `tart exec [-i] <name> …`: the tar streams, the pid-file cancel (SIGTERM, then SIGKILL after `Grace`), the caps and `host.Extract` |
 | `Stop` | `kata-helper stop` (`--keep-workspace`) |
@@ -236,7 +236,11 @@ Stacked, each on the one before; each passes `make reviewable` on its own.
 | 3a | `fx/p9-3a-kata-install` | the pins, steps 3 to 5 (`nerdctl`, `kata`, `kataconfig`), the stage under the state dir, `katahelper`'s host layout |
 | 3b | `fx/p9-3b-kata-services` | steps 6 and 7 (`containerd`, `network`) and their renderings |
 | 3c | `fx/p9-3c-kata-helper` | step 8 (`privileges`) and its prompt; the helper's `protocol` and `list`; `main`'s `kata-helper` dispatch; the dry run's golden |
-| 4 | `fx/p9-4-kata-driver` | `vmexec` (moved from tart), the helper's workspace verbs, `workspace/kata`; the `kataintegration` tests |
+| 4a | `fx/p9-4a-vmexec` | `vmexec` (moved from tart, tart's tests and goldens unchanged); `host.LockedWriter`, the one copy |
+| 4b | `fx/p9-4b-helper-verbs` | the helper's `create` and `rm`: slots, the network, the disk, undo, the hung-`rm` kill |
+| 4b2 | `fx/p9-4b2-helper-exec` | the helper's `start`, `stop`, `inspect` and `exec` |
+| 4c | `fx/p9-4c-kata-driver` | `workspace/kata` and its tests against a fake helper |
+| 4d | `fx/p9-4d-kata-integration` | the `kataintegration` tests (run by hand once PR 5's image exists) |
 | 5 | `fx/p9-5-kata-image` | steps 9 and 10: the image build, the warm disk, the helper's image and warm verbs |
 | 6 | `fx/p9-6-supervise-kata` | `supervise --driver kata` with concurrency above 1, `make kata-up`, the owner's run below |
 
