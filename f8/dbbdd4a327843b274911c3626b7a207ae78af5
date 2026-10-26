@@ -1,2 +1,5 @@
 lisa-addressed:
 - pass 1 [ebeb0bfbdb97]: KataSlotPool's comment now says slot n is 10.213.<n>.0/29 (bridge .1, VM .2), as the LLD's workspace network.
+
+lisa-selfreview:
+- pass 2: no new findings (approve); the pass 1 question stays open for reviewers.
