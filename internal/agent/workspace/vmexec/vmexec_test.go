@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/host"
+	"github.com/compliance-framework/factory/internal/agent/workspace"
 )
 
 // tart's tests run every operation through vmexec; these check what a second driver relies
@@ -101,7 +102,15 @@ func TestExecStatus(t *testing.T) {
 	if err == nil || err.Error() != "mapped" || !errors.Is(got, exitCode(125)) {
 		t.Errorf("err %v, status got %v", err, got)
 	}
-	if err := ExitError("ws-tsk_a", "kata-helper exec", errors.New("signal: killed")); err == nil || !strings.Contains(err.Error(), "ws-tsk_a: kata-helper exec: signal: killed") {
-		t.Errorf("ExitError %v", err)
+	// no status: ExitError under the label.
+	f.exit = errors.New("signal: killed")
+	err = newRemote(f).Exec(context.Background(), "ws-tsk_a", []string{"true"}, nil, io.Discard, io.Discard, nil)
+	if err == nil || err.Error() != "ws-tsk_a: kata-helper exec: signal: killed" {
+		t.Errorf("err %v", err)
+	}
+	f.exit = exitCode(3)
+	err = newRemote(f).Exec(context.Background(), "ws-tsk_a", []string{"true"}, nil, io.Discard, io.Discard, nil)
+	if ee := new(workspace.ExitError); !errors.As(err, &ee) || ee.Code != 3 {
+		t.Errorf("err %v, want an ExitError 3", err)
 	}
 }

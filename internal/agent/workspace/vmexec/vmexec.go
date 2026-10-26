@@ -318,10 +318,13 @@ const SignalScript = `test -s "$0" && exec sudo -n kill -s "$1" "$(cat "$0")"`
 // Exec implements workspace.Driver's Exec: <prefix [-i]> sh -c ExecScript <pid file> argv….
 // When ctx is done it signals the remote process through another exec (TERM, then KILL after
 // Grace) and stops the local exec command once it hasn't exited. status maps the exec
-// command's exit (nil for success) to Exec's error.
+// command's exit (nil for success) to Exec's error; nil means ExitError under Label.
 func (r *Remote) Exec(ctx context.Context, name string, argv []string, stdin io.Reader, stdout, stderr io.Writer, status func(error) error) error {
 	if len(argv) == 0 {
 		return errors.New("exec: no command")
+	}
+	if status == nil {
+		status = func(err error) error { return ExitError(name, r.c.Label, err) }
 	}
 	pid := fmt.Sprintf("/tmp/factory-exec-%d.pid", r.seq.Add(1))
 	c := r.cmd(name, stdin != nil, append([]string{"sh", "-c", ExecScript, pid}, argv...)...)

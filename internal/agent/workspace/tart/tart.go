@@ -224,14 +224,14 @@ func (d *Driver) Get(ctx context.Context, name, srcDir, dstDir string, files ...
 	return d.x.Get(ctx, name, srcDir, dstDir, d.c.MaxGet, files...)
 }
 
-// Exec implements workspace.Driver: tart exec [-i] <name> sh -c execScript <pid file> argv….
+// Exec implements workspace.Driver: tart exec [-i] <name> sh -c vmexec.ExecScript <pid file> argv….
 // When ctx is done it signals the remote process through another tart exec (TERM, then KILL
 // after Grace) and stops the local tart exec once it hasn't exited.
 func (d *Driver) Exec(ctx context.Context, name string, argv []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err := workspace.ValidName(name); err != nil {
 		return err
 	}
-	return d.x.Exec(ctx, name, argv, stdin, stdout, stderr, func(err error) error { return exitError(name, err) })
+	return d.x.Exec(ctx, name, argv, stdin, stdout, stderr, nil)
 }
 
 // exitError maps a non-zero exit to *workspace.ExitError.
