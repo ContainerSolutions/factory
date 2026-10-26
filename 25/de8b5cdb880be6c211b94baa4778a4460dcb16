@@ -1,0 +1,5 @@
+lisa-design:
+Contract PR stubs: the generated StrictServerInterface needs a method per operation, so the server answers the five new routes 501 not-implemented (as the enrollment routes did before P1 phase 6) until PRs 2, 3 and 5 of the stack replace them. The environment log is text/plain both ways (not gzip like the transcript): it is plain script output, the spec test's gzip examples must be JSON Lines, and the UI shows it as text. DELETE /workitems/{id} reports per-kind counts so the CLI can print what went. No new factory.command.* event type for close: close records a decision on the item directly.
+
+lisa-selfreview:
+Pass 1 (lenient, final): approve. Checked the ccf-review rules for core/go/repo-factory. FACTORY-CONTRACT-001 touches internal/server only with 501 stubs, the access policies and the contract test (forced by the generated interface; listed as a departure). No blockers or must-fix. Nits not fixed: CloseWorkItemRequest.reason repeats WorkItemClosed.reason's enum (hand-written request body vs generated component).
