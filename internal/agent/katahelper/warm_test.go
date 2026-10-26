@@ -36,13 +36,15 @@ func loadInto(got *strings.Builder, fail bool) func(io.Reader, io.Writer, io.Wri
 }
 
 // TestWarmLoad: the host pulls the ref (no unpack, amd64 only), and its save is streamed into
-// docker load in the workspace; the output goes to stderr.
+// docker load in the workspace; both their outputs go to stderr (concurrently: -race).
 func TestWarmLoad(t *testing.T) {
 	f := created(t)
 	var got strings.Builder
 	f.exec = loadInto(&got, false)
 	code, out, errOut := runIn(t, f.opts(), nil, "warm-load", ws, "postgres:17.5@sha256:ab")
-	if code != 0 || out != "" || errOut != "Loaded image: postgres:17.5\n" {
+	// the save's and the load's output, in either order.
+	if lines := strings.SplitAfter(errOut, "\n"); code != 0 || out != "" || len(lines) != 3 ||
+		!slices.Equal(slices.Sorted(slices.Values(lines[:2])), []string{"Loaded image: postgres:17.5\n", "saving postgres:17.5@sha256:ab\n"}) {
 		t.Fatalf("code %d, stdout %q, stderr %q", code, out, errOut)
 	}
 	if got.String() != "image tar of postgres:17.5@sha256:ab" {

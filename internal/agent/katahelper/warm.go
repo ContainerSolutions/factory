@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
@@ -41,26 +42,47 @@ func (h *helper) warmLoad(ctx context.Context, name, ref string) error {
 	if err := h.stream(ctx, nil, h.o.Stderr, "nerdctl pull", append(append([]string{}, g...), "pull", "--platform", warmPlatform, "--unpack=false", ref)...); err != nil {
 		return err
 	}
-	// a load that fails stops the save, which would otherwise block on the full pipe.
+	// the save and the load run at once, both writing to stderr.
+	hh := *h
+	hh.o.Stderr = &syncWriter{w: h.o.Stderr}
 	sctx, stop := context.WithCancel(ctx)
 	defer stop()
 	pr, pw := io.Pipe()
 	saved := make(chan error, 1)
 	go func() {
-		err := h.stream(sctx, nil, pw, "nerdctl save", append(append([]string{}, g...), "save", "--platform", warmPlatform, ref)...)
-		_ = pw.CloseWithError(err)
+		err := hh.stream(sctx, nil, pw, "nerdctl save", append(append([]string{}, g...), "save", "--platform", warmPlatform, ref)...)
+		// the result is in saved before the load can see the pipe end.
 		saved <- err
+		_ = pw.CloseWithError(err)
 	}()
-	lerr := h.stream(ctx, pr, h.o.Stderr, "docker load in "+name, append(append([]string{}, g...), "exec", "-i", name, "docker", "load")...)
-	if lerr != nil {
-		stop()
-	}
-	_ = pr.Close()
-	serr := <-saved
-	if lerr != nil && serr != nil && errors.Is(sctx.Err(), context.Canceled) {
-		serr = nil // stopped because the load failed
+	lerr := hh.stream(ctx, pr, hh.o.Stderr, "docker load in "+name, append(append([]string{}, g...), "exec", "-i", name, "docker", "load")...)
+	var serr error
+	select {
+	case serr = <-saved:
+	default:
+		// the save still runs: a failed load stops it, which would otherwise block on the full
+		// pipe, and its error is then the stop's.
+		if lerr != nil {
+			stop()
+		}
+		_ = pr.Close()
+		if serr = <-saved; lerr != nil {
+			serr = nil
+		}
 	}
 	return errors.Join(serr, lerr)
+}
+
+// syncWriter serialises writes to w.
+type syncWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (s *syncWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
 }
 
 // warmPromote makes the stopped workspace's disk the warm disk: one rename, which replaces an
