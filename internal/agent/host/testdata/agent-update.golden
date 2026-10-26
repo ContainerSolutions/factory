@@ -1,0 +1,49 @@
+tart list --format json
+tart list --format json
+tart list --format json
+tart list --format json
+tart list --format json
+tart list --format json
+tart list --format json
+tart list --format json
+tart list --format json
+tart list --format json
+tart list --format json
+tart list --format json
+tart list --format json
+tart list --format json
+tart list --format json
+tart list --format json
+tart clone factory-agent-base-0.1.0 factory-agent-base-0.1.0.building
+tart run factory-agent-base-0.1.0.building --no-graphics &
+tart exec factory-agent-base-0.1.0.building true
+tart exec -i factory-agent-base-0.1.0.building sudo tar -xf - -C /usr/local/bin <stdin
+tart exec factory-agent-base-0.1.0.building sha256sum /usr/local/bin/factory-agent
+tart exec factory-agent-base-0.1.0.building sudo cloud-init clean --logs
+tart exec factory-agent-base-0.1.0.building sudo truncate -s 0 /etc/machine-id
+tart exec factory-agent-base-0.1.0.building sudo shutdown -h now
+tart list --format json
+tart list --format json
+tart rename factory-agent-base-0.1.0 factory-agent-base-0.1.0.old
+tart rename factory-agent-base-0.1.0.building factory-agent-base-0.1.0
+tart delete factory-agent-base-0.1.0.old
+tart list --format json
+tart list --format json
+tart list --format json
+tart list --format json
+tart clone factory-agent-warm factory-agent-warm.building
+tart run factory-agent-warm.building --no-graphics &
+tart exec factory-agent-warm.building true
+tart exec -i factory-agent-warm.building sudo tar -xf - -C /usr/local/bin <stdin
+tart exec factory-agent-warm.building sha256sum /usr/local/bin/factory-agent
+tart exec factory-agent-warm.building sudo cloud-init clean --logs
+tart exec factory-agent-warm.building sudo truncate -s 0 /etc/machine-id
+tart exec factory-agent-warm.building sudo shutdown -h now
+tart list --format json
+tart list --format json
+tart rename factory-agent-warm factory-agent-warm.old
+tart rename factory-agent-warm.building factory-agent-warm
+tart delete factory-agent-warm.old
+tart list --format json
+tart list --format json
+tart list --format json

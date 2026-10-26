@@ -186,7 +186,7 @@ func TestHostCheckOK(t *testing.T) {
 	write(e.AgentLinux, []byte("linux"), 0o755)
 	state := filepath.Join(e.Home, "Library", "Application Support", "factory-agent")
 	base := host.BaseVMRecord{Name: "factory-agent-base-dev", Source: host.BaseImage, ScriptSHA256: host.ProvisionScriptSHA256(), AgentSHA256: hex256([]byte("linux")), AgentVersion: "dev", BuiltAt: "2026-10-22T12:00:00Z"}
-	warm := host.WarmBaseRecord{Base: base.Name, BaseBuiltAt: base.BuiltAt, ImagesSHA256: hex256(nil), BuiltAt: base.BuiltAt}
+	warm := host.WarmBaseRecord{Base: base.Name, BaseBuiltAt: base.BuiltAt, ImagesSHA256: hex256(nil), AgentSHA256: base.AgentSHA256, BuiltAt: base.BuiltAt}
 	for name, v := range map[string]any{"basevm.json": base, "warmbase.json": warm} {
 		b, err := json.Marshal(v)
 		if err != nil {

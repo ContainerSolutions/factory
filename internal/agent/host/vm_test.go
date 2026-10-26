@@ -141,6 +141,12 @@ func (f *fakeTart) run(call string, out io.Writer, in io.Reader, args []string) 
 			return fmt.Errorf("the VM %q already exists", args[2])
 		}
 		f.vms[args[2]] = "stopped"
+		// a clone has its source's disk.
+		for k, b := range f.files {
+			if p, ok := strings.CutPrefix(k, args[1]+":"); ok {
+				f.files[args[2]+":"+p] = b
+			}
+		}
 	case "set":
 		return need(args[1])
 	case "delete":
@@ -670,7 +676,7 @@ func TestWarmBaseApply(t *testing.T) {
 	if ok, err := readRecord(s.record(), &rec); err != nil || !ok {
 		t.Fatal(ok, err)
 	}
-	if want := (WarmBaseRecord{Base: "factory-agent-base-0.1.0", BaseBuiltAt: "2026-10-22T09:30:00Z", ImagesSHA256: s.imagesSHA256(), BuiltAt: "2026-10-22T09:30:00Z"}); rec != want {
+	if want := (WarmBaseRecord{Base: "factory-agent-base-0.1.0", BaseBuiltAt: "2026-10-22T09:30:00Z", ImagesSHA256: s.imagesSHA256(), AgentSHA256: sum([]byte("factory-agent linux/arm64")), BuiltAt: "2026-10-22T09:30:00Z"}); rec != want {
 		t.Errorf("record %+v\nwant %+v", rec, want)
 	}
 	wantState(t, check(t, s), StateOK, "factory-agent-warm from factory-agent-base-0.1.0, 1 images, 1 kind images")
@@ -779,6 +785,138 @@ func TestWarmBaseApplyFails(t *testing.T) {
 			t.Fatalf("err = %v", err)
 		}
 	})
+}
+
+// newAgent makes the linux binary a newer build, and moves the clock on.
+func newAgent(t *testing.T, e *Env) {
+	t.Helper()
+	if err := os.WriteFile(e.AgentLinux, []byte("a newer build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e.Clock = clock.NewFake(time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC))
+}
+
+// TestAgentOnlyUpdate: when only the linux binary changed, host init copies it into the base
+// and the warm base (each through a clone), with no provisioning script or image pulls, and
+// records it; builtAt stays, so nothing else follows.
+func TestAgentOnlyUpdate(t *testing.T) {
+	e, r := warmEnv(t)
+	if err := (warmBaseStep{e}).Apply(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	newAgent(t, e)
+	r.reset()
+	wantState(t, check(t, baseVMStep{e}), StateOutdated, "agentSHA256 is "+sum([]byte("factory-agent linux/arm64"))+", want "+sum([]byte("a newer build"))+": "+agentOnlyFix)
+	wantState(t, check(t, warmBaseStep{e}), StateOutdated, "the base VM is outdated: the warm base follows it; "+agentOnlyFix)
+	var out bytes.Buffer
+	e.Out = &out
+	sts, err := Init(context.Background(), e, InitOptions{Only: []string{"basevm", "warmbase"}})
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if sts[5].State != StateOK || sts[6].State != StateOK {
+		t.Errorf("statuses %+v", sts)
+	}
+	for _, step := range []string{"basevm", "warmbase"} {
+		if ls := planLines(out.String(), step); len(ls) == 0 || !strings.Contains(ls[0], "only the agent binary differs") {
+			t.Errorf("%s's plan %q", step, ls)
+		}
+	}
+	golden(t, "agent-update.golden", e, r.tartCalls())
+	if r.ran("tart exec -i factory-agent-base-0.1.0.building bash -s") != 0 || r.ran("tart exec factory-agent-warm.building sudo docker") != 0 {
+		t.Errorf("a full rebuild:\n%s", r.tartCalls())
+	}
+	for _, vm := range []string{"factory-agent-base-0.1.0", WarmBaseVM} {
+		if got := string(r.tart.files[vm+":/usr/local/bin/factory-agent"]); got != "a newer build" || r.vmState(vm) != "stopped" {
+			t.Errorf("%s (%s) has factory-agent %q", vm, r.vmState(vm), got)
+		}
+	}
+	base := readBaseRecord(t, e)
+	if base.BuiltAt != "2026-10-22T09:30:00Z" || base.AgentSHA256 != sum([]byte("a newer build")) {
+		t.Errorf("basevm.json %+v", base)
+	}
+	var warm WarmBaseRecord
+	if _, err := readRecord(warmBaseStep{e}.record(), &warm); err != nil || warm.BuiltAt != "2026-10-22T09:30:00Z" || warm.BaseBuiltAt != base.BuiltAt || warm.AgentSHA256 != base.AgentSHA256 {
+		t.Errorf("warmbase.json %+v %v", warm, err)
+	}
+}
+
+// TestAgentOnlyPlan: the binary is copied in only when nothing else a build depends on
+// changed and the VM is there; otherwise the VM is rebuilt.
+func TestAgentOnlyPlan(t *testing.T) {
+	const agentOnly, rebuild = "agent only", "rebuild"
+	editBase := func(f func(*BaseVMRecord)) func(*testing.T, *Env, *fakeRunner) {
+		return func(t *testing.T, e *Env, _ *fakeRunner) {
+			rec := readBaseRecord(t, e)
+			f(&rec)
+			if err := writeRecord(baseVMStep{e}.record(), rec); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	tests := []struct {
+		name       string
+		set        func(*testing.T, *Env, *fakeRunner)
+		base, warm string
+	}{
+		{"agent only", func(*testing.T, *Env, *fakeRunner) {}, agentOnly, agentOnly},
+		{"and the script", editBase(func(r *BaseVMRecord) { r.ScriptSHA256 = "old" }), rebuild, rebuild},
+		{"and the source", editBase(func(r *BaseVMRecord) { r.Source = "ghcr.io/cirruslabs/ubuntu@sha256:00" }), rebuild, rebuild},
+		{"and a new version", func(_ *testing.T, e *Env, _ *fakeRunner) { e.AgentVersion = "v0.2.0" }, rebuild, rebuild},
+		{"no base VM", func(_ *testing.T, _ *Env, r *fakeRunner) { delete(r.tart.vms, "factory-agent-base-0.1.0") }, rebuild, rebuild},
+		{"no warm VM", func(_ *testing.T, _ *Env, r *fakeRunner) { delete(r.tart.vms, WarmBaseVM) }, agentOnly, rebuild},
+		{"and the warm images", func(_ *testing.T, e *Env, _ *fakeRunner) {
+			e.Workspace.Warm.Images = append(e.Workspace.Warm.Images, "redis:8")
+		}, agentOnly, rebuild},
+		{"no warm images", func(_ *testing.T, e *Env, _ *fakeRunner) { e.Workspace.Warm = config.WarmImages{} }, agentOnly, rebuild},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, r := warmEnv(t)
+			if err := (warmBaseStep{e}).Apply(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			newAgent(t, e)
+			tt.set(t, e, r)
+			for _, c := range []struct {
+				s    Step
+				want string
+			}{{baseVMStep{e}, tt.base}, {warmBaseStep{e}, tt.warm}} {
+				p, err := c.s.Plan(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := rebuild
+				if strings.Contains(p.Do[0], "only the agent binary differs") {
+					got = agentOnly
+				}
+				if got != c.want {
+					t.Errorf("%s: %s, want %s: %q", c.s.Name(), got, c.want, p.Do)
+				}
+			}
+		})
+	}
+}
+
+// TestAgentOnlyFails: a failed copy leaves the base as it was, and its record.
+func TestAgentOnlyFails(t *testing.T) {
+	e, r := testEnv(t)
+	mkStateDir(t, e)
+	if err := (baseVMStep{e}).Apply(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	before := readBaseRecord(t, e)
+	newAgent(t, e)
+	r.tart.badSum = true
+	if err := (baseVMStep{e}).Apply(context.Background()); err == nil || !strings.Contains(err.Error(), "want the host file's") {
+		t.Fatalf("err = %v", err)
+	}
+	if got := string(r.tart.files["factory-agent-base-0.1.0:/usr/local/bin/factory-agent"]); got != "factory-agent linux/arm64" || r.vmState("factory-agent-base-0.1.0.building") != "" {
+		t.Errorf("the base has %q; VMs %v", got, r.tart.vms)
+	}
+	if after := readBaseRecord(t, e); after != before {
+		t.Errorf("basevm.json %+v, want %+v", after, before)
+	}
 }
 
 // planLines are a step's lines in Init's plan ("  <step>  ...", as Init prints them).
