@@ -203,11 +203,12 @@ type identityHealth struct {
 // MintGitCredential implements provider.Conn: one installation token on req.Repo with
 // req.Permissions, via tokens.Minter.Token (which refuses unscoped or over-broad requests with
 // provider.ErrInvalid). Outcomes that say whether the identity can authenticate update Health.
+// An App that isn't installed on the repo is a *provider.NotInstalledError.
 func (c *Conn) MintGitCredential(ctx context.Context, req provider.GitCredentialRequest) (provider.Credential, error) {
 	cred, err := c.minter.Token(ctx, req)
 	c.record(req.Identity, err)
 	if err != nil {
-		return provider.Credential{}, fmt.Errorf("github %s: %w", c.name, err)
+		return provider.Credential{}, fmt.Errorf("github %s: %w", c.name, c.notInstalled(ctx, req.Identity, req.Repo, err))
 	}
 	return cred, nil
 }

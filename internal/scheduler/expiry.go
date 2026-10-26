@@ -97,7 +97,7 @@ func (s *Scheduler) expire(ctx context.Context, taskID string) error {
 			return false, nil
 		}
 		st.LeaseExpiresAt = time.Time{}
-		st.Reason = ReasonAgentLost
+		st.Reason, st.ReasonDetail = ReasonAgentLost, ""
 		if mayRetry(cat, t, v1alpha1.RetryAgentLost) {
 			st.Phase, st.Agent = v1alpha1.TaskPending, nil
 			st.Attempts++
@@ -204,7 +204,7 @@ func (s *Scheduler) Refresh(ctx context.Context) error {
 			return err
 		}
 		if reason != "" && reason != t.Status.Reason {
-			s.setReason(ctx, t.Metadata.ID, reason)
+			s.setReason(ctx, t.Metadata.ID, reason, "")
 		}
 	}
 	for id := range s.heldSince {

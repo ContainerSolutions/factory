@@ -74,6 +74,12 @@ type CatalogStatus interface {
 	Status() controllers.CatalogStatus
 }
 
+// InstallationReporter reports the App installations the catalog misses
+// (*controllers.InstallationCheck).
+type InstallationReporter interface {
+	Gaps() []controllers.InstallationGap
+}
+
 // CatalogResyncer is the resync-catalog command (*controllers.CatalogSync).
 type CatalogResyncer interface {
 	Resync()
@@ -94,6 +100,9 @@ type Deps struct {
 	// "loaded" once Current is set; no resync: resync-catalog is 503).
 	CatalogStatus CatalogStatus
 	Resync        CatalogResyncer
+	// Installations are the missing App installations, shown as getCatalog warnings;
+	// optional.
+	Installations InstallationReporter
 	Conns         controllers.ConnSource
 	// Sink receives webhook deliveries (the provider controller's sink).
 	Sink         provider.IngressSink

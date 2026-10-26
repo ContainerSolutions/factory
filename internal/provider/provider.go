@@ -63,6 +63,14 @@ type Conn interface {
 	Health() HealthStatus
 }
 
+// InstallationChecker is a Conn that can say which repos an identity's App is installed on
+// (the GitHub Conn). `factory serve` checks the repos the catalog can touch with it.
+type InstallationChecker interface {
+	// MissingInstallations returns which of repos ("owner/name") the identity's App isn't
+	// installed on, and the App's slug ("" when it can't be learnt).
+	MissingInstallations(ctx context.Context, identity string, repos []string) (app string, missing []string, err error)
+}
+
 // IngressSink accepts raw deliveries. The provider controller's sink stores a Delivery record;
 // it returns ErrDuplicateDelivery (wrapped or not) when the record already exists, and any
 // other error makes the handler answer 503.

@@ -138,7 +138,7 @@ func (s *Scheduler) commit(ctx context.Context, sn *snapshot, t *v1alpha1.Task, 
 		b := s.backOffMint(taskID, now)
 		s.log.WarnContext(ctx, "git credential not minted; task left pending", "task", taskID, "err", err,
 			"retryIn", b.delay.String(), "retryAt", b.next)
-		s.setReason(ctx, taskID, ReasonGitCredential)
+		s.setReason(ctx, taskID, ReasonGitCredential, mintDetail(t, err, b.next))
 		return nil, errSkip
 	}
 	delete(s.mintBackoff, taskID)
@@ -150,7 +150,7 @@ func (s *Scheduler) commit(ctx context.Context, sn *snapshot, t *v1alpha1.Task, 
 	st := ensureTaskStatus(t)
 	st.Phase = v1alpha1.TaskLeased
 	st.Agent = &agentID
-	st.Reason = ""
+	st.Reason, st.ReasonDetail = "", ""
 	st.LeaseExpiresAt = now.Add(ttl)
 	if t.Spec.Harness == nil {
 		t.Spec.Harness = &v1alpha1.TaskHarness{}
@@ -288,19 +288,37 @@ func (s *Scheduler) mint(ctx context.Context, t *v1alpha1.Task) (credentials, er
 	return out, nil
 }
 
-// setReason records why a pending task waits, if it is still Pending and the reason changed.
-func (s *Scheduler) setReason(ctx context.Context, taskID, reason string) {
+// setReason records why a pending task waits, with its human sentence (empty for most
+// reasons), if it is still Pending and either changed.
+func (s *Scheduler) setReason(ctx context.Context, taskID, reason, detail string) {
 	_, err := update(ctx, s.d.Store, taskKey(taskID), newTask, func(t *v1alpha1.Task) (bool, error) {
 		st := ensureTaskStatus(t)
-		if st.Phase != v1alpha1.TaskPending || st.Reason == reason {
+		if st.Phase != v1alpha1.TaskPending || (st.Reason == reason && st.ReasonDetail == detail) {
 			return false, nil
 		}
-		st.Reason = reason
+		st.Reason, st.ReasonDetail = reason, detail
 		return true, nil
 	})
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		s.log.WarnContext(ctx, "record task reason", "task", taskID, "reason", reason, "err", err)
 	}
+}
+
+// mintDetail is a failed mint's reasonDetail: an App that isn't installed on the repo names
+// the App, the repo and the fix; any other failure the repo, the identity and the error. Both
+// say when the next try is (UTC).
+func mintDetail(t *v1alpha1.Task, err error, next time.Time) string {
+	retry := "the next retry is at " + next.UTC().Format("15:04") + " UTC"
+	var ni *provider.NotInstalledError
+	if errors.As(err, &ni) {
+		return provider.NotInstalledMessage(ni.Identity, ni.App, ni.Repo) + ": install it, " + retry
+	}
+	repo, identity := "", ""
+	if c := t.Spec.Credentials; c != nil && c.Git != nil {
+		g := c.Git
+		repo, identity = g.Repo, g.Identity
+	}
+	return fmt.Sprintf("the git credential for %s couldn't be minted as %s (%v): %s", repo, identity, err, retry)
 }
 
 // openRun is the task's run that hasn't ended, or nil.

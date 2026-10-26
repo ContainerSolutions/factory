@@ -2,11 +2,14 @@ package scheduler
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/compliance-framework/factory/internal/provider"
 	"github.com/compliance-framework/factory/internal/provider/fake"
 	"github.com/compliance-framework/factory/internal/store"
 )
@@ -199,4 +202,41 @@ func TestMintBackoffCatalogSwapRetriesAtOnce(t *testing.T) {
 	c := *e.cat
 	e.cats.p.Store(&c)
 	e.mustLease(a, "tsk_a")
+}
+
+// TestMintReasonDetail: a failed mint's reasonDetail names the App, the repo and the fix when
+// the App isn't installed there, and the error otherwise, with the next retry; the lease
+// clears it.
+func TestMintReasonDetail(t *testing.T) {
+	e := newEnv(t)
+	a, _ := e.register("gus", "mbp", lendQueues(pocQueue))
+	e.task("tsk_a", "implement", nil)
+	e.gh.FailNext(fake.MethodMintGitCredential, fmt.Errorf("github github-public: %w", &provider.NotInstalledError{
+		Identity: "reviewer", App: "ccf-factory-reviewer", Repo: "compliance-framework/local-dev", Err: errors.New("404 Not Found"),
+	}))
+	if g := e.lease(a); g != nil {
+		t.Fatalf("leased %s", g.Lease.Task)
+	}
+	next := e.clk.Now().Add(MintBackoffInitial).UTC().Format("15:04")
+	want := "the reviewer App (ccf-factory-reviewer) isn't installed on compliance-framework/local-dev: install it, the next retry is at " + next + " UTC"
+	if got := e.getTask("tsk_a").Status; got.Reason != ReasonGitCredential || got.ReasonDetail != want {
+		t.Fatalf("status = %+v, want reasonDetail %q", got, want)
+	}
+
+	e.clk.Advance(MintBackoffInitial)
+	e.failMints(1)
+	if g := e.lease(a); g != nil {
+		t.Fatalf("leased %s", g.Lease.Task)
+	}
+	got := e.getTask("tsk_a").Status.ReasonDetail
+	if !strings.HasPrefix(got, "the git credential for "+docsRepo+" couldn't be minted as author (") ||
+		!strings.Contains(got, "installation not found") || !strings.HasSuffix(got, " UTC") {
+		t.Errorf("reasonDetail = %q", got)
+	}
+
+	e.clk.Advance(2 * MintBackoffInitial)
+	e.mustLease(a, "tsk_a")
+	if st := e.getTask("tsk_a").Status; st.Reason != "" || st.ReasonDetail != "" {
+		t.Errorf("status after the lease = %+v, want no reason", st)
+	}
 }
