@@ -77,7 +77,10 @@ type WarmBaseRecord struct {
 	// base too.
 	BaseBuiltAt  string `json:"baseBuiltAt"`
 	ImagesSHA256 string `json:"imagesSHA256"`
-	BuiltAt      string `json:"builtAt"`
+	// AgentSHA256 is the linux factory-agent's sha256 in the warm base: the base's when it
+	// was cloned, then each binary the warm base got copied in.
+	AgentSHA256 string `json:"agentSHA256,omitempty"`
+	BuiltAt     string `json:"builtAt"`
 }
 
 var nameUnsafeRE = regexp.MustCompile(`[^A-Za-z0-9._-]`)
@@ -217,21 +220,93 @@ func (s baseVMStep) Check(ctx context.Context) (Status, error) {
 	if ok, err := readRecord(s.record(), &got); err != nil || !ok {
 		return Status{State: StateMissing, Detail: "no " + s.record()}, err
 	}
+	if f, g, w := rebuildField(got, want); f != "" {
+		return Status{State: StateOutdated, Detail: fmt.Sprintf("%s: the base's %s is %s, want %s: host init rebuilds it", want.Name, f, g, w)}, nil
+	}
+	st, err := s.e.vmStatus(ctx, want.Name, fmt.Sprintf("%s (built %s)", want.Name, got.BuiltAt))
+	if err != nil || st.State != StateOK || got.AgentSHA256 == want.AgentSHA256 {
+		return st, err
+	}
+	return Status{State: StateOutdated, Detail: fmt.Sprintf("%s: the base's agentSHA256 is %s, want %s: %s", want.Name, got.AgentSHA256, want.AgentSHA256, agentOnlyFix)}, nil
+}
+
+// agentOnlyFix is what host init does to a VM that differs from its record only in the agent
+// binary.
+const agentOnlyFix = "only the agent binary differs, so host init copies it in (no rebuild)"
+
+// rebuildField is the first of the fields a build depends on (name, source, scriptSHA256)
+// that differs between got and want, with both values; "" when none does.
+func rebuildField(got, want BaseVMRecord) (field, g, w string) {
 	for _, f := range []struct{ field, got, want string }{
 		{"name", got.Name, want.Name},
 		{"source", got.Source, want.Source},
 		{"scriptSHA256", got.ScriptSHA256, want.ScriptSHA256},
-		{"agentSHA256", got.AgentSHA256, want.AgentSHA256},
 	} {
 		if f.got != f.want {
-			return Status{State: StateOutdated, Detail: fmt.Sprintf("%s: the base's %s is %s, want %s", want.Name, f.field, f.got, f.want)}, nil
+			return f.field, f.got, f.want
 		}
 	}
-	return s.e.vmStatus(ctx, want.Name, fmt.Sprintf("%s (built %s)", want.Name, got.BuiltAt))
+	return "", "", ""
 }
 
-func (s baseVMStep) Plan(context.Context) (Plan, error) {
+// agentOnly reports whether the base is current but for its agent binary: basevm.json has this
+// binary's name, source and script but another agentSHA256, and the VM is there, stopped. Host
+// init then copies the binary in (updateAgent) instead of rebuilding the base. got is the
+// record. A missing or unreadable record, or a missing linux binary, is not agentOnly.
+func (s baseVMStep) agentOnly(ctx context.Context) (got BaseVMRecord, ok bool, err error) {
+	if s.agentMissing() != "" {
+		return got, false, nil
+	}
+	if found, err := readRecord(s.record(), &got); err != nil || !found {
+		return got, false, nil
+	}
+	want, err := s.want()
+	if err != nil {
+		return got, false, err
+	}
+	if f, _, _ := rebuildField(got, want); f != "" || got.AgentSHA256 == want.AgentSHA256 {
+		return got, false, nil
+	}
+	st, err := s.e.vmStatus(ctx, want.Name, "")
+	if err != nil {
+		return got, false, err
+	}
+	return got, st.State == StateOK, nil
+}
+
+// agentPlan is the plan of updateAgent on vm, whose record is rec.
+func (e *Env) agentPlan(vm, rec string) []string {
+	b := vm + buildingSuffix
+	return []string{
+		fmt.Sprintf("tart clone %s %s: only the agent binary differs from %s, so %s isn't rebuilt", vm, b, filepath.Base(rec), vm),
+		fmt.Sprintf("tart run %s --no-graphics (in the background); wait for tart exec (%s)", b, e.VM.Boot),
+		"copy " + e.AgentLinux + " to " + agentInVM + " in the VM and check its sha256",
+		fmt.Sprintf("clear its machine-id and cloud-init state, shut it down (%s)", e.VM.Shutdown),
+		fmt.Sprintf("tart rename %s %s (the older one is renamed aside to %s%s, then deleted), update agentSHA256 in %s", b, vm, vm, oldSuffix, rec),
+	}
+}
+
+// updateAgent copies the linux factory-agent into vm without rebuilding it: buildVM clones vm
+// into vm.building, boots the clone, copies the binary in and checks its sha256 (want), clears
+// the machine-id and cloud-init state the boot gave it, shuts it down and renames it into
+// place. vm itself is never booted, and a failure leaves it as it was.
+func (e *Env) updateAgent(ctx context.Context, vm, want string) error {
+	fmt.Fprintf(e.Out, "%s: copying the new agent binary in (no rebuild)\n", vm)
+	return e.buildVM(ctx, vm, vm, nil, func(ctx context.Context, b *vmBuild) error {
+		pctx, cancel := context.WithTimeout(ctx, e.VM.Provision)
+		defer cancel()
+		if err := b.copyAgent(pctx, want); err != nil {
+			return err
+		}
+		return b.clearIdentity(pctx)
+	})
+}
+
+func (s baseVMStep) Plan(ctx context.Context) (Plan, error) {
 	e, name := s.e, s.e.BaseVMName()
+	if _, ok, err := s.agentOnly(ctx); err != nil || ok {
+		return Plan{Do: e.agentPlan(name, s.record())}, err
+	}
 	b, sz := name+buildingSuffix, e.Workspace.Size
 	do := []string{
 		"tart clone " + e.Pins.BaseImage + " " + b,
@@ -296,6 +371,17 @@ func (s baseVMStep) Apply(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	got, only, err := s.agentOnly(ctx)
+	if err != nil {
+		return err
+	}
+	if only {
+		if err := s.e.updateAgent(ctx, rec.Name, rec.AgentSHA256); err != nil {
+			return err
+		}
+		got.AgentSHA256, got.AgentVersion = rec.AgentSHA256, rec.AgentVersion
+		return writeRecord(s.record(), got)
+	}
 	prev := s.previous()
 	sz := s.e.Workspace.Size
 	set := []string{"--cpu", strconv.Itoa(sz.CPUs), "--memory", strconv.Itoa(sz.MemoryGiB() * 1024), "--disk-size", strconv.Itoa(sz.DiskGiB())}
@@ -354,7 +440,13 @@ func (s warmBaseStep) Check(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	if base.State != StateOK {
-		return Status{State: StateOutdated, Detail: "the base VM is " + string(base.State) + ": the warm base follows it"}, nil
+		d := "the base VM is " + string(base.State) + ": the warm base follows it"
+		if _, ok, err := s.agentOnly(ctx); err != nil {
+			return Status{}, err
+		} else if ok {
+			d += "; " + agentOnlyFix
+		}
+		return Status{State: StateOutdated, Detail: d}, nil
 	}
 	var b BaseVMRecord
 	if _, err := readRecord(s.e.baseVM().record(), &b); err != nil {
@@ -366,11 +458,63 @@ func (s warmBaseStep) Check(ctx context.Context) (Status, error) {
 		{"imagesSHA256", got.ImagesSHA256, s.imagesSHA256()},
 	} {
 		if f.got != f.want {
-			return Status{State: StateOutdated, Detail: fmt.Sprintf("%s: its %s is %s, want %s", WarmBaseVM, f.field, f.got, f.want)}, nil
+			return Status{State: StateOutdated, Detail: fmt.Sprintf("%s: its %s is %s, want %s: host init rebuilds it", WarmBaseVM, f.field, f.got, f.want)}, nil
 		}
 	}
 	w := s.e.Workspace.Warm
-	return s.e.vmStatus(ctx, WarmBaseVM, fmt.Sprintf("%s from %s, %d images, %d kind images", WarmBaseVM, b.Name, len(w.Images), len(w.KindImages)))
+	st, err := s.e.vmStatus(ctx, WarmBaseVM, fmt.Sprintf("%s from %s, %d images, %d kind images", WarmBaseVM, b.Name, len(w.Images), len(w.KindImages)))
+	if err != nil || st.State != StateOK || got.AgentSHA256 == b.AgentSHA256 {
+		return st, err
+	}
+	fix := agentOnlyFix
+	if len(w.Images)+len(w.KindImages) == 0 {
+		fix = "host init clones the base again (no warm images)"
+	}
+	have := got.AgentSHA256
+	if have == "" {
+		have = "unrecorded"
+	}
+	return Status{State: StateOutdated, Detail: fmt.Sprintf("%s: its agentSHA256 is %s, want the base's %s: %s", WarmBaseVM, have, b.AgentSHA256, fix)}, nil
+}
+
+// agentOnly reports whether the warm base is current but for its agent binary: warmbase.json
+// names the base basevm.json describes, with its builtAt and these warm images, but another
+// agentSHA256 than this linux binary's; the base is ok, or itself agentOnly (its update keeps
+// builtAt); and the warm base VM is there, stopped. Host init then copies the binary in. A warm
+// base without images is never agentOnly: cloning the base again is cheaper than a boot.
+func (s warmBaseStep) agentOnly(ctx context.Context) (got WarmBaseRecord, ok bool, err error) {
+	w := s.e.Workspace.Warm
+	if len(w.Images)+len(w.KindImages) == 0 || s.e.baseVM().agentMissing() != "" {
+		return got, false, nil
+	}
+	if found, err := readRecord(s.record(), &got); err != nil || !found {
+		return got, false, nil
+	}
+	var b BaseVMRecord
+	if found, err := readRecord(s.e.baseVM().record(), &b); err != nil || !found {
+		return got, false, nil
+	}
+	want, err := s.e.baseVM().want()
+	if err != nil {
+		return got, false, err
+	}
+	if got.Base != b.Name || b.Name != want.Name || got.BaseBuiltAt != b.BuiltAt || got.ImagesSHA256 != s.imagesSHA256() || got.AgentSHA256 == want.AgentSHA256 {
+		return got, false, nil
+	}
+	base, err := s.e.baseVM().Check(ctx)
+	if err != nil {
+		return got, false, err
+	}
+	if base.State != StateOK {
+		if _, ok, err := s.e.baseVM().agentOnly(ctx); err != nil || !ok {
+			return got, false, err
+		}
+	}
+	st, err := s.e.vmStatus(ctx, WarmBaseVM, "")
+	if err != nil {
+		return got, false, err
+	}
+	return got, st.State == StateOK, nil
 }
 
 // kindArchive is a kind image's archive in the VM: its tag (config.KindImageTag) with
@@ -403,8 +547,11 @@ func (s warmBaseStep) kindSaves() ([]kindSave, error) {
 	return out, nil
 }
 
-func (s warmBaseStep) Plan(context.Context) (Plan, error) {
+func (s warmBaseStep) Plan(ctx context.Context) (Plan, error) {
 	e := s.e
+	if _, ok, err := s.agentOnly(ctx); err != nil || ok {
+		return Plan{Do: e.agentPlan(WarmBaseVM, s.record())}, err
+	}
 	b, w := WarmBaseVM+buildingSuffix, e.Workspace.Warm
 	saves, err := s.kindSaves()
 	if err != nil {
@@ -444,6 +591,17 @@ func (s warmBaseStep) Apply(ctx context.Context) error {
 	if _, err := readRecord(s.e.baseVM().record(), &base); err != nil {
 		return err
 	}
+	got, only, err := s.agentOnly(ctx)
+	if err != nil {
+		return err
+	}
+	if only {
+		if err := s.e.updateAgent(ctx, WarmBaseVM, base.AgentSHA256); err != nil {
+			return err
+		}
+		got.AgentSHA256 = base.AgentSHA256
+		return writeRecord(s.record(), got)
+	}
 	saves, err := s.kindSaves()
 	if err != nil {
 		return err
@@ -472,19 +630,14 @@ func (s warmBaseStep) Apply(ctx context.Context) error {
 					return err
 				}
 			}
-			// booting gave the clone a machine-id and cloud-init's state: clear them again, so
-			// the workspaces cloned from it get their own (as the base's script does).
-			if err := b.exec(pctx, "sudo", "cloud-init", "clean", "--logs"); err != nil {
-				return err
-			}
-			return b.exec(pctx, "sudo", "truncate", "-s", "0", "/etc/machine-id")
+			return b.clearIdentity(pctx)
 		}
 	}
 	if err := s.e.buildVM(ctx, base.Name, WarmBaseVM, nil, pull); err != nil {
 		return err
 	}
 	return writeRecord(s.record(), WarmBaseRecord{
-		Base: base.Name, BaseBuiltAt: base.BuiltAt, ImagesSHA256: s.imagesSHA256(),
+		Base: base.Name, BaseBuiltAt: base.BuiltAt, ImagesSHA256: s.imagesSHA256(), AgentSHA256: base.AgentSHA256,
 		BuiltAt: s.e.Clock.Now().UTC().Format(time.RFC3339),
 	})
 }
@@ -637,6 +790,15 @@ func (b *vmBuild) exec(ctx context.Context, args ...string) error {
 		return fmt.Errorf("in %s: %s: %w", b.vm, strings.Join(args, " "), err)
 	}
 	return nil
+}
+
+// clearIdentity clears the machine-id and cloud-init state booting gave the VM, so the
+// workspaces cloned from it get their own (as the base's script does).
+func (b *vmBuild) clearIdentity(ctx context.Context) error {
+	if err := b.exec(ctx, "sudo", "cloud-init", "clean", "--logs"); err != nil {
+		return err
+	}
+	return b.exec(ctx, "sudo", "truncate", "-s", "0", "/etc/machine-id")
 }
 
 // boot starts tart run in the background and waits until tart exec works; tart run exiting
