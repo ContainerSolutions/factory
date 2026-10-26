@@ -12,6 +12,7 @@ sudo -n docker info
 sudo -n docker info
 sudo -n docker info
 # env
+COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 CURL_CA_BUNDLE=$T/state/ca-bundle.pem
 DOCKER_CONFIG=$T/state/docker
 FACTORY_RUNTIME=workspace
@@ -20,6 +21,7 @@ GIT_SSL_CAINFO=$T/state/ca-bundle.pem
 HTTPS_PROXY=http://192.168.64.1:3128
 HTTP_PROXY=http://192.168.64.1:3128
 NODE_EXTRA_CA_CERTS=$T/bundle/gateway/ca.pem
+NODE_USE_ENV_PROXY=1
 NO_PROXY=localhost,127.0.0.1,::1,.localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local,internal.example.com
 PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 REQUESTS_CA_BUNDLE=$T/state/ca-bundle.pem

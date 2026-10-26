@@ -238,6 +238,13 @@ func (s System) Setup(ctx context.Context, b *runbundle.Bundle, proxy *url.URL, 
 		// namespaces (Playwright turns it off itself). The VM is the task's sandbox.
 		"PLAYWRIGHT_BROWSERS_PATH": PlaywrightBrowsersPath,
 		"VHS_NO_SANDBOX":           "1",
+		// Node's own fetch and http clients ignore the proxy variables unless this is set, and
+		// the VM reaches nothing but the gateway: corepack's yarn and pnpm shims (base.sh's
+		// corepack enable) download the package manager with fetch on first use. Node's
+		// NO_PROXY has no CIDR, so only its host-name and single-address entries stay direct.
+		"NODE_USE_ENV_PROXY": "1",
+		// corepack's download prompt would wait on a terminal's stdin.
+		"COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
 	}
 	// The pipeline's scratch HOME would hide the gh extensions the base installed for the
 	// run's user under its own ~/.local/share.
