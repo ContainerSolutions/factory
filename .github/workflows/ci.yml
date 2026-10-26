@@ -150,12 +150,13 @@ jobs:
       - name: docker build
         run: docker build --progress=plain -t factory-agent-base:ci "$RUNNER_TEMP/kata-context"
       # Reads paths only: the harness CLIs are never run. One command -v per tool: with several
-      # names, bash's command -v succeeds when any is found.
-      - name: The tools are on PATH
+      # names, bash's command -v succeeds when any is found. Playwright is in npm's global prefix,
+      # not on PATH: docs-gif runs it with npx, as here.
+      - name: The tools are in place
         run: |
           docker image ls factory-agent-base:ci
           docker run --rm factory-agent-base:ci bash -lc \
-            'for t in kind kubectl gh node go playwright vhs gifski codex claude docker; do command -v "$t" || { echo "missing: $t" >&2; exit 1; }; done'
+            'for t in kind kubectl gh node go vhs gifski chromium codex codex-code-mode-host claude docker; do command -v "$t" || { echo "missing: $t" >&2; exit 1; }; done && cd /tmp && npx --no -- playwright --version'
 
   required:
     name: required
