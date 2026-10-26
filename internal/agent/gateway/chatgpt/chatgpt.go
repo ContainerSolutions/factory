@@ -46,6 +46,11 @@ const (
 	refreshWindow = 5 * time.Minute
 	// refreshInterval: without a readable exp, a login last refreshed longer ago is refreshed.
 	refreshInterval = 8 * 24 * time.Hour
+	// minUnauthorizedRefresh: a 401 for a login refreshed less than this ago doesn't refresh it
+	// again. chatgpt.com may keep 401ing a valid token (account state, or a request the VM
+	// shaped); a refresh per 401 would rotate the owner's refresh token on every round trip,
+	// which the auth server's reuse detection may answer by revoking the whole token family.
+	minUnauthorizedRefresh = time.Minute
 	// flightTimeout bounds a refresh, its retries included; httpTimeout each attempt.
 	flightTimeout = 30 * time.Second
 	httpTimeout   = 30 * time.Second
@@ -168,12 +173,17 @@ func (r *Refresher) Current(ctx context.Context) (Login, error) {
 }
 
 // Unauthorized follows an upstream 401 for the access token used: when the cached token is no
-// longer used, another caller has refreshed it already and it is returned; otherwise it
-// refreshes.
+// longer used, another caller has refreshed it already and it is returned; when the login was
+// refreshed less than minUnauthorizedRefresh ago, the cached login is returned unrefreshed (the
+// gateway then passes the 401 on); otherwise it refreshes.
 func (r *Refresher) Unauthorized(ctx context.Context, used string) (Login, error) {
 	l, err := r.cached(ctx)
 	if err != nil || l.AccessToken != used {
 		return l, err
+	}
+	if !l.LastRefresh.IsZero() && r.cfg.Clock.Now().Sub(l.LastRefresh) < minUnauthorizedRefresh {
+		r.log.Warn("chatgpt: a 401 for a login refreshed under a minute ago: not refreshing it again")
+		return l, nil
 	}
 	return r.refresh(ctx)
 }

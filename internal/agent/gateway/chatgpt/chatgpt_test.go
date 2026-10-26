@@ -238,6 +238,51 @@ func TestUnauthorized(t *testing.T) {
 	}
 }
 
+// TestUnauthorizedMinInterval: a 401 for a login refreshed under minUnauthorizedRefresh ago
+// returns it unrefreshed; after the interval a 401 refreshes; the expiry-driven refresh
+// (Current) doesn't wait for the interval.
+func TestUnauthorizedMinInterval(t *testing.T) {
+	tests := []struct {
+		name    string
+		after   time.Duration // since the first refresh
+		current bool          // the second call is Current on a token due by exp
+		posts   int           // in all, the first refresh included
+	}{
+		{"a second 401 at once", 0, false, 1},
+		{"a second 401 within the interval", minUnauthorizedRefresh - time.Second, false, 1},
+		{"a 401 after the interval", minUnauthorizedRefresh, false, 2},
+		{"Current on an expiring token within the interval", 10 * time.Second, true, 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			login := baseLogin(now.Add(time.Hour))
+			first := access("first", now.Add(time.Hour))
+			if tt.current {
+				first = access("first", now.Add(time.Minute)) // due by exp at once
+			}
+			second := access("second", now.Add(2*time.Hour))
+			r, _, a, clk := setup(t, login, ok(first, "refresh-secret-1"), ok(second, "refresh-secret-2"))
+			l, err := r.Unauthorized(context.Background(), login.AccessToken)
+			if err != nil || l.AccessToken != first || a.posts() != 1 {
+				t.Fatalf("the first 401: %v, %d posts", err, a.posts())
+			}
+			clk.Advance(tt.after)
+			if tt.current {
+				l, err = r.Current(context.Background())
+			} else {
+				l, err = r.Unauthorized(context.Background(), first)
+			}
+			want := first
+			if tt.posts == 2 {
+				want = second
+			}
+			if err != nil || a.posts() != tt.posts || l.AccessToken != want {
+				t.Errorf("the second call: %v, %d posts, want %d; got the %s token", err, a.posts(), tt.posts, map[bool]string{true: "new", false: "first"}[l.AccessToken == second])
+			}
+		})
+	}
+}
+
 // TestSingleFlight: concurrent 401s for the same token make one refresh, and every caller gets
 // its result.
 func TestSingleFlight(t *testing.T) {
