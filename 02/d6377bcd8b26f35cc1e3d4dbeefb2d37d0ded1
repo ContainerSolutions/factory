@@ -1,3 +1,6 @@
 lisa-addressed:
 - vmexec Remote.Exec: a nil status maps the exit with ExitError under Label (tart passes nil); tested.
 - tart.Exec's doc names vmexec.ExecScript.
+
+lisa-selfreview:
+pass 2 (4a): nit CORE-STYLE-001 tart's putScript/signalScript aliases are only read by its fake: say so.
