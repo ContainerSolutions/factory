@@ -1,0 +1,8 @@
+lisa-design:
+- host.KataSlotPool is a package var (netip.Prefix can't be a Go const); PR 3 and PR 4 read it, nothing writes it.
+- Env.StateDir() falls back to runtime.GOOS and os.Getenv when GOOS/Getenv are unset, so `(&host.Env{Home: h}).StateDir()` (login) is the owner's real dir; tests inject Getenv so XDG_STATE_HOME never leaks in. Any non-darwin OS gets the XDG path.
+- The kata platform step returns early on a wrong OS/arch (as tart's does); every other problem is collected into one `wrong` detail in the spec's order. Unreadable /proc/cpuinfo or /proc/meminfo, or a failing df/ip, is an error (Check reports it wrong), not a problem line.
+- Route parsing: the destination is ip's first field after an optional route type (blackhole, unreachable, ...); a bare address is a /32; default and nexthop lines are ignored. Any overlap with the pool counts, so a covering 10.0.0.0/8 is refused too.
+- `host init --driver kata` runs the two steps it has (platform, then makes the state dir) rather than being refused: the LLD PR row says "refused past them"; with only two steps there's nothing past them to refuse, `--only <later step>` is already an unknown-step error, and supervise --driver kata stays refused until PR 6.
+- Tart-only flags with kata (--no-pf, --remove-pf, --agent-linux) are exit 2, checked after the driver is resolved (from --driver or the config's default), so the config's kata default on Linux refuses them too. --yes, --only, --keep-failed stay allowed (the kata steps use them later).
+- Tests fake /dev/kvm as a symlink to /dev/null (a character device an unprivileged test can make); os.Stat follows it.
