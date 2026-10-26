@@ -1,0 +1,2 @@
+lisa-design:
+- maxTasksPerAgent 3, not unset: the Pool keeps an explicit admin ceiling; each agent's lending.maxConcurrent stays the owner's cap below it. The Mac's tart supervise is forced to 1 in code, so only the workstation (kata, maxConcurrent 3) and any old worker with maxConcurrent > 1 change.
