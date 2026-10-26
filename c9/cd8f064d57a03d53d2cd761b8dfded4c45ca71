@@ -8,3 +8,6 @@ lisa-design:
 - PR split: ccf-review's 1000-line limit forced 4b into 4b (create, rm: slots) and 4b2 (start, stop, inspect, exec).
 - Paths the helper writes itself go through Options.Root (tests only), commands get the real paths, so the goldens show production argv.
 - The helper's waits (Options.Bound, KillWait, the lock poll) are injected durations, not a clock: it is a short-lived root CLI.
+
+lisa-selfreview:
+pass 1 (4b): should-fix size-upper-bounds-untested (TestCreateArgs). Checked the verbs as a root attack surface: arguments validated before any command, fixed paths, own env; no other findings.
