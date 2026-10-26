@@ -1,2 +1,5 @@
 lisa-design:
 Replay: a record is "the same" as an earlier one of the event when its rule set, rule, fired, actions, rail verdicts and reason match (inputs and time ignored). Only rules with a new record are applied, so set/link/cancel of a rule that already acted is never redone over later state; dispatch/notify/effect of the newly acting rules keep evt/<event>/<rule>/<i> keys (provider markers and task ids dedupe them). Replay creates the work item when a rule now fires for an event that had none, and updates the event's processed mark to name it. The server checks the catalog first (503) and maps a missing event to 404. The CLI client setup is shared (cmd/factory/client.go), dispatch included.
+
+lisa-selfreview:
+Pass 1 (lenient, final): approve. No blockers or must-fix. Deferred (should-fix): a replay of an event the rule controller hasn't processed yet can race its first reconcile (each takes the item lock, but the first reconcile checks the processed mark before the lock, so it could append its records after the replay's). Nit: records past the 200-decision bound are gone, so a replay re-applies those rules (documented in controllers.md).
