@@ -151,7 +151,7 @@ type SweepResult struct {
 // TranscriptStore holds run transcripts as the compressed blobs the agent uploads (gzip JSON
 // Lines), keyed by run name. Blobs are capped per transcript and in total; when the total cap
 // is reached the oldest are evicted (logged). They are deleted with their Run and swept by
-// age like Runs.
+// age like Runs. A run's environment log is a second blob, named EnvironmentLogBlob(run).
 type TranscriptStore interface {
 	// PutTranscript stores (or replaces) run's transcript. ErrTooLarge over the per-transcript
 	// cap.
@@ -159,6 +159,13 @@ type TranscriptStore interface {
 	// GetTranscript returns a copy of run's transcript. ErrNotFound when there is none.
 	GetTranscript(ctx context.Context, run string) ([]byte, error)
 }
+
+// EnvironmentLogBlob is the TranscriptStore name of run's environment log: it is kept beside
+// the transcript, under the same caps and retention, and deleted with the Run.
+func EnvironmentLogBlob(run string) string { return run + EnvironmentLogSuffix }
+
+// EnvironmentLogSuffix ends an environment log's blob name. Run names never end with it.
+const EnvironmentLogSuffix = ".environment-log"
 
 // Defaults.
 const (

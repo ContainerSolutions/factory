@@ -68,10 +68,11 @@ const (
 )
 
 // Bundler is what the runner needs of the host's run pipeline (*pipeline.Pipeline): the run
-// bundle before the VM exists, and the transcript upload after.
+// bundle before the VM exists, and the transcript and environment log uploads after.
 type Bundler interface {
 	PrepareBundle(ctx context.Context, job *runner.Job, dir string, x pipeline.BundleExtras) error
 	StoreTranscript(ctx context.Context, job *runner.Job, parts [][]byte, extra ...string) (string, error)
+	StoreEnvironmentLog(ctx context.Context, job *runner.Job, log []byte, extra ...string) error
 }
 
 // RunnerOptions configure a Runner. Driver, Pipeline and StateDir are required.
@@ -200,6 +201,7 @@ type wsRun struct {
 	egress     *egressLog
 	gatewayOn  bool   // the gateway served: its records belong in the transcript
 	transcript []byte // the VM's transcript, sanitised; nil when it has none
+	envLog     []byte // the VM's environment log, capped; nil when it has none
 }
 
 // redact redacts s with the job's secrets, the model logins and the token shapes.
@@ -508,10 +510,11 @@ func (w *wsRun) relay(ctx context.Context, r io.Reader, outcome func()) {
 	}
 }
 
-// collected are the files of the VM's out/ the host reads: the outcome and the transcript it
-// names. out/ is the agent's $FACTORY_OUT too, so its scratch (recordings, frames) stays in the
-// VM, and no size of it can fail a run's collect.
-var collected = []string{runbundle.OutcomeFile, runbundle.TranscriptFile}
+// collected are the files of the VM's out/ the host reads: the outcome, the transcript it
+// names and, when the TaskSpec has an environment, its log (optional: a missing file is
+// skipped). out/ is the agent's $FACTORY_OUT too, so its scratch (recordings, frames) stays in
+// the VM, and no size of it can fail a run's collect.
+var collected = []string{runbundle.OutcomeFile, runbundle.TranscriptFile, runbundle.EnvironmentLog}
 
 // collect gets the outcome files of the VM's out/ and turns them into the Outcome, re-checked
 // on the host.
@@ -530,6 +533,7 @@ func (w *wsRun) collect(ctx context.Context, execErr error) runner.Outcome {
 	if o.Transcript != "" {
 		w.transcript = readTranscript(out)
 	}
+	w.envLog = readEnvironmentLog(out)
 	return w.check(o)
 }
 
@@ -579,11 +583,20 @@ func (w *wsRun) check(o runbundle.Outcome) runner.Outcome {
 	return out
 }
 
-// finish uploads the transcript (the VM's, sanitised, then the gateway's egress records), unless
-// ctx is done (the worker reports nothing then), and returns out with its reference.
+// finish uploads the environment log and the transcript (the VM's, sanitised, then the
+// gateway's egress records), unless ctx is done (the worker reports nothing then), and returns
+// out with the transcript's reference.
 func (w *wsRun) finish(ctx context.Context, out runner.Outcome) runner.Outcome {
 	if ctx.Err() != nil {
 		return out
+	}
+	if w.envLog != nil {
+		uctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), uploadTimeout)
+		err := w.r.o.Pipeline.StoreEnvironmentLog(uctx, w.job, w.envLog, w.extra...)
+		cancel()
+		if err != nil {
+			w.log.Warn("environment log not uploaded", "err", w.redact(err.Error()))
+		}
 	}
 	var parts [][]byte
 	if w.transcript != nil {
@@ -712,6 +725,31 @@ func readTranscript(outDir string) []byte {
 		buf.Write(note(map[string]any{"droppedLines": long, "forgedLines": forged}))
 	}
 	return buf.Bytes()
+}
+
+// readEnvironmentLog reads the VM's out/environment.log (untrusted): a regular file inside
+// out/, at most pipeline.MaxEnvironmentLog bytes of it (StoreEnvironmentLog redacts it and
+// cuts it on a line). nil when there is none.
+func readEnvironmentLog(outDir string) []byte {
+	root, err := os.OpenRoot(outDir)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = root.Close() }()
+	fi, err := root.Lstat(runbundle.EnvironmentLog)
+	if err != nil || !fi.Mode().IsRegular() {
+		return nil
+	}
+	f, err := root.Open(runbundle.EnvironmentLog)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+	b, err := io.ReadAll(io.LimitReader(f, pipeline.MaxEnvironmentLog+1))
+	if err != nil || len(b) == 0 {
+		return nil
+	}
+	return b
 }
 
 // egressLog is the gateway's Sink: its records as factory.egress transcript lines, in order,

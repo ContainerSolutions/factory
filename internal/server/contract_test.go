@@ -328,19 +328,34 @@ func TestContract(t *testing.T) {
 		}
 	}
 
-	// environment log: a stub until group 1's PR 5.
-	ue, err := e.c.UploadEnvironmentLogWithTextBodyWithResponse(ctx, run, "# environment.up\nready\n", bearer(tok))
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantProblem(t, "uploadEnvironmentLog", ue.HTTPResponse, ue.Body, http.StatusNotImplemented, CodeNotImplemented)
-	sh.check("uploadEnvironmentLog", ue.HTTPResponse, ue.Body, http.StatusNotImplemented)
+	// environment log
 	ge, err := e.c.GetEnvironmentLogWithResponse(ctx, run, session(gus))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantProblem(t, "getEnvironmentLog", ge.HTTPResponse, ge.Body, http.StatusNotImplemented, CodeNotImplemented)
-	sh.check("getEnvironmentLog", ge.HTTPResponse, ge.Body, http.StatusNotImplemented)
+	wantProblem(t, "getEnvironmentLog", ge.HTTPResponse, ge.Body, http.StatusNotFound, CodeNotFound)
+	sh.check("getEnvironmentLog", ge.HTTPResponse, ge.Body, http.StatusNotFound)
+	const envLog = "# environment.up\nready\n"
+	ue, err := e.c.UploadEnvironmentLogWithTextBodyWithResponse(ctx, run, envLog, bearer(tok))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh.check("uploadEnvironmentLog", ue.HTTPResponse, ue.Body, http.StatusOK)
+	if u := ue.JSON200; u.Bytes != int64(len(envLog)) || u.EnvironmentLogRef != EnvironmentLogRefPrefix+run+".log" {
+		t.Errorf("environment log upload %s", ue.Body)
+	}
+	ge, err = e.c.GetEnvironmentLogWithResponse(ctx, run, bearer(cliToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh.check("getEnvironmentLog", ge.HTTPResponse, ge.Body, http.StatusOK)
+	if string(ge.Body) != envLog || !strings.HasPrefix(ge.HTTPResponse.Header.Get("Content-Type"), "text/plain") {
+		t.Errorf("environment log %q (%s), want it as uploaded", ge.Body, ge.HTTPResponse.Header.Get("Content-Type"))
+	}
+	var withLog v1alpha1.Run
+	if err := e.st.Get(ctx, store.Key{Kind: v1alpha1.KindRun, Name: run}, &withLog); err != nil || withLog.Status.EnvironmentLogRef != EnvironmentLogRefPrefix+run+".log" {
+		t.Errorf("run status %+v (%v): want the environment log's ref", withLog.Status, err)
+	}
 
 	// resources
 	gr, err := e.c.GetRunWithResponse(ctx, run, session(gus))

@@ -32,7 +32,7 @@ A new package that imports only `internal/apis/v1alpha1`, `internal/apiclient` (
 
 The bundle lives on the VM's root disk, not under `/run`: Ubuntu mounts `/run` as a `noexec` tmpfs, and the skills' scripts (`ccfr`, `lib/lisa`, …) must execute from it.
 
-The VM's outputs are under the workspace root's `out/`: `/work/out/{outcome.json,transcript.jsonl.gz,environment.log}` (`runbundle.OutcomeFile`, `TranscriptFile`, `EnvironmentLog`). `out/` is also the agent's `$FACTORY_OUT` (its `result.json`, the effector's state, any scratch), so the supervisor collects only `outcome.json` and `transcript.jsonl.gz` from it.
+The VM's outputs are under the workspace root's `out/`: `/work/out/{outcome.json,transcript.jsonl.gz,environment.log}` (`runbundle.OutcomeFile`, `TranscriptFile`, `EnvironmentLog`). `out/` is also the agent's `$FACTORY_OUT` (its `result.json`, the effector's state, any scratch), so the supervisor collects only `outcome.json`, `transcript.jsonl.gz` and, when there is one, `environment.log` from it (group 1).
 
 ### Types
 
@@ -371,7 +371,7 @@ A gh stack on phase 2's (about the line counts, without generated code):
 3. **The run token's scope** is wider than the VM needs (prompt, context, schema and transcript are fetched or uploaded on the host). Phase 6 could narrow it to effects.
 4. **Skills are materialised on the host,** as P1 says: host git fetches only ccf-skills, never an agent checkout.
 5. **gh stack in the VM** is forced to the git fallback.
-6. **`environment.log` stays out of the transcript;** whether phase 5 uploads it is open.
+6. **`environment.log` stays out of the transcript;** since group 1 the supervisor uploads it on its own: read as a regular file inside `out/` up to `pipeline.MaxEnvironmentLog` (10 MiB), re-redacted with the job's secrets, the model logins and the token shapes, cut on a line with a `[truncated]` line past the cap, and sent with `PUT /runs/{id}/environment-log` before the transcript. The dispatcher keeps it beside the transcript, under the transcripts' caps and retention, deleted with the run, and serves it with `GET /runs/{id}/environment-log`.
 7. **`NO_PROXY` CIDRs** need curl ≥ 7.86 (the base has 8.5), and the docker proxy config must exist before `setup` (it does: system setup runs first).
 8. **The scripts run under bash `-eo pipefail`,** with the scratch `HOME` rather than `/home/admin`. Check that against local-dev's scripts in phase 7.
 9. **A host runtime with an environment** skips it with a warning. **Decided (2026-10-22):** a supervisor advertises the capability label `vm-workspace`, and a TaskSpec with `workspace.environment` requires it (phase 6 adds the label; phase 7's catalog TaskSpecs require it), so such tasks are only scheduled to VM workspaces.
