@@ -30,6 +30,13 @@ const (
 	AgentLink = "/usr/local/bin/factory-agent"
 )
 
+// stopBound and rmBound bound Stop and Destroy past their ctx, above the helper's own bounds
+// (stop: nerdctl stop -t 30 within 2 minutes; rm: ps, stop, rm -f, the kill and rm -f again).
+const (
+	stopBound = 3 * time.Minute
+	rmBound   = 5 * time.Minute
+)
+
 // Config is the driver's setup; every field but Image has a default.
 type Config struct {
 	// Helper is the root helper: default katahelper.HelperPath, the path the sudoers rule names.
@@ -300,12 +307,12 @@ func (l *lastLine) String() string {
 }
 
 // Stop implements workspace.Driver: kata-helper stop (systemd's halt). It runs after ctx is
-// done too.
+// done too, for up to stopBound.
 func (d *Driver) Stop(ctx context.Context, name string) error {
 	if err := workspace.ValidName(name); err != nil {
 		return err
 	}
-	cctx, cancel := vmexec.CleanupCtx(ctx)
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopBound)
 	defer cancel()
 	if _, err := d.helper(cctx, "stop", name); err != nil {
 		return fmt.Errorf("%s: %w", name, err)
@@ -314,13 +321,13 @@ func (d *Driver) Stop(ctx context.Context, name string) error {
 }
 
 // Destroy implements workspace.Driver: kata-helper rm, which stops and removes the workspace
-// and frees its slot; a missing one is no error. It runs after ctx is done too, with the
-// helper's own bounds (up to about four minutes for a hung VM).
+// and frees its slot; a missing one is no error. It runs after ctx is done too, for up to
+// rmBound.
 func (d *Driver) Destroy(ctx context.Context, name string) error {
 	if err := workspace.ValidName(name); err != nil {
 		return err
 	}
-	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rmBound)
 	defer cancel()
 	if _, err := d.helper(cctx, "rm", name); err != nil {
 		return fmt.Errorf("%s: %w", name, err)
