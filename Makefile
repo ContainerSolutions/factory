@@ -21,7 +21,8 @@ help: ## Show targets
 build: ## Build bin/factory, bin/factory-agent and bin/factory-mock with the placeholder UI (no Node needed)
 	go build -ldflags "$(LDFLAGS)" -o bin/ ./cmd/...
 
-# HOST_INIT_FLAGS are extra flags for tart-up's host init, e.g. --dry-run or --only basevm,warmbase.
+# HOST_INIT_FLAGS are extra flags for tart-up's and kata-up's host init, e.g. --dry-run or
+# --only basevm,warmbase (kata: --only kataimage,katawarm).
 HOST_INIT_FLAGS ?=
 
 .PHONY: tart-up
@@ -29,6 +30,11 @@ tart-up: ## Set up this Mac as a tart agent host: build bin/factory-agent (darwi
 	GOOS=darwin GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/factory-agent ./cmd/factory-agent
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/factory-agent-linux-arm64 ./cmd/factory-agent
 	bin/factory-agent host init --driver tart --agent-linux bin/factory-agent-linux-arm64 $(HOST_INIT_FLAGS)
+
+.PHONY: kata-up
+kata-up: ## Set up this Linux machine as a kata agent host: build bin/factory-agent (linux/amd64, static: the kata helper and every workspace get a copy), then run host init --driver kata (HOST_INIT_FLAGS=--dry-run to only print the plan)
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/factory-agent ./cmd/factory-agent
+	bin/factory-agent host init --driver kata $(HOST_INIT_FLAGS)
 
 # KATA_CONTEXT_DIR is where kata-context writes the kata image's build context.
 KATA_CONTEXT_DIR ?= bin/kata-context

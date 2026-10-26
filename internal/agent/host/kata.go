@@ -93,7 +93,7 @@ func (s kataPlatformStep) Check(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	if want := uint64(e.Workspace.Size.MemoryGiB()+headroomGiB) << 30; mem < want {
+	if want := uint64(e.Workspace.Size.MemoryGiB()+HeadroomGiB) << 30; mem < want {
 		probs = append(probs, fmt.Sprintf("%d GiB memory: a %s workspace needs %d GiB", mem>>30, e.Workspace.Size.Memory, want>>30))
 	}
 	routes, err := e.output(ctx, "ip", "-4", "route", "show")
@@ -128,6 +128,10 @@ func cpuVirt(p string) (bool, error) {
 	}
 	return false, nil
 }
+
+// MemTotal is the Linux host's physical memory in bytes (/proc/meminfo): supervise caps kata's
+// concurrency by it.
+func (e *Env) MemTotal() (uint64, error) { return memTotal(e.sys("/proc/meminfo")) }
 
 // memTotal is the physical memory in bytes, from the meminfo at p's MemTotal line (in kB).
 func memTotal(p string) (uint64, error) {

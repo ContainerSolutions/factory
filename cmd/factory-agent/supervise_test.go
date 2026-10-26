@@ -31,6 +31,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/agent/workspace"
+	"github.com/compliance-framework/factory/internal/agent/workspace/kata"
 	"github.com/compliance-framework/factory/internal/agent/workspace/tart"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
@@ -47,13 +48,20 @@ func TestMain(m *testing.M) {
 
 // supDriver is an in-process workspace.Driver: each VM is a directory under root, and Exec
 // plays factory-agent run by writing a done outcome and a transcript. Every call is recorded.
+// The nth Start gives the workspace the gateway 127.0.0.n, as a kata slot has its own.
 type supDriver struct {
 	root   string
 	listed []string
+	// together makes each Exec wait until that many have started (concurrency).
+	together int
 
-	mu    sync.Mutex
-	calls []string
-	cfg   tart.Config
+	mu      sync.Mutex
+	calls   []string
+	cfg     tart.Config
+	kataCfg kata.Config
+	spec    workspace.Spec
+	started int
+	execs   int
 }
 
 func (d *supDriver) record(op, name string) error {
@@ -73,12 +81,37 @@ func (d *supDriver) vm(name, p string) string {
 	return filepath.Join(d.root, name, filepath.FromSlash(p))
 }
 
-func (d *supDriver) Create(_ context.Context, name string, _ workspace.Spec) error {
+func (d *supDriver) Create(_ context.Context, name string, spec workspace.Spec) error {
+	d.mu.Lock()
+	d.spec = spec
+	d.mu.Unlock()
 	return d.record("create", name)
 }
 
 func (d *supDriver) Start(_ context.Context, name string) (workspace.Network, error) {
-	return workspace.Network{VM: netip.MustParseAddr("192.0.2.10"), Gateway: netip.MustParseAddr("127.0.0.1")}, d.record("start", name)
+	d.mu.Lock()
+	d.started++
+	n := byte(d.started)
+	d.mu.Unlock()
+	return workspace.Network{VM: netip.AddrFrom4([4]byte{192, 0, 2, 10 + n}), Gateway: netip.AddrFrom4([4]byte{127, 0, 0, n})}, d.record("start", name)
+}
+
+// waitTogether returns once d.together Execs have started, or fails after 10 s.
+func (d *supDriver) waitTogether() error {
+	d.mu.Lock()
+	d.execs++
+	d.mu.Unlock()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		d.mu.Lock()
+		n := d.execs
+		d.mu.Unlock()
+		if n >= d.together {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%d of %d workspaces ran at once", n, d.together)
+		}
+	}
 }
 
 func (d *supDriver) Put(_ context.Context, name, _, _ string) error { return d.record("put", name) }
@@ -89,6 +122,9 @@ func (d *supDriver) Exec(_ context.Context, name string, argv []string, _ io.Rea
 	}
 	if len(argv) < 2 || argv[0] != workspace.AgentCommand || argv[1] != "run" {
 		return fmt.Errorf("argv %v", argv)
+	}
+	if err := d.waitTogether(); err != nil {
+		return err
 	}
 	task := strings.TrimPrefix(name, workspace.Prefix)
 	o := runbundle.Outcome{Status: runner.StatusDone, Result: &v1alpha1.Result{
@@ -174,6 +210,12 @@ func newSupervisedTest(t *testing.T, dispatcher string) *supervisedTest {
 			s.driver.mu.Unlock()
 			return s.driver
 		},
+		NewKataDriver: func(c kata.Config) workspace.Driver {
+			s.driver.mu.Lock()
+			s.driver.kataCfg = c
+			s.driver.mu.Unlock()
+			return s.driver
+		},
 		Listen: func(ctx context.Context, a netip.AddrPort) (net.Listener, error) {
 			if a != netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), workspace.GatewayPort) {
 				return nil, fmt.Errorf("listen on %s", a)
@@ -183,6 +225,38 @@ func newSupervisedTest(t *testing.T, dispatcher string) *supervisedTest {
 		},
 	}
 	return s
+}
+
+// newKataSupervisedTest is newSupervisedTest on a fake Linux host with 61 GiB of memory, the
+// config's lending and workspace blocks ending in extra; host check passes unless the caller
+// clears HostCheck.
+func newKataSupervisedTest(t *testing.T, dispatcher, extra string) *supervisedTest {
+	t.Helper()
+	s := newSupervisedTest(t, dispatcher)
+	s.cfg = writeConfig(t, s.dir, dispatcher, extra)
+	e := kataHostDeps(t).Env
+	e.Home = s.dir
+	if err := os.MkdirAll(e.StateDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s.deps.Host = e
+	s.deps.HostCheck = func(context.Context, *host.Env) ([]host.Status, error) {
+		return []host.Status{{Step: "platform", State: host.StateOK}, {Step: host.KataWarmStep, State: host.StateOK}}, nil
+	}
+	return s
+}
+
+// kataRecords writes host init's katabase.json and katawarm.json into the host's state dir.
+func (s *supervisedTest) kataRecords(t *testing.T) {
+	t.Helper()
+	for p, b := range map[string]string{
+		s.deps.Host.KataBaseRecordPath(): `{"image": "factory-agent-base:dev", "contextSHA256": "ab", "builtAt": "2026-10-26T12:00:00Z"}`,
+		s.deps.Host.KataWarmRecordPath(): `{"image": "factory-agent-base:dev"}`,
+	} {
+		if err := os.WriteFile(p, []byte(b), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func (s *supervisedTest) args(extra ...string) []string {
@@ -196,7 +270,8 @@ func TestSuperviseUsage(t *testing.T) {
 		want string
 	}{
 		{[]string{"now"}, 2, "unexpected arguments"},
-		{[]string{"--driver", "kata"}, 2, `--driver "kata": only tart is supported`},
+		{[]string{"--driver", "vz"}, 2, `--driver "vz" is not tart or kata`},
+		{[]string{"--driver", "kata", "--warm-base", "my-warm"}, 2, "--warm-base is the tart driver's, not kata's"},
 		{[]string{"--log-level", "loud"}, 2, "--log-level"},
 		{[]string{"--nope"}, 2, "flag provided but not defined"},
 		{[]string{"-h"}, 0, "-warm-base"},
@@ -228,6 +303,38 @@ func TestSuperviseRefusals(t *testing.T) {
 		}
 		if strings.Contains(errOut.String(), "tart      ok") {
 			t.Errorf("ok steps are listed:\n%s", errOut.String())
+		}
+	})
+	t.Run("kata host check", func(t *testing.T) {
+		s := newKataSupervisedTest(t, "http://127.0.0.1:1", "")
+		s.deps.HostCheck = nil // the real kata steps, on the fake Linux host: nothing installed
+		var errOut bytes.Buffer
+		if code := runSupervise(context.Background(), s.args("--driver", "kata"), &errOut, s.deps); code != 1 {
+			t.Fatalf("code %d:\n%s", code, errOut.String())
+		}
+		for _, w := range []string{"nerdctl   missing", "katawarm  missing", "run `factory-agent host init --driver kata`"} {
+			if !strings.Contains(errOut.String(), w) {
+				t.Errorf("stderr lacks %q:\n%s", w, errOut.String())
+			}
+		}
+		if strings.Contains(errOut.String(), "platform  ok") || len(s.driver.Calls()) != 0 {
+			t.Errorf("ok steps are listed, or the driver was called:\n%s", errOut.String())
+		}
+	})
+	t.Run("warm base with the config's kata", func(t *testing.T) {
+		s := newKataSupervisedTest(t, "http://127.0.0.1:1", "workspace:\n  driver: kata\n")
+		var errOut bytes.Buffer
+		if code := runSupervise(context.Background(), s.args("--warm-base", "my-warm"), &errOut, s.deps); code != 1 ||
+			!strings.Contains(errOut.String(), "--warm-base is the tart driver's, not kata's (workspace.driver is kata)") {
+			t.Fatalf("code %d:\n%s", code, errOut.String())
+		}
+	})
+	t.Run("no image record", func(t *testing.T) {
+		s := newKataSupervisedTest(t, "http://127.0.0.1:1", "")
+		var errOut bytes.Buffer
+		if code := runSupervise(context.Background(), s.args(), &errOut, s.deps); code != 1 ||
+			!strings.Contains(errOut.String(), "names no image: run `factory-agent host init --driver kata`") {
+			t.Fatalf("code %d:\n%s", code, errOut.String())
 		}
 	})
 	t.Run("no login", func(t *testing.T) {
@@ -273,9 +380,10 @@ type failingList struct{ workspace.Driver }
 
 func (failingList) List(context.Context) ([]string, error) { return nil, errors.New("tart list: boom") }
 
-// The orphan cleanup destroys every listed workspace and nothing else.
+// The orphan cleanup destroys every listed workspace and nothing else: not host init's warm
+// build workspace either.
 func TestDestroyOrphans(t *testing.T) {
-	d := &supDriver{listed: []string{"ws-tsk_a", "ws-1", "ws-gw", "factory-agent-warm", "ws-tsk_b", "ws-tsk_../x"}}
+	d := &supDriver{listed: []string{"ws-tsk_a", "ws-1", "ws-gw", "factory-agent-warm", "ws-tsk_b", "ws-tsk_../x", host.KataWarmBuild}}
 	if err := destroyOrphans(context.Background(), d, discardLog()); err != nil {
 		t.Fatal(err)
 	}
@@ -287,11 +395,11 @@ func TestDestroyOrphans(t *testing.T) {
 // leaseDispatcher offers one lease, records its completion, and passes everything else (the
 // prompt, the transcript) to harnesstest's dispatcher.
 type leaseDispatcher struct {
-	lease apiclient.Lease
-	next  http.Handler
+	leases []apiclient.Lease
+	next   http.Handler
 
 	mu       sync.Mutex
-	offered  bool
+	offered  int
 	complete []apiclient.CompleteRequest
 	lending  []v1alpha1.Lending
 }
@@ -316,11 +424,14 @@ func (l *leaseDispatcher) serve(w http.ResponseWriter, r *http.Request) {
 		reply(http.StatusCreated, apiclient.AgentRegistration{AgentId: "agt_gus-cmd-test", AgentToken: "agt_gus-cmd-test.secret", ExpiresAt: time.Now().Add(time.Hour)})
 	case r.Method == http.MethodGet && strings.HasSuffix(p, "/lease"):
 		l.mu.Lock()
-		first := !l.offered
-		l.offered = true
+		var next *apiclient.Lease
+		if l.offered < len(l.leases) {
+			next = &l.leases[l.offered]
+			l.offered++
+		}
 		l.mu.Unlock()
-		if first {
-			reply(http.StatusOK, l.lease)
+		if next != nil {
+			reply(http.StatusOK, *next)
 			return
 		}
 		select {
@@ -377,7 +488,7 @@ func TestSuperviseOneLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	disp := &leaseDispatcher{lease: lease, next: httputil.NewSingleHostReverseProxy(next)}
+	disp := &leaseDispatcher{leases: []apiclient.Lease{lease}, next: httputil.NewSingleHostReverseProxy(next)}
 	ts := httptest.NewServer(http.HandlerFunc(disp.serve))
 	t.Cleanup(ts.Close)
 
@@ -431,6 +542,137 @@ func TestSuperviseOneLease(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(s.state, "runs", "tsk_sup1")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the run directory is left: %v", err)
+	}
+}
+
+// The kata cap: lending.maxConcurrent, at most the 63 slots and the workspaces that fit in the
+// physical memory less 4 GiB, and at least one.
+func TestKataConcurrency(t *testing.T) {
+	const gib = uint64(1) << 30
+	tests := []struct {
+		want   int
+		mem    uint64
+		wsGiB  int
+		n      int
+		capped string
+	}{
+		{3, 62 * gib, 8, 3, ""},                  // the workstation: 7 fit
+		{10, 62 * gib, 8, 7, "memory: 62 GiB"},   // (62-4)/8
+		{7, 60 * gib, 8, 7, ""},                  // exactly 7
+		{8, 60*gib - 1, 8, 6, "fits 6"},          // a byte short of 7
+		{100, 1024 * gib, 2, 63, "63 workspace"}, // the slots
+		{100, 100 * gib, 2, 48, "memory"},        // memory below the slots
+		{2, 6 * gib, 8, 1, "memory"},             // less than one fits: still one
+		{2, 3 * gib, 8, 1, "memory"},             // less than the headroom
+		{5, 62 * gib, 0, 5, ""},                  // no size: no memory cap
+	}
+	for _, tt := range tests {
+		n, by := kataConcurrency(tt.want, tt.mem, tt.wsGiB)
+		if n != tt.n || (tt.capped == "") != (by == "") || !strings.Contains(by, tt.capped) {
+			t.Errorf("kataConcurrency(%d, %d GiB, %d GiB) = %d, %q; want %d, %q", tt.want, tt.mem/gib, tt.wsGiB, n, by, tt.n, tt.capped)
+		}
+	}
+}
+
+// Two leases at once through supervise --driver kata: each in its own workspace behind its own
+// gateway (the real one, on loopback), both completed; the workspaces are sized from the config,
+// the cleanup leaves host init's warm build alone, and lending is capped by memory on SIGHUP.
+func TestSuperviseKataTwoLeases(t *testing.T) {
+	e := harnesstest.NewE2E(t, "tsk_kata1", "Write the intro.\n")
+	var leases []apiclient.Lease
+	for _, id := range []string{"tsk_kata1", "tsk_kata2"} {
+		e.TaskID = id
+		l := e.Job(v1alpha1.HarnessResolved{Name: "codex", Model: "gpt-5-codex"}, []string{"pr-opened"}).Lease
+		run := "run_" + id
+		l.Lease.Id, l.Lease.Run = "lse_"+id, &run
+		l.Lease.Agent, l.Lease.ExpiresAt, l.Lease.HeartbeatEvery = "agt_gus-cmd-test", time.Now().Add(2*time.Minute), "30s"
+		leases = append(leases, l)
+	}
+	next, err := url.Parse(e.DispatcherURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	disp := &leaseDispatcher{leases: leases, next: httputil.NewSingleHostReverseProxy(next)}
+	ts := httptest.NewServer(http.HandlerFunc(disp.serve))
+	t.Cleanup(ts.Close)
+
+	s := newKataSupervisedTest(t, ts.URL, "  maxConcurrent: 2\nworkspace:\n  driver: kata\n  size: {cpus: 4, memory: 16Gi, disk: 80Gi}\n")
+	s.kataRecords(t)
+	s.driver.listed = []string{"ws-tsk_old", host.KataWarmBuild}
+	s.driver.together = 2
+	var lmu sync.Mutex
+	var gateways []netip.AddrPort
+	s.deps.Listen = func(ctx context.Context, a netip.AddrPort) (net.Listener, error) {
+		lmu.Lock()
+		gateways = append(gateways, a)
+		lmu.Unlock()
+		var lc net.ListenConfig
+		return lc.Listen(ctx, "tcp", "127.0.0.1:0")
+	}
+	sigs := make(chan os.Signal, 2)
+	s.deps.Worker.Signals = sigs
+	errOut := &syncBuffer{}
+	code := make(chan int, 1)
+	go func() { code <- runSupervise(context.Background(), s.args(), errOut, s.deps) }()
+	waitUntil(t, "both completions", func() bool { return len(disp.completed()) == 2 })
+	// SIGHUP: 61 GiB less 4 fits 3 workspaces of 16 GiB.
+	if err := os.WriteFile(s.cfg, bytes.Replace(mustRead(t, s.cfg), []byte("maxConcurrent: 2"), []byte("maxConcurrent: 5"), 1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sigs <- syscall.SIGHUP
+	waitUntil(t, "the lending PATCH", func() bool { return len(disp.lendings()) == 2 })
+	sigs <- syscall.SIGTERM
+	select {
+	case c := <-code:
+		if c != 0 {
+			t.Fatalf("supervise exited %d\n%s", c, errOut.String())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatalf("supervise didn't drain\n%s", errOut.String())
+	}
+
+	var tasks []string
+	for _, c := range disp.completed() {
+		if c.Result.Status != v1alpha1.ResultDone || c.TranscriptRef == nil {
+			t.Errorf("complete %+v", c)
+		}
+		tasks = append(tasks, c.Result.Task)
+	}
+	if slices.Sort(tasks); !slices.Equal(tasks, []string{"tsk_kata1", "tsk_kata2"}) {
+		t.Errorf("completed %v", tasks)
+	}
+	calls := s.driver.Calls()
+	if calls[0] != "destroy ws-tsk_old" || slices.Contains(calls, "destroy "+host.KataWarmBuild) {
+		t.Errorf("the cleanup's calls %v", calls)
+	}
+	for _, ws := range []string{"ws-tsk_kata1", "ws-tsk_kata2"} {
+		var got []string
+		for _, c := range calls {
+			if op, name, _ := strings.Cut(c, " "); name == ws {
+				got = append(got, op)
+			}
+		}
+		if want := []string{"create", "start", "put", "exec", "get", "destroy"}; !slices.Equal(got, want) {
+			t.Errorf("%s: calls %v, want %v", ws, got, want)
+		}
+	}
+	if c := s.driver.kataCfg; c.Image != "factory-agent-base:dev" || c.DiskGiB != 80 || !c.Warm {
+		t.Errorf("kata config %+v", c)
+	}
+	if sp := s.driver.spec; sp != (workspace.Spec{CPU: 4, MemoryMiB: 16 << 10}) {
+		t.Errorf("workspace spec %+v", sp)
+	}
+	lmu.Lock()
+	slices.SortFunc(gateways, func(a, b netip.AddrPort) int { return a.Compare(b) })
+	if want := []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:3128"), netip.MustParseAddrPort("127.0.0.2:3128")}; !slices.Equal(gateways, want) {
+		t.Errorf("gateways on %v, want %v", gateways, want)
+	}
+	lmu.Unlock()
+	if l := disp.lendings(); len(l) != 2 || l[0].MaxConcurrent != 2 || l[1].MaxConcurrent != 3 {
+		t.Errorf("registered and reloaded lending %+v, want maxConcurrent 2 then 3", l)
+	}
+	if !strings.Contains(errOut.String(), "lending.maxConcurrent capped") {
+		t.Errorf("no warning for the cap:\n%s", errOut.String())
 	}
 }
 

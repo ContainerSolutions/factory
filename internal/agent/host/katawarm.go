@@ -15,7 +15,9 @@ import (
 // The kata driver's warm step (workspace-kata.md, step 10): the warm disk, a workspace disk
 // pre-filled with workspace.warm's images that create copies for every warm workspace.
 
-const kataWarmName = "katawarm"
+// KataWarmStep is the warm step's name: supervise gives the kata driver the warm disk when
+// host check reports it ok.
+const KataWarmStep = "katawarm"
 
 // KataWarmBuild is the warm step's build workspace. supervise's orphan cleanup leaves it alone:
 // host init holds host.lock while it exists, and removes it on every exit path but
@@ -54,7 +56,7 @@ func (e *Env) helper(ctx context.Context, out io.Writer, args ...string) error {
 // kataWarmStep builds the warm disk.
 type kataWarmStep struct{ e *Env }
 
-func (kataWarmStep) Name() string { return kataWarmName }
+func (kataWarmStep) Name() string { return KataWarmStep }
 
 func (s kataWarmStep) Check(ctx context.Context) (Status, error) {
 	e, p := s.e, s.e.KataWarmRecordPath()

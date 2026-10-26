@@ -3,7 +3,7 @@
 > Workstream: [AGT](../../definitions.md#agt-agent) · Tasks: P1 phase 5 · Packages: `internal/agent/workspace`, `internal/agent/workspace/tart`, `cmd/factory-agent` (`supervise`, `login`)
 > Design: [P1 §1](../../../proposals/P1-agent-workspaces.md#1-factory-agent-supervise-replaces-worker), [§2](../../../proposals/P1-agent-workspaces.md#2-the-workspace-and-factory-agent-run), [§3](../../../proposals/P1-agent-workspaces.md#3-the-gateway-every-credential-outside-the-vm), [§5](../../../proposals/P1-agent-workspaces.md#5-credentials-injected-by-the-gateway-never-in-the-workspace) · Builds on: [workspace-host.md](workspace-host.md) (the warm base, Softnet, pf), [workspace-run.md](workspace-run.md#phase-5s-supervisor) (the bundle, `factory-agent run`, the trust model), [gateway.md](gateway.md) (`Config`, `Serve`, `Close`, `Sink`)
 
-Phase 5 is the PoC's end-to-end run on the owner's Mac: a lease becomes a fresh VM cloned from the warm base, `factory-agent run` in it behind a gateway on the Mac, and the outcome back to the dispatcher. Deferred: sizing from `limits`, rebuilding the warm base, concurrency above 1, the kata driver, `host init` from `supervise`, and removing `worker`.
+Phase 5 is the PoC's end-to-end run on the owner's Mac: a lease becomes a fresh VM cloned from the warm base, `factory-agent run` in it behind a gateway on the Mac, and the outcome back to the dispatcher. Deferred: sizing from `limits`, rebuilding the warm base, `host init` from `supervise`, and removing `worker`. Phase 9 adds the kata driver (Linux hosts) and, with it, concurrency above 1: [workspace-kata.md](workspace-kata.md#supervise-pr-6); where this LLD says tart below, `--driver kata` does the same with the kata steps and driver unless that section says otherwise.
 
 ## Refinements of P1
 
@@ -47,19 +47,19 @@ Output a VM produces for the driver itself (the `ip` reads, stderr in errors) is
 ## `factory-agent supervise` (PR 3)
 
 ```text
-factory-agent supervise [--config <agent.yaml>] [--log-level info] [--log-format text] [--driver tart] [--warm-base factory-agent-warm] [--keep-workspace] [--state-dir <dir>]
+factory-agent supervise [--config <agent.yaml>] [--log-level info] [--log-format text] [--driver tart|kata] [--warm-base factory-agent-warm] [--keep-workspace] [--state-dir <dir>]
 ```
 
 Today's worker loop (`cmd/factory-agent/worker.go`'s `runAgentLoop`, shared: registration by join token and the device flow, the lease long-poll, heartbeats, lending and its SIGHUP reload, drain on the first SIGTERM, abort on the second) with the workspace runner. In order:
 
 1. **The config and the probe.** The harnesses run in the VM, so the host has nothing of theirs to probe: a configured harness is offered when its login is in `<state-dir>/logins` (else it's dropped with "run `factory-agent login codex`", and with none left supervise exits 1). Labels are advertised as configured; there's no host tooling check.
-2. **`host check`** (`internal/agent/host`, the config's `workspace` block, driver tart). When a step isn't ok or skipped, supervise prints those steps and exits 1 with "run `factory-agent host init --driver tart`". It never runs init.
-3. **One supervisor per user:** an exclusive non-blocking flock on `<host state dir>/supervise.lock` (`~/Library/Application Support/factory-agent`, whatever `--state-dir` says, since Tart's VMs are the user's), held for the process's life; when another supervise holds it, exit 1 with "another factory-agent supervise is running", before the cleanup lists or destroys anything.
-4. **The orphan cleanup:** the driver's `List`, then `Destroy` of each workspace name (`ws-tsk_…`; any other name is left alone). Nothing runs at start, so each is a killed supervisor's. A failure stops the start.
-5. **The runner:** `workspace.NewRunner` with the tart driver (`Bin` host check's tart, `WarmBase` the flag's, `Log` stderr at `--log-level debug`), the host pipeline (`WorkRoot`, the adapters, the skills cache; `GitAuthHelper`), `StateDir`, `Spec{}` (6 vCPUs, 8 GiB) and `--keep-workspace`.
-6. **Registration** with `lending.maxConcurrent` forced to 1, at start and on SIGHUP.
+2. **`host check`** (`internal/agent/host`, the config's `workspace` block; the driver is `--driver`, else `workspace.driver`, which defaults to tart on a Mac and kata on Linux). When a step isn't ok or skipped, supervise prints those steps and exits 1 with "run `factory-agent host init --driver <driver>`". It never runs init. `--warm-base` is tart's: a usage error with `--driver kata`, and a start error when the config's driver is kata.
+3. **One supervisor per user:** an exclusive non-blocking flock on `<host state dir>/supervise.lock` (`~/Library/Application Support/factory-agent` on a Mac, `~/.local/state/factory-agent` on Linux, whatever `--state-dir` says, since the workspaces are the user's), held for the process's life; when another supervise holds it, exit 1 with "another factory-agent supervise is running", before the cleanup lists or destroys anything.
+4. **The orphan cleanup:** the driver's `List`, then `Destroy` of each workspace name (`ws-tsk_…`; any other name is left alone, and so is kata's warm build workspace `ws-tsk_factory-warm-build`, host init's). Nothing runs at start, so each is a killed supervisor's. A failure stops the start.
+5. **The runner:** `workspace.NewRunner` with the tart driver (`Bin` host check's tart, `WarmBase` the flag's, `Log` stderr at `--log-level debug`), the host pipeline (`WorkRoot`, the adapters, the skills cache; `GitAuthHelper`), `StateDir`, `Spec{}` (6 vCPUs, 8 GiB) and `--keep-workspace`. With kata: `kata.New` (`Image` from `katabase.json`, `DiskGiB` `workspace.size.disk`, `Warm` when the `katawarm` step is ok) and `Spec` `workspace.size`.
+6. **Registration** with `lending.maxConcurrent` forced to 1 for tart, at start and on SIGHUP; kata's is capped by its slots and the host's memory ([workspace-kata.md](workspace-kata.md#supervise-pr-6)).
 
-`--state-dir` (default `~/Library/Application Support/factory-agent`, `login`'s) holds `logins/`, `runs/` and `gateway-ca/`; host check always reads the default one. `worker`'s `--stub-result` isn't offered: it would skip the VM.
+`--state-dir` (default the host's state dir, `login`'s) holds `logins/`, `runs/` and `gateway-ca/`; host check always reads the default one. `worker`'s `--stub-result` isn't offered: it would skip the VM.
 
 ## Tests
 

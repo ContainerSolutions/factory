@@ -220,8 +220,9 @@ The step (10) removes a leftover build workspace (an earlier `--keep-failed`, or
 
 ## Supervise (PR 6)
 
-- `--driver kata` (the default on linux), `host check` with the kata steps, the supervise lock and the orphan cleanup (`List`, `Destroy`) as for tart; `--warm-base` is tart's and refused with kata.
-- **Concurrency:** kata honours `lending.maxConcurrent`, capped by the slots (63) and by memory (`(physical − 4 GiB) / workspace.size.memory`), with a warning when the cap bites, at start and on SIGHUP; tart stays at 1. It relies on #165's single ChatGPT refresher per supervisor, which every workspace's gateway shares: gateways refreshing the codex login on their own would spend each other's refresh tokens.
+- `--driver kata` (the default on linux), `host check` with the kata steps, the supervise lock and the orphan cleanup (`List`, `Destroy`) as for tart, leaving `ws-tsk_factory-warm-build` alone; `--warm-base` is tart's and refused with kata (a usage error with `--driver kata`, a start error when the config chose kata). A failed check exits 1 with "run `factory-agent host init --driver kata`".
+- **The driver:** `kata.New` with `Image` from `katabase.json`, `DiskGiB` `workspace.size.disk`, and `Warm` when host check's `katawarm` step is ok and `katawarm.json` exists. Each workspace is `workspace.size` (tart's are still `Spec{}`), so the memory the cap divides by is what each workspace gets.
+- **Concurrency:** kata honours `lending.maxConcurrent`, capped by the slots (63) and by memory (`(physical − 4 GiB) / workspace.size.memory`, at least 1), with a warning when the cap bites, at start and on SIGHUP; tart stays at 1. The physical memory is read once at start and `workspace.size` is the start's (a change needs a restart, as the runner's does); SIGHUP caps the reloaded `maxConcurrent`. It relies on #165's single ChatGPT refresher per supervisor, which every workspace's gateway shares: gateways refreshing the codex login on their own would spend each other's refresh tokens.
 - **What the runner must hold with several workspaces at once:** per-task run directories and egress logs (it has them), the gateway CA loaded once under its lock (it is), and each gateway on its own slot's address (the driver gives that). PR 6's test runs two leases at once against a fake driver.
 
 ## PRs
@@ -251,7 +252,21 @@ Stacked, each on the one before; each passes `make reviewable` on its own.
 - **The helper:** argument validation for every verb (names, sizes, slots, the context dir); the exact nerdctl argv per verb (goldens) against a fake runner; slot allocation and release under concurrent `create`s; `exec`'s status recovery from nerdctl's message; `rm`'s timeout path (a fake nerdctl that hangs) killing by id and retrying; undo on a failed `create`.
 - **The driver:** the full lifecycle against a fake helper (golden `testdata/lifecycle.golden`), tart's `Put`/`Get`/`Exec`/cancel cases reused through `vmexec`, the network read's refusals, the agent binary's `Put`.
 - **`go test -tags kataintegration ./internal/agent/workspace/kata/`** on a host where `host check --driver kata` passes (the workstation; CI doesn't run it): one workspace's whole lifecycle from the real image, two at once, the isolation checks of Q8 (I01–I18 and N01) run from inside, `Destroy` of a workspace whose systemd ignores the stop.
-- **The owner's run (PR 6):** `make kata-up`, `factory-agent host check`, the logins, `supervise`, then a real task from the dispatcher on the Mac through the tunnel.
+- **The owner's run (PR 6):** [below](#the-owners-run).
+
+## The owner's run
+
+On the workstation, from a checkout of this branch, as the user that will own the workspaces (not root; the dispatcher up on the Mac with its tunnel, and the Pool's join token in `~/.config/factory-agent/join-token`, 0600):
+
+1. `make kata-up HOST_INIT_FLAGS=--dry-run` to read the plan and the sudo script, then `make kata-up`: it builds `bin/factory-agent` (linux/amd64, static), asks `y/N` before installing the helper and its sudoers rule, then one sudo prompt for every root line; the image build and the warm disk take a while (the first build pulls Ubuntu and runs `base.sh`).
+2. `bin/factory-agent host check`: all ten steps ok (`--driver kata` is the default on Linux). `sudo -n -k -l /usr/local/libexec/factory-agent/kata-helper` lists the rule without a password.
+3. The model logins, into `~/.local/state/factory-agent/logins/`: run `claude setup-token` on its own and copy the token it prints, then `bin/factory-agent login claude`, paste, Enter, Ctrl-D (the token stays out of argv and the shell history); and `bin/factory-agent login codex` (reads `~/.codex/auth.json`; `--auth-json <path>` for another).
+4. `~/.config/factory-agent/agent.yaml` (`chmod 600`), from `deploy/poc/agent.yaml.example`: `dispatcher` the tunnel's URL, the harnesses whose logins step 3 stored, `lending: {unlimited: true, maxConcurrent: 3}` and `workspace: {driver: kata}` (`size` and `warm` as you like; a changed `warm` makes `host check` fail `katawarm`: `make kata-up HOST_INIT_FLAGS="--only katawarm"`).
+5. `go test -tags kataintegration -count=1 -v -timeout 30m ./internal/agent/workspace/kata/`: one workspace's lifecycle, two at once, the Q8 isolation checks from inside, and the hung-stop `Destroy`. Afterwards `sudo -n /usr/local/libexec/factory-agent/kata-helper list` prints nothing.
+6. `bin/factory-agent supervise --log-level debug` (add `--keep-workspace` to keep a stopped workspace and `runs/<task>/` for a look), and approve the device-flow prompt. The start logs no cap warning (62 GiB less 4 fits 7 workspaces of 8 GiB) and registers `maxConcurrent: 3`.
+7. From the Mac, dispatch a task (`bin/factory dispatch --event event.json --server …`, [deploy/poc/README.md](../../../../deploy/poc/README.md) §9); while it runs, `sudo -n /usr/local/libexec/factory-agent/kata-helper list` shows `ws-tsk_<id>` and `ip -br link show type bridge` its `fws<n>`; after it, neither. The run's transcript shows its `factory.egress` lines.
+8. Dispatch two or three tasks at once: each gets its own slot (`fws1`, `fws2`, …) and gateway, and all complete. Then set `maxConcurrent: 10`, `pkill -HUP -f 'factory-agent supervise'`, and see the warning `lending.maxConcurrent capped … max=7`.
+9. Stop with Ctrl-C (drain; a second aborts). A supervise killed with `kill -9` leaves its workspaces: the next start destroys them (`destroying a leftover workspace`).
 
 ## Risks and open questions
 
