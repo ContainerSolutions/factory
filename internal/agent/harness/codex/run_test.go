@@ -20,6 +20,11 @@ import (
 
 const okResult = `{"status":"done","outcome":"pr-opened","summary":"opened acme/docs#13"}`
 
+// slow bounds what a loaded machine can take for what an idle one does in milliseconds:
+// starting the fake (a re-exec of the race-built test binary, which macOS also scans on its first
+// runs) or stopping it. The fakes that would hang block forever, so a hang still fails.
+const slow = time.Minute
+
 // prepared is a prepared workspace and an adapter running the fake codex.
 func prepared(t *testing.T, writable bool, plan fakePlan) (*Adapter, harness.Workspace, *fakeCodex) {
 	t.Helper()
@@ -257,7 +262,7 @@ func TestRunCancelKillsTheProcessTree(t *testing.T) {
 		done <- err
 	}()
 	var pids []int
-	for deadline := time.Now().Add(10 * time.Second); len(pids) < 2; {
+	for deadline := time.Now().Add(slow); len(pids) < 2; {
 		if time.Now().After(deadline) {
 			t.Fatal("the fake codex never started its child")
 		}
@@ -270,12 +275,12 @@ func TestRunCancelKillsTheProcessTree(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("Run = %v, want context.Canceled", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(slow):
 		t.Fatal("Run didn't return after cancel")
 	}
 	for _, pid := range pids {
 		gone := false
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		for deadline := time.Now().Add(slow); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 			if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
 				gone = true
 				break
@@ -298,7 +303,7 @@ func TestRunRateLimitStopsTheRun(t *testing.T) {
 	s := &harnesstest.Recorder{OnLimit: cancel}
 	start := time.Now()
 	_, err := a.Run(ctx, ws, task("gpt-5", "high"), "p", s)
-	if !errors.Is(err, context.Canceled) || len(s.Limits) != 1 || time.Since(start) > 10*time.Second {
+	if !errors.Is(err, context.Canceled) || len(s.Limits) != 1 || time.Since(start) > slow {
 		t.Errorf("Run = %v after %s, limits %v", err, time.Since(start), s.Limits)
 	}
 }

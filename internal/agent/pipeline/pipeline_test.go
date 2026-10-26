@@ -666,6 +666,10 @@ func TestRunOutputSchemaUnavailable(t *testing.T) {
 	}
 }
 
+// slow bounds what a loaded machine can take for what an idle one does in well under a second:
+// the fixture's git work up to the harness's start, or a stop. A hang still fails it.
+const slow = 2 * time.Minute
+
 func TestRunWallClockLimit(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -686,14 +690,14 @@ func TestRunWallClockLimit(t *testing.T) {
 	}()
 	select {
 	case <-started:
-	case <-time.After(30 * time.Second):
+	case <-time.After(slow):
 		t.Fatal("the harness didn't start")
 	}
 	clk.Advance(16 * time.Minute)
 	var out runner.Outcome
 	select {
 	case out = <-done:
-	case <-time.After(30 * time.Second):
+	case <-time.After(slow):
 		t.Fatal("the wall-clock limit didn't stop the harness")
 	}
 	if out.Status != runner.StatusFailed || out.Reason != runner.ReasonLimit || out.Result == nil || !strings.Contains(out.Result.Summary, "15m") {

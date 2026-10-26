@@ -31,6 +31,7 @@ func testGit(t *testing.T, dir string, args ...string) string {
 	cmd.Dir = dir
 	home := t.TempDir()
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + filepath.Join(home, ".gitconfig"),
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=gc.auto", "GIT_CONFIG_VALUE_0=0",
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com"}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -60,7 +61,11 @@ func newWorkspace(t *testing.T, mut func(*pipeline.EffectorConfig)) *workspace {
 		t.Skipf("git http-backend not available: %v", err)
 	}
 	root := t.TempDir()
-	h := &cgi.Handler{Path: backend, Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1", "GIT_CONFIG_NOSYSTEM=1", "HOME=" + root},
+	// gc.auto=0 here, in testGit and in the workspace's global config: a push or a rebase
+	// otherwise starts a detached git gc --auto, still writing in a repo when t.TempDir's
+	// cleanup removes it ("directory not empty").
+	h := &cgi.Handler{Path: backend, Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1", "GIT_CONFIG_NOSYSTEM=1", "HOME=" + root,
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=gc.auto", "GIT_CONFIG_VALUE_0=0"},
 		InheritEnv: []string{"PATH"}, Stderr: io.Discard}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if u, p, ok := r.BasicAuth(); !ok || u != "x-access-token" || p != gitToken {
@@ -95,6 +100,7 @@ func newWorkspace(t *testing.T, mut func(*pipeline.EffectorConfig)) *workspace {
 	}
 	t.Cleanup(func() { _ = creds.Close() })
 	home := t.TempDir()
+	writeFile(t, filepath.Join(home, ".gitconfig"), "[gc]\n\tauto = 0\n")
 	w := &workspace{t: t, bare: bare, server: srv, argv: filepath.Join(t.TempDir(), "git-argv.log")}
 	// A git wrapper that logs each command line (and whether it got GH_TOKEN) before
 	// running git, so the test can check no token is ever an argument.
