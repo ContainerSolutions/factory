@@ -1,0 +1,5 @@
+lisa-addressed:
+pass 1: AGENTS.md's login line names the Linux paste flow and codex login (84783bf77f91); TestLoginUsage asserts a phrase within one line (ac8178b4d486).
+
+lisa-selfreview:
+pass 2: should-fix CORE-DOC-001 README/workspace-kata/supervise "runs without codex" omitted that supervise exits when no configured harness has a login. Fixed in pass 2.
