@@ -51,9 +51,11 @@ func hostUsage(w io.Writer) {
         and changes nothing. --yes installs pf (tart) or the kata helper without asking;
         --no-pf skips pf and records the opt-out in the state dir (a later init without
         --no-pf asks again).
-        --only basevm,warmbase applies only those steps; all are still checked and printed, but
-        the exit code judges only those steps, platform and statedir.
-        --keep-failed keeps a failed VM build's <name>.building VM, for debugging.
+        --only basevm,warmbase (kata: kataimage,katawarm) applies only those steps; all are
+        still checked and printed, but the exit code judges only those steps, platform and
+        statedir.
+        --keep-failed keeps a failed VM build's <name>.building VM (kata: the warm disk's
+        build workspace), for debugging.
         --remove-pf removes the pf anchor, its LaunchDaemon and its pf.conf line.
 
 common flags: --config <agent.yaml> (only its workspace block is read; without the file, the
@@ -61,12 +63,13 @@ defaults); --driver, the workspace driver (default: the config's workspace.drive
 tart on a Mac and kata on Linux); --agent-linux <path>, the linux/arm64 factory-agent the base
 VM gets (default factory-agent-linux-arm64 next to this binary; make tart-up builds it).
 
---driver kata: the steps so far are platform, statedir, nerdctl, kata, kataconfig, containerd,
-network, privileges and kataimage (the warm disk comes in P1 phase 9's next PR). privileges
-installs a root-owned copy of this binary as /usr/local/libexec/factory-agent/kata-helper and a
-sudoers rule that lets you run it with sudo -n; init asks first, unless --yes. kataimage builds
-the workspace image with the factory's BuildKit, through the helper. --no-pf, --remove-pf and
---agent-linux are the tart driver's: with kata they are usage errors.
+--driver kata: the steps are platform, statedir, nerdctl, kata, kataconfig, containerd,
+network, privileges, kataimage and katawarm. privileges installs a root-owned copy of this
+binary as /usr/local/libexec/factory-agent/kata-helper and a sudoers rule that lets you run it
+with sudo -n; init asks first, unless --yes. kataimage builds the workspace image with the
+factory's BuildKit, and katawarm the warm disk with workspace.warm's images, both through the
+helper. --no-pf, --remove-pf and --agent-linux are the tart driver's: with kata they are usage
+errors.
 `)
 }
 
@@ -101,7 +104,7 @@ func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hos
 	fs.BoolVar(&o.Yes, "yes", false, "init: install the pf anchor (tart) or the kata helper without asking")
 	fs.BoolVar(&o.NoPF, "no-pf", false, "init: skip the pf anchor and record the opt-out")
 	only := fs.String("only", "", "init: apply only these steps (comma-separated, e.g. basevm,warmbase)")
-	keepFailed := fs.Bool("keep-failed", false, "init: keep a failed VM build's .building VM")
+	keepFailed := fs.Bool("keep-failed", false, "init: keep a failed VM build's .building VM (kata: the warm disk's build workspace)")
 	agentLinux := fs.String("agent-linux", "", "the linux/arm64 factory-agent for the base VM (default: "+host.AgentLinuxName+" next to this binary)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {

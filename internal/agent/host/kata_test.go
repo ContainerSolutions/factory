@@ -255,7 +255,7 @@ func TestKataSteps(t *testing.T) {
 	for _, s := range steps {
 		names = append(names, s.Name())
 	}
-	if !slices.Equal(names, []string{"platform", "statedir", "nerdctl", "kata", "kataconfig", "containerd", "network", "privileges", "kataimage"}) {
+	if !slices.Equal(names, []string{"platform", "statedir", "nerdctl", "kata", "kataconfig", "containerd", "network", "privileges", "kataimage", "katawarm"}) {
 		t.Errorf("kata steps %v", names)
 	}
 	e.Workspace.Driver = "docker"

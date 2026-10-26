@@ -3,12 +3,15 @@
 # image"): the rootfs is virtio-fs, where overlayfs doesn't work, so kata-helper create mounts a
 # per-workspace file at $IMG (sparse and empty, or a copy of the warm disk). This makes it ext4
 # unless it already is, loop-mounts it at $DISK and bind-mounts its docker and containerd
-# directories: Docker 29 keeps images in containerd's store, so both must be on the disk.
+# directories: Docker 29 keeps images in containerd's store, so both must be on the disk. Its
+# kind-images directory goes on $KIND, so the archives the warm disk's build saves there come
+# with the disk to every warm workspace.
 # privileged-without-host-devices leaves /dev without loop nodes, so they are made first.
 # Without the file it fails, and docker and containerd (which require this unit) don't start.
 set -eu
 IMG=/var/lib/factory/docker.img
 DISK=/var/lib/factory/disk
+KIND=/var/lib/factory/kind-images
 
 log() { echo "factory-docker-storage: $*"; }
 
@@ -27,7 +30,8 @@ if [ "$(blkid -p -o value -s TYPE "$IMG" 2>/dev/null || true)" != ext4 ]; then
 fi
 mkdir -p "$DISK" /var/lib/docker /var/lib/containerd
 mountpoint -q "$DISK" || mount -o loop,noatime "$IMG" "$DISK"
-mkdir -p "$DISK/docker" "$DISK/containerd"
+mkdir -p "$DISK/docker" "$DISK/containerd" "$DISK/kind-images" "$KIND"
 mountpoint -q /var/lib/docker || mount --bind "$DISK/docker" /var/lib/docker
 mountpoint -q /var/lib/containerd || mount --bind "$DISK/containerd" /var/lib/containerd
+mountpoint -q "$KIND" || mount --bind "$DISK/kind-images" "$KIND"
 log "mounted $(findmnt -no SOURCE,FSTYPE "$DISK") at $DISK"

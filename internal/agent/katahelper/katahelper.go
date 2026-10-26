@@ -26,7 +26,8 @@ import (
 // 3: start, stop, inspect and exec.
 // 4: exec runs as admin (3's ran as root).
 // 5: image-build, image-exists and image-rm.
-const Protocol = 5
+// 6: warm-load, warm-promote and warm-exists.
+const Protocol = 6
 
 // Env is the whole environment of the commands the helper runs: nothing comes from the
 // caller's. NERDCTL_TOML names /dev/null, so no /etc/nerdctl/nerdctl.toml changes nerdctl's
@@ -89,7 +90,7 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 // Usage is the helper's usage line.
 const Usage = "usage: kata-helper protocol | list | create <name> <cpus> <memMiB> <diskGiB> warm|empty <image> | start|stop|rm|inspect <name> | exec [-i] <name> <argv…>" +
-	" | image-build <image> < context.tar | image-exists|image-rm <image>"
+	" | image-build <image> < context.tar | image-exists|image-rm <image> | warm-load <name> <ref> | warm-promote <name> | warm-exists"
 
 // usageError is a usage error: exit 2.
 type usageError struct{ msg string }
@@ -138,12 +139,15 @@ func (h *helper) dispatch(ctx context.Context, args []string) error {
 	}
 	verb, rest := args[0], args[1:]
 	switch verb {
-	case "protocol", "list":
+	case "protocol", "list", "warm-exists":
 		if len(rest) > 0 {
 			return errUsage
 		}
-		if verb == "list" {
+		switch verb {
+		case "list":
 			return h.list(ctx)
+		case "warm-exists":
+			return h.warmExists()
 		}
 		_, err := fmt.Fprintln(h.o.Stdout, Protocol)
 		return err
@@ -161,6 +165,17 @@ func (h *helper) dispatch(ctx context.Context, args []string) error {
 			return h.imageExists(ctx, rest[0])
 		}
 		return h.imageRm(ctx, rest[0])
+	case "warm-load":
+		if len(rest) != 2 {
+			return errUsage
+		}
+		if err := workspace.ValidName(rest[0]); err != nil {
+			return badArg("%v", err)
+		}
+		if err := validRef(rest[1]); err != nil {
+			return err
+		}
+		return h.warmLoad(ctx, rest[0], rest[1])
 	case "create":
 		if len(rest) != 6 {
 			return errUsage
@@ -170,7 +185,7 @@ func (h *helper) dispatch(ctx context.Context, args []string) error {
 			return err
 		}
 		return h.create(ctx, a)
-	case "start", "stop", "rm", "inspect":
+	case "start", "stop", "rm", "inspect", "warm-promote":
 		if len(rest) != 1 {
 			return errUsage
 		}
@@ -185,6 +200,8 @@ func (h *helper) dispatch(ctx context.Context, args []string) error {
 			return h.nerdctl(ctx, nil, "stop", "-t", "30", name)
 		case "rm":
 			return h.rm(ctx, name)
+		case "warm-promote":
+			return h.warmPromote(ctx, name)
 		}
 		return h.inspect(ctx, name)
 	}

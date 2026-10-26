@@ -13,6 +13,10 @@ plan:
   kataimage write the image's build context (the Dockerfile, base.sh and the image's scripts) into $STAGE/kata-context
   kataimage sudo -n $ROOT/usr/local/libexec/factory-agent/kata-helper image-build factory-agent-base:0.1.0 < the context as a tar: the factory's BuildKit builds it (Ubuntu and base.sh: many minutes)
   kataimage write $HOME/.local/state/factory-agent/katabase.json
+  katawarm  kata-helper rm ws-tsk_factory-warm-build (a build workspace left by an earlier run)
+  katawarm  kata-helper create ws-tsk_factory-warm-build 5 8192 60 empty factory-agent-base:0.1.0, start it, wait for its dockerd (5s)
+  katawarm  no warm images: the warm disk is the build workspace's freshly formatted, empty one
+  katawarm  kata-helper stop ws-tsk_factory-warm-build, warm-promote ws-tsk_factory-warm-build (its disk becomes the warm disk), rm ws-tsk_factory-warm-build; write $HOME/.local/state/factory-agent/katawarm.json
 sudo script (one sudo prompt):
 #!/bin/sh
 # factory-agent host init: the root actions, run once with sudo.

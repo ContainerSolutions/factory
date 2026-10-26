@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode"
 )
 
 // The workspace drivers (P1 §1).
@@ -84,6 +83,17 @@ const (
 	maxImageLen = 200
 )
 
+// imageRefRE is the characters of an image reference (a registry, a path, a tag, a digest),
+// starting with a letter or a digit.
+var imageRefRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/:@-]*$`)
+
+// ValidWarmImage reports whether ref may be a warm image: at most maxImageLen bytes of an image
+// reference's characters, so no whitespace and no leading -. host init passes it to docker
+// pull, and the kata helper, as root, to nerdctl pull: a leading - would be a flag.
+func ValidWarmImage(ref string) bool {
+	return len(ref) <= maxImageLen && imageRefRE.MatchString(ref)
+}
+
 // validate checks a workspace with its defaults filled.
 func (w Workspace) validate() []string {
 	var probs []string
@@ -113,9 +123,8 @@ func (w Workspace) validate() []string {
 			add("warm.%s: %d images, at most %d", l.key, len(l.images), maxImages)
 		}
 		for i, im := range l.images {
-			// host init passes each to docker pull as an argument: a leading - would be a flag.
-			if im == "" || len(im) > maxImageLen || strings.ContainsFunc(im, unicode.IsSpace) || strings.HasPrefix(im, "-") {
-				add("warm.%s[%d]: %q must be non-empty, at most %d bytes, without whitespace or a leading -", l.key, i, im, maxImageLen)
+			if !ValidWarmImage(im) {
+				add("warm.%s[%d]: %q must be an image reference: at most %d bytes of letters, digits and ._/:@-, starting with a letter or a digit", l.key, i, im, maxImageLen)
 			}
 			if _, ok := KindImageTag(im); l.key == "kindImages" && !ok {
 				add("warm.%s[%d]: %q has a digest but no tag: use name:tag or name:tag@sha256:...", l.key, i, im)

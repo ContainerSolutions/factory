@@ -82,8 +82,15 @@ func (f *fakeHost) Run(ctx context.Context, env []string, stdin io.Reader, stdou
 		_, _ = io.WriteString(stderr, "a warning\nboom\n")
 		return fakeExit(1)
 	}
-	if name == Nerdctl && args[0] == "exec" {
+	// exec and save write to warm-load's pipe, which blocks until the other end reads: never
+	// under f.mu, which the other end's call takes to record itself.
+	switch {
+	case name == Nerdctl && args[0] == "exec":
 		return f.exec(stdin, stdout, stderr)
+	case name == Nerdctl && args[0] == "save":
+		_, _ = io.WriteString(stderr, "saving "+args[len(args)-1]+"\n")
+		_, err := io.WriteString(stdout, "image tar of "+args[len(args)-1])
+		return err
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
