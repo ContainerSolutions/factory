@@ -11,8 +11,9 @@ import (
 	"strings"
 )
 
-// KataSlotPool is the kata driver's workspace addresses: each workspace slot is a /30 in it
-// (workspace-kata.md). The platform step refuses a host that already routes any of it.
+// KataSlotPool is the kata driver's workspace addresses: slot n (1 to 63) is 10.213.<n>.0/29,
+// its bridge at .1 and its VM at .2 (workspace-kata.md#the-workspace-network). The platform
+// step refuses a host that already routes any of it.
 var KataSlotPool = netip.MustParsePrefix("10.213.0.0/16")
 
 const (
