@@ -67,7 +67,7 @@ process inside it is privileged only inside that VM.
  │ factory serve (dispatcher), ngrok             │      │ factory-agent supervise      │
  │ factory-agent supervise --driver tart         │◄─────┤   --driver kata (via ngrok)  │
  │   gateways (one per workspace, on its bridge) │      │ containerd + nerdctl + Kata  │
- │   Tart + Softnet; base VM image; warm base    │      │ gateways, registry mirror    │
+ │   Tart + Softnet; base VM image; warm base    │      │ gateways, warm Docker disk   │
  │                                               │      │  ┌ Kata ws ┐ ┌ ws ┐ ┌ ws ┐   │
  │  ┌ Tart VM ws-<run> (Softnet, default-deny) ┐ │      │  └─────────┘ └────┘ └────┘   │
  │  │ factory-agent run, dockerd, the repos    │ │      └──────────────────────────────┘
@@ -85,8 +85,8 @@ process inside it is privileged only inside that VM.
   default-deny policy: `--net-softnet-block=0.0.0.0/0 --net-softnet-allow=@host`. The VM reaches
   only the Mac's address on its own bridge, where its gateway listens.
 - **On the Linux workstation** the supervisor runs on the host with the `kata` driver: nerdctl and
-  Kata with Cloud Hypervisor, a CNI network whose only route out is the gateway, and a registry
-  mirror. It reaches the dispatcher on the Mac through the ngrok tunnel.
+  Kata with Cloud Hypervisor, a CNI network whose only route out is the gateway, and a warm
+  Docker disk. It reaches the dispatcher on the Mac through the ngrok tunnel.
 - **What's the same on both:** the run bundle, the gateway rules, `factory-agent run` inside the
   workspace, the TaskSpec environment, and the dispatcher contracts. A driver only creates,
   starts, streams from and destroys a VM.
@@ -152,8 +152,9 @@ process inside it is privileged only inside that VM.
     `warm.kindImages` subset preloaded for kind. It rebuilds the warm base when the list or the
     base version changes. In Phase 0 a warm clone brought local-dev's compose stack up in 3 s;
     cold, the image pulls took about 14 minutes.
-  - **kata:** a registry mirror (`registry:2` as a pull-through cache) on the agent host is each
-    workspace's dockerd mirror.
+  - **kata:** each workspace's Docker disk is a copy of a pre-filled warm disk
+    ([workspace-kata.md](../workstreams/agent/LLD/workspace-kata.md#the-warm-disk)). It replaces
+    the registry mirror planned here first, which would have covered Docker Hub only.
 - **Concurrency and limits:** up to `lending.maxConcurrent` workspaces at once: 1 on the Mac, 3
   on the workstation. local-dev with kind used 1.9 GiB in the guest plus page cache, so a
   workspace is 8 GiB / 6 vCPUs by default.
@@ -164,7 +165,8 @@ process inside it is privileged only inside that VM.
   provisioning script, embedded in `factory-agent`, and `host init` builds the base with it:
   - **tart:** clones `ghcr.io/cirruslabs/ubuntu` (pinned by digest) into
     `factory-agent-base-<version>`, boots it, runs the script, and shuts it down;
-  - **kata:** builds an OCI image (Debian) from the same script with `nerdctl build`.
+  - **kata:** builds an OCI image (Ubuntu 24.04, as the tart base) from the same script with
+    BuildKit ([workspace-kata.md](../workstreams/agent/LLD/workspace-kata.md#the-image-provisionkata)).
 
   Both carry:
   - dockerd with the compose and buildx plugins, kind, kubectl, git, gh (with the pr-review and
@@ -233,7 +235,7 @@ memory. Per host:
 | `github.com` (git smart HTTP) | Adds `Authorization: Basic x-access-token:<installation token>` for the repo in the URL path: the task token for its rw repo, read tokens for its read repos. **Refuses `git-receive-pack` (push) to any repo the task may not write**, at `info/refs?service=git-receive-pack`, before GitHub sees it. Public repos it can't credential pass through anonymously. |
 | `api.github.com` | Adds the task's token for **GET only.** Every write (POST, PATCH, PUT, DELETE) is refused, because GitHub writes go through the Effector to the dispatcher. That turns "writes only through the Effector" from a prompt rule into a network rule. |
 | the dispatcher (`FACTORY_API`) | Adds a **run-scoped token** for the routes a run needs (§5). The agent token stays in the supervisor. |
-| registries (npm, yarn, PyPI, Go proxy, ghcr, Docker Hub, apt) and the rest of the internet | Plain CONNECT tunnel, no interception, allowed by default. **Denied:** link-local and metadata (169.254.0.0/16), RFC 1918 and the agent host's own addresses (except the dispatcher and, on Linux, the mirror), and other workspaces. The TaskSpec can tighten this (`environment.egress: deny-by-default` plus an allow list). Widening past the default needs two approvals, as `workspace.hosts` does today. |
+| registries (npm, yarn, PyPI, Go proxy, ghcr, Docker Hub, apt) and the rest of the internet | Plain CONNECT tunnel, no interception, allowed by default. **Denied:** link-local and metadata (169.254.0.0/16), RFC 1918 and the agent host's own addresses (except the dispatcher), and other workspaces. The TaskSpec can tighten this (`environment.egress: deny-by-default` plus an allow list). Widening past the default needs two approvals, as `workspace.hosts` does today. |
 
 - **Two layers.** Credential safety doesn't depend on the network rules: a process that bypasses
   the proxy has no credentials, so it works only as an anonymous client. The network layer
@@ -494,9 +496,10 @@ the workstation dry run (Q8).
 ### Linux track (`kata`)
 
 9. **The workstation:**
-   1. the Q8 dry run: the spike's Kata provisioning on the bare host;
+   1. the Q8 dry run: the spike's Kata provisioning on the bare host (done 2026-10-26; the rest
+      of this phase is [workspace-kata.md](../workstreams/agent/LLD/workspace-kata.md));
    2. `host init --driver kata` (containerd, nerdctl, Kata with the rendered Cloud Hypervisor
-      config, CNI, iptables, the registry mirror);
+      config, CNI, nftables, the warm Docker disk);
    3. the kata driver;
    4. the base image's kata form, built by `host init` (CI only tests the script).
 

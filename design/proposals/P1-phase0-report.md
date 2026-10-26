@@ -3,7 +3,8 @@
 > Status: **report** (2026-10-22), no code merged. Answers the Phase 0 questions of
 > [P1](P1-agent-workspaces.md) §Rollout on Gustavo's Mac: M4 Pro, 24 GiB, macOS 26.6.2.
 > Tart 2.41.1, Softnet 0.24.1, Kata Containers 4.2.0, nerdctl-full 2.4.1, mitmproxy 12.2.3.
-> The spike's scripts aren't committed; their findings are below.
+> The spike's scripts aren't committed; their findings are below. Q8 was answered on
+> 2026-10-26 on the Linux workstation ([Q8](#q8-linux-workstation-dry-run)).
 
 ## Outcome
 
@@ -24,7 +25,9 @@
 4. **Both subscription CLIs work behind the gateway with placeholder credentials:** claude-code
    with the OAuth token, and codex with ChatGPT auth. No real token enters the workspace. Codex
    needs its account identifiers in the VM, and the gateway must own token refresh.
-5. **Still open:** the Linux workstation dry run (Q8).
+5. **The Linux workstation works too** (Q8, 2026-10-26): Kata 4.2.0 with Cloud Hypervisor on
+   the bare host boots a workspace in under a second, at the host's CPU speed, isolated as P1
+   requires. The design is [workspace-kata.md](../workstreams/agent/LLD/workspace-kata.md).
 
 ## Answers
 
@@ -190,13 +193,46 @@ The shared setup for Q4 and Q5:
 
 ### Q8. Linux workstation dry run
 
-Not done yet. It reuses the spike's Kata provisioning:
-- containerd and nerdctl-full;
-- Kata static with the rendered runtime-rs Cloud Hypervisor config;
-- `privileged_without_host_devices`, which nerdctl spells `--security-opt
-  privileged-without-host-devices`;
-- inside the workspace, `mknod` for loop devices, so dockerd's storage can be a loop-mounted
-  ext4. With no host devices, `/dev` has no loop nodes.
+**Yes: Kata on the bare workstation is fast, isolated, and runs everything a task needs**
+(2026-10-26: Ubuntu 24.04.5, kernel 7.0.0-38, x86-64, 20 cores, 62 GiB; Kata 4.2.0 static,
+nerdctl-full 2.4.1; Docker 29.9 already running on the host). The dry run's script set up
+what `host init --driver kata` will, ran three workspaces behind stand-in gateways (a forward
+proxy pinned to its VM) and ran 76 pass/fail checks and 47 measurements; the final run passed every check but the read-only
+mount (below). The script isn't committed; the design it led to is
+[workspace-kata.md](../workstreams/agent/LLD/workspace-kata.md).
+
+| Check | Result |
+|---|---|
+| Kata's runtime-rs Cloud Hypervisor config | shipped in the amd64 static release (`configuration-clh-runtime-rs.toml`); arm64's has none |
+| A workspace (6 vCPU, 8 GiB, systemd as PID 1, privileged without host devices) | commands run 0.6 s after `nerdctl run`, dockerd 2.2 s; 7 CPUs in the guest (Kata adds its default one), 8 GiB |
+| CPU | a 20M-iteration Python loop: 0.3 s, as on the host (phase 0's nested Kata: 25.2 s) |
+| Disk | 1.3 GB/s on the loop-mounted ext4, 927 MB/s on the virtio-fs rootfs; `mkfs` 0.1 s |
+| Three workspaces at once | about 4 GiB more host memory in use; 53 GiB still available |
+| Isolation (from two workspaces) | only the own gateway's port answers; refused: the gateway's other ports, the host's LAN and docker0 addresses, the other workspace and its gateway, spoofed sources (none reached a gateway), the internet directly, IPv6, metadata; no `/dev/kvm` or host disks |
+| No DNS, everything through the proxy | lookups refused at once; curl, git, apt, npm, pip, `go get`, docker pulls (Docker Hub, ghcr.io), compose services by name, kind (49 s cold) with a pod pulling through the nodes' proxy |
+| A warm disk | 3.7 GB of images copied in 0.6 s; kind 27 s warm |
+| Docker on the host | untouched: its daemons, containers, config and networks |
+
+What it found that the design had to change:
+
+1. **A `:ro` bind mount is read-only only inside the guest.** Root in the VM remounted the
+   bundle read-write and its write reached the host directory. No host directory is mounted
+   into a workspace; the bundle goes in by tar stream, as on tart.
+2. **Every exec after systemd's boot failed with EBUSY.** Kata's agent puts exec'd processes
+   in the container's cgroup, where systemd had turned on controllers. The agent uses the
+   cgroup's `init` child instead when it exists, so the image's entrypoint makes it before it
+   starts systemd.
+3. **kind's control plane never started** without `/dev/kmsg`, which privileged without host
+   devices leaves out. The entrypoint makes it.
+4. **Docker 29 keeps its images in containerd's store**, so the loop-mounted disk holds both
+   `/var/lib/docker` and `/var/lib/containerd`.
+5. **`nerdctl exec` exits 1 for any remote failure**; the status is only in its last stderr
+   line (`exec failed with exit code 7`).
+6. **`nerdctl rm -f` can wait forever** on a systemd PID 1 that doesn't exit. Removal is a
+   bounded `stop`, a bounded `rm -f`, and a kill of the workspace's shim, hypervisor and
+   virtiofsd when either hangs.
+7. **Runtime-rs reads its config only from its built-in paths**; `KATA_CONF_FILE` must name one
+   of them.
 
 ## The gateway and egress on the Mac
 
