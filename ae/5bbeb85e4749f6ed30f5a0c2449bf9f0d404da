@@ -1,0 +1,5 @@
+lisa-design:
+- The terminal check is loginDeps.IsTerminal (default: os.Stdin is a character device), no x/term dependency. /dev/null is a char device too, so `< /dev/null` also prints the prompt: harmless on stderr, then the "input is empty" error.
+- The prompt goes to stderr only for a terminal stdin, so `pbpaste |`, `xclip … |` and `wl-paste |` pipes print nothing extra; stdout keeps only the "stored the claude login in <path>" line.
+- The codex missing-file error is for os.ErrNotExist only; other read errors keep their plain text. It applies to --auth-json too (the advice is the same).
+- Telling the owner not to copy another machine's auth.json rests on P1 §5: each gateway refreshes and rotates its own copy, spending the other's refresh token.
