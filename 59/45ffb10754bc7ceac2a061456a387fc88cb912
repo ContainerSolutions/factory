@@ -1,2 +1,5 @@
 lisa-addressed:
 pass 2: the three docs say supervise exits when no configured harness has a login.
+
+lisa-selfreview:
+pass 3: approve, no findings (tests, lint at head clean).
