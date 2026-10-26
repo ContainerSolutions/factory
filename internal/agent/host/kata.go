@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/compliance-framework/factory/internal/agent/katahelper"
 )
 
 // KataSlotPool is the kata driver's workspace addresses: slot n (1 to 63) is 10.213.<n>.0/29,
@@ -24,8 +26,8 @@ const (
 	kataVarLib = "/var/lib"
 )
 
-// kataTools are the programs the kata steps run.
-var kataTools = []string{"nft", "systemctl", "visudo"}
+// kataTools are the programs the kata steps run (zstd: tar --zstd extracts Kata's release).
+var kataTools = []string{"nft", "systemctl", "visudo", "zstd"}
 
 // kataPlatformStep checks the Linux host (workspace-kata.md, step 1): linux/amd64, KVM,
 // cgroup v2, systemd, the tools, free disk and memory, and the slot pool unrouted. It has
@@ -161,8 +163,9 @@ const kataSlots = 63
 // 10.213.<n>.0/29 on the bridge fws<n> (workspace-kata.md#the-workspace-network). Running or
 // leftover workspaces have them, and supervise's host check runs before its orphan cleanup.
 func kataSlotRoute(dst netip.Prefix, dev string) bool {
-	n, err := strconv.Atoi(strings.TrimPrefix(dev, "fws"))
-	if !strings.HasPrefix(dev, "fws") || err != nil || n < 1 || n > kataSlots || strconv.Itoa(n) != dev[3:] {
+	num, ok := strings.CutPrefix(dev, katahelper.BridgePrefix)
+	n, err := strconv.Atoi(num)
+	if !ok || err != nil || n < 1 || n > kataSlots || strconv.Itoa(n) != num {
 		return false
 	}
 	p := KataSlotPool.Addr().As4()

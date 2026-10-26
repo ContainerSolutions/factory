@@ -46,7 +46,7 @@ func hostUsage(w io.Writer) {
         one line per step (ok, missing, outdated, wrong, skipped); exit 0 when every step is
         ok or skipped, else 1. skipped is a pf step the owner opted out of (a warning)
   init  [--driver tart|kata] [--dry-run] [--yes] [--no-pf] [--remove-pf] [--only <steps>] [--keep-failed]
-        applies the steps that aren't ok (one sudo prompt for Softnet and pf), then checks
+        applies the steps that aren't ok (one sudo prompt for the root actions), then checks
         again: its exit code is that check's. --dry-run prints the plan and the sudo script
         and changes nothing. --yes installs pf without asking; --no-pf skips it and records
         the opt-out in the state dir (a later init without --no-pf asks again).
@@ -60,9 +60,9 @@ defaults); --driver, the workspace driver (default: the config's workspace.drive
 tart on a Mac and kata on Linux); --agent-linux <path>, the linux/arm64 factory-agent the base
 VM gets (default factory-agent-linux-arm64 next to this binary; make tart-up builds it).
 
---driver kata: the steps so far are platform and statedir (the others come in P1 phase 9's
-next PRs). --no-pf, --remove-pf and --agent-linux are the tart driver's: with kata they are
-usage errors.
+--driver kata: the steps so far are platform, statedir, nerdctl, kata and kataconfig (the
+others come in P1 phase 9's next PRs). --no-pf, --remove-pf and --agent-linux are the tart
+driver's: with kata they are usage errors.
 `)
 }
 

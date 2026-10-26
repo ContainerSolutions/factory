@@ -16,8 +16,12 @@ import (
 	"path/filepath"
 )
 
-// MaxArchive bounds a download and what an archive extracts to.
+// MaxArchive bounds what Extract extracts.
 const MaxArchive = 512 << 20
+
+// MaxDownload bounds a download: Kata's static release is about 950 MiB. Every download is
+// sha256-pinned; the bound only keeps a wrong server from filling the disk.
+const MaxDownload = 2 << 30
 
 // Fetcher downloads a URL to a file.
 type Fetcher interface {
@@ -27,7 +31,7 @@ type Fetcher interface {
 // HTTPFetcher downloads with an http.Client (default http.DefaultClient).
 type HTTPFetcher struct{ Client *http.Client }
 
-// Fetch implements Fetcher: dst must not exist, and the body must be at most MaxArchive.
+// Fetch implements Fetcher: dst must not exist, and the body must be at most MaxDownload.
 func (h HTTPFetcher) Fetch(ctx context.Context, url, dst string) error {
 	c := h.Client
 	if c == nil {
@@ -49,12 +53,12 @@ func (h HTTPFetcher) Fetch(ctx context.Context, url, dst string) error {
 	if err != nil {
 		return err
 	}
-	n, err := io.Copy(f, io.LimitReader(resp.Body, MaxArchive+1))
+	n, err := io.Copy(f, io.LimitReader(resp.Body, MaxDownload+1))
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
-	if err == nil && n > MaxArchive {
-		err = fmt.Errorf("GET %s: larger than %d bytes", url, MaxArchive)
+	if err == nil && n > MaxDownload {
+		err = fmt.Errorf("GET %s: larger than %d bytes", url, MaxDownload)
 	}
 	return err
 }

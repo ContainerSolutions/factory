@@ -31,7 +31,7 @@ Decided with Gustavo on 2026-10-26, after Q8:
 | containerd's state | `/var/lib/factory-agent/containerd`, `/run/factory-agent/containerd/containerd.sock`; namespace `factory` | root |
 | CNI | conflists in `/etc/factory-agent/cni/net.d/`, IPAM state in `/var/lib/factory-agent/cni/` | root |
 | Workspaces' disks and slots | `/var/lib/factory-agent/kata/disks/<name>.img`, `/var/lib/factory-agent/kata/slots/<n>`, the warm disk `/var/lib/factory-agent/kata/warm-docker.img` | root |
-| The agent's state dir | `$XDG_STATE_HOME/factory-agent`, default `~/.local/state/factory-agent` (0700): logins, runs, gateway CA, `host.lock`, `supervise.lock`, the records `katabase.json`, `katawarm.json` | the owner |
+| The agent's state dir | `$XDG_STATE_HOME/factory-agent`, default `~/.local/state/factory-agent` (0700): logins, runs, gateway CA, `host.lock`, `supervise.lock`, the records `katabase.json`, `katawarm.json`; during `host init`, `stage/` (0700: the downloads, about 1.3 GB, and the helper, for the root lines; not `$TMPDIR`, which may be a tmpfs), made under the host lock and removed before it's released | the owner |
 
 `host.Env.StateDir()` becomes per OS: `~/Library/Application Support/factory-agent` on darwin, the XDG path above on linux; `login` and `supervise`'s `--state-dir` default follows it.
 
@@ -53,11 +53,11 @@ make kata-up [HOST_INIT_FLAGS="--dry-run"]
 
 | # | Step | Wanted state | Apply |
 |---|---|---|---|
-| 1 | `platform` | linux/amd64; `/dev/kvm` is a character device; `vmx` or `svm` in `/proc/cpuinfo`; cgroup v2 (`/sys/fs/cgroup/cgroup.controllers`); systemd is PID 1 (`/run/systemd/system`); `nft`, `systemctl`, `visudo` on `PATH`; ≥ 120 GiB free on `/var/lib`'s volume; `workspace.size.memory` + 4 GiB physical memory; no route already in the slot pool `10.213.0.0/16` | none: a failed check stops `init` |
+| 1 | `platform` | linux/amd64; `/dev/kvm` is a character device; `vmx` or `svm` in `/proc/cpuinfo`; cgroup v2 (`/sys/fs/cgroup/cgroup.controllers`); systemd is PID 1 (`/run/systemd/system`); `nft`, `systemctl`, `visudo`, `zstd` (for `tar --zstd`) on `PATH`; ≥ 120 GiB free on `/var/lib`'s volume; `workspace.size.memory` + 4 GiB physical memory; no route already in the slot pool `10.213.0.0/16` | none: a failed check stops `init` |
 | 2 | `statedir` | as tart's, at the XDG path | as tart's |
 | 3 | `nerdctl` | `nerdctl-full/bin/nerdctl --version` and `containerd --version` report the pin | download into the stage, check the sha256; the root lines copy it into a root-owned temp dir, check the sha256 again, extract and move it into place |
-| 4 | `kata` | `/opt/kata/.factory-agent` holds the pinned version and `runtime-rs/bin/containerd-shim-kata-v2` is executable. An `/opt/kata` without the marker is `wrong` ("another Kata install: move it away"): `init` never replaces it | as `nerdctl`: the 1 GB `kata-static-<v>-amd64.tar.zst`, extracted by root after its sha256 is checked again, and refused unless every entry is under `opt/kata` |
-| 5 | `kataconfig` | the Kata config is exactly the rendering below | root renders it from the release's `share/defaults/kata-containers/runtime-rs/configuration-clh-runtime-rs.toml` with one change, `reconnect_timeout_ms = 60000` (phase 0: an 8 GiB guest outlived the default 3 s), and a first comment line naming the source. Check renders the same from the installed release and compares |
+| 4 | `kata` | `/opt/kata/.factory-agent` holds the pinned version and `runtime-rs/bin/containerd-shim-kata-v2` is executable. An `/opt/kata` without the marker (or a symlink) is `wrong` ("another Kata install: move it away"): `init` never replaces it, and the root lines check it again | as `nerdctl`: the 1 GB `kata-static-<v>-amd64.tar.zst`, extracted by root after its sha256 is checked again, and refused unless every entry `tar -t` lists is under `opt/kata` (and again after extraction) |
+| 5 | `kataconfig` | the Kata config is exactly the rendering below. One without the rendering's first comment line is another install's: `wrong`, never replaced | root renders it from the release's `share/defaults/kata-containers/runtime-rs/configuration-clh-runtime-rs.toml` with one change, `reconnect_timeout_ms = 60000` (phase 0: an 8 GiB guest outlived the default 3 s), and a first comment line naming the source. Check renders the same from the installed release and compares (`host.RenderKataConfig`; a test runs the root lines' `sed` against it) |
 | 6 | `containerd` | the two configs and two units hold exactly the rendered text; both units enabled and active | heredocs; `systemctl daemon-reload`, `enable --now` both, wait for both sockets (30 s) |
 | 7 | `network` | `workspaces.nft` and `factory-agent-nft.service` hold the rendered text; the unit is enabled and active | heredocs; `systemctl enable --now factory-agent-nft.service` |
 | 8 | `privileges` | the helper is a regular file, root:root 0755, and `kata-helper protocol` prints this binary's `katahelper.Protocol`; `/etc/sudoers.d/factory-agent` is the rendered rule, root:root 0440 | see [the privileges step](#the-privileges-step) |
@@ -230,7 +230,9 @@ Stacked, each on the one before; each passes `make reviewable` on its own.
 | 0 | `fx/p9-0-kata-lld` | this LLD, the Q8 section of the phase 0 report, P1's kata details brought in line |
 | 1 | `fx/p9-1-host-linux` | the per-OS state dir; `host.Steps` for kata with the `platform` and `statedir` steps; `host check` and `init --driver kata` run those two (the usage says the rest comes in the next PRs; `supervise --driver kata` stays refused until PR 6) |
 | 2 | `fx/p9-2-base-amd64` | `base.sh`'s architecture and mode, the amd64 pins; `provision/kata/` (the Dockerfile, `factory-init`, `factory-docker-storage` and its unit); the CI image build |
-| 3 | `fx/p9-3-host-kata` | steps 3 to 8, the pins, the renderings and their goldens; the helper's `protocol` and `list`; `main`'s `kata-helper` dispatch |
+| 3a | `fx/p9-3a-kata-install` | the pins, steps 3 to 5 (`nerdctl`, `kata`, `kataconfig`), the stage under the state dir, `katahelper`'s host layout |
+| 3b | `fx/p9-3b-kata-services` | steps 6 and 7 (`containerd`, `network`) and their renderings |
+| 3c | `fx/p9-3c-kata-helper` | step 8 (`privileges`) and its prompt; the helper's `protocol` and `list`; `main`'s `kata-helper` dispatch; the dry run's golden |
 | 4 | `fx/p9-4-kata-driver` | `vmexec` (moved from tart), the helper's workspace verbs, `workspace/kata`; the `kataintegration` tests |
 | 5 | `fx/p9-5-kata-image` | steps 9 and 10: the image build, the warm disk, the helper's image and warm verbs |
 | 6 | `fx/p9-6-supervise-kata` | `supervise --driver kata` with concurrency above 1, `make kata-up`, the owner's run below |

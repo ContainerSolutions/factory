@@ -1,9 +1,9 @@
 // Package host checks and sets up an agent host for VM workspaces (P1 §7,
 // design/workstreams/agent/LLD/workspace-host.md). For the tart driver the steps are the
 // platform, the state dir, Tart, Softnet, the pf anchor, the base VM and the warm base; for the
-// kata driver (workspace-kata.md) so far the platform and the state dir. Check reports each
-// step's state; Init applies the steps that aren't ok, in order, and runs their root actions
-// in one sudo script.
+// kata driver (workspace-kata.md) so far the platform, the state dir, nerdctl-full, Kata and
+// its config. Check reports each step's state; Init applies the steps that aren't ok, in order,
+// and runs their root actions in one sudo script.
 package host
 
 import (
@@ -253,14 +253,14 @@ func firstLine(s string) string {
 	return l
 }
 
-// Steps are the workspace driver's steps, in order. The kata driver has its platform and
-// state dir steps so far; the rest come in P1 phase 9's next PRs (workspace-kata.md#prs).
+// Steps are the workspace driver's steps, in order. The kata driver has steps 1 to 5 so far;
+// the rest come in P1 phase 9's next PRs (workspace-kata.md#prs).
 func Steps(e *Env) ([]Step, error) {
 	switch e.Workspace.Driver {
 	case config.DriverTart:
 		return []Step{platformStep{e}, stateDirStep{e}, tartStep{e}, softnetStep{e}, pfStep{e}, baseVMStep{e}, warmBaseStep{e}}, nil
 	case config.DriverKata:
-		return []Step{kataPlatformStep{e}, stateDirStep{e}}, nil
+		return []Step{kataPlatformStep{e}, stateDirStep{e}, nerdctlStep{e}, kataStep{e}, kataConfigStep{e}}, nil
 	}
 	return nil, fmt.Errorf("no host steps for the %q driver", e.Workspace.Driver)
 }
@@ -319,13 +319,22 @@ other listening services. `+"`factory-agent host init --remove-pf`"+` undoes it.
 // isn't ok, since the applies need the dir. The applies hold <statedir>/host.lock: a second
 // Init fails while one runs.
 func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
+	// the kata driver stages its downloads (about 1.3 GB) in <statedir>/stage, not in $TMPDIR,
+	// which may be a tmpfs: it's made once the host lock is held (the dir exists by then) and
+	// removed before the lock is released.
+	stageInState := false
 	if e.StageDir == "" {
-		dir, err := os.MkdirTemp("", "factory-agent-host-")
-		if err != nil {
-			return nil, err
+		if e.Workspace.Driver == config.DriverKata {
+			e.StageDir, stageInState = filepath.Join(e.StateDir(), "stage"), true
+			defer func() { e.StageDir = "" }()
+		} else {
+			dir, err := os.MkdirTemp("", "factory-agent-host-")
+			if err != nil {
+				return nil, err
+			}
+			e.StageDir = dir
+			defer func() { _ = os.RemoveAll(dir); e.StageDir = "" }()
 		}
-		e.StageDir = dir
-		defer func() { _ = os.RemoveAll(dir); e.StageDir = "" }()
 	}
 	steps, err := Steps(e)
 	if err != nil {
@@ -419,6 +428,17 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 			return err
 		}
 		release, locked = r, true
+		if stageInState {
+			// a killed init's stage goes first. The state dir is the owner's, 0700.
+			stage := e.StageDir
+			release = func() { _ = os.RemoveAll(stage); r() }
+			if err := os.RemoveAll(stage); err != nil {
+				return err
+			}
+			if err := os.Mkdir(stage, 0o700); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	if optOut != "" && !slices.ContainsFunc(todo, func(s Step) bool { return s.Name() == stateDirName }) {
