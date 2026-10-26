@@ -172,7 +172,7 @@ func (f *fakeHelper) execRun(c vmexec.Cmd, cmd []string) error {
 	case len(cmd) == 5 && slices.Equal(cmd[:4], []string{"ip", "-4", "route", "get"}):
 		_, _ = io.WriteString(c.Stdout, f.routeGet)
 		return nil
-	case cmd[0] == "ln":
+	case slices.Equal(cmd, []string{"sudo", "-n", "ln", "-sfn", AgentDir + "/factory-agent", AgentLink}):
 		return nil
 	case len(cmd) == 6 && cmd[0] == "sudo" && cmd[4] == vmexec.PutScript:
 		tr := tar.NewReader(c.Stdin)

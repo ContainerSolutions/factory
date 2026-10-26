@@ -37,7 +37,7 @@ const (
 	rmBound   = 5 * time.Minute
 )
 
-// Config is the driver's setup; every field but Image has a default.
+// Config is the driver's setup; every field but Image and DiskGiB has a default.
 type Config struct {
 	// Helper is the root helper: default katahelper.HelperPath, the path the sudoers rule names.
 	Helper string
@@ -46,6 +46,8 @@ type Config struct {
 	Runner vmexec.Runner
 	// Image is the workspace image, factory-agent-base:<version> (host init's katabase.json).
 	Image string
+	// DiskGiB is an empty workspace disk's size: the config's workspace.size.disk (20 to 500).
+	DiskGiB int
 	// Warm is whether host init's warm disk exists (katawarm.json): Create copies it, else it
 	// makes an empty disk.
 	Warm bool
@@ -119,14 +121,14 @@ func (d *Driver) helper(ctx context.Context, verb string, args ...string) (strin
 	return out, nil
 }
 
-// Create implements workspace.Driver: kata-helper create <name> <cpu-1> <MiB> warm|empty
-// <image>. Kata adds a vCPU of its own to the container's (Q8 H06).
+// Create implements workspace.Driver: kata-helper create <name> <cpu-1> <MiB> <diskGiB>
+// warm|empty <image>. Kata adds a vCPU of its own to the container's (Q8 H06).
 func (d *Driver) Create(ctx context.Context, name string, spec workspace.Spec) error {
 	if err := workspace.ValidName(name); err != nil {
 		return err
 	}
-	if d.c.Image == "" {
-		return errors.New("kata: no workspace image configured")
+	if d.c.Image == "" || d.c.DiskGiB == 0 {
+		return errors.New("kata: no workspace image or disk size configured")
 	}
 	spec = spec.WithDefaults()
 	if spec.CPU < 1 || spec.MemoryMiB < 1 {
@@ -136,7 +138,7 @@ func (d *Driver) Create(ctx context.Context, name string, spec workspace.Spec) e
 	if d.c.Warm {
 		disk = "warm"
 	}
-	_, err := d.helper(ctx, "create", name, strconv.Itoa(max(spec.CPU-1, 1)), strconv.Itoa(spec.MemoryMiB), disk, d.c.Image)
+	_, err := d.helper(ctx, "create", name, strconv.Itoa(max(spec.CPU-1, 1)), strconv.Itoa(spec.MemoryMiB), strconv.Itoa(d.c.DiskGiB), disk, d.c.Image)
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
@@ -212,7 +214,8 @@ func (d *Driver) putAgent(ctx context.Context, name string) error {
 	if err := d.x.Put(ctx, name, dir, AgentDir); err != nil {
 		return err
 	}
-	if _, err := d.x.Output(ctx, name, "ln", "-sfn", AgentDir+"/factory-agent", AgentLink); err != nil {
+	// exec runs as admin, and /usr/local/bin is root's.
+	if _, err := d.x.Output(ctx, name, "sudo", "-n", "ln", "-sfn", AgentDir+"/factory-agent", AgentLink); err != nil {
 		return fmt.Errorf("%s: linking %s: %w", name, AgentLink, err)
 	}
 	return nil

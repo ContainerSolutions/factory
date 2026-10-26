@@ -32,7 +32,7 @@ func newDriver(t *testing.T, f *fakeHelper) *Driver {
 	if err := os.WriteFile(bin, []byte("#!agent"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return New(Config{Runner: f, Image: image, Warm: true, AgentBinary: bin, Poll: time.Millisecond, Boot: 200 * time.Millisecond, Grace: 50 * time.Millisecond})
+	return New(Config{Runner: f, Image: image, DiskGiB: 60, Warm: true, AgentBinary: bin, Poll: time.Millisecond, Boot: 200 * time.Millisecond, Grace: 50 * time.Millisecond})
 }
 
 func golden(t *testing.T, name, got string) {
@@ -166,8 +166,8 @@ func TestCreate(t *testing.T) {
 		warm bool
 		want string
 	}{
-		{workspace.Spec{CPU: 4, MemoryMiB: 4096}, true, " 3 4096 warm " + image},
-		{workspace.Spec{CPU: 1, MemoryMiB: 2048}, false, " 1 2048 empty " + image},
+		{workspace.Spec{CPU: 4, MemoryMiB: 4096}, true, " 3 4096 60 warm " + image},
+		{workspace.Spec{CPU: 1, MemoryMiB: 2048}, false, " 1 2048 60 empty " + image},
 	} {
 		f := newFake()
 		d := newDriver(t, f)
@@ -185,6 +185,11 @@ func TestCreate(t *testing.T) {
 	if err := d.Create(ctx, ws, workspace.Spec{}); err == nil || len(f.calls) != 0 {
 		t.Errorf("no image: err %v, calls %v", err, f.calls)
 	}
+	d.c.Image, d.c.DiskGiB = image, 0
+	if err := d.Create(ctx, ws, workspace.Spec{}); err == nil || len(f.calls) != 0 {
+		t.Errorf("no disk size: err %v, calls %v", err, f.calls)
+	}
+	d.c.DiskGiB = 60
 	f.fail, f.failErr = "create", "no free slot: all 63 are in use"
 	d.c.Image = image
 	if err := d.Create(ctx, ws, workspace.Spec{}); err == nil || !strings.Contains(err.Error(), "no free slot") {
@@ -207,7 +212,7 @@ func TestStartFailures(t *testing.T) {
 		}, "its slot 2 is 10.213.2.2, 10.213.2.1"},
 		{"inspect isn't JSON", func(f *fakeHelper, _ *Driver) { f.inspect = "nope" }, "kata-helper inspect"},
 		{"no agent binary", func(_ *fakeHelper, d *Driver) { d.c.AgentBinary = "/nonexistent/factory-agent" }, "the agent binary"},
-		{"the link fails", func(f *fakeHelper, _ *Driver) { f.fail, f.failErr = " ln -sfn", "read-only" }, "linking /usr/local/bin/factory-agent"},
+		{"the link fails", func(f *fakeHelper, _ *Driver) { f.fail, f.failErr = "sudo -n ln -sfn", "read-only" }, "linking /usr/local/bin/factory-agent"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -205,12 +205,12 @@ The step (10) builds a workspace from the image with an **empty** disk (`create 
 
 ## The driver: `internal/agent/workspace/kata`
 
-`kata.New(Config{Helper, Sudo, Runner, Image, Warm, AgentBinary, Boot, Poll, Grace, MaxGet})` implements `workspace.Driver`. `Helper` defaults to the installed path, `Sudo` to `sudo -n`, `AgentBinary` to `os.Executable()`; `Image` (`katabase.json`'s) and `Warm` (whether `katawarm.json`'s disk exists) come from supervise. Every call is a helper verb.
+`kata.New(Config{Helper, Sudo, Runner, Image, DiskGiB, Warm, AgentBinary, Boot, Poll, Grace, MaxGet})` implements `workspace.Driver`. `Helper` defaults to the installed path, `Sudo` to `sudo -n`, `AgentBinary` to `os.Executable()`; `Image` (`katabase.json`'s), `DiskGiB` (`workspace.size.disk`) and `Warm` (whether `katawarm.json`'s disk exists) come from supervise. Every call is a helper verb.
 
 | Call | What it does |
 |---|---|
-| `Create` | `kata-helper create <name> <cpu-1> <MiB> warm <image>` (`empty` unless `Warm`) |
-| `Start` | `kata-helper start`; poll `exec <name> test -S /run/systemd/private` every `Poll` until `Boot` (3 min): this also proves exec works after systemd's boot. Then the network read, as tart's: `ip -4 route show default`'s `via` and `ip -4 route get <via>`'s `src`, which must be the slot's addresses from `inspect`; then `Put` the agent binary's directory (only that file) at `/var/lib/factory/bin` and `ln -sfn /var/lib/factory/bin/factory-agent /usr/local/bin/factory-agent`. Any failure destroys nothing (the runner does) but returns the error |
+| `Create` | `kata-helper create <name> <cpu-1> <MiB> <diskGiB> warm <image>` (`empty` unless `Warm`) |
+| `Start` | `kata-helper start`; poll `exec <name> test -S /run/systemd/private` every `Poll` until `Boot` (3 min): this also proves exec works after systemd's boot. Then the network read, as tart's: `ip -4 route show default`'s `via` and `ip -4 route get <via>`'s `src`, which must be the slot's addresses from `inspect`; then `Put` the agent binary's directory (only that file) at `/var/lib/factory/bin` and `sudo -n ln -sfn /var/lib/factory/bin/factory-agent /usr/local/bin/factory-agent` (exec runs as `admin`). Any failure destroys nothing (the runner does) but returns the error |
 | `Put`, `Get`, `Exec` | tart's, over `kata-helper exec [-i] <name> …` instead of `tart exec [-i] <name> …`: the tar streams, the pid-file cancel (SIGTERM, then SIGKILL after `Grace`), the caps and `host.Extract` |
 | `Stop` | `kata-helper stop` (`--keep-workspace`) |
 | `Destroy` | `kata-helper rm` |
