@@ -3,3 +3,13 @@ lisa-addressed:
 
 lisa-selfreview:
 pass 4 (final, lenient): approve. Deferred: [should-fix CORE-DOC-001] workspace-host.md's provisioning table still cites only the arm64 assets and AGENTS.md's command list lacks `make kata-context` (left to the reviewers: design docs belong to the LLD PR); [nit] the image keeps root's /tmp/node-compile-cache from the build (systemd-tmpfiles empties /tmp at boot).
+
+lisa-design:
+- base.sh runs as admin through sudo in the image too (Dockerfile: USER admin for the one RUN), not as root: the script stays one code path for both modes, and the files it makes for admin (gh extensions under ~/.local, the mktemp dir) get the same owners as in the tart base.
+- base.sh is bind-mounted into its RUN (RUN --mount=type=bind), not COPYed, so it isn't left in the image; needs BuildKit (docker build's default, nerdctl build).
+- Pins are pairs NAME_amd64/NAME_arm64 selected by set_arch through indirect expansion over ARCH_PINS; the original uses ($KIND_SHA256 etc.) are unchanged. shellcheck's SC2034 is disabled file-wide for that reason. TestProvisionScript's archPins checks every pair is complete and listed.
+- vm mode's commands are main's plus one leading `dpkg --print-architecture` (set_arch), verified by tracing both scripts with stubbed commands; the docker/gh sections still call dpkg themselves (untouched lines).
+- Image-mode guards are all `if ! image; then ... [else ...] fi` blocks so TestProvisionScript can check statically that systemctl --now/start/stop/disable, sysctl --system and cloud-init only appear inside them.
+- factory-docker-storage fails when /var/lib/factory/docker.img is missing (the Q8 spike made a 60G sparse file on the rootfs instead): the driver always mounts a disk, and a silent fallback would grow the host's containerd snapshot.
+- The Go side is package internal/agent/host/provision (the LLD's package list): WriteKataContext(dir) and KataContextSHA256(); contextSHA256 = sha256 of sha256sum's manifest of the five files sorted by name (reproducible with LC_ALL=C bash -c 'sha256sum * | sha256sum'). host keeps its own //go:embed of base.sh unchanged.
+- make kata-context runs go run ./internal/agent/host/provision/katacontext -out $(DIR); CI's kata job uses it, so the whole Go side sits under the job's paths filter (internal/agent/host/provision/, plus .github/workflows/ like the other jobs).
