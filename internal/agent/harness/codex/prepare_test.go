@@ -178,6 +178,44 @@ func TestPrepareLayout(t *testing.T) {
 	}
 }
 
+// TestPreparePluginBins: a plugin's bin/ is linked at skills/<plugin>/bin, so lisa's
+// <lisa skill dir>/../ccf-review/bin/ccfr is ccf-review's ccfr, at its real path (it finds its
+// lib/ from there); a plugin without bin/ gets nothing.
+func TestPreparePluginBins(t *testing.T) {
+	ws := workspace(t, true)
+	for name, body := range map[string]string{
+		"lisa/skills/lisa/SKILL.md": "---\nname: lisa\n---\n",
+		"ccf-review/bin/ccfr":       "#!/bin/sh\necho ccfr\n",
+	} {
+		p := filepath.Join(ws.Skills, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ws.SkillList = append(ws.SkillList, harness.Skill{Plugin: "lisa", Name: "lisa", Dir: filepath.Join(ws.Skills, "lisa", "skills", "lisa")})
+	if err := noCodex(t, Options{Config: config.Harness{Home: ownerHome(t)}}).Prepare(context.Background(), ws, task("", "")); err != nil {
+		t.Fatal(err)
+	}
+	skills := filepath.Join(ws.Home, ".codex", "skills")
+	ccfr := filepath.Join(skills, "lisa", "..", "ccf-review", "bin", "ccfr")
+	real, err := filepath.EvalSymlinks(ccfr)
+	if err != nil {
+		t.Fatalf("lisa's ccfr: %v", err)
+	}
+	want, _ := filepath.EvalSymlinks(filepath.Join(ws.Skills, "ccf-review", "bin", "ccfr"))
+	if st, err := os.Stat(ccfr); real != want || err != nil || st.Mode()&0o100 == 0 {
+		t.Errorf("lisa's ccfr is %s (%v, %v), want the executable %s", real, st, err, want)
+	}
+	for _, p := range []string{"ccf-docs", "lisa/bin"} {
+		if _, err := os.Lstat(filepath.Join(skills, p)); err == nil {
+			t.Errorf("%s is in CODEX_HOME/skills for a plugin without bin/", p)
+		}
+	}
+}
+
 // TestPrepareReadOnly: a read-only checkout gets the same config.toml (out/ is already a
 // writable root, the checkout's .git isn't) and an AGENTS.md saying codex starts in out/ and
 // where the read-only checkout is.

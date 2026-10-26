@@ -19,6 +19,8 @@ Address every unresolved review thread on the work item's pull request, and push
 - **resolve** as lisa's helper for review threads. lisa pushes and answers the threads
   itself, so resolve stops after its commit.
 - **docs-style** (ccf-docs) for every docs page you write or change.
+- **ccf-review**'s `ccfr` for lisa's self-review rules. If it isn't at the path lisa names,
+  it is on `PATH`: `CCFR="$(command -v ccfr)"`.
 
 ## Rules
 

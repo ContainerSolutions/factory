@@ -103,6 +103,10 @@ func TestCatalog(t *testing.T) {
 			if s.Source != "ccf-skills" || s.Ref != "v0.9.0" {
 				t.Errorf("%s: skills %s@%s, want ccf-skills@v0.9.0", name, s.Source, s.Ref)
 			}
+			// lisa's self-review runs ccf-review's ccfr, which only the ccf-review plugin brings.
+			if slices.Contains(s.Use, "lisa") && !slices.Contains(s.Use, "ccf-review:review") {
+				t.Errorf("%s: uses lisa without ccf-review:review (lisa's self-review runs its ccfr)", name)
+			}
 		}
 		// The write token follows the first rw mount (controllers.compileTask), so a literal
 		// rw repo would let a dev RuleSet aimed at mock-docs write to compliance-framework/docs.
