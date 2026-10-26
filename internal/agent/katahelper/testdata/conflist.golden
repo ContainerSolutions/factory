@@ -1,0 +1,32 @@
+{
+  "cniVersion": "1.0.0",
+  "name": "ws-1",
+  "plugins": [
+    {
+      "bridge": "fws1",
+      "hairpinMode": false,
+      "ipMasq": false,
+      "ipam": {
+        "dataDir": "/var/lib/factory-agent/cni",
+        "ranges": [
+          [
+            {
+              "gateway": "10.213.1.1",
+              "rangeEnd": "10.213.1.2",
+              "rangeStart": "10.213.1.2",
+              "subnet": "10.213.1.0/29"
+            }
+          ]
+        ],
+        "routes": [
+          {
+            "dst": "0.0.0.0/0"
+          }
+        ],
+        "type": "host-local"
+      },
+      "isGateway": true,
+      "type": "bridge"
+    }
+  ]
+}

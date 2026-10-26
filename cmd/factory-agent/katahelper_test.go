@@ -6,7 +6,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
+
+	"github.com/compliance-framework/factory/internal/agent/katahelper"
 )
 
 // TestKataHelperArgv0: factory-agent run as kata-helper is the helper, whatever its other
@@ -28,13 +31,13 @@ func TestKataHelperArgv0(t *testing.T) {
 	if err := os.Link(bin, helper); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command(helper, "protocol").Output(); err != nil || string(out) != "1\n" {
+	if out, err := exec.Command(helper, "protocol").Output(); err != nil || string(out) != strconv.Itoa(katahelper.Protocol)+"\n" {
 		t.Errorf("kata-helper protocol: %q %v", out, err)
 	}
 	var ee *exec.ExitError
 	for _, args := range [][]string{nil, {"version"}, {"host", "check"}} {
 		out, err := exec.Command(helper, args...).CombinedOutput()
-		if !errors.As(err, &ee) || ee.ExitCode() != 2 || string(out) != "usage: kata-helper protocol | list\n" {
+		if !errors.As(err, &ee) || ee.ExitCode() != 2 || string(out) != katahelper.Usage+"\n" {
 			t.Errorf("kata-helper %v: %q %v, want the helper's usage, exit 2", args, out, err)
 		}
 	}

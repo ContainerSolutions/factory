@@ -6,9 +6,11 @@
 //
 // It runs as root, so it trusts nothing from its environment: every path is a constant here,
 // the commands it runs get an environment it builds itself (Env), and every argument is
-// validated before anything runs. Its verbs take only workspace names, sizes and slot numbers;
-// this package has protocol and list so far (P1 phase 9's next PRs add the rest).
+// validated before anything runs. Its verbs take only workspace names, sizes, the image's tag
+// and fixed words; the image and warm-disk verbs come with the image (P1 phase 9, PR 5).
 package katahelper
+
+import "net/netip"
 
 // Name is the helper's file name: factory-agent runs Main when invoked under it.
 const Name = "kata-helper"
@@ -50,7 +52,42 @@ const (
 	NFTAllowSet = "ws_allow"
 	// BridgePrefix starts every workspace bridge's name: fws<slot>.
 	BridgePrefix = "fws"
+	// KataStateDir holds the workspaces' disks and slot files, and the warm disk.
+	KataStateDir = StateDir + "/kata"
+	// DisksDir holds each workspace's disk, <name>.img: its only mount, at GuestDisk.
+	DisksDir = KataStateDir + "/disks"
+	// SlotsDir holds a file per slot in use, named its number and holding the workspace's name.
+	SlotsDir = KataStateDir + "/slots"
+	// WarmDisk is the pre-filled disk create copies for a warm workspace.
+	WarmDisk = KataStateDir + "/warm-docker.img"
+	// GuestDisk is where a workspace's disk file appears in it.
+	GuestDisk = "/var/lib/factory/docker.img"
+	// DiskSize is an empty workspace disk's size (sparse; the config's default size.disk).
+	DiskSize = "60G"
+	// CNIStateDir is host-local IPAM's dataDir: a network's leases are in CNIStateDir/<network>.
+	CNIStateDir = StateDir + "/cni"
+	// LockFile is flocked around every slot allocation and release.
+	LockFile = RunDir + "/kata.lock"
+	// Slots is the number of workspace slots: slot n is 1 to Slots, its bridge BridgePrefix<n>.
+	Slots = 63
+	// ImageRepo is the workspace image's repository: its tag is factory-agent's version.
+	ImageRepo = "factory-agent-base"
+	// Runtime is Kata's containerd runtime (its runtime-rs shim, on Path).
+	Runtime = "io.containerd.kata.v2"
+
+	// The other programs the helper runs, by absolute path (Ubuntu's).
+	IP       = "/usr/sbin/ip"
+	NFT      = "/usr/sbin/nft"
+	Sysctl   = "/usr/sbin/sysctl"
+	CP       = "/usr/bin/cp"
+	Truncate = "/usr/bin/truncate"
+	Pkill    = "/usr/bin/pkill"
+
 	// Path is the PATH of every command the helper runs, and of the daemons' units: Kata's
 	// runtime-rs shim first, so containerd finds it for io.containerd.kata.v2.
 	Path = KataDir + "/runtime-rs/bin:" + NerdctlFullDir + "/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 )
+
+// SlotPool is the workspaces' addresses (workspace-kata.md#the-workspace-network): slot n is
+// 10.213.<n>.0/29, its bridge (the gateway) at .1 and its VM at .2.
+var SlotPool = netip.MustParsePrefix("10.213.0.0/16")

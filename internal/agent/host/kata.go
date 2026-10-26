@@ -13,10 +13,9 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/katahelper"
 )
 
-// KataSlotPool is the kata driver's workspace addresses: slot n (1 to 63) is 10.213.<n>.0/29,
-// its bridge at .1 and its VM at .2 (workspace-kata.md#the-workspace-network). The platform
-// step refuses a host that already routes any of it.
-var KataSlotPool = netip.MustParsePrefix("10.213.0.0/16")
+// KataSlotPool is the kata driver's workspace addresses, the helper's katahelper.SlotPool. The
+// platform step refuses a host that already routes any of it.
+var KataSlotPool = katahelper.SlotPool
 
 const (
 	// kataMinFreeGiB is the free disk /var/lib's volume needs: containerd's state, the image,
@@ -157,7 +156,7 @@ var ipRouteTypes = map[string]bool{
 }
 
 // kataSlots is the number of workspace slots: slot n is 1 to kataSlots.
-const kataSlots = 63
+const kataSlots = katahelper.Slots
 
 // kataSlotRoute reports whether a route is a kata workspace's own: its slot's connected route,
 // 10.213.<n>.0/29 on the bridge fws<n> (workspace-kata.md#the-workspace-network). Running or

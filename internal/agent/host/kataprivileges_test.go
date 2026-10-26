@@ -42,7 +42,7 @@ func TestKataPrivilegesCheck(t *testing.T) {
 			}
 		}, StateWrong, "want -rwxr-xr-x"},
 		{"privileges", "another protocol", func(_ *testing.T, _ *Env, r *fakeRunner) { r.helper = "0" }, StateOutdated,
-			`kata-helper speaks protocol "0", this factory-agent 1: host init installs this one`},
+			fmt.Sprintf(`kata-helper speaks protocol "0", this factory-agent %d: host init installs this one`, katahelper.Protocol)},
 		{"privileges", "the helper doesn't run", func(_ *testing.T, _ *Env, r *fakeRunner) { r.helper = "" }, StateWrong, "kata-helper protocol: exec format error"},
 		{"privileges", "no sudoers rule", func(t *testing.T, e *Env, _ *fakeRunner) { removeRoot(t, e, SudoersPath) }, StateMissing, SudoersPath},
 		{"privileges", "a drifted rule", func(t *testing.T, e *Env, _ *fakeRunner) {
