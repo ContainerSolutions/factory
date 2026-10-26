@@ -2,3 +2,7 @@ lisa-design:
 - run-pipeline.md and harness-adapters.md keep their links/mentions of local-stack.md and worker.md: they are stack 2's to rewrite with the host pipeline, per the brief.
 - base.sh's comment naming worker.md stays: editing base.sh changes its sha256 (basevm.json), which rebuilds every host's base VM.
 - definitions.md's AGT-S1-T01/T06 task specs keep their history and point at the new sections.
+
+lisa-selfreview:
+pass 1 (lenient, final): no blocker or must-fix.
+- should-fix (deferred): design/05-agent-runtime.md §149 still describes the host stack (has-local-stack concurrency, `factory-agent stack env|wait`); only its link was repointed. The overview docs' worker/stack prose is outside this PR's scope.
