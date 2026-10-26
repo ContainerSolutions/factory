@@ -1,0 +1,2 @@
+lisa-selfreview:
+Pass 1 (final, lenient): approve, no findings. Checked the ccf-review rules for the touched files (CORE-TEST-001: the three Setup goldens pin both new variables; CORE-DOC-001: workspace-run.md's Setup table and workspace-host.md's node row updated). Verified: gofmt, go vet vmrun, GOOS=linux go build ./..., go test -race host/... vmrun/..., make reviewable (exit 0).
