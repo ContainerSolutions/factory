@@ -1,0 +1,8 @@
+lisa-design:
+- warm-promote is one rename(2) onto warm-docker.img instead of move-aside/rename-in/delete: rename replaces atomically, so there is never a moment without a warm disk (a concurrent warm create would otherwise fail), and nothing needs moving back on failure. LLD updated.
+- Kind archives must live on the disk: /var/lib/factory/kind-images was on the image's rootfs, which goes with the build workspace. factory-docker-storage now bind-mounts $DISK/kind-images there (a build-context change: contextSHA256 moves, the image rebuilds).
+- In-workspace commands of the warm build run through kata-helper exec (now --user admin) as `sudo -n docker …`, which works whether or not exec gives admin the docker group, and lets docker save write into the root-owned kind-images dir.
+- warm-load's own `nerdctl exec -i <name> docker load` runs as root: it is the helper's fixed argv, not the owner's, and needs no group membership.
+- warm-load pulls with --platform linux/amd64 --unpack=false (no host snapshot) and leaves the pulled image in the factory namespace as a cache for rebuilds.
+- Warm refs are validated by config.ValidWarmImage, now stricter (image-reference characters only), shared by config and the root helper.
+- The warm build uses workspace.size (cpus-1 as the driver, memory, disk GiB) with `empty`; with no warm images the freshly formatted disk is still promoted (one boot formats it).
