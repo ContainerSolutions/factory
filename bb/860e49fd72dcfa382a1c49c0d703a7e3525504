@@ -1,0 +1,2 @@
+lisa-addressed:
+- #182 thread PRRT_kwDOVK0lgs6wW2L8: exec passes a fixed --user admin (katahelper.ExecUser) before the name; Protocol 4; lifecycle golden includes an exec; LLD exec row updated.
