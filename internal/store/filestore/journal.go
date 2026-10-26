@@ -39,6 +39,7 @@ func (s *Store) journalChange(c memory.Change) error {
 	}
 	if c.Op == memory.OpDelete && c.Key.Kind == v1alpha1.KindRun {
 		s.removeTranscript(c.Key.Name)
+		s.removeTranscript(store.EnvironmentLogBlob(c.Key.Name))
 	}
 	return nil
 }

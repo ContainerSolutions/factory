@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -94,6 +95,7 @@ type E2E struct {
 
 	mu          sync.Mutex
 	transcripts [][]byte
+	envLogs     []string
 	effects     []Effect
 }
 
@@ -234,6 +236,13 @@ func (e *E2E) serve(w http.ResponseWriter, r *http.Request) {
 		e.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(apiclient.TranscriptUpload{TranscriptRef: "blob://transcripts/run_1.jsonl.gz", Bytes: int64(len(b))})
+	case r.Method == http.MethodPut && strings.HasSuffix(p, "/environment-log"):
+		b, _ := io.ReadAll(r.Body)
+		e.mu.Lock()
+		e.envLogs = append(e.envLogs, string(b))
+		e.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(apiclient.EnvironmentLogUpload{EnvironmentLogRef: "blob://environment-logs/run_1.log", Bytes: int64(len(b))})
 	default: // no output schema (404): the Result schema applies
 		w.Header().Set("Content-Type", "application/problem+json")
 		w.WriteHeader(http.StatusNotFound)
@@ -327,6 +336,13 @@ func (e *E2E) BundleJob(job *runner.Job, x pipeline.BundleExtras) string {
 		e.t.Fatalf("PrepareBundle: %v", err)
 	}
 	return dir
+}
+
+// EnvironmentLogs are the uploaded environment logs, in order.
+func (e *E2E) EnvironmentLogs() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return slices.Clone(e.envLogs)
 }
 
 // Transcript is the uploaded transcript's lines; the run must have uploaded exactly one.

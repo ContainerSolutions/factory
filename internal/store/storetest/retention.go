@@ -27,6 +27,7 @@ var transcriptTests = []test{
 		o.TranscriptTotalBytes = 25
 	}, run: testTranscriptTotalCap},
 	{name: "DeletedWithRun", run: testTranscriptDeletedWithRun},
+	{name: "EnvironmentLogDeletedWithRun", run: testEnvironmentLogDeletedWithRun},
 	{name: "Retention", run: testTranscriptRetention},
 }
 
@@ -223,6 +224,22 @@ func testTranscriptDeletedWithRun(t *testing.T, h *harness) {
 		t.Fatal(err)
 	}
 	_, err := h.s.GetTranscript(h.ctx, "r1")
+	wantErr(t, err, store.ErrNotFound)
+}
+
+func testEnvironmentLogDeletedWithRun(t *testing.T, h *harness) {
+	r := newRun("r1", "t")
+	h.mustCreate(t, r)
+	if err := h.s.PutTranscript(h.ctx, store.EnvironmentLogBlob("r1"), []byte("# environment.up\n")); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := h.s.GetTranscript(h.ctx, store.EnvironmentLogBlob("r1")); err != nil || string(got) != "# environment.up\n" {
+		t.Fatalf("environment log = %q, %v", got, err)
+	}
+	if err := h.s.Delete(h.ctx, store.KeyOf(r)); err != nil {
+		t.Fatal(err)
+	}
+	_, err := h.s.GetTranscript(h.ctx, store.EnvironmentLogBlob("r1"))
 	wantErr(t, err, store.ErrNotFound)
 }
 

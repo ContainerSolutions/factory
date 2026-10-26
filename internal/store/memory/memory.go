@@ -309,6 +309,7 @@ func (s *Store) deleteLocked(op string, rec *record) error {
 	s.publish(&change{typ: store.Deleted, rec: rec, rv: s.rv})
 	if rec.key.Kind == runKind {
 		s.deleteTranscript(rec.key.Name)
+		s.deleteTranscript(store.EnvironmentLogBlob(rec.key.Name))
 	}
 	return nil
 }
