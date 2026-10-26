@@ -1,0 +1,6 @@
+lisa-selfreview:
+Pass 1 (lenient, final): ccf-review packs core, go, vue-app, repo/factory over the diff. No blocker or must-fix.
+- CORE-TEST-001: covered (TestPreparePluginBins, mutation-checked; TestCatalog lisa=>ccf-review guard, mutation-checked).
+- CORE-DOC-001: harness-adapters LLD updated for the bin/ link.
+- Deferred (nit): a skill folder named like a plugin without its own bin/ gets the plugin's bin/ link inside it; harmless for codex (no SKILL.md in bin/).
+- Deferred (nit): design/10-poc.md and internal/catalog/testdata/poc still show implement's old use list (fixtures/history, not the live catalog).
