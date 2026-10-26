@@ -1,0 +1,2 @@
+lisa-selfreview:
+- pass 1: the orphan cleanup could destroy the warm build workspace (fixed: excluded); P1's warm-disk sentence was garbled (fixed). Docs only: no build or test rules apply.
