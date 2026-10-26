@@ -1,6 +1,7 @@
 package login
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -131,5 +133,82 @@ func TestCodexRedacts(t *testing.T) {
 		if strings.Contains(s, access) || strings.Contains(s, refresh) {
 			t.Errorf("printed a token: %s", s)
 		}
+	}
+}
+
+// TestParseCodexAuthProvenance: codex's tokens.oauth_provenance and last_refresh are kept; a
+// half or unsafe provenance is refused.
+func TestParseCodexAuthProvenance(t *testing.T) {
+	file := func(prov map[string]any) []byte {
+		tokens := map[string]any{"id_token": idToken(goodClaims), "access_token": access, "refresh_token": refresh}
+		if prov != nil {
+			tokens["oauth_provenance"] = prov
+		}
+		b, _ := json.Marshal(map[string]any{"last_refresh": "2026-10-01T00:00:00Z", "tokens": tokens})
+		return b
+	}
+	tests := []struct {
+		name, err        string
+		prov             map[string]any
+		issuer, clientID string
+	}{
+		{"none", "", nil, "", ""},
+		{"both", "", map[string]any{"issuer": "https://auth.example.com", "client_id": "app_x"}, "https://auth.example.com", "app_x"},
+		{"no client id", "both issuer and client_id", map[string]any{"issuer": "https://auth.example.com"}, "", ""},
+		{"http", "absolute https URL", map[string]any{"issuer": "http://auth.example.com", "client_id": "app_x"}, "", ""},
+		{"user info", "absolute https URL", map[string]any{"issuer": "https://u:p@auth.example.com", "client_id": "app_x"}, "", ""},
+		{"query", "absolute https URL", map[string]any{"issuer": "https://auth.example.com/?a=b", "client_id": "app_x"}, "", ""},
+		{"fragment", "absolute https URL", map[string]any{"issuer": "https://auth.example.com/#f", "client_id": "app_x"}, "", ""},
+		{"relative", "absolute https URL", map[string]any{"issuer": "/oauth", "client_id": "app_x"}, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, err := ParseCodexAuth(file(tt.prov))
+			if tt.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.err) {
+					t.Fatalf("err %v, want %q", err, tt.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Issuer != tt.issuer || c.ClientID != tt.clientID || !c.LastRefresh.Equal(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)) {
+				t.Errorf("issuer %q, client id %q, last refresh %v", c.Issuer, c.ClientID, c.LastRefresh)
+			}
+		})
+	}
+}
+
+// TestChatGPTStore: the refresher's Store loads the codex login and saves the refreshed tokens
+// into it, keeping the account and the provenance, 0600.
+func TestChatGPTStore(t *testing.T) {
+	s := ForStateDir(t.TempDir())
+	cs := ChatGPT{Store: s}
+	if _, err := cs.Load(context.Background()); !errors.Is(err, ErrNoLogin) {
+		t.Errorf("Load before a login: %v", err)
+	}
+	c := Codex{AccessToken: access, RefreshToken: refresh, AccountID: "a", UserID: "u", PlanType: "p", Issuer: "https://auth.example.com", ClientID: "app_x"}
+	if err := s.SaveCodex(c); err != nil {
+		t.Fatal(err)
+	}
+	l, err := cs.Load(context.Background())
+	if err != nil || l.AccessToken != access || l.RefreshToken != refresh || l.AccountID != "a" || l.Issuer != c.Issuer || l.ClientID != c.ClientID {
+		t.Fatalf("Load: %v", err)
+	}
+	at := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	l.AccessToken, l.RefreshToken, l.LastRefresh, l.AccountID = "new-access", "new-refresh", at, "ignored"
+	if err := cs.Save(context.Background(), l); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Codex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Codex{AccessToken: "new-access", RefreshToken: "new-refresh", AccountID: "a", UserID: "u", PlanType: "p", Issuer: c.Issuer, ClientID: c.ClientID, LastRefresh: at}); got != want {
+		t.Errorf("stored %+v", got.LastRefresh)
+	}
+	if fi, err := os.Stat(filepath.Join(s.Path, CodexFile)); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("%s: %v", CodexFile, err)
 	}
 }

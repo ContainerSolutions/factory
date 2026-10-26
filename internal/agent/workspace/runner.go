@@ -24,6 +24,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/gateway"
 	"github.com/compliance-framework/factory/internal/agent/gateway/ca"
+	"github.com/compliance-framework/factory/internal/agent/gateway/chatgpt"
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/login"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
@@ -101,8 +102,11 @@ type RunnerOptions struct {
 type Runner struct {
 	o      RunnerOptions
 	logins login.Store
-	clk    clock.Clock
-	log    *slog.Logger
+	// chatgpt refreshes the codex login for every workspace's gateway: one per supervisor, as
+	// refresh tokens rotate on use.
+	chatgpt *chatgpt.Refresher
+	clk     clock.Clock
+	log     *slog.Logger
 
 	caMu sync.Mutex
 	ca   *ca.CA
@@ -138,7 +142,12 @@ func NewRunner(o RunnerOptions) (*Runner, error) {
 	if o.Logger == nil {
 		o.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &Runner{o: o, logins: login.ForStateDir(o.StateDir), clk: o.Clock, log: o.Logger}, nil
+	logins := login.ForStateDir(o.StateDir)
+	ref, err := chatgpt.New(chatgpt.Config{Store: login.ChatGPT{Store: logins}, Clock: o.Clock, Logger: o.Logger})
+	if err != nil {
+		return nil, fmt.Errorf("workspace runner: %w", err)
+	}
+	return &Runner{o: o, logins: logins, chatgpt: ref, clk: o.Clock, log: o.Logger}, nil
 }
 
 // gatewayCA is the agent host's gateway CA, <statedir>/gateway-ca, loaded or made at first use.
@@ -288,13 +297,14 @@ func (w *wsRun) stepFailed(ctx context.Context, step string, err error) runner.O
 
 // modelLogins are the logins the task's harness needs: the gateway's credential sources.
 type modelLogins struct {
-	anthropic func(context.Context) (gateway.AnthropicAuth, error)
-	chatgpt   func(context.Context) (gateway.ChatGPTLogin, error)
+	anthropic           func(context.Context) (gateway.AnthropicAuth, error)
+	chatgpt             func(context.Context) (gateway.ChatGPTLogin, error)
+	chatgptUnauthorized func(ctx context.Context, used string) (gateway.ChatGPTLogin, error)
 }
 
 // loadLogins checks the harness's login is in the store, keeps its secrets for redaction, and
-// returns the gateway's sources (read from the store on every request) and, for codex, the
-// bundle's account.
+// returns the gateway's sources (claude's read from the store on every request, codex's from
+// the runner's chatgpt.Refresher) and, for codex, the bundle's account.
 func (w *wsRun) loadLogins(name string) (modelLogins, *runbundle.CodexAccount, error) {
 	store := w.r.logins
 	switch name {
@@ -314,10 +324,17 @@ func (w *wsRun) loadLogins(name string) (modelLogins, *runbundle.CodexAccount, e
 			return modelLogins{}, nil, fmt.Errorf("the codex login (run `factory-agent login codex`): %w", err)
 		}
 		w.extra = append(w.extra, c.AccessToken, c.RefreshToken)
-		return modelLogins{chatgpt: func(context.Context) (gateway.ChatGPTLogin, error) {
-			c, err := store.Codex()
-			return gateway.ChatGPTLogin{AccessToken: c.AccessToken, AccountID: c.AccountID}, err
-		}}, &runbundle.CodexAccount{AccountID: c.AccountID, UserID: c.UserID, PlanType: c.PlanType}, nil
+		ref := w.r.chatgpt
+		return modelLogins{
+			chatgpt: func(ctx context.Context) (gateway.ChatGPTLogin, error) {
+				l, err := ref.Current(ctx)
+				return gateway.ChatGPTLogin{AccessToken: l.AccessToken, AccountID: l.AccountID}, err
+			},
+			chatgptUnauthorized: func(ctx context.Context, used string) (gateway.ChatGPTLogin, error) {
+				l, err := ref.Unauthorized(ctx, used)
+				return gateway.ChatGPTLogin{AccessToken: l.AccessToken, AccountID: l.AccountID}, err
+			},
+		}, &runbundle.CodexAccount{AccountID: c.AccountID, UserID: c.UserID, PlanType: c.PlanType}, nil
 	}
 	return modelLogins{}, nil, nil
 }
@@ -394,7 +411,7 @@ func (w *wsRun) startGateway(ctx context.Context, netw Network, gwCA *ca.CA, log
 	g, err := gateway.New(gateway.Config{
 		TaskID: w.id, RunID: runID, Clients: []netip.Addr{netw.VM}, CA: gwCA, Git: w.job.Git,
 		Dispatcher: disp, DispatcherToken: w.job.AgentToken,
-		Anthropic: logins.anthropic, ChatGPT: logins.chatgpt,
+		Anthropic: logins.anthropic, ChatGPT: logins.chatgpt, ChatGPTUnauthorized: logins.chatgptUnauthorized,
 		Sink: w.egress, Clock: w.r.clk, Logger: w.log,
 	})
 	if err != nil {

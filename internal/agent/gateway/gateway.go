@@ -63,9 +63,13 @@ type Config struct {
 	Anthropic func(ctx context.Context) (AnthropicAuth, error)
 	// ChatGPT returns the codex login chatgpt.com gets, read on every request; nil: none (a
 	// claude task's gateway). A token returned with an error is still sent (its 401 shows in the
-	// record); no token is no-login. The PoC doesn't refresh it: the owner re-imports the login.
-	// The gateway logs its error, which must never hold a credential.
+	// record); no token is no-login. The gateway logs its error, which must never hold a
+	// credential. The supervisor hands in its chatgpt.Refresher's Current.
 	ChatGPT func(ctx context.Context) (ChatGPTLogin, error)
+	// ChatGPTUnauthorized follows a chatgpt.com 401 to a request the access token used was
+	// injected in: it returns the login to resend the request with once (the Refresher's
+	// Unauthorized). nil: the client gets the 401.
+	ChatGPTUnauthorized func(ctx context.Context, used string) (ChatGPTLogin, error)
 	// UpstreamRoots verifies the intercepted hosts' upstreams, and an https dispatcher; default
 	// the system roots.
 	UpstreamRoots *x509.CertPool

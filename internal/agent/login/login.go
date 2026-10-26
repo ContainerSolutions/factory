@@ -1,8 +1,10 @@
 // Package login is the supervisor's store of the owner's model logins (supervise.md, "The
 // workspace runner"): the Claude token `factory-agent login claude` reads on stdin and the codex
 // ChatGPT login `factory-agent login codex` imports from codex's auth.json. Each is a file under
-// <statedir>/logins (0700), written 0600 through a temp file and a rename. The gateway reads them
-// on every request, so a re-import applies to the next one; nothing here refreshes a token.
+// <statedir>/logins (0700), written 0600 through a temp file and a rename. The gateway reads the
+// claude login on every request, so a re-import applies to the next one. The codex login is the
+// gateway's chatgpt.Refresher's Store (ChatGPT): it refreshes the tokens and writes them back
+// here.
 //
 // No value here is ever logged or printed: Codex's String, Format, LogValue and MarshalJSON
 // redact, and every error names the file or the field, never its content.
@@ -10,16 +12,21 @@ package login
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/compliance-framework/factory/internal/agent/gateway/chatgpt"
 )
 
 // Dir is the store's directory under the state dir.
@@ -48,11 +55,14 @@ type claudeFile struct {
 }
 
 type codexFile struct {
-	AccessToken  string `json:"accessToken"`
-	RefreshToken string `json:"refreshToken,omitempty"`
-	AccountID    string `json:"accountId"`
-	UserID       string `json:"userId"`
-	PlanType     string `json:"planType"`
+	AccessToken  string    `json:"accessToken"`
+	RefreshToken string    `json:"refreshToken,omitempty"`
+	AccountID    string    `json:"accountId"`
+	UserID       string    `json:"userId"`
+	PlanType     string    `json:"planType"`
+	Issuer       string    `json:"issuer,omitempty"`
+	ClientID     string    `json:"clientId,omitempty"`
+	LastRefresh  time.Time `json:"lastRefresh,omitzero"`
 }
 
 // claudeTokenRE is the shape of `claude setup-token`'s long-lived OAuth token.
@@ -105,11 +115,14 @@ func (s Store) Claude() (string, error) {
 	return f.OAuthToken, nil
 }
 
-// Codex is the owner's codex ChatGPT login: the tokens and the account identifiers the run
-// bundle carries (runbundle.CodexAccount). It never prints its values.
+// Codex is the owner's codex ChatGPT login: the tokens, the account identifiers the run bundle
+// carries (runbundle.CodexAccount), codex's tokens.oauth_provenance (Issuer and ClientID, both
+// or neither) and its last_refresh. It never prints its values.
 type Codex struct {
 	AccessToken, RefreshToken   string
 	AccountID, UserID, PlanType string
+	Issuer, ClientID            string
+	LastRefresh                 time.Time
 }
 
 func (Codex) String() string { return "login.Codex{redacted}" }
@@ -156,25 +169,73 @@ func (c Codex) check() error {
 			return fmt.Errorf("%s is missing", f.name)
 		}
 	}
+	return checkProvenance(c.Issuer, c.ClientID)
+}
+
+// checkProvenance accepts no provenance, or an issuer that is an absolute https URL without
+// user info, query or fragment, with a client id.
+func checkProvenance(issuer, clientID string) error {
+	if issuer == "" && clientID == "" {
+		return nil
+	}
+	if issuer == "" || clientID == "" {
+		return errors.New("oauth_provenance needs both issuer and client_id")
+	}
+	u, err := url.Parse(issuer)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return errors.New("oauth_provenance's issuer is not an absolute https URL without user info, query or fragment")
+	}
 	return nil
+}
+
+// ChatGPT is the codex login as the gateway's chatgpt.Refresher loads and saves it.
+type ChatGPT struct{ Store Store }
+
+var _ chatgpt.Store = ChatGPT{}
+
+// Load is the stored codex login.
+func (s ChatGPT) Load(context.Context) (chatgpt.Login, error) {
+	c, err := s.Store.Codex()
+	if err != nil {
+		return chatgpt.Login{}, err
+	}
+	return chatgpt.Login{AccessToken: c.AccessToken, RefreshToken: c.RefreshToken, AccountID: c.AccountID,
+		Issuer: c.Issuer, ClientID: c.ClientID, LastRefresh: c.LastRefresh}, nil
+}
+
+// Save writes l's tokens and last refresh into the stored codex login, keeping its account and
+// its provenance.
+func (s ChatGPT) Save(_ context.Context, l chatgpt.Login) error {
+	c, err := s.Store.Codex()
+	if err != nil {
+		return err
+	}
+	c.AccessToken, c.RefreshToken, c.LastRefresh = l.AccessToken, l.RefreshToken, l.LastRefresh
+	return s.Store.SaveCodex(c)
 }
 
 // codex's auth.json: the keys codex itself writes (harness/codex's flags.go has the VM's).
 type authJSON struct {
 	Tokens *struct {
-		IDToken      string `json:"id_token"`
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		AccountID    string `json:"account_id"`
+		IDToken         string `json:"id_token"`
+		AccessToken     string `json:"access_token"`
+		RefreshToken    string `json:"refresh_token"`
+		AccountID       string `json:"account_id"`
+		OAuthProvenance *struct {
+			Issuer   string `json:"issuer"`
+			ClientID string `json:"client_id"`
+		} `json:"oauth_provenance"`
 	} `json:"tokens"`
+	LastRefresh *time.Time `json:"last_refresh"`
 }
 
 // authClaims is the id_token's claim with the account identifiers.
 const authClaims = "https://api.openai.com/auth"
 
-// ParseCodexAuth reads codex's auth.json (a ChatGPT login): the tokens, and the account
-// identifiers from the id_token's claims (its signature isn't checked: the file is the owner's
-// own). tokens.account_id, when set, must match the claim's.
+// ParseCodexAuth reads codex's auth.json (a ChatGPT login): the tokens, the account identifiers
+// from the id_token's claims (its signature isn't checked: the file is the owner's own),
+// tokens.oauth_provenance when it has one (codex main writes it; rust-v0.163.0 doesn't) and
+// last_refresh. tokens.account_id, when set, must match the claim's.
 func ParseCodexAuth(b []byte) (Codex, error) {
 	if len(b) > maxFile {
 		return Codex{}, fmt.Errorf("auth.json is over %d bytes", maxFile)
@@ -211,6 +272,12 @@ func ParseCodexAuth(b []byte) (Codex, error) {
 	}
 	c := Codex{AccessToken: a.Tokens.AccessToken, RefreshToken: a.Tokens.RefreshToken,
 		AccountID: acct.AccountID, UserID: acct.UserID, PlanType: acct.PlanType}
+	if p := a.Tokens.OAuthProvenance; p != nil {
+		c.Issuer, c.ClientID = p.Issuer, p.ClientID
+	}
+	if a.LastRefresh != nil {
+		c.LastRefresh = a.LastRefresh.UTC()
+	}
 	if err := c.check(); err != nil {
 		return Codex{}, fmt.Errorf("auth.json: %w", err)
 	}
