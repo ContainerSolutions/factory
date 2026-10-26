@@ -1,0 +1,6 @@
+lisa-design:
+- Root extracts both archives (GNU tar) in a root-owned mktemp -d on the destination's filesystem (libexec/factory-agent, /opt), after re-checking the sha256 of its own copy; the Go side never extracts them. Kata's entries are listed (tar -t) and refused unless under opt/kata, then checked again after extraction; a foreign or symlinked /opt/kata is wrong and never touched.
+- Each kata step's root lines make and remove their own $T (umask 022, trap EXIT, `trap - EXIT` at the end), so --only works on any step and the script stays one batch.
+- kataconfig: root renders with sed, Check with RenderKataConfig (a test compares them byte for byte); a config without the `# factory-agent host init: ` first line is another install's: wrong, never replaced.
+- The kata driver stages in <statedir>/stage (0700), made once the host lock is held and removed before it's released (coordinator decision: $TMPDIR may be a tmpfs and the downloads are ~1.3 GB). Tart keeps $TMPDIR.
+- katahelper/paths.go holds the host layout shared with the helper (PR 3c adds the helper itself); host imports it. host.MaxDownload (2 GiB) bounds downloads, MaxArchive still bounds Extract; zstd joins the platform tools; kataSlotRoute uses katahelper.BridgePrefix.
