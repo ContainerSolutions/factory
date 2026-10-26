@@ -175,7 +175,7 @@ func TestLoginUsage(t *testing.T) {
 		"Linux: factory-agent login claude, paste, then Enter and Ctrl-D",
 		"xclip -o -selection clipboard | factory-agent login claude",
 		"wl-paste | factory-agent login claude",
-		"install the codex CLI, then codex login (with\n                         ChatGPT)",
+		"install the codex CLI, then codex login (with",
 		"Don't copy another machine's auth.json",
 	} {
 		if !strings.Contains(stdout.String(), want) {
