@@ -4,3 +4,6 @@ lisa-design:
 - Get takes maxBytes per call (not in vmexec.Config) so tart's d.c.MaxGet stays the one knob (tart's TestGetHostile sets it after New).
 - tart aliases Cmd/Runner/ExecRunner and putScript/signalScript so tart's tests and testdata/lifecycle.golden are byte-for-byte unchanged (the spec's condition for this commit).
 - Names are validated by each driver (workspace.ValidName) before any vmexec call; vmexec validates VM paths and file names only.
+
+lisa-selfreview:
+pass 1 (4a): should-fix nil-status-panics (vmexec Remote.Exec with a nil status); nit CORE-STYLE-001 tart.Exec doc names execScript.
