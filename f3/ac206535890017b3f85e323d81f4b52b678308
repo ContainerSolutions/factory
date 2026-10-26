@@ -1,0 +1,6 @@
+lisa-design:
+- exec's own failures, usage and an invalid name included, exit 125 with "kata-helper: <error>" as the last stderr line (a newline first when the remote's stderr was left unterminated), so the driver never mistakes a helper refusal (exit 2) for a remote status.
+- exec's status: nerdctl exit 1 and its last stderr line (kept in a 4 KiB tail) matching `exec failed with exit code ([0-9]+)"?$` with 1..255 -> that status; anything else -> 125. The remote can forge the line, which only changes how its own failure is reported (LLD).
+- nerdctl exec stops parsing its own flags at the container name, so argv is passed after the name as it is (no "--", which nerdctl would pass on as argv[0]).
+- Main installs signal.NotifyContext (TERM, INT, HUP) only for exec, so a stopped exec kills nerdctl exec and reports 125; the other verbs keep the default (die), and rm cleans up a half-made create by name.
+- Runner gains stdin (nil for every verb but exec -i).
