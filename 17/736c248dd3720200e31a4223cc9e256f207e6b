@@ -2,3 +2,7 @@ lisa-design:
 - localDev is removed from the config type outright, so a config that still sets it fails to load (strict decoding); no deprecation shim, per the PoC's lean rule. The PR body says to delete the key.
 - probe.Options.Labels and LabelFunc stay: generic labels can still get a checker; only the built-in has-local-stack/gif-tooling checkers go.
 - The pipeline's stack step (pipeline.Stack, stackUpIfNeeded and its has-local-stack gate) and the scheduler's rowLocalStack stay for stack 2.
+
+lisa-selfreview:
+pass 1 (lenient, final): no blocker or must-fix.
+- should-fix (deferred, stack 2): internal/agent/pipeline/skills.go stackUpIfNeeded's error still says "configure localDev and the has-local-stack label", a key that no longer exists; the step goes with the host pipeline.
