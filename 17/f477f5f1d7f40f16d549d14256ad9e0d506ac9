@@ -8,3 +8,11 @@ lisa-design:
 - privileges Check can't read the 0440 sudoers file as the owner: it checks owner/mode/size, the text when readable, and runs `sudo -n -k kata-helper protocol` (-k ignores host init's cached sudo login, so only the NOPASSWD rule passes). The owner may not be root.
 - The paths the helper and the renderings share are constants in katahelper (host imports it for them and for Protocol). The helper's commands get exactly katahelper.Env (PATH, HOME=/root, NERDCTL_TOML=/dev/null); list filters nerdctl's names with workspace.ValidName.
 - host.MaxDownload (2 GiB) bounds downloads; MaxArchive (512 MiB) still bounds Extract. zstd joins the platform step's tools.
+
+lisa-selfreview:
+pass 1 (strict): request_changes
+- [blocker 769e04d72450] CORE-SIZE-001: ~2230 changed lines vs the 1000 limit. Not fixable in this PR's scope: orchestrator's call (size-exception label, or split 3a nerdctl/kata/kataconfig, 3b containerd/network, 3c privileges+katahelper).
+- [must-fix 103630c9d277] CORE-TEST-001: zstd added to kataTools without a platform test case.
+- [should-fix 11bb21f909ab] CORE-DUP-001: /tmp/factory-agent-root.XXXXXX in three steps.
+- [should-fix 382b5a01ea2d] positional-heredoc-index: networkStep.Plan indexes rootInstallFiles' flat output.
+- [nit 3b6eadbc8b1a] CORE-STYLE-001: Init's doc comment lacks the privileges prompt.
