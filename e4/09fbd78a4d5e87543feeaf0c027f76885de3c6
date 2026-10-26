@@ -1,8 +1,0 @@
-lisa-design:
-- Kata hosts get a containerd of the factory's own (nerdctl-full), never Docker's: Docker on the workstation must stay untouched.
-- Root only through kata-helper (a root copy of factory-agent behind one sudoers rule); the supervisor, gateway and logins stay the owner's. Gustavo accepted either this or a root supervisor; the helper keeps root away from untrusted VM traffic.
-- No host directory is ever mounted into a kata workspace (Q8 N02: :ro is writable from the guest); only the per-workspace disk file.
-- Warm Docker disk instead of P1's registry mirror (dockerd mirrors only Docker Hub; kind images need the disk).
-- The agent binary is copied in per run, not baked into the image (same arch on kata).
-- DNS is rejected at the gateway address (fast failure); Gustavo asked whether no-DNS works: Q8 showed every tool works through the proxy.
-- PR 6 includes concurrency above 1: group 1 (#165, the shared ChatGPT refresher) merged on 2026-10-26.
