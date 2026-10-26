@@ -4,3 +4,6 @@ lisa-design:
 - kataimage's check runs `sudo -n kata-helper image-exists` (read-only), as the LLD's step 9 says; failures (helper missing, old protocol, no image) are `missing` with the helper's line.
 - The tag is factory-agent-base:<version> with BaseVMName's rules (Env.KataImage).
 - The dry-run plan doesn't print contextSHA256, so a base.sh edit doesn't churn kata-init-dry-run.golden.
+
+lisa-selfreview:
+pass 1 (5a): no findings (CORE/GO/FACTORY rules checked: input validation of image-build's tar, tag regex, no path argument, record writes via temp+rename, image-rm never forced, tests for each refusal).
