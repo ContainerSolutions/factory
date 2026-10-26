@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/harness/harnesstest"
 	"github.com/compliance-framework/factory/internal/agent/host"
 	"github.com/compliance-framework/factory/internal/agent/login"
@@ -542,6 +543,47 @@ func TestSuperviseOneLease(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(s.state, "runs", "tsk_sup1")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the run directory is left: %v", err)
+	}
+}
+
+// The kata driver gets katabase.json's image and workspace.size's disk, and the warm disk only
+// when host check's katawarm step is ok and katawarm.json exists; its workspaces are
+// workspace.size.
+func TestSuperviseKataDriver(t *testing.T) {
+	ok, missing := host.Status{Step: host.KataWarmStep, State: host.StateOK}, host.Status{Step: host.KataWarmStep, State: host.StateMissing}
+	tests := []struct {
+		name   string
+		status host.Status
+		record bool
+		warm   bool
+	}{
+		{"warm", ok, true, true},
+		{"no record", ok, false, false},
+		{"step not ok", missing, true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := newKataSupervisedTest(t, "http://127.0.0.1:1", "")
+			ts.kataRecords(t)
+			if !tt.record {
+				if err := os.Remove(ts.deps.Host.KataWarmRecordPath()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			e := ts.deps.Host
+			e.Workspace = config.Workspace{Driver: config.DriverKata, Size: config.WorkspaceSize{CPUs: 8, Memory: "12Gi", Disk: "100Gi"}}.WithDefaults("linux")
+			s := &supervisor{d: ts.deps, e: &e, stderr: io.Discard, log: discardLog()}
+			_, spec, err := s.newDriver(context.Background(), []host.Status{tt.status})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c := ts.driver.kataCfg; c.Image != "factory-agent-base:dev" || c.DiskGiB != 100 || c.Warm != tt.warm {
+				t.Errorf("kata config %+v, want warm %v", c, tt.warm)
+			}
+			if spec != (workspace.Spec{CPU: 8, MemoryMiB: 12 << 10}) || s.workspaceGiB != 12 || s.memTotal>>30 != 61 {
+				t.Errorf("spec %+v, workspace %d GiB, memory %d GiB", spec, s.workspaceGiB, s.memTotal>>30)
+			}
+		})
 	}
 }
 

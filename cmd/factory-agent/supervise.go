@@ -162,8 +162,7 @@ type supervisor struct {
 	// unlock releases the supervise lock newRunner takes, if it did.
 	unlock func()
 	// memTotal and workspaceGiB are the kata host's physical memory and one workspace's
-	// (workspace.size.memory), set by newRunner before the first lending call; memTotal is 0
-	// with tart.
+	// (workspace.size.memory), set by newRunner before the first lending call.
 	memTotal     uint64
 	workspaceGiB int
 }
@@ -171,7 +170,7 @@ type supervisor struct {
 // lending is the lending supervise registers, at start and on SIGHUP: tart runs one workspace at
 // a time (supervise.md); kata honours lending.maxConcurrent, capped by kataConcurrency.
 func (s *supervisor) lending(l v1alpha1.Lending) v1alpha1.Lending {
-	if s.memTotal == 0 {
+	if s.e.Workspace.Driver != config.DriverKata {
 		l.MaxConcurrent = 1
 		return l
 	}
