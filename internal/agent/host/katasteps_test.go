@@ -53,6 +53,7 @@ func installKata(t *testing.T, e *Env, r *fakeRunner) {
 	}
 	writeMode(t, e, KataConfigPath, cfg, 0o644)
 	installServices(t, e, r)
+	installPrivileges(t, e, r)
 }
 
 // stepCase is one state of a kata step, set up from a host where every step is ok.
@@ -218,8 +219,8 @@ func TestKataApply(t *testing.T) {
 	})
 }
 
-// TestKataInitDryRun: the plan and the sudo script of a host with nothing installed: the
-// script parses; nothing is staged or made, and the stage is under the state dir.
+// TestKataInitDryRun: the plan and the sudo script of a host with nothing installed (golden);
+// the script parses; nothing is staged or made, and the stage is under the state dir.
 func TestKataInitDryRun(t *testing.T) {
 	e, r := kataEnv(t)
 	var out bytes.Buffer
@@ -229,6 +230,8 @@ func TestKataInitDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	stage := filepath.Join(e.StateDir(), "stage")
+	e.StageDir = stage
+	golden(t, "kata-init-dry-run.golden", e, out.String())
 	_, script, _ := strings.Cut(out.String(), "sudo script (one sudo prompt):\n")
 	if b, err := exec.Command("/bin/sh", "-n", "-c", script).CombinedOutput(); err != nil {
 		t.Errorf("sh -n: %v\n%s", err, b)

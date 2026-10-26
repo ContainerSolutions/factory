@@ -1,11 +1,16 @@
 // Package katahelper is the kata driver's root helper (design/workstreams/agent/LLD/
-// workspace-kata.md#the-helper-internalagentkatahelper) and the host layout it shares with host
-// init's kata steps. So far it has the layout; the helper itself comes in P1 phase 9's PR 3c.
-// The helper runs as root, so it trusts nothing from its environment: every path it uses is a
-// constant here, never a flag or an environment variable.
+// workspace-kata.md#the-helper-internalagentkatahelper), and the host layout it shares with host
+// init's kata steps. The helper is a root-owned copy of factory-agent, installed by host init at
+// HelperPath, that the owner runs with sudo -n; factory-agent's main runs Main when its argv[0]'s
+// base name is Name.
+//
+// It runs as root, so it trusts nothing from its environment: every path is a constant here,
+// the commands it runs get an environment it builds itself (Env), and every argument is
+// validated before anything runs. Its verbs take only workspace names, sizes and slot numbers;
+// this package has protocol and list so far (P1 phase 9's next PRs add the rest).
 package katahelper
 
-// Name is the helper's file name, installed at HelperPath.
+// Name is the helper's file name: factory-agent runs Main when invoked under it.
 const Name = "kata-helper"
 
 // The host's layout (workspace-kata.md#host-layout): host init installs and renders these, and

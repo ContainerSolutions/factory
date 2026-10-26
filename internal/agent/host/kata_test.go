@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -26,7 +27,9 @@ const (
 
 // kataEnv is an Ubuntu amd64 host that passes the kata platform step: KVM (a link to
 // /dev/null, the character device a test can make), vmx, cgroup v2, systemd, the tools, 703
-// GiB free and 61 GiB memory, under a temp Root; and no XDG_STATE_HOME.
+// GiB free and 61 GiB memory, under a temp Root; and no XDG_STATE_HOME. Its owner is "owner"
+// (uid 1000), every file under Root is root's and every directory the owner's, and the
+// running factory-agent is $HOME/bin/factory-agent.
 func kataEnv(t *testing.T) (*Env, *fakeRunner) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -37,6 +40,18 @@ func kataEnv(t *testing.T) (*Env, *fakeRunner) {
 	e.Workspace = config.Workspace{}.WithDefaults("linux")
 	e.LookPath = func(name string) (string, error) { return "/usr/sbin/" + name, nil }
 	e.Getenv = func(string) string { return "" }
+	e.UID = func() int { return 1000 }
+	e.Owner = func(fi fs.FileInfo) (int, int, bool) {
+		if fi.IsDir() {
+			return 1000, 1000, true
+		}
+		return 0, 0, true
+	}
+	e.Username = func() (string, error) { return "owner", nil }
+	e.Executable = filepath.Join(e.Home, "bin", "factory-agent")
+	if err := os.WriteFile(e.Executable, []byte("factory-agent linux/amd64"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	r.freeKB, r.routes = "737000000", testRoutes
 	files := map[string]string{
 		"proc/cpuinfo":                     testCPUInfo,
@@ -240,7 +255,7 @@ func TestKataSteps(t *testing.T) {
 	for _, s := range steps {
 		names = append(names, s.Name())
 	}
-	if !slices.Equal(names, []string{"platform", "statedir", "nerdctl", "kata", "kataconfig", "containerd", "network"}) {
+	if !slices.Equal(names, []string{"platform", "statedir", "nerdctl", "kata", "kataconfig", "containerd", "network", "privileges"}) {
 		t.Errorf("kata steps %v", names)
 	}
 	e.Workspace.Driver = "docker"

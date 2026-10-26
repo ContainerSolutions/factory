@@ -48,8 +48,9 @@ func hostUsage(w io.Writer) {
   init  [--driver tart|kata] [--dry-run] [--yes] [--no-pf] [--remove-pf] [--only <steps>] [--keep-failed]
         applies the steps that aren't ok (one sudo prompt for the root actions), then checks
         again: its exit code is that check's. --dry-run prints the plan and the sudo script
-        and changes nothing. --yes installs pf without asking; --no-pf skips it and records
-        the opt-out in the state dir (a later init without --no-pf asks again).
+        and changes nothing. --yes installs pf (tart) or the kata helper without asking;
+        --no-pf skips pf and records the opt-out in the state dir (a later init without
+        --no-pf asks again).
         --only basevm,warmbase applies only those steps; all are still checked and printed, but
         the exit code judges only those steps, platform and statedir.
         --keep-failed keeps a failed VM build's <name>.building VM, for debugging.
@@ -60,9 +61,11 @@ defaults); --driver, the workspace driver (default: the config's workspace.drive
 tart on a Mac and kata on Linux); --agent-linux <path>, the linux/arm64 factory-agent the base
 VM gets (default factory-agent-linux-arm64 next to this binary; make tart-up builds it).
 
---driver kata: the steps so far are platform, statedir, nerdctl, kata, kataconfig, containerd
-and network (the others come in P1 phase 9's next PRs). --no-pf, --remove-pf and --agent-linux are the tart
-driver's: with kata they are usage errors.
+--driver kata: the steps so far are platform, statedir, nerdctl, kata, kataconfig, containerd,
+network and privileges (the image and the warm disk come in P1 phase 9's next PRs). privileges
+installs a root-owned copy of this binary as /usr/local/libexec/factory-agent/kata-helper and a
+sudoers rule that lets you run it with sudo -n; init asks first, unless --yes. --no-pf,
+--remove-pf and --agent-linux are the tart driver's: with kata they are usage errors.
 `)
 }
 
@@ -94,7 +97,7 @@ func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hos
 	var o host.InitOptions
 	removePF := fs.Bool("remove-pf", false, "init: remove the pf anchor instead")
 	fs.BoolVar(&o.DryRun, "dry-run", false, "init: print the plan and the sudo script; change nothing")
-	fs.BoolVar(&o.Yes, "yes", false, "init: install the pf anchor without asking")
+	fs.BoolVar(&o.Yes, "yes", false, "init: install the pf anchor (tart) or the kata helper without asking")
 	fs.BoolVar(&o.NoPF, "no-pf", false, "init: skip the pf anchor and record the opt-out")
 	only := fs.String("only", "", "init: apply only these steps (comma-separated, e.g. basevm,warmbase)")
 	keepFailed := fs.Bool("keep-failed", false, "init: keep a failed VM build's .building VM")

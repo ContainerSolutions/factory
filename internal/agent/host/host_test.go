@@ -48,6 +48,9 @@ type fakeRunner struct {
 	script   string // the sudo script's content when sudo ran
 	// the kata steps': systemctl's unit states (is-enabled, is-active)
 	units map[string][2]string
+	// kata-helper protocol's output, and sudo -n -k -l's error (nil: it lists the helper)
+	helper  string
+	sudoErr error
 }
 
 func (r *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...string) error {
@@ -90,6 +93,17 @@ func (r *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...
 		if st[i] != "enabled" && st[i] != "active" {
 			return errors.New("exit status 1")
 		}
+	case path.Base(name) == "kata-helper" && len(args) == 1 && args[0] == "protocol":
+		if r.helper == "" {
+			return errors.New("exec format error")
+		}
+		_, _ = io.WriteString(out, r.helper+"\n")
+	case name == "sudo" && len(args) > 0 && args[0] == "-n":
+		if r.sudoErr != nil {
+			_, _ = io.WriteString(out, "sudo: a password is required\n")
+			return r.sudoErr
+		}
+		_, _ = io.WriteString(out, args[len(args)-1]+"\n")
 	case name == "sudo":
 		b, err := os.ReadFile(args[1])
 		r.script = string(b)
