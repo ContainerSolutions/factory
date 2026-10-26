@@ -1,26 +1,53 @@
-import { describe, expect, it } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { afterEach, describe, expect, it } from 'vitest';
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
 import PrimeVue from 'primevue/config';
 import { createMemoryHistory } from 'vue-router';
 import type { Schemas } from '@/api/client';
+import { confirmDialog } from '@/__tests__/commands';
+import { maintainer } from '@/mocks/session';
 import { example, workItemDetails } from '@/mocks/workitems';
 import { createAppRouter } from '@/router';
+import { useSessionStore } from '@/stores/session';
 import WorkItemTimeline from './WorkItemTimeline.vue';
 
 const byName = (name: string) =>
   workItemDetails.find((d) => d.workItem.metadata.name === name)!;
 const pipeline = byName('wi_01JAC0PIPELINE0000000000000');
 
-function mountTimeline(detail: Schemas['WorkItemDetail'], focus?: string) {
-  return mount(WorkItemTimeline, {
+let attached: VueWrapper | undefined;
+
+afterEach(() => {
+  attached?.unmount();
+  attached = undefined;
+});
+
+/** Mounts the timeline; with `me`, that user is signed in (a maintainer can replay). */
+function mountTimeline(
+  detail: Schemas['WorkItemDetail'],
+  focus?: string,
+  me?: Schemas['Me'],
+) {
+  const pinia = createPinia();
+  setActivePinia(pinia);
+  if (me) {
+    const session = useSessionStore();
+    session.me = me;
+    session.status = 'signed-in';
+  }
+  const wrapper = mount(WorkItemTimeline, {
     props: { detail, focus },
+    ...(me ? { attachTo: document.body } : {}),
     global: {
       plugins: [
+        pinia,
         createAppRouter(createMemoryHistory()),
         [PrimeVue, { unstyled: true }],
       ],
     },
   });
+  if (me) attached = wrapper;
+  return wrapper;
 }
 
 const rows = (w: ReturnType<typeof mountTimeline>) =>
@@ -202,6 +229,58 @@ describe('WorkItemTimeline', () => {
         .findAll('[data-testid="timeline-other"]')
         .map((e) => e.attributes('data-kind')),
     ).toEqual(['task', 'run', 'effect']);
+  });
+
+  it('marks the decisions a replay recorded', async () => {
+    const decisions = pipeline.workItem.status!.decisions!.map((d, i) =>
+      i === 0 ? { ...d, replay: true } : d,
+    );
+    const wrapper = mountTimeline(
+      {
+        ...pipeline,
+        workItem: {
+          ...pipeline.workItem,
+          status: { ...pipeline.workItem.status, decisions },
+        },
+      },
+      'event/github-public/gh-docs-77-opened',
+    );
+    const body = rows(wrapper)[0]!.get('[data-testid="timeline-event-body"]');
+    await body.get('[data-testid="not-fired-toggle"]').trigger('click');
+    const marked = [
+      ...body.findAll('[data-testid="timeline-decision"]'),
+      ...body.findAll('[data-testid="timeline-not-fired"]'),
+    ].filter((d) => d.find('[data-testid="decision-replay"]').exists());
+    expect(marked.map((d) => d.find('span').text())).toEqual([
+      `${decisions[0]!.ruleSet} / ${decisions[0]!.rule}`,
+    ]);
+  });
+
+  it("replays an event for a maintainer and lists the replay's decisions", async () => {
+    const wrapper = mountTimeline(example, undefined, maintainer);
+    const event = example.events[0]!.id;
+    await wrapper.get('[data-testid="replay"]').trigger('click');
+    await flushPromises();
+    expect(
+      document.body.querySelector('[data-testid="confirm-request-line"]')!
+        .textContent,
+    ).toBe(`POST /api/v1/events/${encodeURIComponent(event)}/replay`);
+    await confirmDialog('Replay');
+    const result = wrapper.get('[data-testid="replay-result"]');
+    expect(result.text()).toContain('The replay recorded 1 decision');
+    expect(
+      result
+        .findAll('[data-testid="replay-decision"]')
+        .map((d) => d.findAll(':scope > span').map((s) => s.text())),
+    ).toEqual([['docs / label-docs-issues', 'fired', 'replay', 'effect']]);
+    expect(wrapper.emitted('replayed')).toEqual([
+      [expect.objectContaining({ event })],
+    ]);
+  });
+
+  it('offers no replay to a reader', () => {
+    const wrapper = mountTimeline(example);
+    expect(wrapper.find('[data-testid="replay"]').exists()).toBe(false);
   });
 
   it('says when nothing has happened', () => {

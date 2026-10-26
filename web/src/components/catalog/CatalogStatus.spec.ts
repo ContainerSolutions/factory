@@ -45,6 +45,31 @@ describe('CatalogStatus', () => {
     expect(wrapper.find('[data-testid="catalog-errors"]').exists()).toBe(false);
   });
 
+  it('shows the warnings, among them the missing App installations', async () => {
+    const wrapper = await mountStatus({
+      ...catalogSummary,
+      warnings: [
+        {
+          code: 'app-not-installed',
+          message:
+            "the reviewer App (ccf-factory-reviewer) isn't installed on compliance-framework/local-dev",
+        },
+        { code: 'CAT201', file: 'rules/x.yaml', line: 4, message: 'unused' },
+      ],
+    });
+    expect(
+      wrapper
+        .findAll('[data-testid="catalog-warnings"] li')
+        .map((li) => li.findAll(':scope > span').map((s) => s.text())),
+    ).toEqual([
+      [
+        'App not installed',
+        "the reviewer App (ccf-factory-reviewer) isn't installed on compliance-framework/local-dev",
+      ],
+      ['CAT201', 'rules/x.yaml:4', 'unused'],
+    ]);
+  });
+
   it('shows load errors, and that the last good catalog still serves', async () => {
     const wrapper = await mountStatus({
       ...catalogSummary,

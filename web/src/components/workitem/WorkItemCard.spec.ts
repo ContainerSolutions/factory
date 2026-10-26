@@ -40,6 +40,20 @@ describe('WorkItemCard', () => {
     ).toEqual(['stackNext: 0', 'stackTotal: 3', 'approval implement: Pending']);
   });
 
+  it('shows that an admin closed it', async () => {
+    const item: Schemas['WorkItem'] = {
+      ...byName('wi_01JAC0ESCALATED0000000000000'),
+    };
+    item.status = {
+      ...item.status,
+      closed: { reason: 'wont-do', at: '2026-10-18T00:00:00Z' },
+    };
+    const { wrapper } = await mountWithApp(WorkItemCard, { props: { item } });
+    expect(wrapper.get('[data-testid="card-closed"]').text()).toBe(
+      "Closed: won't do",
+    );
+  });
+
   it('falls back to the name without links, state or decisions', async () => {
     const item: Schemas['WorkItem'] = {
       kind: 'WorkItem',

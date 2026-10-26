@@ -1,6 +1,28 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { api, describeProblem, type Schemas } from '@/api/client';
+import { describeCommandFailure } from '@/components/controls/commands';
+
+/** The answer to an admin request (replay, close, delete): its body, or why it was refused. */
+export type AdminOutcome<T> =
+  | { ok: true; data: T }
+  | { ok: false; status?: number; code?: string; message: string };
+
+const ADMIN = 'replay events, close or delete work items';
+
+function refused<T>(problem: unknown, response: Response): AdminOutcome<T> {
+  const code = (problem as Partial<Schemas['Problem']> | undefined)?.code;
+  return {
+    ok: false,
+    status: response.status,
+    ...(code ? { code } : {}),
+    message: describeCommandFailure(problem, response, ADMIN),
+  };
+}
+
+function failed<T>(e: unknown): AdminOutcome<T> {
+  return { ok: false, message: e instanceof Error ? e.message : String(e) };
+}
 
 /** Whether `a` is an older version than `b`; versions that aren't numbers never are. */
 function isOlder(a: Schemas['WorkItem'], b: Schemas['WorkItem']): boolean {
@@ -76,13 +98,21 @@ export const useWorkItemsStore = defineStore('workitems', () => {
   const currentNotFound = ref(false);
   let requested = '';
 
-  /** Loads one work item with its timeline. A response for an earlier request is dropped. */
-  async function loadItem(id: string): Promise<void> {
-    requested = id;
-    current.value = null;
-    currentError.value = null;
-    currentNotFound.value = false;
-    currentLoading.value = true;
+  /**
+   * Loads one work item with its timeline. A quiet load (after a replay) keeps what is shown, and
+   * a failure leaves the page as it was. A response for an earlier request is dropped.
+   */
+  async function loadItem(
+    id: string,
+    { quiet = false }: { quiet?: boolean } = {},
+  ): Promise<void> {
+    if (!quiet || requested !== id) {
+      requested = id;
+      current.value = null;
+      currentError.value = null;
+      currentNotFound.value = false;
+      currentLoading.value = true;
+    }
     try {
       const {
         data,
@@ -92,17 +122,89 @@ export const useWorkItemsStore = defineStore('workitems', () => {
       if (requested !== id) return;
       if (data) {
         current.value = data;
+      } else if (quiet) {
+        return;
       } else if (response.status === 404) {
         currentNotFound.value = true;
       } else {
         currentError.value = describeProblem(problem, response);
       }
     } catch (e) {
-      if (requested === id) {
+      if (requested === id && !quiet) {
         currentError.value = e instanceof Error ? e.message : String(e);
       }
     } finally {
       if (requested === id) currentLoading.value = false;
+    }
+  }
+
+  /** Replays a stored event through the rules (`POST /events/{id}/replay`, admin). */
+  async function replayEvent(
+    event: string,
+  ): Promise<AdminOutcome<Schemas['ReplayResult']>> {
+    try {
+      const {
+        data,
+        error: problem,
+        response,
+      } = await api.POST('/events/{id}/replay', {
+        params: { path: { id: event } },
+      });
+      return data ? { ok: true, data } : refused(problem, response);
+    } catch (e) {
+      return failed(e);
+    }
+  }
+
+  /**
+   * Closes a work item (`POST /workitems/{id}/close`, admin), and shows the closed item on the
+   * board and on its page.
+   */
+  async function closeItem(
+    id: string,
+    body: Schemas['CloseWorkItemRequest'],
+  ): Promise<AdminOutcome<Schemas['WorkItem']>> {
+    try {
+      const {
+        data,
+        error: problem,
+        response,
+      } = await api.POST('/workitems/{id}/close', {
+        params: { path: { id } },
+        body,
+      });
+      if (!data) return refused(problem, response);
+      upsert(data);
+      if (current.value?.workItem.metadata.name === id) {
+        current.value = { ...current.value, workItem: data };
+      }
+      return { ok: true, data };
+    } catch (e) {
+      return failed(e);
+    }
+  }
+
+  /**
+   * Deletes a work item and everything keyed to it (`DELETE /workitems/{id}`, admin). Without
+   * `force` a leased task refuses it: `409` with code `task-leased`.
+   */
+  async function deleteItem(
+    id: string,
+    force = false,
+  ): Promise<AdminOutcome<Schemas['WorkItemDeleted']>> {
+    try {
+      const {
+        data,
+        error: problem,
+        response,
+      } = await api.DELETE('/workitems/{id}', {
+        params: { path: { id }, query: force ? { force } : {} },
+      });
+      if (!data) return refused(problem, response);
+      items.value = items.value.filter((w) => w.metadata.name !== id);
+      return { ok: true, data };
+    } catch (e) {
+      return failed(e);
     }
   }
 
@@ -120,5 +222,8 @@ export const useWorkItemsStore = defineStore('workitems', () => {
     currentError,
     currentNotFound,
     loadItem,
+    replayEvent,
+    closeItem,
+    deleteItem,
   };
 });

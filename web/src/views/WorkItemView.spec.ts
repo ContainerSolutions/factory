@@ -185,6 +185,64 @@ describe('WorkItemView controls', () => {
     );
   });
 
+  it('closes the work item: a Closed badge, in the Done lane', async () => {
+    const { wrapper } = await mountWithApp(WorkItemView, {
+      path: `/workitems/${ID}`,
+      props: { id: ID },
+      me: maintainer,
+      attachTo: document.body,
+    });
+    mounted = wrapper;
+    expect(wrapper.get('[data-testid="lane"]').text()).toBe('Running');
+    await wrapper.get('[data-testid="close-workitem"]').trigger('click');
+    await flushPromises();
+    await confirmDialog('Close');
+    expect(wrapper.get('[data-testid="closed"]').text()).toContain(
+      'Closed: done',
+    );
+    expect(wrapper.get('[data-testid="lane"]').text()).toBe(
+      'Done (last 7 days)',
+    );
+  });
+
+  it('goes back to the board once the work item is deleted', async () => {
+    const { wrapper, router } = await mountWithApp(WorkItemView, {
+      path: `/workitems/${ID}`,
+      props: { id: ID },
+      me: maintainer,
+      attachTo: document.body,
+    });
+    mounted = wrapper;
+    await wrapper.get('[data-testid="delete-workitem"]').trigger('click');
+    await flushPromises();
+    await confirmDialog('Delete');
+    await confirmDialog('Cancel tasks and delete');
+    expect(router.currentRoute.value.name).toBe('board');
+  });
+
+  it('reloads the work item after a replay, keeping the page', async () => {
+    let loads = 0;
+    server.use(
+      http.get('/api/v1/workitems/:id', () => {
+        loads++;
+        return undefined;
+      }),
+    );
+    const { wrapper } = await mountWithApp(WorkItemView, {
+      path: `/workitems/${ID}?tab=timeline`,
+      props: { id: ID },
+      me: maintainer,
+      attachTo: document.body,
+    });
+    mounted = wrapper;
+    expect(loads).toBe(1);
+    await wrapper.get('[data-testid="replay"]').trigger('click');
+    await flushPromises();
+    await confirmDialog('Replay');
+    expect(loads).toBe(2);
+    expect(wrapper.find('[data-testid="replay-result"]').exists()).toBe(true);
+  });
+
   it('shows a reader no controls', async () => {
     const { wrapper } = await mountWithApp(WorkItemView, {
       path: `/workitems/${ID}`,
@@ -193,5 +251,6 @@ describe('WorkItemView controls', () => {
     });
     mounted = wrapper;
     expect(wrapper.find('[data-testid="pause-controls"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="workitem-admin"]').exists()).toBe(false);
   });
 });

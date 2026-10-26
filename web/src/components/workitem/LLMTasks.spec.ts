@@ -8,6 +8,27 @@ const pipeline = workItemDetails.find(
 )!;
 
 describe('LLMTasks', () => {
+  it("shows the dispatcher's sentence for why a pending task waits", () => {
+    const detail = workItemDetails.find(
+      (d) => d.workItem.metadata.name === 'wi_d235e0c50568b22418e5',
+    )!;
+    const pending = detail.tasks.find((t) => t.status?.reasonDetail);
+    expect(pending).toBeDefined();
+    const wrapper = mount(LLMTasks, {
+      props: { detail },
+      global: { stubs: { RouterLink: RouterLinkStub } },
+    });
+    const task = wrapper
+      .findAll('[data-testid="llm-task"]')
+      .find((t) => t.find('[data-testid="llm-task-reason-detail"]').exists())!;
+    expect(task.get('[data-testid="llm-task-reason"]').text()).toContain(
+      `Waiting: ${pending!.status!.reason}`,
+    );
+    expect(task.get('[data-testid="llm-task-reason-detail"]').text()).toBe(
+      pending!.status!.reasonDetail,
+    );
+  });
+
   it('lists the tasks in order and highlights the one in flight', () => {
     const wrapper = mount(LLMTasks, {
       props: { detail: pipeline },

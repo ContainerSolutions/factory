@@ -25,7 +25,8 @@ import {
  * phase), and links to what they caused (dashed when inferred). Each event sits on the row of
  * what caused it, so that arrow is a straight line (graphLayout.ts lays it out). Every node is a
  * button: an action opens its decision's "why", a task its
- * entry in the LLM tasks tab, an event its row in the timeline. Events no decision acted on and
+ * entry in the LLM tasks tab, an event its row in the timeline (where an admin can replay it). A
+ * replay's decisions say so on their rule. Events no decision acted on and
  * nothing points to are left out (the Timeline lists them).
  *
  * The graph sits in a viewport you can pan (drag, wheel, arrow keys) and zoom (⌘/Ctrl+wheel,
@@ -241,6 +242,17 @@ function taskLabel(t: GraphTask): string {
   return `Task ${t.spec}: ${t.phase}, ${attemptsText(t)}, ${taskNote(t)}. Show it in LLM tasks`;
 }
 
+/** The task's tooltip: its label, and the dispatcher's sentence for why it waits. */
+function taskTitle(t: GraphTask): string {
+  const detail = t.reason ? t.task.status?.reasonDetail : undefined;
+  return detail ? `${taskLabel(t)}\n${detail}` : taskLabel(t);
+}
+
+/** The rule above an action, marked when an admin's replay recorded its decision. */
+function ruleText(a: GraphAction): string {
+  return a.decision.replay ? `${a.rule} (replay)` : a.rule;
+}
+
 function activate(e: KeyboardEvent, fn: () => void): void {
   if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault();
@@ -364,14 +376,14 @@ function activate(e: KeyboardEvent, fn: () => void): void {
                 role="button"
                 tabindex="0"
                 class="cursor-pointer focus:outline-none [&:focus-visible>rect]:stroke-[3]"
-                :aria-label="`${actionTitle(a)}: ${a.state}, by ${a.rule}. Why?`"
+                :aria-label="`${actionTitle(a)}: ${a.state}, by ${ruleText(a)}. Why?`"
                 :data-kind="a.kind"
                 :data-state="a.state"
                 data-testid="graph-action"
                 @click="emit('why', a.decisionIndex)"
                 @keydown="activate($event, () => emit('why', a.decisionIndex))"
               >
-                <title>{{ actionTitle(a) }} ({{ a.rule }})</title>
+                <title>{{ actionTitle(a) }} ({{ ruleText(a) }})</title>
                 <path
                   :d="`M ${act(a.key).spineX} ${ev(e.key).cy + R} V ${act(a.key).y + ACT_H / 2} H ${act(a.key).x - 2}`"
                   fill="none"
@@ -385,7 +397,7 @@ function activate(e: KeyboardEvent, fn: () => void): void {
                   class="fill-ccf-500 text-[10px]"
                   data-testid="graph-rule"
                 >
-                  {{ clip(a.rule, 34) }}
+                  {{ clip(ruleText(a), 34) }}
                 </text>
                 <rect
                   :x="act(a.key).x"
@@ -433,7 +445,7 @@ function activate(e: KeyboardEvent, fn: () => void): void {
                 activate($event, () => emit('task', t.node.task.metadata.id))
               "
             >
-              <title>{{ taskLabel(t.node) }}</title>
+              <title>{{ taskTitle(t.node) }}</title>
               <rect
                 :x="t.x"
                 :y="t.y"

@@ -4,11 +4,18 @@ import { RouterLink } from 'vue-router';
 import type { Schemas } from '@/api/client';
 import StatusPill from '@/components/shared/StatusPill.vue';
 import { formatTime, formatValue, toneOf } from '@/components/shared/format';
-import { lastActivity, primaryLink, stateOf, titleOf } from './board';
+import {
+  closeReasonText,
+  lastActivity,
+  primaryLink,
+  stateOf,
+  titleOf,
+} from './board';
 
 const props = defineProps<{ item: Schemas['WorkItem'] }>();
 
 const link = computed(() => primaryLink(props.item));
+const closed = computed(() => props.item.status?.closed);
 const state = computed(() => Object.entries(stateOf(props.item)));
 const at = computed(() => lastActivity(props.item));
 const ruleSets = computed(() => [
@@ -45,10 +52,16 @@ const pendingApprovals = computed(() =>
       }}<template v-if="link.kind"> · {{ link.kind }}</template>
     </p>
     <ul
-      v-if="state.length || pendingApprovals.length"
+      v-if="closed || state.length || pendingApprovals.length"
       class="mt-2 flex flex-wrap gap-1"
       aria-label="State"
     >
+      <li v-if="closed" data-testid="card-closed">
+        <StatusPill
+          :label="`Closed: ${closeReasonText(closed.reason)}`"
+          tone="neutral"
+        />
+      </li>
       <li v-for="[key, value] in state" :key="key">
         <StatusPill
           :label="`${key}: ${formatValue(value)}`"

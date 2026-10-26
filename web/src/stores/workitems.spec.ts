@@ -76,6 +76,45 @@ describe('work items store', () => {
     expect(store.currentLoading).toBe(false);
   });
 
+  it('shows a closed work item on the board and its page', async () => {
+    const store = useWorkItemsStore();
+    const id = 'wi_01JAB3J9T1D2E3F4G5H6J7K8LM';
+    await store.load();
+    await store.loadItem(id);
+    const outcome = await store.closeItem(id, { reason: 'wont-do' });
+    expect(outcome.ok).toBe(true);
+    expect(store.current?.workItem.status?.closed?.reason).toBe('wont-do');
+    expect(
+      store.items.find((i) => i.metadata.name === id)?.status?.closed?.reason,
+    ).toBe('wont-do');
+  });
+
+  it('drops a deleted work item from the board, and says why a delete was refused', async () => {
+    const store = useWorkItemsStore();
+    const id = 'wi_01JAB3J9T1D2E3F4G5H6J7K8LM';
+    await store.load();
+    const refused = await store.deleteItem(id);
+    expect(refused).toEqual(
+      expect.objectContaining({ ok: false, status: 409, code: 'task-leased' }),
+    );
+    expect(store.items.some((i) => i.metadata.name === id)).toBe(true);
+    const outcome = await store.deleteItem(id, true);
+    expect(outcome.ok).toBe(true);
+    expect(store.items.some((i) => i.metadata.name === id)).toBe(false);
+  });
+
+  it('keeps the page on a quiet reload that fails', async () => {
+    const store = useWorkItemsStore();
+    const id = 'wi_01JAB3J9T1D2E3F4G5H6J7K8LM';
+    await store.loadItem(id);
+    server.use(
+      http.get('/api/v1/workitems/:id', () => problem(500, 'Internal')),
+    );
+    await store.loadItem(id, { quiet: true });
+    expect(store.current?.workItem.metadata.name).toBe(id);
+    expect(store.currentError).toBeNull();
+  });
+
   it('tells a missing work item from a failure', async () => {
     const store = useWorkItemsStore();
     await store.loadItem('wi_missing');

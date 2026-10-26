@@ -73,6 +73,38 @@ describe('WorkItemHeader', () => {
     ]);
   });
 
+  it('shows who closed it, when, why and their note, in the Done lane', () => {
+    const item = byName('wi_01JAC0ESCALATED0000000000000');
+    const wrapper = mount(WorkItemHeader, {
+      props: {
+        item: {
+          ...item,
+          status: {
+            ...item.status,
+            closed: {
+              reason: 'duplicate',
+              note: 'same as <b>api#300</b>',
+              at: '2026-10-18T09:00:00Z',
+              by: 'github-public:gusfcarvalho',
+            },
+          },
+        },
+      },
+    });
+    const closed = wrapper.get('[data-testid="closed"]');
+    expect(closed.text()).toContain('Closed: duplicate');
+    expect(closed.text()).toContain(
+      'by github-public:gusfcarvalho, 2026-10-18 09:00:00 UTC',
+    );
+    expect(closed.get('[data-testid="closed-note"]').text()).toBe(
+      'same as <b>api#300</b>',
+    );
+    expect(closed.find('b').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="lane"]').text()).toBe(
+      'Done (last 7 days)',
+    );
+  });
+
   it('says when there is nothing to show', () => {
     const item: Schemas['WorkItem'] = {
       kind: 'WorkItem',

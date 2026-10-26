@@ -22,7 +22,10 @@ function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** The open run (`GET /runs/{id}`), the progress streamed for it, and its transcript. */
+/**
+ * The open run (`GET /runs/{id}`), its task (`GET /tasks/{id}`, for why it waits), the progress
+ * streamed for it, its transcript and its environment log.
+ */
 export const useRunsStore = defineStore('runs', () => {
   const current = ref<Schemas['RunDetail'] | null>(null);
   const currentLoading = ref(false);
@@ -34,6 +37,12 @@ export const useRunsStore = defineStore('runs', () => {
   const transcript = ref<TranscriptEntry[] | null>(null);
   const transcriptState = ref<TranscriptState>('idle');
   const transcriptError = ref<string | null>(null);
+
+  const task = ref<Schemas['Task'] | null>(null);
+
+  const environmentLog = ref<string | null>(null);
+  const environmentLogState = ref<TranscriptState>('idle');
+  const environmentLogError = ref<string | null>(null);
 
   /**
    * Loads a run. A quiet load (after a reconnect, or when the run's task changed) keeps what is
@@ -53,6 +62,10 @@ export const useRunsStore = defineStore('runs', () => {
       transcript.value = null;
       transcriptState.value = 'idle';
       transcriptError.value = null;
+      task.value = null;
+      environmentLog.value = null;
+      environmentLogState.value = 'idle';
+      environmentLogError.value = null;
       currentLoading.value = true;
     }
     try {
@@ -64,6 +77,7 @@ export const useRunsStore = defineStore('runs', () => {
       if (requested !== id) return;
       if (data) {
         current.value = data;
+        void loadTask(id, data.run.spec.task);
       } else if (!quiet) {
         if (response.status === 404) currentNotFound.value = true;
         else currentError.value = describeProblem(problem, response);
@@ -73,6 +87,23 @@ export const useRunsStore = defineStore('runs', () => {
     } finally {
       if (requested === id) currentLoading.value = false;
     }
+  }
+
+  /** Loads the run's task; a failure only leaves it out (the page doesn't need it). */
+  async function loadTask(run: string, id: string): Promise<void> {
+    try {
+      const { data } = await api.GET('/tasks/{id}', {
+        params: { path: { id } },
+      });
+      if (requested === run && data) task.value = data;
+    } catch {
+      // Only why the task waits is lost.
+    }
+  }
+
+  /** A streamed update of the open run's task. */
+  function setTask(t: Schemas['Task']): void {
+    if (current.value?.run.spec.task === t.metadata.id) task.value = t;
   }
 
   /** Adds a streamed progress event of the open run; events of other runs are ignored. */
@@ -120,6 +151,39 @@ export const useRunsStore = defineStore('runs', () => {
     }
   }
 
+  /** Downloads the open run's environment log; `missing` when none was uploaded. */
+  async function loadEnvironmentLog(): Promise<void> {
+    const id = requested;
+    if (!id) return;
+    environmentLogState.value = 'loading';
+    environmentLogError.value = null;
+    try {
+      const {
+        data,
+        error: problem,
+        response,
+      } = await api.GET('/runs/{id}/environment-log', {
+        params: { path: { id } },
+        parseAs: 'text',
+      });
+      if (requested !== id) return;
+      if (response.ok) {
+        // An empty log comes back with no body.
+        environmentLog.value = data ?? '';
+        environmentLogState.value = 'loaded';
+      } else if (response.status === 404) {
+        environmentLogState.value = 'missing';
+      } else {
+        environmentLogError.value = describeProblem(problem, response);
+        environmentLogState.value = 'error';
+      }
+    } catch (e) {
+      if (requested !== id) return;
+      environmentLogError.value = message(e);
+      environmentLogState.value = 'error';
+    }
+  }
+
   return {
     current,
     currentLoading,
@@ -132,5 +196,11 @@ export const useRunsStore = defineStore('runs', () => {
     transcriptState,
     transcriptError,
     loadTranscript,
+    task,
+    setTask,
+    environmentLog,
+    environmentLogState,
+    environmentLogError,
+    loadEnvironmentLog,
   };
 });

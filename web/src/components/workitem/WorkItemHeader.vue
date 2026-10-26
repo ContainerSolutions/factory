@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import type { Schemas } from '@/api/client';
 import StatusPill from '@/components/shared/StatusPill.vue';
 import { formatTime, formatValue, toneOf } from '@/components/shared/format';
-import { laneOf, LANES, stateOf } from './board';
+import { closeReasonText, laneOf, LANES, stateOf } from './board';
 
 const props = defineProps<{ item: Schemas['WorkItem'] }>();
 
@@ -14,6 +14,7 @@ const counters = computed(() =>
 );
 const approvals = computed(() => props.item.status?.approvals ?? []);
 const reporter = computed(() => props.item.status?.reporter);
+const closed = computed(() => props.item.status?.closed);
 const lane = computed(() => {
   const id = laneOf(props.item);
   return { id, title: LANES.find((l) => l.id === id)!.title };
@@ -53,6 +54,28 @@ const lane = computed(() => {
         <dd data-testid="lane">
           <StatusPill :label="lane.title" :tone="toneOf(lane.id)" />
         </dd>
+        <template v-if="closed">
+          <dt class="text-ccf-600 dark:text-ccf-400">Closed</dt>
+          <dd data-testid="closed">
+            <StatusPill
+              :label="`Closed: ${closeReasonText(closed.reason)}`"
+              tone="neutral"
+            />
+            <span class="ms-2 text-ccf-600 dark:text-ccf-400"
+              >{{ closed.by ? `by ${closed.by}, ` : ''
+              }}<time :datetime="closed.at">{{
+                formatTime(closed.at)
+              }}</time></span
+            >
+            <p
+              v-if="closed.note"
+              class="mt-1 [overflow-wrap:anywhere]"
+              data-testid="closed-note"
+            >
+              {{ closed.note }}
+            </p>
+          </dd>
+        </template>
         <dt class="text-ccf-600 dark:text-ccf-400">Name</dt>
         <dd class="font-mono text-xs break-all">{{ item.metadata.name }}</dd>
         <template v-if="item.metadata.createdAt">
