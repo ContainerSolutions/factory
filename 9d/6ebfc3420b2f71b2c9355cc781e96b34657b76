@@ -1,0 +1,5 @@
+lisa-design:
+- The containerd step runs enable + restart (not enable --now) so a changed config or unit takes effect; KillMode=process keeps the shims and VMs.
+- workspaces.nft starts with `table …; delete table …` so a reload replaces the table atomically; that empties ws_allow, accepted because it fails closed (coordinator decision). The network step runs nft -f itself (enable --now doesn't rerun an active oneshot); factory-agent-nft.service is RequiredBy the containerd unit and has no ExecStop.
+- buildkitd.toml holds only comments: the unit's flags (Q8's) set everything; --config keeps /etc/buildkit/buildkitd.toml out.
+- rootInstallFiles returns the heredoc lines and the install lines separately, so nft -c runs on root's copy before anything is installed.
