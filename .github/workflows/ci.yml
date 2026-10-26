@@ -61,7 +61,7 @@ jobs:
             files="$(git diff --name-only "$range")"
             printf 'Changed files:\n%s\n' "$files"
             go=false; web=false; kata=false
-            # Workflow changes run both sides, so a CI edit is always exercised.
+            # Workflow changes run every job, so a CI edit is always exercised.
             if grep -qE '^(cmd/|internal/|api/|schemas/|catalog/|go\.mod$|go\.sum$|Makefile$|\.golangci\.yml$|\.github/workflows/)' <<< "$files"; then go=true; fi
             if grep -qE '^(web/|api/openapi\.yaml$|api/examples/|\.github/workflows/)' <<< "$files"; then web=true; fi
             if grep -qE '^(internal/agent/host/provision/|\.github/workflows/)' <<< "$files"; then kata=true; fi
@@ -149,11 +149,13 @@ jobs:
         run: make kata-context DIR="$RUNNER_TEMP/kata-context"
       - name: docker build
         run: docker build --progress=plain -t factory-agent-base:ci "$RUNNER_TEMP/kata-context"
-      # Reads paths only: the harness CLIs are never run.
+      # Reads paths only: the harness CLIs are never run. One command -v per tool: with several
+      # names, bash's command -v succeeds when any is found.
       - name: The tools are on PATH
         run: |
           docker image ls factory-agent-base:ci
-          docker run --rm factory-agent-base:ci bash -lc 'command -v kind kubectl gh node go playwright vhs gifski codex claude docker'
+          docker run --rm factory-agent-base:ci bash -lc \
+            'for t in kind kubectl gh node go playwright vhs gifski codex claude docker; do command -v "$t" || { echo "missing: $t" >&2; exit 1; }; done'
 
   required:
     name: required

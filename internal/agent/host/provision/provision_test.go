@@ -224,7 +224,7 @@ func runBase(t *testing.T, arch, mode string) (string, string, error) {
 		}
 	}
 	for _, c := range stubCommands {
-		if err := os.WriteFile(filepath.Join(stubs, c), []byte(stubScript), 0o755); err != nil { //nolint:gosec // an executable stub
+		if err := os.WriteFile(filepath.Join(stubs, c), []byte(stubScript), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -235,7 +235,7 @@ func runBase(t *testing.T, arch, mode string) (string, string, error) {
 			if err := os.Mkdir(d, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(d, "install.sh"), []byte(stubScript), 0o755); err != nil { //nolint:gosec // an executable stub
+			if err := os.WriteFile(filepath.Join(d, "install.sh"), []byte(stubScript), 0o755); err != nil {
 				t.Fatal(err)
 			}
 		}
