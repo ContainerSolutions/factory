@@ -1,0 +1,6 @@
+lisa-design:
+- host.LockedWriter is the one lockedWriter, not vmexec's: vmexec imports host (Process, StartCmd, Extract), so host can't import vmexec without a cycle. Only tart's run log and host's VM builds need it; kata starts no long-lived process.
+- vmexec.Remote.Exec takes a status func(error) error for the exec command's exit: tart maps it with vmexec.ExitError; kata (4c) adds its 125-with-kata-helper-line rule there, teeing stderr itself. vmexec stays prefix-agnostic.
+- Get takes maxBytes per call (not in vmexec.Config) so tart's d.c.MaxGet stays the one knob (tart's TestGetHostile sets it after New).
+- tart aliases Cmd/Runner/ExecRunner and putScript/signalScript so tart's tests and testdata/lifecycle.golden are byte-for-byte unchanged (the spec's condition for this commit).
+- Names are validated by each driver (workspace.ValidName) before any vmexec call; vmexec validates VM paths and file names only.
