@@ -1,0 +1,10 @@
+lisa-design:
+- create takes a 5th argument, <image> (factory-agent-base:<version>, validated by regex): the installed helper only changes when Protocol does, so it may be older than the running factory-agent and can't name the image from its own version. The driver's Config.Image passes it (LLD's driver Config already has Image).
+- The empty disk is a constant 60G sparse file (size.disk's default): the helper reads no config (it runs as root and trusts nothing it doesn't own), and the LLD's create takes no disk size. Open question for reviewers.
+- Sizes: cpus 1..16, memMiB 2048..65536, the config's bounds (config.Workspace.validate), as plain decimals (no sign, no leading zero).
+- create refuses a name that already has a slot (under the flock) or a disk (before allocating), so undo never removes another workspace's disk; undo is free(), the same tolerant release rm uses, not per-stage bookkeeping.
+- free removes the slot file last, under the flock, so a slot isn't reused before its bridge, element, conflist and IPAM state are gone; nft uses destroy element (nft >= 1.0.8, kernel >= 6.3: Ubuntu 24.04 has 1.0.9) so a missing element isn't an error.
+- rm finds the container by exact name in nerdctl ps -a --no-trunc (a ps failure fails rm rather than freeing a slot a running VM may still use); the id must be 64 hex before pkill -KILL -f -- <id>. pkill exit 1 (no match) is fine.
+- PR split: ccf-review's 1000-line limit forced 4b into 4b (create, rm: slots) and 4b2 (start, stop, inspect, exec).
+- Paths the helper writes itself go through Options.Root (tests only), commands get the real paths, so the goldens show production argv.
+- The helper's waits (Options.Bound, KillWait, the lock poll) are injected durations, not a clock: it is a short-lived root CLI.
