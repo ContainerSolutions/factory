@@ -155,13 +155,13 @@ The helper is a root-owned copy of the running `factory-agent`; `main` runs `kat
 | `stop` | `<name>` | `nerdctl stop -t 30` (systemd's halt, the image's stop signal) |
 | `rm` | `<name>` | `stop` bounded to 60 s, then `nerdctl rm -f` bounded to 60 s; when either hangs, kills every process whose command line holds the container's id (its shim, cloud-hypervisor and virtiofsd: Q8's first run saw `rm -f` wait forever on a systemd PID 1) and retries `rm -f`; then frees the slot (nft element, conflist, bridge, IPAM state, disk). A missing workspace is no error |
 | `inspect` | `<name>` | `{"slot", "vm", "gateway", "running"}` from the slot file and nerdctl |
-| `image-build` | `<context dir> <tag>` | `nerdctl build --buildkit-host unix:///run/factory-agent/buildkit/buildkitd.sock -t <tag> <dir>`; `<tag>` must be `factory-agent-base:<version>` |
-| `image-exists`, `image-rm` | `<tag>` | |
+| `image-build` | `<tag>`, the build context as a tar on stdin | copies the context into a root-only directory under `/var/lib/factory-agent/build` (regular files at its top level only, plain names, each once, a `Dockerfile` among them, at most 32 files and 16 MiB; modes 0755 or 0644), then `nerdctl build --buildkit-host unix:///run/factory-agent/buildkit/buildkitd.sock --progress plain --platform linux/amd64 -t <tag> <copy>` (90 minutes at most; its output on stderr) and removes the copy. The context never comes from a path: a path would let the owner have root read any directory into an image |
+| `image-exists`, `image-rm` | `<tag>` | `nerdctl image inspect <tag>`; `nerdctl rmi <tag>`, never forced, so nerdctl refuses while a workspace uses it |
 | `warm-load` | `<name> <ref>` | `nerdctl pull <ref>` on the host, then `nerdctl save <ref>` streamed into `exec -i <name> docker load` ([the warm disk](#the-warm-disk)) |
 | `warm-promote` | `<name>` | the stopped workspace's disk becomes `warm-docker.img` (rename, after the old one is moved aside and before it's deleted) |
 | `warm-exists` | | |
 
-Names are `workspace.ValidName`'s (`ws-tsk_…`), CPUs 1 to 16, memory 2048 to 65536 MiB and disk 20 to 500 GiB (the config's bounds); the warm step's build workspace is `ws-tsk_factory-warm-build`, which supervise's orphan cleanup leaves alone (`host init` holds `host.lock` while it exists, and deletes it on any exit path unless `--keep-failed`). Sizes are integers within the config's bounds. No verb takes a path but `image-build`'s context dir, which must be an absolute directory; a context the owner prepares runs only in BuildKit's build containers (runc, no host mounts).
+Names are `workspace.ValidName`'s (`ws-tsk_…`), CPUs 1 to 16, memory 2048 to 65536 MiB and disk 20 to 500 GiB (the config's bounds); the warm step's build workspace is `ws-tsk_factory-warm-build`, which supervise's orphan cleanup leaves alone (`host init` holds `host.lock` while it exists, and deletes it on any exit path unless `--keep-failed`). Sizes are integers within the config's bounds. No verb takes a path: `image-build` reads its context from stdin, and a context the owner prepares runs only in BuildKit's build containers (runc, no host mounts).
 
 ### `nerdctl create`
 
@@ -183,7 +183,7 @@ nerdctl --address /run/factory-agent/containerd/containerd.sock --namespace fact
 
 ## The image: `provision/kata/`
 
-Embedded in `factory-agent` with the script (`//go:embed`); the build context is written to the stage dir and built with `kata-helper image-build`.
+Embedded in `factory-agent` with the script (`//go:embed`); the build context is written to the stage dir and streamed as a tar into `kata-helper image-build`.
 
 - **`Dockerfile`**: `FROM docker.io/library/ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac`; a prelude installs `systemd systemd-sysv dbus sudo iproute2 kmod e2fsprogs util-linux`, removes the image's `ubuntu` user and creates `admin` (uid 1000, passwordless sudo, as the cirruslabs images have); `RUN FACTORY_BASE_MODE=image bash /tmp/base.sh`; then the two files below, `systemctl enable factory-docker-storage.service docker.service containerd.service`, the masks (`getty.target`, `console-getty.service`, `systemd-udevd.service`, `systemd-udev-trigger.service`), an empty `/etc/machine-id`, `STOPSIGNAL SIGRTMIN+3`, `CMD ["/usr/local/sbin/factory-init"]`.
 - **`factory-init`**, PID 1 before systemd, two lines Q8 found necessary:
@@ -196,7 +196,7 @@ Embedded in `factory-agent` with the script (`//go:embed`); the build context is
   - `ARCH="$(dpkg --print-architecture)"`, amd64 or arm64, and every pin a pair (`KIND_SHA256_amd64`, `KIND_SHA256_arm64`, …) from the same sources the arm64 ones cite; the release asset names per architecture (`kind-linux-amd64`, `node-…-linux-x64`, `x86_64-unknown-linux-gnu` Rust components, `codex-x86_64-unknown-linux-musl`, `@anthropic-ai/claude-code-linux-x64`, gh extensions' `linux-amd64`, vhs `Linux_x86_64`). gifski is still built from its crate on both, so there's one path.
   - `FACTORY_BASE_MODE=vm` (the default: the tart base, unchanged behaviour) or `image`: no `systemctl --now` or `start` (`enable` only, which works in a build), no `sysctl --system` (the file is written; the guest applies it at boot), no cloud-init, and the apt timers masked with `systemctl mask` only.
   - Its sha256 changes, so every Mac rebuilds its tart base once.
-- **The record** `katabase.json`: `{image, contextSHA256, builtAt}`. `contextSHA256` is the sha256 of the build context's files (name and content, sorted), so any change to the Dockerfile, `base.sh` or the two scripts rebuilds the image under the same tag; a new version's tag deletes the previous version's image (as tart deletes the previous base) only when no workspace uses it: one that does is left, with a warning, and the next `init` deletes it. `image-rm` never forces.
+- **The record** `katabase.json`: `{image, contextSHA256, builtAt}`. `contextSHA256` is the sha256 of the build context's files (name and content, sorted), so any change to the Dockerfile, `base.sh` or the two scripts rebuilds the image under the same tag; a new version's tag deletes the previous version's image (as tart deletes the previous base) only when no workspace uses it: one that does is left, with a warning that names the `kata-helper image-rm` to run once none does. `image-rm` never forces.
 - **CI** builds the image on every change under `internal/agent/host/provision/` (`docker build`, amd64 runner, a job of its own in `ci.yml` with a paths filter), so the script's amd64 form is tested for real; the arm64 form is still only `bash -n`'d.
 
 ## The warm disk
@@ -241,7 +241,8 @@ Stacked, each on the one before; each passes `make reviewable` on its own.
 | 4b2 | `fx/p9-4b2-helper-exec` | the helper's `start`, `stop`, `inspect` and `exec` |
 | 4c | `fx/p9-4c-kata-driver` | `workspace/kata` and its tests against a fake helper |
 | 4d | `fx/p9-4d-kata-integration` | the `kataintegration` tests (run by hand once PR 5's image exists) |
-| 5 | `fx/p9-5-kata-image` | steps 9 and 10: the image build, the warm disk, the helper's image and warm verbs |
+| 5a | `fx/p9-5a-kata-image` | step 9 (`kataimage`): the image build; the helper's `image-build`, `image-exists` and `image-rm` |
+| 5b | `fx/p9-5b-kata-warm` | step 10 (`katawarm`): the warm disk; the helper's `warm-load`, `warm-promote` and `warm-exists`; the kind archives on the disk |
 | 6 | `fx/p9-6-supervise-kata` | `supervise --driver kata` with concurrency above 1, `make kata-up`, the owner's run below |
 
 ## Tests

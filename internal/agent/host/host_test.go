@@ -51,6 +51,13 @@ type fakeRunner struct {
 	// kata-helper protocol's output, and sudo -n -k -l's error (nil: it lists the helper)
 	helper  string
 	sudoErr error
+	// kata answers sudo -n kata-helper's verbs (kataimage_test.go)
+	kata fakeKata
+}
+
+// isHelper reports whether a command is sudo -n kata-helper <verb>.
+func isHelper(name string, args []string) bool {
+	return name == "sudo" && len(args) > 2 && args[0] == "-n" && path.Base(args[1]) == "kata-helper"
 }
 
 func (r *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...string) error {
@@ -93,6 +100,8 @@ func (r *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...
 		if st[i] != "enabled" && st[i] != "active" {
 			return errors.New("exit status 1")
 		}
+	case isHelper(name, args):
+		return r.kata.run(call, out, nil, args[2:])
 	case path.Base(name) == "kata-helper" && len(args) == 1 && args[0] == "protocol":
 		if r.helper == "" {
 			return errors.New("exec format error")
