@@ -6,3 +6,8 @@ pass 1:
 - 3b6eadbc8b1a CORE-STYLE-001: Init's doc comment names the privileges prompt.
 - dismissed 769e04d72450 CORE-SIZE-001: not fixable within this PR's spec'd scope; raised to the orchestrator (size-exception label or a split).
 - also gofmt of katasteps_test.go.
+
+lisa-selfreview:
+pass 2 (strict): request_changes
+- [should-fix c598f66df07d] parent-t-in-subtest: three TestKataStepsCheck closures called the parent's t.Fatal.
+- re-raised, still open: [blocker 769e04d72450] CORE-SIZE-001 (orchestrator's call).
