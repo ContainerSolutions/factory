@@ -1,0 +1,2 @@
+lisa-addressed:
+- CORE-VERIFY-001 (pass 3): the kata job checks playwright with `npx --no -- playwright --version` (1.63.0 on the real image), command -v for the rest, chromium and codex-code-mode-host added.
