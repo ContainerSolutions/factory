@@ -6,3 +6,6 @@ lisa-design:
 - Destroy gives the helper's rm 5 minutes past ctx (WithoutCancel): its own bounds are ps 2 min, stop 60 s, rm -f 60 s, the kill, rm -f 60 s. Stop uses vmexec.CleanupCtx (1 min) like tart.
 - The driver holds no per-workspace state (no tart run to reap), so concurrent use on different workspaces needs no lock.
 - PR split: 4c (driver + unit tests, ~940 counted lines) and 4d (kataintegration tests), for the 1000-line limit.
+
+lisa-selfreview:
+pass 1 (4c): should-fix stop-bound-below-helpers (Driver.Stop's 1-minute cleanup ctx under the helper's 2-minute stop bound).
