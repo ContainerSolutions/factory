@@ -90,7 +90,7 @@ func finishedAnyway(out runner.Outcome, err error) bool {
 	return out.Status == runner.StatusThrottled || (out.Result != nil && out.Reason != runner.ReasonCancelled)
 }
 
-// report sends a finished run's Outcome (worker.md §Lease loop): throttled → abandon
+// report sends a finished run's Outcome (supervise.md §Lease loop): throttled → abandon
 // {throttled, until} and PATCH {Throttled, until}; an error or no Result → complete
 // {status: failed}; otherwise complete {result, transcriptRef}.
 func (w *Worker) report(ctx context.Context, l *apiclient.Lease, out runner.Outcome, runErr error, log *slog.Logger) {

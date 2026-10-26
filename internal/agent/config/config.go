@@ -1,6 +1,6 @@
 // Package config is factory-agent's local, owner-controlled configuration
-// (design/workstreams/agent/LLD/worker.md §Local config): the dispatcher, the pool, the join
-// token file, labels, the harnesses' dedicated config dirs, and the owner's lending consent.
+// (design/workstreams/agent/LLD/supervise.md §The local config): the dispatcher, the pool, the
+// join token file, labels, the harnesses' dedicated config dirs, and the owner's lending consent.
 //
 // The file is YAML 1.2 decoded strictly, the way v1alpha1 decodes the catalog: YAML → JSON →
 // encoding/json with DisallowUnknownFields, so unknown keys, duplicate keys and non-string keys

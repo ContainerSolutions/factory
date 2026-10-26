@@ -1,5 +1,5 @@
-// Package owner gets the agent owner's GitHub user token for registration (worker.md
-// §Startup step 3): a GitHub OAuth device flow against the dispatcher's OAuth client, whose
+// Package owner gets the agent owner's GitHub user token for registration (supervise.md
+// §Registration): a GitHub OAuth device flow against the dispatcher's OAuth client, whose
 // id comes from GET /api/v1/auth/device-config. The owner approves in their browser; the
 // token is sent once in POST /agents and dropped. No gh login is used on the worker's OS user.
 package owner

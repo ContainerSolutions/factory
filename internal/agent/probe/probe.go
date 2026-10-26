@@ -1,6 +1,6 @@
-// Package probe works out what this machine can offer the dispatcher (worker.md §Startup step
-// 2): a HarnessOffer per configured harness, the labels whose prerequisites pass, and the base
-// tooling every run needs. It never calls the dispatcher.
+// Package probe works out what this machine can offer the dispatcher (supervise.md
+// §factory-agent probe): a HarnessOffer per configured harness, the labels whose prerequisites
+// pass, and the base tooling every run needs. It never calls the dispatcher.
 //
 // Harness detection proper (versions, auth status) is each adapter's Probe (AGT-S1-T03/T04,
 // harness-adapters.md); until an adapter is registered, Configured reports what the local
@@ -160,7 +160,7 @@ func (ExecCommands) Output(ctx context.Context, name string, args ...string) ([]
 	return out.Bytes(), err
 }
 
-// BaseTools are the programs every run needs (worker.md §Startup step 2).
+// BaseTools are the programs every run needs (supervise.md §factory-agent probe).
 func BaseTools() []string { return []string{"git", "gh", "jq", "python3"} }
 
 // GhExtensions are the gh extensions every run needs.

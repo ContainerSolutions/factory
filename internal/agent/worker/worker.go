@@ -1,7 +1,7 @@
-// Package worker is factory-agent's worker (worker.md): it registers with the dispatcher
-// (join token + the owner's device-flow token, sent once), long-polls for leases, runs each
-// leased task through a runner.Runner while heartbeating, reports the Outcome (complete,
-// abandon, throttle), and drains on SIGTERM.
+// Package worker is factory-agent's worker loop (supervise.md §The worker loop): it registers
+// with the dispatcher (join token + the owner's device-flow token, sent once), long-polls for
+// leases, runs each leased task through a runner.Runner while heartbeating, reports the
+// Outcome (complete, abandon, throttle), and drains on SIGTERM.
 //
 // The agent token lives in memory only: a restart registers again. Tokens are never logged.
 package worker
