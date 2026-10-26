@@ -1,0 +1,2 @@
+lisa-addressed:
+- kata Stop and Destroy run past ctx for stopBound (3 min) and rmBound (5 min), above the helper's own bounds.
