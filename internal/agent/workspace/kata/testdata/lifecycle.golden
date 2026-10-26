@@ -1,0 +1,16 @@
+sudo -n /usr/local/libexec/factory-agent/kata-helper create ws-tsk_0123456789abcdef0123 5 8192 60 warm factory-agent-base:0.1.0
+sudo -n /usr/local/libexec/factory-agent/kata-helper start ws-tsk_0123456789abcdef0123
+sudo -n /usr/local/libexec/factory-agent/kata-helper exec ws-tsk_0123456789abcdef0123 test -S /run/systemd/private
+sudo -n /usr/local/libexec/factory-agent/kata-helper exec ws-tsk_0123456789abcdef0123 test -S /run/systemd/private
+sudo -n /usr/local/libexec/factory-agent/kata-helper exec ws-tsk_0123456789abcdef0123 test -S /run/systemd/private
+sudo -n /usr/local/libexec/factory-agent/kata-helper exec ws-tsk_0123456789abcdef0123 ip -4 route show default
+sudo -n /usr/local/libexec/factory-agent/kata-helper exec ws-tsk_0123456789abcdef0123 ip -4 route get 10.213.1.1
+sudo -n /usr/local/libexec/factory-agent/kata-helper inspect ws-tsk_0123456789abcdef0123
+sudo -n /usr/local/libexec/factory-agent/kata-helper exec -i ws-tsk_0123456789abcdef0123 sudo -n sh -c set -eu; rm -rf "$0"; mkdir -p "$0"; tar -xf - -C "$0" --no-same-owner; chown -R root:root "$0"; chmod -R a+rX,a-w "$0" /var/lib/factory/bin <stdin
+sudo -n /usr/local/libexec/factory-agent/kata-helper exec ws-tsk_0123456789abcdef0123 sudo -n ln -sfn /var/lib/factory/bin/factory-agent /usr/local/bin/factory-agent
+sudo -n /usr/local/libexec/factory-agent/kata-helper exec -i ws-tsk_0123456789abcdef0123 sudo -n sh -c set -eu; rm -rf "$0"; mkdir -p "$0"; tar -xf - -C "$0" --no-same-owner; chown -R root:root "$0"; chmod -R a+rX,a-w "$0" /var/lib/factory/run <stdin
+sudo -n /usr/local/libexec/factory-agent/kata-helper exec ws-tsk_0123456789abcdef0123 sh -c echo $$ > "$0" && exec "$@" /tmp/factory-exec-1.pid factory-agent run --bundle /var/lib/factory/run &
+sudo -n /usr/local/libexec/factory-agent/kata-helper exec ws-tsk_0123456789abcdef0123 sudo -n tar -czf - -C /work/out .
+sudo -n /usr/local/libexec/factory-agent/kata-helper stop ws-tsk_0123456789abcdef0123
+sudo -n /usr/local/libexec/factory-agent/kata-helper list
+sudo -n /usr/local/libexec/factory-agent/kata-helper rm ws-tsk_0123456789abcdef0123

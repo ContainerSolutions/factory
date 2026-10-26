@@ -39,8 +39,8 @@ const (
 	signalScript = vmexec.SignalScript
 )
 
-// MaxGet bounds Get's compressed stream by default; host.Extract bounds what it unpacks to.
-const MaxGet = 64 << 20
+// MaxGet bounds Get's compressed stream by default: vmexec's.
+const MaxGet = vmexec.MaxGet
 
 // Config is the driver's setup; every field but Bin has a default.
 type Config struct {
