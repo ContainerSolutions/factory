@@ -33,7 +33,7 @@ type (
 	ExecRunner = vmexec.ExecRunner
 )
 
-// The scripts tart exec runs in the VM: vmexec's.
+// The scripts tart exec runs in the VM are vmexec's; tart's fake answers by matching these.
 const (
 	putScript    = vmexec.PutScript
 	signalScript = vmexec.SignalScript
