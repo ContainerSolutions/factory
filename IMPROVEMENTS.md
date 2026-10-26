@@ -33,7 +33,14 @@ Notes for the Linux box agent:
 - **When an item ships,** record it in IMPROVEMENTS_DONE.md with its PR numbers, and remove it
   here.
 
-Stack 1 status: **not started.**
+Stack 1 status (2026-10-26): **in review.**
+- ContainerSolutions/factory: #192 (drop `worker`), #193 (drop the host stack and `localDev`),
+  #194 (fold the worker and local-stack LLDs), and #195 (the catalog lifts "never install",
+  ccf-skills `v0.10.0`).
+- compliance-framework/ccf-skills#25 (v0.10.0). It needs the tag before PR 4 is used.
+- All pushed as Gustavo, so he can't approve them himself.
+
+The Linux box waits until all of these are merged.
 
 ### 1. Phase 9 follow-ups
 
@@ -97,6 +104,33 @@ Phase 9 has shipped (#174–#190), so the host runtime can go. From P1's "What g
 | docs | the LLDs (worker → supervise, run-pipeline, harness-adapters, local-stack → environment), LOCAL-GUIDE |
 
 Removing the device flow needs enrollment first: phase 6, under Later.
+
+Left over from stack 1, for stack 2 (from #192–#194's "Deferred" lists):
+- **`runner.Stub`, and the pipeline's stack step:** `pipeline.Options.Stack`,
+  `stackUpIfNeeded` with its `has-local-stack` gate (its error still says "configure
+  localDev"), and `stackURLVars`. Also the claude adapter's local-stack sandbox host.
+- **The host-only pipeline:**
+  - `Pipeline.Run` on the host;
+  - the credential-helper socket (`fx git-credential`);
+  - the `PATH`/`DOCKER_*` passthrough;
+  - the `factory` shim;
+  - `gitsafe`;
+  - the Effector's host runtime (`FACTORY_RUNTIME` unset).
+- **The host side of the adapters and the CLI:** the adapters' host sandbox setup,
+  `factory-agent probe`'s host probes, and `make smoke-codex`/`make smoke-claude`, which drive
+  the host adapters.
+- **The scheduler's `rowLocalStack`.**
+- **Stale docs:**
+  - links into the deleted `local-stack.md` (`run-pipeline.md` lines 17 and 70) and comments
+    citing it (`pipeline.go`, `env.go`);
+  - `worker.md` named in `base.sh` line 135. Edit it with the next `base.sh` change: any edit
+    rebuilds the base VM;
+  - the worker and host-stack wording in 02-architecture, 05-agent-runtime §149, 08-roadmap,
+    10-poc and rollout.md.
+- **`has-local-stack` in `api/examples` and the web mocks:** arbitrary label strings, which can
+  stay.
+- **`ccf-review`'s `verify.md` says "`npm ci` (ask first)".** Under HEADLESS.md rule 9,
+  headless reviews could run it without asking. That's a ccf-skills change.
 
 Stack 1 (above) takes `worker` / `--runtime host`, the `localDev` and label config, the LLD
 renames and the "never install" lift. Stack 2 takes the rest. Test T2 needs the "never install"
