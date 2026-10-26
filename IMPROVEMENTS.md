@@ -1,7 +1,7 @@
 # Factory improvements: open work
 
 Everything the factory still needs, and nothing else. Done work and the reasons behind past
-changes are in [IMPROVEMENTS_DONE.md](IMPROVEMENTS_DONE.md). Local only, never pushed.
+changes are in [IMPROVEMENTS_DONE.md](IMPROVEMENTS_DONE.md). Both live on the `improvements` branch, which is never merged to main; pull it before planning, and push updates to it.
 
 Each item becomes its own PRs, through lisa and reviewed with ccf-review. **Before starting a
 phase or group,** say what you'll design, what's in and what goes back here as deferred, and
@@ -9,57 +9,83 @@ wait for Gustavo.
 
 ## Now
 
-### 1. Operability, one PR stack (started 2026-10-26)
+### Order (decided 2026-10-26)
 
-Things that cost time in phase 8 and will again.
+Three PR stacks, in this order:
 
-| # | Item | Notes |
-|---|---|---|
-| a | **Replay an event through the rules:** `POST /events/{id}/replay`, a `factory` CLI command, a UI button next to each event | Re-evaluates a stored event against the current catalog: a run's `factory.run.completed`, a provider event, any event. Admin only, and recorded in the timeline as a replay with its new decisions. Idempotent: dispatches dedupe against tasks the first evaluation created, and effects already done aren't repeated. In phase 8 two lost outcomes were replaced by hand-written events (`deploy/poc/events/wi_9760-*.json`). |
-| b | **Close, mark won't-do or delete a work item:** `POST /workitems/{id}/close` with a reason (`done`, `wont-do`, `duplicate`), a real delete, the CLI and UI buttons | Close moves the card to Done, suppresses further runs (like `lifecycle: closed`) and stays in the timeline. Stale card: `wi_c97ee34bbf1a22d8fee1` (mock-docs#4). Shares a contract PR with (a). |
-| c | **Collect the VM's `environment.log`** with the outcome, store it with the run, show it on the run page | Since #138 only `outcome.json` and the transcript come back, so an environment failure leaves only the run's summary. |
-| d | **Update only the agent binary in the base VM** | The base VM records the linux `factory-agent`'s sha256, so any agent change reprovisions everything: apt, Docker, the gifski build, the image pulls. Copy the new binary into the base and the warm base instead, and reprovision only when the script or the image changes. |
-| e | **ChatGPT token refresh in the gateway** | Codex runs fail with 401 once the access token expires, until the owner runs `factory-agent login codex` again. The full design is in `gateway.md` §ChatGPT refresh: a single-flight refresher per supervisor, write-back, codex's `oauth_provenance`. Its endpoint details are UNVERIFIED. |
-| f | **Fail loudly on missing App installations** | Two parts. A `factory serve` startup check that each App (author, reviewer) is installed on every repo the catalog's TaskSpecs and RuleSets can touch, ro and skill repos included. And a `git-credential` pending reason that names the App, the repo and the fix, shown in the UI. Seen with local-dev for the reviewer, and earlier ccf-skills. |
-| g | **Fix the flaky tests** | `TestRunFailures` (claudecode), `TestRunRateLimitStopsTheRun` (claudecode and codex), `TestRunWallClockLimit` (pipeline) and codex `TestRunCancelKillsTheProcessTree` all time out under load: inject clocks or widen margins. `TestStackGit` (effector): a background `git gc` races the temp dir cleanup; set `gc.auto=0`. `TestRunSpecSchemaRepair` (pipeline, Linux CI): ETXTBSY when exec'ing a script just written. `TestReadConcurrent` (filestore) was fixed in #129; watch it. Also seen on #162's CI (2026-10-26): `TestCascadeRunningControllers` (controllers, `rule_test.go:79` "timed out waiting for the run" after 10 s); #168 doesn't cover it. |
+| Stack | Where | Contents | Starts |
+|---|---|---|---|
+| **1. Common phase 10** | the Mac session | The phase 10 work that touches files the phase 9 follow-ups also touch: **(1)** remove `worker` and `--runtime host` from `cmd/factory-agent` (supervise is the only runtime); **(2)** remove the `localDev` and label config from `internal/agent/config`; **(3)** the LLD renames (worker → supervise, run-pipeline, harness-adapters, local-stack → environment). Plus **(4)** lifting the "never install" rule and the `not-run` stopgap (#85) in the prompts: not shared code, but test T2 needs it. | now |
+| **2. Remaining phase 10** | the Mac session | Everything else in "2. P1 phase 10: removal" below. | after stack 1 is merged |
+| **3. Phase 9 follow-ups** | **the Linux box** | Fixes a–h and tests T1–T6 in "1. Phase 9 follow-ups" below. | **only after stack 1 is merged:** check `git log origin/main` for its PRs, and that this section says stack 1 is merged |
 
-### 2. P1 phase 9: the Linux track (`kata`)
+Notes for the Linux box agent:
+- **Read AGENTS.md first.** Use lisa as `ccf-lisa[bot]`, review with ccf-review, and keep one
+  stack. Before starting, tell Gustavo the design, what's in, and what goes back here as
+  deferred, then wait.
+- **Rebase on main after stack 1.** `internal/agent/config` and `cmd/factory-agent` will have
+  changed: `localDev` and `worker` are gone.
+- **The tart-only parts can't be verified on Linux.** That's fix b and fix a's pf-anchor half.
+  Write them against the existing fake tart, and leave the real check to Gustavo on the Mac
+  (say so in the PR body).
+- **T1 and T3 run on either machine.** T2 needs stack 1's "never install" lift. T4, T5 and T6
+  are Linux only.
+- **When an item ships,** record it in IMPROVEMENTS_DONE.md with its PR numbers, and remove it
+  here.
 
-Gustavo is preparing the Linux workstation (64 GiB). It runs 3 workspaces and reaches the
-dispatcher on the Mac through the tunnel. From P1's Phases:
-1. **The Q8 dry run:** the spike's Kata provisioning on the bare host. See
-   `design/proposals/P1-phase0-report.md`, Q8.
-2. **`host init --driver kata`:**
-   - containerd, nerdctl, and Kata with the rendered Cloud Hypervisor config;
-   - CNI, iptables (the Linux counterpart of Softnet and the pf anchor);
-   - the registry mirror.
-3. **The kata driver:** `internal/agent/workspace`'s `Driver` (create, start, put, exec, get,
-   destroy, list, stop), like `workspace/tart`. Get takes the file list (#138).
-4. **The base image's kata form,** built by `host init`. The provisioning script
-   (`internal/agent/host/provision/base.sh`) already has it; CI only checks the script.
-5. **Supervise with more than one workspace:** concurrency above 1 is deferred today, and
-   `maxConcurrent: 3` needs it. Then the workstation joins the pool.
+Stack 1 status: **not started.**
 
-Also open for this track:
-- VM size from the TaskSpec's `limits` (today a fixed 8 GiB / 6 vCPU);
-- the opt-in container test layer (#116, `make e2e-run-container`), which has never run.
+### 1. Phase 9 follow-ups
 
-Fixes found while building and running it (stack #174–#189, 2026-10-26):
+#### Fixes
+
+Found while building and running the kata track (#174–#189):
 
 | # | Fix | Notes |
 |---|---|---|
-| a | **The gateway port is hard-coded** | The runner listens on 3128 (`workspace.GatewayPort`, `runner.go`), while the pf anchor (tart) and the nft table (kata) open `workspace.gatewayPort`. Any other port opens the wrong one. Pass the config's port to the runner. Since phase 5 on tart. |
-| b | **tart doesn't follow `workspace.size`** | supervise gives tart `Spec{}` (6 vCPUs, 8 GiB) whatever the config says; kata uses `workspace.size` (#187). |
-| c | **supervise doesn't re-read physical memory on SIGHUP** | The concurrency cap's memory is read once at start (#187); SIGHUP only re-applies the cap to the reloaded `maxConcurrent`. |
-| d | **An interrupted `host init` leaves `warm-load` running** | The Runner kills sudo with SIGKILL, which sudo can't relay, so the helper's `warm-load` runs on until its own bound (30 min). Same for a killed `image-build`, which also leaves its context copy (≤ 16 MiB) in `/var/lib/factory-agent/build`. |
-| e | **A declined privileges prompt fails the image steps** | `kataimage` and `katawarm` then fail with sudo's "a password is required" instead of being skipped with a warning naming the declined step. |
-| f | **Digest-pinned kind images are unverified on a real host** | The warm build's `docker tag <ref> <tag>` after `nerdctl save` and `docker load` in the workspace is only tested against fakes. If it doesn't resolve, tag on the host before saving. |
-| g | **The `local` Pool caps every agent at one task** | `catalog/pools/local.yaml` has `lease.maxTasksPerAgent: 1`, and the scheduler takes the smaller of that and the agent's `lending.maxConcurrent`, so the workstation's 3 parallel tasks wait as `agent-busy`. Fixed in #190 (`maxTasksPerAgent: 3`). |
+| a | **The gateway port is hard-coded** | The runner listens on 3128 (`workspace.GatewayPort`, `runner.go`), while the pf anchor (tart) and the nft table (kata) open `workspace.gatewayPort`. Any other port opens the wrong one. Pass the config's port to the runner. Broken on tart since phase 5. |
+| b | **tart doesn't follow `workspace.size`** | supervise gives tart `Spec{}` (6 vCPUs, 8 GiB) whatever the config says. kata uses `workspace.size` (#187). |
+| c | **supervise doesn't re-read physical memory on SIGHUP** | The concurrency cap's memory is read once at start (#187). SIGHUP only re-applies the cap to the reloaded `maxConcurrent`. |
+| d | **An interrupted `host init` leaves `warm-load` running** | The Runner kills sudo with SIGKILL, which sudo can't relay, so the helper's `warm-load` runs on until its own bound (30 min). A killed `image-build` does the same, and also leaves its context copy (≤ 16 MiB) in `/var/lib/factory-agent/build`. |
+| e | **A declined privileges prompt fails the image steps** | `kataimage` and `katawarm` then fail with sudo's "a password is required", instead of being skipped with a warning that names the declined step. |
+| f | **Digest-pinned kind images are unverified on a real host** | The warm build's `docker tag <ref> <tag>` after `nerdctl save` and `docker load` in the workspace has only been tested against fakes. If it doesn't resolve, tag on the host before saving. |
+| g | **VM size from the TaskSpec's `limits`** | Both drivers use the agent's `workspace.size`, never the task's. |
+| h | **The opt-in container test layer** (#116, `make e2e-run-container`) | It has never run. |
 
-### 3. P1 phase 10: removal
+The kata LLD's risks stay as they are (`design/workstreams/agent/LLD/workspace-kata.md`,
+"Risks and open questions"):
+- Docker's ~5 s embedded-DNS wait;
+- the 1.7 GB image, rebuilt on every `base.sh` change;
+- `no-aaaa` covering glibc lookups only.
 
-After phase 9, since it removes the host runtime that Linux uses until the kata driver exists.
-From P1's "What gets removed":
+#### Tests on real workspaces
+
+Shipped work that has only been tested against fakes. The owner runs these: they need tart, a
+codex login or the Linux machine. Each records its result here, then moves to
+IMPROVEMENTS_DONE.md.
+
+Already confirmed from the Mac's run records (2026-10-26), now in IMPROVEMENTS_DONE.md:
+- #162 on tart;
+- #173 under codex;
+- #172's corepack download;
+- claude-code working with `NODE_USE_ENV_PROXY`.
+
+| # | What | How | Pass when |
+|---|---|---|---|
+| T1 | **ChatGPT refresh (#165)**, on the Mac or the workstation | **1.** Stop `supervise`, then `cp -p <state>/logins/codex.json{,.bak}`. **2.** Find the key paths without printing values: `jq -r 'paths(scalars)\|map(tostring)\|join(".")' <state>/logins/codex.json`. Set only the access token to an invalid string with `jq` (keep the refresh token), keeping mode 0600. **3.** Start `supervise` and redispatch any codex task. **4.** Afterwards run `codex login` on the host, because the old refresh token in `~/.codex/auth.json` is spent. | The task succeeds with no re-import. The run's egress log shows `chatgpt.com` 401, then the resent 200. `jq .lastRefresh` on the file shows a new time. `stat` shows 0600. The new access token is a JWT with `exp`. |
+| T2 | **`yarn install` and `yarn build` in a VM (#172)** | After phase 10 lifts "never install": a release-docs or implement run on mock-docs. | The run's checks say `build: pass`, not `not-run`. Its transcript (the run page, or `GET /runs/<id>/transcript`) has `factory.egress` lines for `registry.yarnpkg.com` and `registry.npmjs.org`. |
+| T3 | **The egress log records what the gateway forwards** | Any recent run's transcript in the UI, filtered for `factory.egress`. The VM's local copy doesn't have these lines: the host adds them. | The model host (`api.anthropic.com` or `chatgpt.com`), `github.com` and `api.github.com` appear, with the credential column filled and no token values. |
+| T4 | **Digest-pinned kind images on kata** (fix f) | On the workstation, set `workspace.warm.kindImages` to a `name:tag@sha256:…` ref, run `host init --driver kata`, then a task that runs `kind create cluster` with that image. | kind finds the image without pulling it. |
+| T5 | **The container test layer (#116)** | On the workstation: `make e2e-run-container`, about 300 MB of pulls. | It passes. Fix what it finds, or drop the layer (fix h). |
+| T6 | **An agent-only change on kata** | Rebuild `factory-agent` and restart `supervise`. The kata driver puts the binary into each workspace at start (`AgentBinary`), so nothing needs to be rebuilt. | `host check` stays ok, and the next workspace runs the new binary. |
+
+Not testable without a catalog change: #173 for an implement run under claude, because
+implement allows only codex. The claude side of the `ccfr` lookup, the plugin-dir fallback, is
+exercised by every docs-review run.
+
+### 2. P1 phase 10: removal
+
+Phase 9 has shipped (#174–#190), so the host runtime can go. From P1's "What gets removed":
 
 | Area | Remove |
 |---|---|
@@ -72,14 +98,23 @@ From P1's "What gets removed":
 
 Removing the device flow needs enrollment first: phase 6, under Later.
 
+Stack 1 (above) takes `worker` / `--runtime host`, the `localDev` and label config, the LLD
+renames and the "never install" lift. Stack 2 takes the rest. Test T2 needs the "never install"
+rule gone:
+in VM runs `yarn` now reaches the registry (#172), but agents still don't run `yarn install`,
+so docs builds stay `not-run`.
+
 ## Later
 
-### Deferred from group 1 (#162–#169)
+### Deferred from group 1 (#162–#173)
 - **Replay (#164):**
   - A replay of an event that hasn't been processed yet can race its first reconcile, which
     checks the processed mark before taking the lock. That duplicates decisions, not effects.
-  - Decisions past the 200-decision bound are gone, so replay re-applies those rules, deduped by
-    key only.
+  - A replay of an event processed before #164 that left no records on its item is refused
+    (409 `replay-history-gone`), because its mark has no record count.
+  - A rule that fired but was suppressed by a rail at the time stays unapplied on replay.
+  - The web's Replay button (#170) should show the 409 `replay-history-gone` problem in plain
+    words.
 - **Close and delete (#166):**
   - Close emits no `factory.command.close` event.
   - Delete lists every Event, EventStatus, Effect and Debounce, since none is indexed by work
@@ -103,7 +138,15 @@ Removing the device flow needs enrollment first: phase 6, under Later.
     issuer.
   - After a gateway refresh, the owner's own `~/.codex/auth.json` holds a spent refresh token,
     so codex on the Mac needs `codex login` again.
+- **Node and `NO_PROXY` (#172):** Node's `NO_PROXY` has no CIDR form, so the private ranges in
+  `DefaultNoProxy` don't match Node clients. A Node client that reaches a private address by IP
+  now goes through the gateway, which denies it. Add Node's range form if one needs to.
+- **lisa's self-review finds `ccfr` by a relative path (#173):** codex now links the plugin's
+  `bin/`. In ccf-skills, lisa's reviewer role could take `ccfr` from `PATH`, as HEADLESS.md asks
+  headless skills to.
 - **Flaky tests (#168):**
+  - controllers `TestCascadeRunningControllers` (`rule_test.go:79`, "timed out waiting for the
+    run" after 10 s, seen on #162's CI), which #168 doesn't cover;
   - claudecode/codex fake scripts are still written with a plain `os.WriteFile` (possible
     ETXTBSY on Linux).
   - Also seen: pipeline `TestRunEnvironmentWallClockLimit` under load ("the environment didn't
