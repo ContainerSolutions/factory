@@ -152,9 +152,9 @@ process inside it is privileged only inside that VM.
     `warm.kindImages` subset preloaded for kind. It rebuilds the warm base when the list or the
     base version changes. In Phase 0 a warm clone brought local-dev's compose stack up in 3 s;
     cold, the image pulls took about 14 minutes.
-  - **kata:** (superseded by [workspace-kata.md](../workstreams/agent/LLD/workspace-kata.md)'s
-    warm Docker disk, a pre-filled copy of each workspace's loop-mounted disk) a registry mirror (`registry:2` as a pull-through cache) on the agent host is each
-    workspace's dockerd mirror.
+  - **kata:** each workspace's Docker disk is a copy of a pre-filled warm disk
+    ([workspace-kata.md](../workstreams/agent/LLD/workspace-kata.md#the-warm-disk)). It replaces
+    the registry mirror planned here first, which would have covered Docker Hub only.
 - **Concurrency and limits:** up to `lending.maxConcurrent` workspaces at once: 1 on the Mac, 3
   on the workstation. local-dev with kind used 1.9 GiB in the guest plus page cache, so a
   workspace is 8 GiB / 6 vCPUs by default.

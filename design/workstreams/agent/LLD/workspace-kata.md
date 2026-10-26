@@ -158,7 +158,7 @@ The helper is a root-owned copy of the running `factory-agent`; `main` runs `kat
 | `warm-promote` | `<name>` | the stopped workspace's disk becomes `warm-docker.img` (rename, after the old one is moved aside and before it's deleted) |
 | `warm-exists` | | |
 
-Names are `workspace.ValidName`'s (`ws-tsk_…`), plus the one fixed build name `ws-tsk_factory-warm-build` that only the warm step uses. Sizes are integers within the config's bounds. No verb takes a path but `image-build`'s context dir, which must be an absolute directory; a context the owner prepares runs only in BuildKit's build containers (runc, no host mounts).
+Names are `workspace.ValidName`'s (`ws-tsk_…`); the warm step's build workspace is `ws-tsk_factory-warm-build`, which supervise's orphan cleanup leaves alone (`host init` holds `host.lock` while it exists, and deletes it on any exit path unless `--keep-failed`). Sizes are integers within the config's bounds. No verb takes a path but `image-build`'s context dir, which must be an absolute directory; a context the owner prepares runs only in BuildKit's build containers (runc, no host mounts).
 
 ### `nerdctl create`
 
