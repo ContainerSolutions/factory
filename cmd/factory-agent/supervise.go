@@ -9,16 +9,19 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/host"
+	"github.com/compliance-framework/factory/internal/agent/katahelper"
 	"github.com/compliance-framework/factory/internal/agent/login"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/probe"
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/agent/workspace"
+	"github.com/compliance-framework/factory/internal/agent/workspace/kata"
 	"github.com/compliance-framework/factory/internal/agent/workspace/tart"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
@@ -31,8 +34,10 @@ type superviseDeps struct {
 	Host host.Env
 	// HostCheck replaces host check's steps (tests); default host.Steps and host.Check.
 	HostCheck func(ctx context.Context, e *host.Env) ([]host.Status, error)
-	// NewDriver builds the workspace driver; default tart.New.
+	// NewDriver builds the tart driver; default tart.New.
 	NewDriver func(tart.Config) workspace.Driver
+	// NewKataDriver builds the kata driver; default kata.New.
+	NewKataDriver func(kata.Config) workspace.Driver
 	// Listen opens each gateway's listener (tests); default TCP on the address.
 	Listen func(ctx context.Context, addr netip.AddrPort) (net.Listener, error)
 }
@@ -47,8 +52,9 @@ func superviseCommand() command {
 	}
 }
 
-// errHostCheck is a host that host check doesn't pass.
-var errHostCheck = errors.New("host check failed: run `factory-agent host init --driver tart`")
+// errHostCheck is a host that host check doesn't pass; the error wrapping it names the driver
+// host init must set up.
+var errHostCheck = errors.New("host check failed")
 
 func runSupervise(ctx context.Context, args []string, stderr io.Writer, d superviseDeps) int {
 	fs := flag.NewFlagSet("supervise", flag.ContinueOnError)
@@ -57,8 +63,8 @@ func runSupervise(ctx context.Context, args []string, stderr io.Writer, d superv
 	keepWorkspace := fs.Bool("keep-workspace", false, "debugging: stop each workspace VM and keep it, and its run directory, instead of destroying them")
 	logLevel := fs.String("log-level", "info", "debug, info, warn or error")
 	logFormat := fs.String("log-format", "text", "text or json")
-	driver := fs.String("driver", config.DriverTart, "the workspace driver: tart")
-	warmBase := fs.String("warm-base", host.WarmBaseVM, "the VM each workspace is cloned from (host init builds it)")
+	driver := fs.String("driver", "", "the workspace driver: tart or kata (default: the config's workspace.driver, tart on a Mac and kata on Linux)")
+	warmBase := fs.String("warm-base", host.WarmBaseVM, "tart: the VM each workspace is cloned from (host init builds it)")
 	stateDir := fs.String("state-dir", "", "the agent's state dir: logins, runs and the gateway CA (default: the agent's per OS, ~/Library/Application Support/factory-agent on a Mac, $XDG_STATE_HOME/factory-agent or ~/.local/state/factory-agent on Linux)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -70,8 +76,16 @@ func runSupervise(ctx context.Context, args []string, stderr io.Writer, d superv
 		fmt.Fprintf(stderr, "factory-agent supervise: unexpected arguments %v\n", fs.Args())
 		return 2
 	}
-	if *driver != config.DriverTart {
-		fmt.Fprintf(stderr, "factory-agent supervise: --driver %q: only tart is supported\n", *driver)
+	warmBaseSet := false
+	fs.Visit(func(f *flag.Flag) { warmBaseSet = warmBaseSet || f.Name == "warm-base" })
+	switch *driver {
+	case "", config.DriverTart, config.DriverKata:
+	default:
+		fmt.Fprintf(stderr, "factory-agent supervise: --driver %q is not tart or kata\n", *driver)
+		return 2
+	}
+	if *driver == config.DriverKata && warmBaseSet {
+		fmt.Fprintln(stderr, "factory-agent supervise: "+errWarmBaseKata.Error())
 		return 2
 	}
 	log, err := newLogger(stderr, *logLevel, *logFormat)
@@ -94,14 +108,17 @@ func runSupervise(ctx context.Context, args []string, stderr io.Writer, d superv
 	if d.Worker.Probe.Harnesses == nil {
 		d.Worker.Probe = loginProbe(login.ForStateDir(*stateDir))
 	}
-	s := &supervisor{d: d, e: &e, stderr: stderr, log: log, stateDir: *stateDir, warmBase: *warmBase, keep: *keepWorkspace, unlock: func() {}}
+	s := &supervisor{d: d, e: &e, stderr: stderr, log: log, stateDir: *stateDir, driver: *driver,
+		warmBase: *warmBase, warmBaseSet: warmBaseSet, keep: *keepWorkspace, unlock: func() {}}
 	defer func() { s.unlock() }()
 	return runAgentLoop(ctx, stderr, d.Worker, agentLoop{
-		name: "supervisor", path: *path, log: log, newRunner: s.newRunner,
-		// concurrency 1 (supervise.md): one workspace VM at a time.
-		lending: func(l v1alpha1.Lending) v1alpha1.Lending { l.MaxConcurrent = 1; return l },
+		name: "supervisor", path: *path, log: log, newRunner: s.newRunner, lending: s.lending,
 	})
 }
+
+// errWarmBaseKata is --warm-base with the kata driver, whose workspaces come from host init's
+// image and warm disk.
+var errWarmBaseKata = errors.New("--warm-base is the tart driver's, not kata's")
 
 // loginProbe offers each configured harness whose model login is in the store: the harnesses
 // run in the VM, so the host has no binary to probe, and a task without its login would fail.
@@ -137,10 +154,55 @@ type supervisor struct {
 	stderr   io.Writer
 	log      *slog.Logger
 	stateDir string
-	warmBase string
-	keep     bool
+	// driver is --driver: "" is the config's workspace.driver.
+	driver      string
+	warmBase    string
+	warmBaseSet bool
+	keep        bool
 	// unlock releases the supervise lock newRunner takes, if it did.
 	unlock func()
+	// memTotal and workspaceGiB are the kata host's physical memory and one workspace's
+	// (workspace.size.memory), set by newRunner before the first lending call.
+	memTotal     uint64
+	workspaceGiB int
+}
+
+// lending is the lending supervise registers, at start and on SIGHUP: tart runs one workspace at
+// a time (supervise.md); kata honours lending.maxConcurrent, capped by kataConcurrency.
+func (s *supervisor) lending(l v1alpha1.Lending) v1alpha1.Lending {
+	if s.e.Workspace.Driver != config.DriverKata {
+		l.MaxConcurrent = 1
+		return l
+	}
+	want := max(l.MaxConcurrent, 1)
+	n, by := kataConcurrency(want, s.memTotal, s.workspaceGiB)
+	if n < want {
+		s.log.Warn("lending.maxConcurrent capped", "configured", want, "max", n, "by", by)
+	}
+	l.MaxConcurrent = n
+	return l
+}
+
+// kataConcurrency is the kata driver's most workspaces at once for a lending.maxConcurrent of
+// want (workspace-kata.md#supervise-pr-6): the workspace slots, and the workspaces of
+// workspaceGiB that fit in the physical memory less host.HeadroomGiB, at least one (host check
+// has made sure one fits). by says which cap bit, when one did.
+func kataConcurrency(want int, memTotal uint64, workspaceGiB int) (n int, by string) {
+	n = want
+	if n > katahelper.Slots {
+		n, by = katahelper.Slots, fmt.Sprintf("the %d workspace slots", katahelper.Slots)
+	}
+	if workspaceGiB < 1 {
+		return n, by
+	}
+	fit := 0
+	if headroom := uint64(host.HeadroomGiB) << 30; memTotal > headroom {
+		fit = int((memTotal - headroom) / (uint64(workspaceGiB) << 30)) //nolint:gosec // a count of workspaces fits an int
+	}
+	if fit = max(fit, 1); fit < n {
+		n, by = fit, fmt.Sprintf("memory: %d GiB, less %d GiB for the host, fits %d workspaces of %d GiB", memTotal>>30, host.HeadroomGiB, fit, workspaceGiB)
+	}
+	return n, by
 }
 
 // newRunner gates on host check, takes the supervise lock, destroys the workspaces a killed
@@ -150,8 +212,14 @@ func (s *supervisor) newRunner(ctx context.Context, cfg *config.Config) (runner.
 	if cfg.Workspace != nil {
 		w = *cfg.Workspace
 	}
-	w.Driver = config.DriverTart
-	s.e.Workspace = w.WithDefaults(s.e.GOOS)
+	if s.driver != "" {
+		w.Driver = s.driver
+	}
+	w = w.WithDefaults(s.e.GOOS)
+	if w.Driver == config.DriverKata && s.warmBaseSet {
+		return nil, fmt.Errorf("%w (workspace.driver is kata)", errWarmBaseKata)
+	}
+	s.e.Workspace = w
 	check := s.d.HostCheck
 	if check == nil {
 		check = func(ctx context.Context, e *host.Env) ([]host.Status, error) {
@@ -174,7 +242,7 @@ func (s *supervisor) newRunner(ctx context.Context, cfg *config.Config) (runner.
 			}
 		}
 		_ = printStatuses(s.stderr, bad, false)
-		return nil, errHostCheck
+		return nil, fmt.Errorf("%w: run `factory-agent host init --driver %s`", errHostCheck, w.Driver)
 	}
 	warnSkipped(s.stderr, sts)
 	// One supervisor per user (supervise.md): the orphan cleanup would destroy another's VM.
@@ -185,15 +253,10 @@ func (s *supervisor) newRunner(ctx context.Context, cfg *config.Config) (runner.
 	}
 	s.unlock = unlock
 
-	newDriver := s.d.NewDriver
-	if newDriver == nil {
-		newDriver = func(c tart.Config) workspace.Driver { return tart.New(c) }
+	drv, spec, err := s.newDriver(ctx, sts)
+	if err != nil {
+		return nil, err
 	}
-	tartLog := io.Discard
-	if s.log.Enabled(ctx, slog.LevelDebug) {
-		tartLog = s.stderr
-	}
-	drv := newDriver(tart.Config{Bin: s.e.TartBin(ctx), WarmBase: s.warmBase, Log: tartLog})
 	if err := destroyOrphans(ctx, drv, s.log); err != nil {
 		return nil, err
 	}
@@ -207,20 +270,63 @@ func (s *supervisor) newRunner(ctx context.Context, cfg *config.Config) (runner.
 		return nil, err
 	}
 	return workspace.NewRunner(workspace.RunnerOptions{
-		Driver: drv, Pipeline: p, StateDir: s.stateDir, KeepWorkspace: s.keep,
+		Driver: drv, Pipeline: p, StateDir: s.stateDir, Spec: spec, KeepWorkspace: s.keep,
 		Listen: s.d.Listen, Logger: s.log,
 	})
 }
 
+// newDriver builds the workspace driver host check passed for, and the size of its workspaces.
+// tart's are Spec{} (supervise.md); kata's are workspace.size, from host init's image, on its
+// warm disk when the katawarm step is ok, and the lending cap is computed from their memory.
+func (s *supervisor) newDriver(ctx context.Context, sts []host.Status) (workspace.Driver, workspace.Spec, error) {
+	w := s.e.Workspace
+	if w.Driver == config.DriverTart {
+		newDriver := s.d.NewDriver
+		if newDriver == nil {
+			newDriver = func(c tart.Config) workspace.Driver { return tart.New(c) }
+		}
+		tartLog := io.Discard
+		if s.log.Enabled(ctx, slog.LevelDebug) {
+			tartLog = s.stderr
+		}
+		return newDriver(tart.Config{Bin: s.e.TartBin(ctx), WarmBase: s.warmBase, Log: tartLog}), workspace.Spec{}, nil
+	}
+	img, err := s.e.ReadKataBase()
+	if err != nil {
+		return nil, workspace.Spec{}, fmt.Errorf("the workspace image: %w", err)
+	}
+	if s.memTotal, err = s.e.MemTotal(); err != nil {
+		return nil, workspace.Spec{}, err
+	}
+	s.workspaceGiB = w.Size.MemoryGiB()
+	warm := false
+	for _, st := range sts {
+		warm = warm || st.Step == host.KataWarmStep && st.State == host.StateOK
+	}
+	if _, err := os.Stat(s.e.KataWarmRecordPath()); err != nil {
+		warm = false
+	}
+	if !warm {
+		s.log.Warn("no warm disk: each workspace starts with an empty Docker disk (run `factory-agent host init --driver kata --only katawarm`)")
+	}
+	newKata := s.d.NewKataDriver
+	if newKata == nil {
+		newKata = func(c kata.Config) workspace.Driver { return kata.New(c) }
+	}
+	drv := newKata(kata.Config{Image: img.Image, DiskGiB: w.Size.DiskGiB(), Warm: warm})
+	return drv, workspace.Spec{CPU: w.Size.CPUs, MemoryMiB: s.workspaceGiB << 10}, nil
+}
+
 // destroyOrphans destroys every workspace the driver lists: at start nothing runs, so each is
-// a killed supervisor's. Only workspace names (ws-tsk_…) are touched.
+// a killed supervisor's. Only workspace names (ws-tsk_…) are touched, and never host init's
+// warm build workspace (host.KataWarmBuild), which an init running now may be using.
 func destroyOrphans(ctx context.Context, drv workspace.Driver, log *slog.Logger) error {
 	names, err := drv.List(ctx)
 	if err != nil {
 		return fmt.Errorf("list the leftover workspaces: %w", err)
 	}
 	for _, n := range names {
-		if workspace.ValidName(n) != nil {
+		if workspace.ValidName(n) != nil || n == host.KataWarmBuild {
 			continue
 		}
 		log.Info("destroying a leftover workspace", "workspace", n)

@@ -246,6 +246,17 @@ For each agent owner, on their machine (rollout.md §Agent onboarding). The owne
 
     The worker logs to stderr, as text by default (`--log-format json`, `--log-level debug`). It writes no log file, so redirect it yourself, for example `factory-agent worker 2>&1 | tee -a ~/factory-agent.log`.
 
+### A Linux workspace host (`factory-agent supervise`, kata)
+
+`factory-agent supervise` runs each leased task in its own VM behind a gateway that holds every credential, instead of on the host as `worker` does. On an Ubuntu x86-64 machine (KVM, cgroup v2, systemd, at least 120 GiB free on `/var/lib`) each VM is a Kata microVM, and several run at once ([workspace-kata.md](../../design/workstreams/agent/LLD/workspace-kata.md)). Docker, if installed, is left alone: the factory runs its own containerd. From a checkout, as the owner's own user (not root; the workspaces are that user's), with the join token as in step 6:
+
+1. `make kata-up` builds `bin/factory-agent` and runs `bin/factory-agent host init --driver kata`: it asks before installing its root helper (`/usr/local/libexec/factory-agent/kata-helper`, with a sudoers rule that lets you run only it with `sudo -n`), then prompts for sudo once. `HOST_INIT_FLAGS=--dry-run` prints the plan and the sudo script without changing anything. Then `bin/factory-agent host check`: every step ok.
+2. The model logins, which only the gateway ever holds: run `claude setup-token` on its own and copy its token, then `bin/factory-agent login claude`, paste, Enter, Ctrl-D; `bin/factory-agent login codex` imports `~/.codex/auth.json`. Both go to `~/.local/state/factory-agent/logins/` (0600).
+3. The config as in step 7, with `workspace: {driver: kata}` (the default on Linux) and the `lending.maxConcurrent` you want: supervise caps it by memory, `(physical memory − 4 GiB) / workspace.size.memory`, and by 63, with a warning. Steps 3 to 5 (the base tooling, the labels' prerequisites, the harness sign-ins) don't apply to the host: the harnesses run in the VMs, and a configured harness is offered when its login is stored (the config still names its `home` or `configDir`).
+4. `bin/factory-agent supervise` (`--log-level debug`; `--keep-workspace` keeps each stopped VM and its run directory for a look). It registers like `worker` (step 10), refuses to start while `host check` fails, and destroys the VMs a killed supervise left. `sudo -n /usr/local/libexec/factory-agent/kata-helper list` shows the running ones.
+
+The first run on a new host follows the checklist in [workspace-kata.md §The owner's run](../../design/workstreams/agent/LLD/workspace-kata.md#the-owners-run).
+
 ## 9. First dev dispatch (use case 1 on mock-docs)
 
 `compliance-framework/workflows#132` is a real mock release train: it ran over `repos.mock.yaml` and finished on 2026-10-14, releasing mock-plugin-1 and mock-plugin-2 0.1.4. Its issue closed before the factory was listening, and a new mock train can't be started from `workflows` main today (`repos.mock.yaml` isn't there), so the dev trigger is that train's closing event, recorded, and injected with `factory dispatch`.

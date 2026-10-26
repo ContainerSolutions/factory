@@ -20,8 +20,9 @@ const (
 	minMacOS = 26
 	// minFreeGiB is the free disk the state dir's volume needs (the base and warm VMs).
 	minFreeGiB = 80
-	// headroomGiB is the physical memory left to macOS on top of one workspace.
-	headroomGiB = 4
+	// HeadroomGiB is the physical memory left to the host on top of its workspaces: macOS's
+	// on a Mac, and on Linux the share supervise's concurrency cap keeps back.
+	HeadroomGiB = 4
 )
 
 // platformStep checks the Mac: Apple Silicon, macOS 26 or later, free disk and memory. It
@@ -59,7 +60,7 @@ func (s platformStep) Check(ctx context.Context) (Status, error) {
 	if major, _, _ := strings.Cut(ver, "."); atoi(major) < minMacOS {
 		probs = append(probs, fmt.Sprintf("macOS %s: Softnet needs %d.0 or later", ver, minMacOS))
 	}
-	if want := uint64(e.Workspace.Size.MemoryGiB()+headroomGiB) << 30; memBytes < want {
+	if want := uint64(e.Workspace.Size.MemoryGiB()+HeadroomGiB) << 30; memBytes < want {
 		probs = append(probs, fmt.Sprintf("%d GiB memory: a %s workspace needs %d GiB", memBytes>>30, e.Workspace.Size.Memory, want>>30))
 	}
 	if free < minFreeGiB<<30 {

@@ -63,9 +63,18 @@ lending:
   # maxTokensPerDay: 2000000
   # hours: "Mon-Fri 08:00-20:00 Europe/Lisbon"   # [days] HH:MM-HH:MM [zone]; default zone UTC
 
-# The VM workspaces (P1): only `factory-agent host check|init` reads this block today.
+# The VM workspaces (P1): `factory-agent host check|init` and `factory-agent supervise` read this
+# block (`worker` ignores it).
 # workspace:
 #   driver: tart                    # tart | kata; default tart on macOS, kata on Linux
 #   size: { cpus: 6, memory: 8Gi, disk: 60Gi }
-#   gatewayPort: 3128               # the only port workspaces reach on the Mac (pf)
+#   gatewayPort: 3128               # the only port workspaces reach on the host (pf, or kata's nft)
 #   warm: { images: [postgres:17.5], kindImages: [] }
+#
+# A Linux host (README §A Linux workspace host): Kata microVMs, several at once. supervise caps
+# lending.maxConcurrent at (physical memory - 4 GiB) / size.memory and at 63, e.g. with
+#   lending: { unlimited: true, maxConcurrent: 3 }
+# workspace:
+#   driver: kata
+#   size: { cpus: 6, memory: 8Gi, disk: 60Gi }   # each workspace's; disk is an empty Docker disk's
+#   warm: { images: [postgres:17.5] }            # host init loads these into the warm Docker disk

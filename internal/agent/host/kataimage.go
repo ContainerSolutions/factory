@@ -38,6 +38,19 @@ func (e *Env) KataImage() string {
 // KataBaseRecordPath is katabase.json, which supervise reads the image from.
 func (e *Env) KataBaseRecordPath() string { return filepath.Join(e.StateDir(), "katabase.json") }
 
+// ReadKataBase reads katabase.json: the image supervise's kata driver creates workspaces from.
+func (e *Env) ReadKataBase() (KataBaseRecord, error) {
+	var r KataBaseRecord
+	ok, err := readRecord(e.KataBaseRecordPath(), &r)
+	switch {
+	case err != nil:
+		return r, err
+	case !ok || r.Image == "":
+		return r, fmt.Errorf("%s names no image: run `factory-agent host init --driver kata`", e.KataBaseRecordPath())
+	}
+	return r, nil
+}
+
 // helperArgv is the command that runs the installed helper's verb with sudo -n.
 func (e *Env) helperArgv(args ...string) []string {
 	return append([]string{"-n", e.sys(katahelper.HelperPath)}, args...)
