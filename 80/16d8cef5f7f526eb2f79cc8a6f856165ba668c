@@ -2,3 +2,9 @@ lisa-selfreview:
 Pass 1 (final, lenient): approve. No blocker/must-fix.
 - should-fix (deferred, stack 2): implement.yaml declares no workspace.hosts for the npm/yarn registries, unlike docs-review and release-docs, so a deny-by-default egress could fail its installs (then the check is not-run, which the rule covers). Stack 2 replaces workspace.hosts with environment.egress (P1 "What gets removed").
 - nit (kept): `yarn install --frozen-lockfile` is yarn 1's flag (berry uses --immutable); it is an example, matching docs-release's step 5.
+
+lisa-design:
+- The #88 temporary-environment paragraph stays (stack 2 removes it); only its "the one exception to never install ... never for the docs repo's own checks" clause goes, since it contradicts the new rule.
+- docs-review's build check reads the PR's CI check (read-only checkout), so it only loses its "don't install dependencies" note; it gains no local build.
+- catalog-poc LLD's implement row is aligned with the new rule so the design doesn't contradict the prompt.
+- catalog_test.go's skills pin assertion moves to v0.10.0 with the TaskSpecs (it pins the catalog's ref).
