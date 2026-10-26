@@ -1,0 +1,7 @@
+lisa-selfreview:
+Pass 1 of 1 (lenient, PoC). Rules checked: FACTORY-CRED-001, FACTORY-WEB-002 (no v-html; the environment log, close note and warnings render as text), FACTORY-SPLIT-001 (web/ only), FACTORY-WEB-001 (all calls through the openapi-fetch client, types from schema.d.ts), UI-ORDER-001, UI-COMP-001 (dark: variants present). Verdict: approve.
+Deferred (nit): the Close dialog of an already-closed item starts at reason "done" and an empty note instead of the current ones.
+Deferred (nit): on the run page a task.updated event sets the task and the quiet run reload fetches it again (one redundant GET /tasks/{id}).
+
+lisa-design:
+The Graph tab has no event detail panel: clicking an event opens its Timeline row, so Replay lives there (one place) and the graph marks a replay's actions on their rule. Board cards carry no tasks (WorkItem only), so reasonDetail is shown on the LLM tasks tab, the run page (GET /tasks/{id} of the run's task, a Pending task with a reason) and the graph task's tooltip. Close, delete and replay are REST routes, not commands, so they use ConfirmRequest (shows the method, path and JSON body) instead of ConfirmCommand.
