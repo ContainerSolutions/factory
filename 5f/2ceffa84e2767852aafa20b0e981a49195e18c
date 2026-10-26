@@ -9,3 +9,6 @@ lisa-design:
 
 lisa-selfreview:
 pass 1 (4c): should-fix stop-bound-below-helpers (Driver.Stop's 1-minute cleanup ctx under the helper's 2-minute stop bound).
+
+lisa-addressed:
+- kata Stop and Destroy run past ctx for stopBound (3 min) and rmBound (5 min), above the helper's own bounds.
