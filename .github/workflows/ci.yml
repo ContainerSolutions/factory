@@ -5,6 +5,9 @@
 # by hand: factory is listed in workflows' repos.yaml with release: false, and ccf-bump only bumps
 # release: true repos. That changes when factory gets its release workflow and is switched to
 # release: true. The web app (web/) has its own local job.
+# The kata job builds the kata driver's workspace image (internal/agent/host/provision/kata
+# with base.sh in its image mode) on an amd64 runner, so the script's amd64 form is tested for
+# real; the arm64 (tart) form is only bash -n'd, in the Go tests.
 # Each runs only when its side of the repo changed. The one status check to require is
 # `ci / required`, which reports on every PR, including when a side is skipped.
 name: ci
@@ -30,6 +33,7 @@ jobs:
       go: ${{ steps.diff.outputs.go }}
       web: ${{ steps.diff.outputs.web }}
       web-app: ${{ steps.diff.outputs.web-app }}
+      kata: ${{ steps.diff.outputs.kata }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,22 +56,24 @@ jobs:
           fi
           if [ -z "$range" ]; then
             echo "No base to compare with; treating everything as changed."
-            go=true; web=true
+            go=true; web=true; kata=true
           else
             files="$(git diff --name-only "$range")"
             printf 'Changed files:\n%s\n' "$files"
-            go=false; web=false
+            go=false; web=false; kata=false
             # Workflow changes run both sides, so a CI edit is always exercised.
             if grep -qE '^(cmd/|internal/|api/|schemas/|catalog/|go\.mod$|go\.sum$|Makefile$|\.golangci\.yml$|\.github/workflows/)' <<< "$files"; then go=true; fi
             if grep -qE '^(web/|api/openapi\.yaml$|api/examples/|\.github/workflows/)' <<< "$files"; then web=true; fi
+            if grep -qE '^(internal/agent/host/provision/|\.github/workflows/)' <<< "$files"; then kata=true; fi
           fi
           web_app=false
           if [ -f web/package.json ]; then web_app=true; fi
-          echo "go=$go web=$web web-app=$web_app"
+          echo "go=$go web=$web web-app=$web_app kata=$kata"
           {
             echo "go=$go"
             echo "web=$web"
             echo "web-app=$web_app"
+            echo "kata=$kata"
           } >> "$GITHUB_OUTPUT"
 
   go:
@@ -122,9 +128,36 @@ jobs:
       - name: reviewable
         run: npm run reviewable
 
+  kata:
+    name: kata image
+    needs: changes
+    if: ${{ needs.changes.outputs.kata == 'true' }}
+    runs-on: ubuntu-latest # amd64, the kata driver's only architecture
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      # The context factory-agent builds: provision.WriteKataContext's files.
+      - name: Write the build context
+        run: make kata-context DIR="$RUNNER_TEMP/kata-context"
+      - name: docker build
+        run: docker build --progress=plain -t factory-agent-base:ci "$RUNNER_TEMP/kata-context"
+      # Reads paths only: the harness CLIs are never run.
+      - name: The tools are on PATH
+        run: |
+          docker image ls factory-agent-base:ci
+          docker run --rm factory-agent-base:ci bash -lc 'command -v kind kubectl gh node go playwright vhs gifski codex claude docker'
+
   required:
     name: required
-    needs: [changes, go, web]
+    needs: [changes, go, web, kata]
     # Skipped, not failed, on a closed PR, like the jobs above.
     if: ${{ always() && !(github.event_name == 'pull_request' && github.event.pull_request.state == 'closed') }}
     runs-on: ubuntu-latest
@@ -150,7 +183,7 @@ jobs:
           echo "All required jobs succeeded or were skipped."
 
   notify:
-    needs: [go, web]
+    needs: [go, web, kata]
     if: always()
     uses: compliance-framework/workflows/.github/workflows/notify-failure.yml@e85d35af2af2ddfcd4b92061d2063e665c1831f6 # v1.7.0
     with:

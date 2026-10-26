@@ -1,0 +1,14 @@
+[Unit]
+Description=factory: dockerd's and containerd's storage on the workspace's disk
+DefaultDependencies=no
+After=local-fs.target
+Before=containerd.service docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/factory-docker-storage
+
+[Install]
+RequiredBy=containerd.service docker.service
+WantedBy=multi-user.target
