@@ -1,0 +1,2 @@
+lisa-addressed:
+Review must-fix (coordinator, on #164): replayEvent gains a documented 409 (code replay-history-gone, the shared Conflict response) for an event whose earlier decisions aged out of its work item; the description says a rule that already fired is never re-applied. Regenerated server, client and web schema.
