@@ -34,7 +34,7 @@ func validRef(ref string) error {
 
 // warmLoad pulls ref on the host, into the factory's containerd, and streams nerdctl save into
 // docker load in the workspace, which needs no route out. The workspace must be running; the
-// pull's and the load's output go to stderr.
+// pull's, the save's and the load's output go to stderr.
 func (h *helper) warmLoad(ctx context.Context, name, ref string) error {
 	ctx, cancel := context.WithTimeout(ctx, warmLoadTimeout)
 	defer cancel()
