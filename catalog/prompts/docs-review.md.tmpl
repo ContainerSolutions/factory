@@ -51,7 +51,7 @@ style, versioning and i18n, and post one review per pull request as the reviewer
 {{- if eq . "style" }}
   - `style`: the docs repo's `STYLE.md`, through the docs-style checklist.
 {{- else if eq . "build" }}
-  - `build`: the PR's build check; if it can't be read, say so (don't install dependencies).
+  - `build`: the PR's build check; if it can't be read, say so.
 {{- else if eq . "version-accuracy" }}
   - `version-accuracy`: docs-verify against `verifyAgainst` on the running stack: the
     workspace's environment is up before you start, at those versions

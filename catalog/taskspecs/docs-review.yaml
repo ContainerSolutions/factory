@@ -16,7 +16,7 @@ spec:
     verifyAgainst: { type: object }               # { train } or { repo, tag }; nothing runs them here (docs-review-verify does)
     checks:        { type: array, default: [style, build] }   # + version-accuracy, versioning, i18n
   instructions: { template: prompts/docs-review.md.tmpl, headless: true }
-  skills: [{ source: ccf-skills, ref: v0.9.0, use: ["ccf-review:review", docs-style, docs-verify, ccf-test] }]
+  skills: [{ source: ccf-skills, ref: v0.10.0, use: ["ccf-review:review", docs-style, docs-verify, ccf-test] }]
   requires: { labels: [] }
   harness: { default: { name: claude-code, config: { model: "claude-{sonnet,opus}-5-*", reasoningEffort: high } } }
   workspace: { checkout: read-only, hosts: [registry.yarnpkg.com, registry.npmjs.org] }

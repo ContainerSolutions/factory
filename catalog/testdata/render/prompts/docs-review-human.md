@@ -27,7 +27,7 @@ style, versioning and i18n, and post one review per pull request as the reviewer
   - `style`: the docs repo's `STYLE.md`, through the docs-style checklist.
   - `versioning`: `instances.yaml` stays valid, one version per minor line, and released
     lines the change doesn't document are untouched.
-  - `build`: the PR's build check; if it can't be read, say so (don't install dependencies).
+  - `build`: the PR's build check; if it can't be read, say so.
 - Approve only when no must-fix finding remains and the verification ran.
 - Questions are never answered by you: a held Question makes the outcome `needs-human`.
 - Review only: never push, merge or edit the PR.

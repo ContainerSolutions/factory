@@ -11,7 +11,7 @@ metadata: { name: plan-epic }
 spec:
   description: Decompose a large docs request into ordered, independently reviewable sub-issues.
   instructions: { template: prompts/plan-epic.md.tmpl, headless: true }
-  skills: [{ source: ccf-skills, ref: v0.9.0, use: [plan-epic, docs-style] }]
+  skills: [{ source: ccf-skills, ref: v0.10.0, use: [plan-epic, docs-style] }]
   harness: { default: { name: codex, config: { model: "gpt-{5,6}*", reasoningEffort: high } } }
   workspace: { repos: [{ ref: "=task.target.repo + '@main'", mode: ro }] }   # the epic's docs repo (docs or mock-docs), never a literal
   identity: author
