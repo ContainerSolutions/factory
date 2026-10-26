@@ -230,6 +230,8 @@ const ReasonEnvironmentError = "environment-error" // in internal/agent/runner, 
 | `XDG_DATA_HOME` | the run user's own `~/.local/share` (from the passwd entry): the pipeline's scratch `HOME` would hide the gh extensions the base installed for `admin` |
 | `PLAYWRIGHT_BROWSERS_PATH` | `/opt/ms-playwright` (`PlaywrightBrowsersPath`), where the base installed Playwright's Chromium: the scratch `HOME` would hide `~/.cache/ms-playwright` |
 | `VHS_NO_SANDBOX` | `1`: vhs starts Chromium without its sandbox, which Ubuntu 24.04's AppArmor keeps from user namespaces (Playwright turns it off itself); the VM is the task's sandbox |
+| `NODE_USE_ENV_PROXY` | `1`: Node's own `fetch` and `http` clients read the proxy variables only when it is set, and the VM reaches nothing but the gateway. Corepack's `yarn` and `pnpm` shims download the package manager with `fetch` on first use (corepack 0.35+ dropped its own proxy agent for this switch), which otherwise fails with `ENETUNREACH`. Node's `NO_PROXY` has no CIDR form, so a Node client reaching a private address by IP goes through the gateway; the host names, `localhost` and `127.0.0.1` stay direct |
+| `COREPACK_ENABLE_DOWNLOAD_PROMPT` | `0`: corepack's download prompt would wait on a terminal's stdin |
 
 `config.json` and the CA bundle are written before the environment's `setup` runs.
 
