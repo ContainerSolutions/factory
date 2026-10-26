@@ -32,19 +32,27 @@ func (f *fakeNerdctl) Run(_ context.Context, env []string, stdout, stderr io.Wri
 	return f.err
 }
 
-func run(t *testing.T, f *fakeNerdctl, args ...string) (int, string, string) {
+func run(t *testing.T, r Runner, args ...string) (int, string, string) {
+	t.Helper()
+	return runIn(t, Options{Runner: r}, args...)
+}
+
+// runIn runs a verb with o and fresh stdout and stderr.
+func runIn(t *testing.T, o Options, args ...string) (int, string, string) {
 	t.Helper()
 	var out, errOut bytes.Buffer
-	code := Run(context.Background(), f, args, &out, &errOut)
+	o.Stdout, o.Stderr = &out, &errOut
+	code := Run(context.Background(), o, args)
 	return code, out.String(), errOut.String()
 }
 
 func TestUsage(t *testing.T) {
-	for _, args := range [][]string{nil, {""}, {"help"}, {"create"}, {"protocol", "x"}, {"list", "--all"}, {"-h"}} {
+	for _, args := range [][]string{nil, {""}, {"help"}, {"create"}, {"protocol", "x"}, {"list", "--all"}, {"-h"},
+		{"create", ws, "2", "4096", "60", "warm"}, {"rm"}, {"rm", ws, ws}, {"start", ws}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			f := &fakeNerdctl{}
 			code, out, errOut := run(t, f, args...)
-			if code != 2 || out != "" || errOut != "usage: kata-helper protocol | list\n" || len(f.calls) > 0 {
+			if code != 2 || out != "" || errOut != Usage+"\n" || len(f.calls) > 0 {
 				t.Errorf("code %d, stdout %q, stderr %q, calls %v", code, out, errOut, f.calls)
 			}
 		})
@@ -53,7 +61,7 @@ func TestUsage(t *testing.T) {
 
 func TestProtocol(t *testing.T) {
 	f := &fakeNerdctl{}
-	if code, out, errOut := run(t, f, "protocol"); code != 0 || out != "1\n" || errOut != "" || len(f.calls) > 0 {
+	if code, out, errOut := run(t, f, "protocol"); code != 0 || out != "2\n" || errOut != "" || len(f.calls) > 0 {
 		t.Errorf("code %d, stdout %q, stderr %q, calls %v", code, out, errOut, f.calls)
 	}
 }
@@ -115,7 +123,8 @@ func TestExecRunner(t *testing.T) {
 // TestPaths: every path the helper uses is absolute and fixed, and PATH holds no relative or
 // user-writable entry.
 func TestPaths(t *testing.T) {
-	for _, p := range []string{HelperPath, Nerdctl, CNIPluginDir, CNIConfDir, NerdctlDataRoot, ContainerdSocket, BuildkitSocket, KataDir} {
+	for _, p := range []string{HelperPath, Nerdctl, CNIPluginDir, CNIConfDir, NerdctlDataRoot, ContainerdSocket, BuildkitSocket, KataDir,
+		DisksDir, SlotsDir, WarmDisk, GuestDisk, CNIStateDir, LockFile, IP, NFT, Sysctl, CP, Truncate, Pkill} {
 		if !filepath.IsAbs(p) || filepath.Clean(p) != p {
 			t.Errorf("%s is not a clean absolute path", p)
 		}
