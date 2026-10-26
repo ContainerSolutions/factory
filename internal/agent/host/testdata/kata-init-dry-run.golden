@@ -80,8 +80,15 @@ disabled_plugins = ["io.containerd.grpc.v1.cri", "io.containerd.cri.v1.images", 
 FACTORY_AGENT_EOF
 /bin/cat > "$T/buildkitd.toml" <<'FACTORY_AGENT_EOF'
 # /etc/factory-agent/buildkitd.toml (factory-agent host init)
-# factory-agent-buildkit.service sets everything with flags; buildkitd reads this file instead
-# of /etc/buildkit/buildkitd.toml, so another BuildKit's config never applies.
+# factory-agent-buildkit.service sets everything else with flags; buildkitd reads this file
+# instead of /etc/buildkit/buildkitd.toml, so another BuildKit's config never applies.
+
+# Build steps run on the host network. no-aaaa makes their glibc lookups return IPv4 addresses
+# only, as in Docker's builds (an IPv4-only bridge), so a host whose IPv6 route is advertised
+# but broken can't stall a download (Playwright waits 5 s on each address). The nameservers
+# stay the host's.
+[dns]
+  options = ["no-aaaa"]
 FACTORY_AGENT_EOF
 /bin/cat > "$T/factory-agent-containerd.service" <<'FACTORY_AGENT_EOF'
 # /etc/systemd/system/factory-agent-containerd.service (factory-agent host init)

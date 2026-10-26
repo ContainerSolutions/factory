@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,6 +45,35 @@ func TestKataServicesCheck(t *testing.T) {
 		{"network", "inactive", func(_ *testing.T, _ *Env, r *fakeRunner) { r.units[nftUnit] = [2]string{"enabled", "inactive"} }, StateWrong,
 			"factory-agent-nft.service isn't active"},
 	})
+}
+
+// previousBuildkitdConfig is buildkitd.toml as host init wrote it before the [dns] section.
+const previousBuildkitdConfig = `# /etc/factory-agent/buildkitd.toml (factory-agent host init)
+# factory-agent-buildkit.service sets everything with flags; buildkitd reads this file instead
+# of /etc/buildkit/buildkitd.toml, so another BuildKit's config never applies.
+`
+
+// TestBuildkitdConfigUpgrade: a host with the buildkitd.toml from before the [dns] section
+// checks wrong, and the plan rewrites the file with no-aaaa and restarts both units.
+func TestBuildkitdConfigUpgrade(t *testing.T) {
+	e, r := kataEnv(t)
+	installKata(t, e, r)
+	writeRoot(t, e, buildkitdConfigPath, previousBuildkitdConfig)
+	wantState(t, check(t, containerdStep{e}), StateWrong, "buildkitd.toml differs from the rendered file")
+	p, err := containerdStep{e}.Plan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := strings.Join(p.Root, "\n")
+	for _, want := range []string{
+		"[dns]\n  options = [\"no-aaaa\"]\n",
+		"/usr/bin/install -o root -g root -m 0644 \"$T/buildkitd.toml\" " + quote(e.sys(buildkitdConfigPath)),
+		"/usr/bin/systemctl restart " + containerdUnit + " " + buildkitUnit,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the plan has no %q:\n%s", want, script)
+		}
+	}
 }
 
 // TestNFTRules: the rules parse (nft -c -f) in a user and network namespace, load, and a
