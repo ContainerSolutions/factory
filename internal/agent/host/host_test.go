@@ -46,6 +46,8 @@ type fakeRunner struct {
 	freeKB   string
 	routes   string // ip -4 route show's output
 	script   string // the sudo script's content when sudo ran
+	// the kata steps': systemctl's unit states (is-enabled, is-active)
+	units map[string][2]string
 }
 
 func (r *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...string) error {
@@ -78,6 +80,16 @@ func (r *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...
 		return errors.New("exit status 113")
 	case name == "launchctl":
 		_, _ = io.WriteString(out, r.launchd)
+	case name == "systemctl" && len(args) == 2:
+		st := r.units[args[1]]
+		i := map[string]int{"is-enabled": 0, "is-active": 1}[args[0]]
+		if st[i] == "" {
+			st[i] = map[int]string{0: "Failed to get unit file state for " + args[1] + ": No such file or directory", 1: "inactive"}[i]
+		}
+		_, _ = io.WriteString(out, st[i]+"\n")
+		if st[i] != "enabled" && st[i] != "active" {
+			return errors.New("exit status 1")
+		}
 	case name == "sudo":
 		b, err := os.ReadFile(args[1])
 		r.script = string(b)

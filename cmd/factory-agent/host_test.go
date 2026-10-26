@@ -333,7 +333,7 @@ func kataHostDeps(t *testing.T) hostDeps {
 	}
 }
 
-// TestHostKata: on a Linux host whose platform passes, check --driver kata reports steps 2 to 5
+// TestHostKata: on a Linux host whose platform passes, check --driver kata reports steps 2 to 7
 // missing; init --dry-run prints the plan and the sudo script; init --only statedir makes the
 // state dir and exits 0. The config's default driver on Linux is kata too.
 func TestHostKata(t *testing.T) {
@@ -351,7 +351,7 @@ func TestHostKata(t *testing.T) {
 	}
 	_, out = run("check", "--driver", "kata", "--json")
 	var sts []host.Status
-	if err := json.Unmarshal([]byte(out), &sts); err != nil || len(sts) != 5 {
+	if err := json.Unmarshal([]byte(out), &sts); err != nil || len(sts) != 7 {
 		t.Fatalf("check --json: %v\n%s", err, out)
 	}
 	for _, st := range sts[1:] {

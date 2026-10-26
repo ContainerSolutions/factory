@@ -15,10 +15,11 @@ import (
 )
 
 // The kata driver's install steps after the platform and the state dir
-// (workspace-kata.md#steps-kata-driver): nerdctl-full, Kata and its config. Every file root
-// installs from text is rendered by one function that both Check and Plan use, and goes into
-// the sudo script (a quoted heredoc, or for the Kata config the sed that renders it); the
-// archives come from the stage, and root checks the sha256 of its own copy before using it.
+// (workspace-kata.md#steps-kata-driver): nerdctl-full, Kata and its config; the services are in
+// kataservices.go. Every file root installs from text is rendered by one function that both
+// Check and Plan use, and goes into the sudo script (a quoted heredoc, or for the Kata config
+// the sed that renders it); the archives come from the stage, and root checks the sha256 of
+// its own copy before using it.
 
 const (
 	nerdctlName    = "nerdctl"

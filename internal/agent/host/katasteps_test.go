@@ -52,6 +52,7 @@ func installKata(t *testing.T, e *Env, r *fakeRunner) {
 		t.Fatal(err)
 	}
 	writeMode(t, e, KataConfigPath, cfg, 0o644)
+	installServices(t, e, r)
 }
 
 // stepCase is one state of a kata step, set up from a host where every step is ok.

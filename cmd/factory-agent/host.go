@@ -60,8 +60,8 @@ defaults); --driver, the workspace driver (default: the config's workspace.drive
 tart on a Mac and kata on Linux); --agent-linux <path>, the linux/arm64 factory-agent the base
 VM gets (default factory-agent-linux-arm64 next to this binary; make tart-up builds it).
 
---driver kata: the steps so far are platform, statedir, nerdctl, kata and kataconfig (the
-others come in P1 phase 9's next PRs). --no-pf, --remove-pf and --agent-linux are the tart
+--driver kata: the steps so far are platform, statedir, nerdctl, kata, kataconfig, containerd
+and network (the others come in P1 phase 9's next PRs). --no-pf, --remove-pf and --agent-linux are the tart
 driver's: with kata they are usage errors.
 `)
 }
