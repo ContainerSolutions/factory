@@ -152,7 +152,8 @@ process inside it is privileged only inside that VM.
     `warm.kindImages` subset preloaded for kind. It rebuilds the warm base when the list or the
     base version changes. In Phase 0 a warm clone brought local-dev's compose stack up in 3 s;
     cold, the image pulls took about 14 minutes.
-  - **kata:** a registry mirror (`registry:2` as a pull-through cache) on the agent host is each
+  - **kata:** (superseded by [workspace-kata.md](../workstreams/agent/LLD/workspace-kata.md)'s
+    warm Docker disk, a pre-filled copy of each workspace's loop-mounted disk) a registry mirror (`registry:2` as a pull-through cache) on the agent host is each
     workspace's dockerd mirror.
 - **Concurrency and limits:** up to `lending.maxConcurrent` workspaces at once: 1 on the Mac, 3
   on the workstation. local-dev with kind used 1.9 GiB in the guest plus page cache, so a
@@ -164,7 +165,8 @@ process inside it is privileged only inside that VM.
   provisioning script, embedded in `factory-agent`, and `host init` builds the base with it:
   - **tart:** clones `ghcr.io/cirruslabs/ubuntu` (pinned by digest) into
     `factory-agent-base-<version>`, boots it, runs the script, and shuts it down;
-  - **kata:** builds an OCI image (Debian) from the same script with `nerdctl build`.
+  - **kata:** builds an OCI image (Ubuntu 24.04, as the tart base) from the same script with
+    BuildKit ([workspace-kata.md](../workstreams/agent/LLD/workspace-kata.md#the-image-provisionkata)).
 
   Both carry:
   - dockerd with the compose and buildx plugins, kind, kubectl, git, gh (with the pr-review and
@@ -494,7 +496,8 @@ the workstation dry run (Q8).
 ### Linux track (`kata`)
 
 9. **The workstation:**
-   1. the Q8 dry run: the spike's Kata provisioning on the bare host;
+   1. the Q8 dry run: the spike's Kata provisioning on the bare host (done 2026-10-26; the rest
+      of this phase is [workspace-kata.md](../workstreams/agent/LLD/workspace-kata.md));
    2. `host init --driver kata` (containerd, nerdctl, Kata with the rendered Cloud Hypervisor
       config, CNI, iptables, the registry mirror);
    3. the kata driver;
