@@ -10,9 +10,13 @@ import (
 	"github.com/compliance-framework/factory/internal/store"
 )
 
+// CodeReplayHistoryGone is replayEvent's 409 for an event whose earlier decisions aged out of
+// its work item.
+const CodeReplayHistoryGone = "replay-history-gone"
+
 // ReplayEvent implements gen.StrictServerInterface (api-server.md §Commands): the rule
-// controller evaluates the stored event again with its own id and applies what differs from
-// its earlier decisions; the response holds the decisions it recorded (each Replay).
+// controller evaluates the stored event again with its own id and applies only the rules that
+// didn't fire for it before; the response holds the decisions it recorded (each Replay).
 func (s *Server) ReplayEvent(ctx context.Context, req gen.ReplayEventRequestObject) (gen.ReplayEventResponseObject, error) {
 	if s.d.Replayer == nil {
 		return nil, problemf(http.StatusServiceUnavailable, CodeUnavailable, "event replay is not available")
@@ -24,6 +28,8 @@ func (s *Server) ReplayEvent(ctx context.Context, req gen.ReplayEventRequestObje
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return nil, problemf(http.StatusNotFound, CodeNotFound, "no event %q", req.Id)
+	case errors.Is(err, controllers.ErrReplayHistoryGone):
+		return nil, problemf(http.StatusConflict, CodeReplayHistoryGone, "%v: which rules already fired is unknown, so it isn't replayed", err)
 	case errors.Is(err, controllers.ErrNoCatalog):
 		return nil, problemf(http.StatusServiceUnavailable, CodeCatalogNotLoaded, "the catalog is not loaded yet")
 	case err != nil:

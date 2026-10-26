@@ -28,6 +28,10 @@ type EventStatus struct {
 	// WorkItem is the work item the event was applied to; empty when no rule matched.
 	WorkItem    string    `json:"workItem,omitzero"`
 	ProcessedAt time.Time `json:"processedAt"`
+	// Recorded is how many decision records processing (and replays) appended on WorkItem;
+	// nil on a mark older than the count. A replay refuses an event that recorded some when
+	// none remain on the item.
+	Recorded *int `json:"recorded,omitempty"`
 }
 
 var _ store.MetaObject = (*EventStatus)(nil)
