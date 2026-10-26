@@ -39,7 +39,7 @@ func main() {
 	// The kata driver's root helper is a root-owned copy of this binary, run with sudo under
 	// the name kata-helper: it takes nothing but its verb's arguments (workspace-kata.md).
 	if filepath.Base(os.Args[0]) == katahelper.Name {
-		os.Exit(katahelper.Main(os.Args[1:], os.Stdout, os.Stderr))
+		os.Exit(katahelper.Main(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	}
 	// Signals are each subcommand's own business: the worker drains on the first SIGTERM and
 	// aborts on the second.
