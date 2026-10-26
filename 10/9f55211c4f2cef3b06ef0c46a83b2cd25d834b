@@ -1,0 +1,12 @@
+lisa-design:
+- The supervise driver is --driver, else the config's workspace.driver, else WithDefaults(GOOS) (kata on Linux). --warm-base with an explicit --driver kata is a usage error (2); with the config's kata it's a start error (1), since the config is only read in runAgentLoop.
+- The concurrency cap lives in supervise's lending hook (no worker/runAgentLoop signature change): newRunner records the physical memory (host.Env.MemTotal, read once) and workspace.size.memory before the first lending call; SIGHUP caps the reloaded maxConcurrent with those. A workspace.size change needs a restart, as the runner's Spec does.
+- kata workspaces are sized from workspace.size (Spec{CPU, MemoryMiB}), so the memory cap divides by what each VM gets; tart keeps Spec{} (supervise.md) to avoid changing the Mac's behaviour in this PR.
+- The memory cap is floored at 1: host check's platform step already requires size.memory + 4 GiB.
+- Warm = host check's katawarm step ok AND katawarm.json exists; the image comes from host.Env.ReadKataBase (katabase.json), not from Env.KataImage(), because host check already proved the record names this version's image.
+- host exports HeadroomGiB, KataWarmStep, MemTotal and ReadKataBase for supervise; no logic moved.
+- The runner needed no change for several runs at once: per-task runs/<task>/ and egress logs, the CA under caMu, one chatgpt.Refresher, each gateway on its slot's address; TestSuperviseKataTwoLeases holds two Execs together under -race to prove it.
+- make kata-up builds with CGO_ENABLED=0: the binary is copied into each workspace and installed as the root helper, so it must not depend on the host's libc.
+
+lisa-selfreview:
+pass 1 (strict): CORE-TEST-001 must-fix supervise.go newDriver: Warm's false cases untested (25bd0a58236c); CORE-STYLE-001 nit supervise.go lending: tart told apart by memTotal == 0.

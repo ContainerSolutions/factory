@@ -1,0 +1,5 @@
+lisa-addressed:
+pass 1: 25bd0a58236c fixed: TestSuperviseKataDriver covers Warm (ok+record, no record, step not ok), the image, the disk and the Spec; lending now branches on s.e.Workspace.Driver.
+
+lisa-selfreview:
+pass 2 (strict): approve, no findings (code, docs and checklist re-read; make reviewable green with golangci-lint v2.11.4).
