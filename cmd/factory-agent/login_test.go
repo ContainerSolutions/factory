@@ -80,7 +80,7 @@ func TestLogin(t *testing.T) {
 			}
 			var stdout, stderr bytes.Buffer
 			code := runLogin(tt.args, &stdout, &stderr, loginDeps{
-				Home: func() (string, error) { return home, nil }, Stdin: strings.NewReader(tt.stdin),
+				Home: func() (string, error) { return home, nil }, Getenv: noEnv, Stdin: strings.NewReader(tt.stdin),
 			})
 			if code != tt.code || !strings.Contains(stderr.String(), tt.err) {
 				t.Fatalf("code %d, stderr %q; want %d with %q", code, stderr.String(), tt.code, tt.err)
@@ -89,11 +89,14 @@ func TestLogin(t *testing.T) {
 				t.Errorf("printed a token: %q", out)
 			}
 			if tt.check != nil {
-				tt.check(t, login.ForStateDir((&host.Env{Home: home}).StateDir()))
+				tt.check(t, login.ForStateDir((&host.Env{Home: home, Getenv: noEnv}).StateDir()))
 			}
 		})
 	}
 }
+
+// noEnv is an environment without XDG_STATE_HOME: the tests' state dirs stay under their homes.
+func noEnv(string) string { return "" }
 
 // --auth-json and --state-dir name other places.
 func TestLoginCodexPaths(t *testing.T) {

@@ -59,7 +59,7 @@ func runSupervise(ctx context.Context, args []string, stderr io.Writer, d superv
 	logFormat := fs.String("log-format", "text", "text or json")
 	driver := fs.String("driver", config.DriverTart, "the workspace driver: tart")
 	warmBase := fs.String("warm-base", host.WarmBaseVM, "the VM each workspace is cloned from (host init builds it)")
-	stateDir := fs.String("state-dir", "", "the agent's state dir: logins, runs and the gateway CA (default ~/Library/Application Support/factory-agent)")
+	stateDir := fs.String("state-dir", "", "the agent's state dir: logins, runs and the gateway CA (default: the agent's per OS, ~/Library/Application Support/factory-agent on a Mac, $XDG_STATE_HOME/factory-agent or ~/.local/state/factory-agent on Linux)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0

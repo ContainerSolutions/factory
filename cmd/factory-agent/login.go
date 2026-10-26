@@ -17,6 +17,9 @@ import (
 type loginDeps struct {
 	// Home is the owner's home (the state dir and ~/.codex); default os.UserHomeDir.
 	Home func() (string, error)
+	// Getenv reads XDG_STATE_HOME for the state dir on linux (host.Env.StateDir); default
+	// os.Getenv.
+	Getenv func(string) string
 	// Stdin is where `login claude` reads setup-token's output; default os.Stdin.
 	Stdin io.Reader
 }
@@ -73,7 +76,7 @@ func runLogin(args []string, stdout, stderr io.Writer, d loginDeps) int {
 	}
 	fs := flag.NewFlagSet("login "+which, flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	stateDir := fs.String("state-dir", "", "the agent's state dir (default ~/Library/Application Support/factory-agent)")
+	stateDir := fs.String("state-dir", "", "the agent's state dir (default: the agent's per OS, ~/Library/Application Support/factory-agent on a Mac, $XDG_STATE_HOME/factory-agent or ~/.local/state/factory-agent on Linux)")
 	authJSON := fs.String("auth-json", "", "codex: the auth.json to import (default ~/.codex/auth.json)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -98,7 +101,7 @@ func runLogin(args []string, stdout, stderr io.Writer, d loginDeps) int {
 		return fail(fmt.Errorf("the home directory: %w", err))
 	}
 	if *stateDir == "" {
-		*stateDir = (&host.Env{Home: home}).StateDir()
+		*stateDir = (&host.Env{Home: home, Getenv: d.Getenv}).StateDir()
 	}
 	store := login.ForStateDir(*stateDir)
 	if which == "claude" {

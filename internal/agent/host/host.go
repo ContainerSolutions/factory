@@ -1,8 +1,9 @@
 // Package host checks and sets up an agent host for VM workspaces (P1 §7,
 // design/workstreams/agent/LLD/workspace-host.md). For the tart driver the steps are the
-// platform, the state dir, Tart, Softnet, the pf anchor, the base VM and the warm base. Check
-// reports each step's state; Init applies the steps that aren't ok, in order, and runs their
-// root actions in one sudo script.
+// platform, the state dir, Tart, Softnet, the pf anchor, the base VM and the warm base; for the
+// kata driver (workspace-kata.md) so far the platform and the state dir. Check reports each
+// step's state; Init applies the steps that aren't ok, in order, and runs their root actions
+// in one sudo script.
 package host
 
 import (
@@ -95,10 +96,14 @@ type Env struct {
 	// Spawner runs tart run in the background and tart exec -i with a stdin.
 	Spawner Spawner
 	Fetcher Fetcher
-	// Root prefixes the system paths (/usr/local, /etc, /Library); "" in production.
+	// Root prefixes the system paths (/usr/local, /etc, /Library, /dev, /proc, /sys, /run);
+	// "" in production.
 	Root string
 	// Home is the owner's home: the state dir is under it.
 	Home string
+	// Getenv reads an environment variable (XDG_STATE_HOME, for the state dir on linux);
+	// default os.Getenv.
+	Getenv func(string) string
 	// StageDir holds the files the root lines install. Init makes a temp dir when it's "".
 	StageDir     string
 	GOOS, GOARCH string
@@ -192,6 +197,9 @@ func (e *Env) Defaults() error {
 	if e.LookPath == nil {
 		e.LookPath = exec.LookPath
 	}
+	if e.Getenv == nil {
+		e.Getenv = os.Getenv
+	}
 	if e.Prompt == nil {
 		e.Prompt = func(string) (bool, error) { return false, errors.New("no terminal to ask: pass --yes or --no-pf") }
 	}
@@ -210,9 +218,25 @@ func (e *Env) Defaults() error {
 // sys is a system path under Root.
 func (e *Env) sys(p string) string { return filepath.Join("/", e.Root, p) }
 
-// StateDir is the agent's state dir (P1 §7).
+// StateDir is the agent's state dir (P1 §7), per OS: ~/Library/Application Support/factory-agent
+// on darwin; elsewhere $XDG_STATE_HOME/factory-agent when XDG_STATE_HOME is an absolute path
+// (the XDG spec ignores a relative one), else ~/.local/state/factory-agent (workspace-kata.md).
+// An unset GOOS or Getenv is the running system's, so an Env with only Home has the owner's.
 func (e *Env) StateDir() string {
-	return filepath.Join(e.Home, "Library", "Application Support", "factory-agent")
+	goos, getenv := e.GOOS, e.Getenv
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	if goos == "darwin" {
+		return filepath.Join(e.Home, "Library", "Application Support", "factory-agent")
+	}
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	if x := getenv("XDG_STATE_HOME"); filepath.IsAbs(x) {
+		return filepath.Join(x, "factory-agent")
+	}
+	return filepath.Join(e.Home, ".local", "state", "factory-agent")
 }
 
 // output runs a command and returns its trimmed output.
@@ -229,12 +253,16 @@ func firstLine(s string) string {
 	return l
 }
 
-// Steps are the tart driver's steps, in order. The kata driver's come in P1 phase 9.
+// Steps are the workspace driver's steps, in order. The kata driver has its platform and
+// state dir steps so far; the rest come in P1 phase 9's next PRs (workspace-kata.md#prs).
 func Steps(e *Env) ([]Step, error) {
-	if e.Workspace.Driver != config.DriverTart {
-		return nil, fmt.Errorf("the %s driver's host init comes in P1 phase 9", e.Workspace.Driver)
+	switch e.Workspace.Driver {
+	case config.DriverTart:
+		return []Step{platformStep{e}, stateDirStep{e}, tartStep{e}, softnetStep{e}, pfStep{e}, baseVMStep{e}, warmBaseStep{e}}, nil
+	case config.DriverKata:
+		return []Step{kataPlatformStep{e}, stateDirStep{e}}, nil
 	}
-	return []Step{platformStep{e}, stateDirStep{e}, tartStep{e}, softnetStep{e}, pfStep{e}, baseVMStep{e}, warmBaseStep{e}}, nil
+	return nil, fmt.Errorf("no host steps for the %q driver", e.Workspace.Driver)
 }
 
 // Check runs every step's Check. A step whose check fails is reported wrong, with the error.
