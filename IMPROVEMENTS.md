@@ -47,29 +47,68 @@ IMPROVEMENTS_DONE.md.
 
 T4 and T5 passed (IMPROVEMENTS_DONE.md). T2 runs last, after stack 2 is merged.
 
-Real-host checks from stack 3's PRs, which the PR bodies list (Gustavo, with sudo):
-- **#202, workstation:** reinstall the protocol 7 helper (`host init`), then Ctrl-C during
-  `katawarm` and during `kataimage`: no helper or nerdctl process is left, and the build dir is
-  empty. A full `host init` also fixes `containerd: wrong` (`buildkitd.toml`, stale since #188).
-- **#204, workstation:** answer N to the privileges prompt on a host without the helper.
-- **#208, workstation:** a task with `limits.memory: 4Gi` gets a 4 GiB VM (`kata-helper
-  inspect`).
-- **Mac:** #197's pf half (a non-default `workspace.gatewayPort`), #199 (tart follows
-  `workspace.size`), #205's tart path (a kind image loads offline on arm64).
+Real-host checks from stacks 3 and 4 (#197–#217), split by machine.
 
-Real-host checks from stack 4's PRs (#212–#217, merged 2026-10-27):
-- **Workstation, one `host init`:** it reinstalls the helper (the installed one still answers
-  protocol 6, from before #202) and rebuilds the kata image and warm disk (#217 changes the
-  image). Then, in a workspace (`kata-helper exec`): `hostname; getent hosts "$(hostname)";
-  sudo -n true` prints no "unable to resolve host" (#217).
-- **#215, workstation:** Ctrl-C `supervise` while a workspace starts: `pgrep -af kata-helper`
-  prints nothing. Optionally Ctrl-C at `host init`'s sudo password prompt: the terminal still
-  echoes.
-- **#214, workstation:** with the helper removed, `factory-agent host init --only kataimage`
-  fails at once with the message and runs no sudo.
-- **#216:** a `host init` with tart on the Mac (its archives are extracted through `execfile`),
-  and any kata run here.
-- **#217, Mac:** the PR's `tart exec` one-liner shows the tart guest's hostname resolves.
+**Linux workstation (kata):** run from the Linux box session's runbook. Each PR body has the
+details. The checks are:
+- #214: `host init --only kataimage` without the helper fails at once.
+- #204: a declined privileges prompt skips the image steps.
+- #202: Ctrl-C during `kataimage` and `katawarm` leaves nothing running.
+- #217: the workspace hostname resolves.
+- #197: the nft table follows a non-default `workspace.gatewayPort`.
+- #208: a task's `limits` size its VM.
+- #215: Ctrl-C of supervise leaves no `kata-helper`.
+- T6: an agent-only change on kata.
+
+**Mac (tart):** everything below, on the Mac at `main` (#217 or later). Stop `supervise` first.
+`<state>` is `~/Library/Application Support/factory-agent`. A kept workspace is stopped: start
+it with `tart run --no-graphics <ws> &` before `tart exec`, then `tart stop <ws>`.
+
+- **M0, build and init:** `make tart-up`. It builds `bin/factory-agent` and
+  `bin/factory-agent-linux-arm64`, then runs `host init --driver tart`. Expect `host check
+  --driver tart` all ok.
+- **M1, #199 and #216, size and outputs:**
+  1. Start `bin/factory-agent supervise --keep-workspace` and dispatch any task. It finishes with
+     its result and transcript. Those outputs come back through `vmexec.Get`, which unpacks
+     them with `host.Extract`: #216's `execfile` path.
+  2. `tart list` shows the kept `ws-tsk_<id>`. `tart get ws-tsk_<id>` shows the CPU and memory
+     of `workspace.size` in your `agent.yaml`.
+  3. *(#208 on tart)* Dispatch a task whose TaskSpec has `limits: {cpus: 2, memory: 4Gi}`. This
+     needs a local catalog change. `tart get` then shows 2 CPUs and 4096 MB.
+  4. Dispatch a task with a `limits.memory` larger than `workspace.size.memory`. Its log and
+     progress say `capped limit=memory requested=… granted=…`, and `tart get` shows
+     `workspace.size`.
+- **M2, #217, the hostname resolves:** in a workspace, `tart exec ws-tsk_<id> sh -c 'hostname;
+  getent hosts "$(hostname)"; sudo -n true'`. Pass: `getent` answers, and there's no "unable to
+  resolve host" line. If it fails, base.sh needs #217's nsswitch change (`files myhostname
+  dns`).
+- **M3, #197, the pf anchor follows `workspace.gatewayPort`:**
+  1. Set `workspace.gatewayPort: 3129` in `agent.yaml`, then run
+     `bin/factory-agent host init --driver tart --agent-linux bin/factory-agent-linux-arm64`.
+     The pf step is outdated and asks for sudo.
+  2. `sudo pfctl -a com.compliance-framework.factory -sr | grep 3129` shows the rule.
+  3. Start `supervise` and dispatch a task. It succeeds, since the harness reaches its model only
+     through the gateway. While it runs, `lsof -nP -iTCP:3129 -sTCP:LISTEN` shows factory-agent.
+  4. Put the port back to 3128 and rerun `host init`.
+- **M4, #205, kind images load offline on arm64:**
+  1. In `agent.yaml`, add `kindest/node:v1.35.0` to `workspace.warm.images`. Set
+     `workspace.warm.kindImages: ["busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e"]`.
+  2. `rm "<state>/warmbase.json"`, then run `host init` (as in M3.1) to rebuild the warm base.
+  3. In a workspace (`--keep-workspace`, then `tart run` as above), run as `admin`
+     (`tart exec ws-tsk_<id> sudo -u admin -H sh -c '…'`):
+     - `ls -l /var/lib/factory/kind-images/` shows each archive `-rw-r--r--`.
+     - `tar -xOf /var/lib/factory/kind-images/<name>.tar index.json` names one manifest, for
+       linux/arm64.
+     - `kind create cluster --image kindest/node:v1.35.0`.
+     - `kind load image-archive /var/lib/factory/kind-images/*.tar` succeeds as `admin`, with no
+       sudo.
+     - `kubectl run bb --image=busybox:1.37.0 --image-pull-policy=Never --restart=Never --
+       sleep 30`.
+     - `kubectl get pod bb` reaches Running, so the image was already present and nothing was
+       pulled.
+     - `kind delete cluster`.
+  4. Afterwards, keep the warm config or revert it: revert `agent.yaml`, `rm
+     "<state>/warmbase.json"`, then run `host init`.
 
 Not testable without a catalog change: #173 for an implement run under claude, because
 implement allows only codex. The claude side of the `ccfr` lookup, the plugin-dir fallback, is
