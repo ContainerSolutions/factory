@@ -5,3 +5,6 @@ lisa-addressed:
 
 lisa-design:
 - TestCompileLimits (internal/controllers/compile_test.go) is in this contract PR because the stack spec asks for it here; it only tests; reviewers may ask to move it to PR 9.
+
+lisa-selfreview:
+pass 2 (strict): approve, no new findings. Checked mixed-version rollout: older agents decode the lease's Task leniently (generated client, encoding/json) and ignore cpus/memory, i.e. run at workspace.size, which is what unset means; only the catalog decodes strictly (v1alpha1.Decode). Deferred: CORE-DUP-001 519971d10719 to PR 9; FACTORY-CONTRACT-001 833e2b788a13 as an open question.
