@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/compliance-framework/factory/internal/agent/internal/fakegateway"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/agent/runner"
@@ -249,23 +250,64 @@ func (e *E2E) serve(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Pipeline is the host run pipeline with adapter a (nil: none, as supervise's, which only
-// builds run bundles), the test binary as the agent binary (its TestMain must answer
-// `fx git-credential`), and an owner environment of PATH, LANG, TERM and extra (which the
-// harness must not see).
-func (e *E2E) Pipeline(a harness.Adapter, extra ...string) *pipeline.Pipeline {
+// HostPipeline is supervise's host pipeline: no adapter (it only builds run bundles), the
+// test binary as the agent binary (its TestMain must answer `fx git-credential`), and the
+// work root WorkRoot.
+func (e *E2E) HostPipeline() *pipeline.Pipeline {
 	e.t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	var adapters map[string]harness.Adapter
-	if a != nil {
-		adapters = map[string]harness.Adapter{a.Name(): a}
+	p, err := pipeline.New(pipeline.Options{
+		WorkRoot: e.WorkRoot, AgentBinary: exe,
+		GitBaseURL: e.git.URL, SkillsCache: filepath.Join(e.t.TempDir(), "cache"),
+	})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return p
+}
+
+// Pipeline is the run pipeline with adapter a as `factory-agent run` builds it in a VM
+// workspace (workspace-run.md), and the job it runs: job's bundle (BundleJob) gives the
+// prompt, the schema and the skills; the workspace is the exact Root WorkRoot/TaskID, which
+// is kept; the run's git reaches the git server only through a fake gateway that holds
+// GitToken (gateway mode), with GH_TOKEN the placeholder; the transcript is kept for
+// Transcript. The job returned is job without its tokens, its dispatcher client or its agent
+// token, as the VM has it. The owner environment is PATH, LANG, TERM and extra (which the
+// harness must not see).
+func (e *E2E) Pipeline(a harness.Adapter, job *runner.Job, extra ...string) (*pipeline.Pipeline, *runner.Job) {
+	e.t.Helper()
+	gw := fakegateway.Start(e.t, fakegateway.Config{GitUpstream: e.git.URL,
+		Repos: map[string]fakegateway.Repo{"acme/docs": {Token: GitToken, RW: true}}})
+	ca := filepath.Join(e.t.TempDir(), "ca.pem")
+	if err := os.WriteFile(ca, gw.CA().CertPEM(), 0o600); err != nil {
+		e.t.Fatal(err)
+	}
+	x := pipeline.BundleExtras{CA: gw.CA().CertPEM()}
+	if h := job.Lease.Task.Spec.Harness; h != nil && h.Resolved != nil && h.Resolved.Name == "codex" {
+		acct := CodexAccount
+		x.Codex = &acct
+	}
+	b, err := runbundle.Read(e.BundleJob(job, x))
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if err := os.MkdirAll(e.WorkRoot, 0o700); err != nil {
+		e.t.Fatal(err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		e.t.Fatal(err)
 	}
 	p, err := pipeline.New(pipeline.Options{
-		WorkRoot: e.WorkRoot, Adapters: adapters, AgentBinary: exe,
-		GitBaseURL: e.git.URL, SkillsCache: filepath.Join(e.t.TempDir(), "cache"),
+		Root: filepath.Join(e.WorkRoot, e.TaskID), GitAuth: pipeline.GitAuthGateway, AgentBinary: exe,
+		Adapters: map[string]harness.Adapter{a.Name(): a},
+		Env: map[string]string{"HTTPS_PROXY": gw.URL(), "GIT_SSL_CAINFO": ca, "SSL_CERT_FILE": ca,
+			pipeline.EnvGHToken: harness.Placeholder, "FACTORY_RUNTIME": "workspace"},
+		Prompts: pipeline.BundlePrompts{B: b}, Schemas: pipeline.BundleSchemas{B: b}, Skills: pipeline.BundleSkills(b),
+		Transcripts: e2eTranscripts{e},
 		Environ: func() []string {
 			return append([]string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8", "TERM=dumb"}, extra...)
 		},
@@ -273,7 +315,26 @@ func (e *E2E) Pipeline(a harness.Adapter, extra ...string) *pipeline.Pipeline {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	return p
+	vm := *job
+	cred, reads := job.Git.Get(), job.Git.Reads()
+	cred.Token = ""
+	for i := range reads {
+		reads[i].Token = ""
+	}
+	vm.Lease.GitCredential, vm.Lease.ReadCredentials = cred, reads
+	vm.Git = runner.NewCredentials(cred, reads...)
+	vm.API, vm.AgentToken, vm.Dispatcher = nil, nil, runbundle.DefaultDispatcherURL
+	return p, &vm
+}
+
+// e2eTranscripts keeps a gateway run's transcript as the dispatcher does an upload.
+type e2eTranscripts struct{ e *E2E }
+
+func (s e2eTranscripts) Store(_ context.Context, _ *runner.Job, gz []byte) (string, error) {
+	s.e.mu.Lock()
+	defer s.e.mu.Unlock()
+	s.e.transcripts = append(s.e.transcripts, gz)
+	return "blob://transcripts/run_1.jsonl.gz", nil
 }
 
 // Job is an implement task on acme/docs (rw, GitToken) with the docs-style skill and both
@@ -336,7 +397,7 @@ func (e *E2E) Bundle(h v1alpha1.HarnessResolved, outcomes []string) (string, *ru
 func (e *E2E) BundleJob(job *runner.Job, x pipeline.BundleExtras) string {
 	e.t.Helper()
 	dir := filepath.Join(e.t.TempDir(), "bundle")
-	if err := e.Pipeline(nil).PrepareBundle(context.Background(), job, dir, x); err != nil {
+	if err := e.HostPipeline().PrepareBundle(context.Background(), job, dir, x); err != nil {
 		e.t.Fatalf("PrepareBundle: %v", err)
 	}
 	return dir

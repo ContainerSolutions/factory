@@ -3,7 +3,9 @@
 > Workstream: [AGT](../../definitions.md#agt-agent) · Tasks: AGT-S1-T03 (Codex), AGT-S1-T04 (Claude Code) · Package: `internal/agent/harness/{codex,claudecode,fake}`
 > Design: [05 §Harness adapter contract](../../../05-agent-runtime.md#harness-adapter-contract)
 
-> **Rule:** every flag marked **verify** must be checked against the installed CLI (`--help`, docs) at the start of the task; the PR body lists each with ✅/changed. Adapters pin a **minimum harness version** and refuse older ones in `Probe`.
+> **Rule:** every flag marked **verify** must be checked against the installed CLI (`--help`, docs) at the start of the task; the PR body lists each with ✅/changed.
+>
+> **Phase 10:** the adapters run only in a VM workspace (`harness.IsolationVM`, [workspace-run.md](workspace-run.md#harnesses-under-isolationvm)). The host path is gone: `Probe` (supervise offers a harness by its stored login), the OS sandboxes, the owner's login links and `make smoke-codex`/`smoke-claude`. The decisions below are AGT-S1-T03/T04's, kept for their flags, stream mapping, MCP wiring and hook; where they describe the host path, this section and [Isolation](#isolation-p1-phase-3) win.
 
 ## Interface
 
@@ -11,7 +13,6 @@
 type Adapter interface {
     Name() string
     Capabilities() v1alpha1.AdapterCapabilities                     // static: effort mapping, features
-    Probe(ctx context.Context, cfg config.Harness) (v1alpha1.HarnessOffer, error)
     Prepare(ctx context.Context, ws Workspace, t v1alpha1.Task) error
     Run(ctx context.Context, ws Workspace, t v1alpha1.Task, prompt string, sink EventSink) (Raw, error)
     Repair(ctx context.Context, ws Workspace, problems []string, sink EventSink) (Raw, error)
@@ -25,10 +26,10 @@ type EventSink interface { Progress(ProgressEvent); Usage(UsageDelta); RateLimit
 
 | Concern | Mapping |
 |---|---|
-| Binary / min version | `codex` ≥ the version that has `exec --json` and skills (**verify**) |
-| Auth | owner signed in once: `CODEX_HOME=<cfg.home> codex login --device-auth`; Probe checks `codex login status` (**verify** command) |
-| Isolation | per run: `CODEX_HOME` = scratch copy containing **only** the auth file (symlink to `<cfg.home>/auth.json`, never copied elsewhere), a generated `config.toml`, `AGENTS.md`, and `skills/` |
-| Invocation | `codex exec --json -m <model> -c model_reasoning_effort=<effort> --sandbox <read-only\|workspace-write> --ask-for-approval never --output-schema <schema> -C repo/ -` (prompt on stdin) — **verify** `--sandbox`/`--ask-for-approval`/`--output-schema`/`-C` (2026 renamed sandbox options exist in the action: `permission-profile`) |
+| Binary | `codex` in the workspace image ([workspace-host.md](workspace-host.md)) |
+| Auth | the owner's ChatGPT login, stored by `factory-agent login codex`; the VM gets a placeholder `auth.json` with the account's identifiers, and the gateway injects the real token |
+| Isolation | the VM. Per run: `CODEX_HOME` = scratch dir with the placeholder `auth.json`, a generated `config.toml`, `AGENTS.md`, and `skills/` |
+| Invocation | `codex exec --json -m <model> -c model_reasoning_effort=<effort> -c approval_policy=never --sandbox danger-full-access --cd <workdir> -` (prompt on stdin) — **verify** (2026 renamed sandbox options exist in the action: `permission-profile`) |
 | Skills | copy `SKILL.md` folders to `$CODEX_HOME/skills/<name>/` (**verify** path; fallback: repo-local `.agents/skills/`) |
 | MCP (Effector) | `config.toml`: `[mcp_servers.factory] command = "factory-agent" args = ["mcp"]` with env passthrough |
 | System prompt | `AGENTS.md` in `CODEX_HOME` holds the headless preamble; task prompt on stdin |
@@ -41,9 +42,9 @@ type EventSink interface { Progress(ProgressEvent); Usage(UsageDelta); RateLimit
 
 | Concern | Mapping |
 |---|---|
-| Binary / min version | `claude` ≥ version with `--json-schema`, `--plugin-dir` (**verify**) |
-| Auth | PoC: owner's subscription login in dedicated `CLAUDE_CONFIG_DIR=<cfg.configDir>` (**verify** env var); later: `ANTHROPIC_API_KEY` from the worker environment. Probe: `claude auth status` or a 1-turn dry call (**verify**) |
-| Isolation | `--settings <generated.json>` (permissions, hooks, `enabledPlugins: {}`), no project `.claude/` from the target repo (`--setting-sources` limited, **verify**), skills only via `--plugin-dir` |
+| Binary | `claude` in the workspace image ([workspace-host.md](workspace-host.md)) |
+| Auth | the owner's subscription token, stored by `factory-agent login claude`; the VM gets a placeholder `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`), and the gateway injects the real one. `CLAUDE_CONFIG_DIR` is a scratch dir of the run's `HOME` |
+| Isolation | the VM. `--settings <generated.json>` (hooks, `enabledPlugins: {}`, no sandbox or permissions), no project `.claude/` from the target repo (`--setting-sources` limited, **verify**), skills only via `--plugin-dir` |
 | Invocation | `claude -p --output-format stream-json --verbose --model <model> --append-system-prompt <preamble> --plugin-dir skills/<plugin> --mcp-config mcp.json --json-schema <schema> --max-turns <n> --permission-mode <mode>` (prompt on stdin) — **verify** each |
 | Read-only workspace | `--permission-mode` + `--disallowedTools Write,Edit,NotebookEdit` + a `PreToolUse` hook rejecting writes outside `out/` and Bash commands matching `git push\|gh (pr\|issue\|api)` |
 | Effort mapping | to the CLI's effort/thinking setting (**verify** flag or settings key, e.g. `effortLevel`); `max` → highest available |
@@ -52,7 +53,7 @@ type EventSink interface { Progress(ProgressEvent); Usage(UsageDelta); RateLimit
 
 ## Isolation (P1 phase 3)
 
-Both adapters take `Options.Isolation` (`harness.Isolation`). `IsolationSandbox`, the zero value, is everything this LLD describes: the harness's own OS sandbox on the owner's host. `IsolationVM` is for `factory-agent run` inside a VM workspace, where the VM is the boundary: no Probe; claude gets no `sandbox` or `permissions` settings, a scratch `CLAUDE_CONFIG_DIR` and a placeholder `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`), and keeps its PreToolUse hook; codex runs `--sandbox danger-full-access` with no `[sandbox_workspace_write]` or `workDirFor`, and a placeholder `auth.json` built from the account identifiers in the run bundle, in Phase 0's shape. See [workspace-run.md](workspace-run.md#harnesses-under-isolationvm).
+Both adapters take `Options.Isolation` (`harness.Isolation`) and run only under `IsolationVM`: every method refuses any other value, `IsolationSandbox` (the zero value, the owner's host, which phase 10 removed) included. `IsolationVM` is for `factory-agent run` inside a VM workspace, where the VM is the boundary: claude gets no `sandbox` or `permissions` settings, a scratch `CLAUDE_CONFIG_DIR` and a placeholder `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`), and keeps its PreToolUse hook; codex runs `--sandbox danger-full-access` with no `[sandbox_workspace_write]` or `workDirFor`, and a placeholder `auth.json` built from the account identifiers in the run bundle, in Phase 0's shape. See [workspace-run.md](workspace-run.md#harnesses-under-isolationvm).
 
 ## Fake adapter
 
@@ -62,11 +63,11 @@ Scriptable (`fake.Script{Events, Result, Err, RateLimitAfter}`) for pipeline and
 
 - Golden parsing of recorded streams (`testdata/codex-*.jsonl`, `testdata/claude-*.jsonl`) → progress/usage/rate-limit events.
 - Command-line construction tables per TaskSpec variant (read-only vs rw, effort, schema).
-- `make smoke-codex` / `make smoke-claude`: trivial task (write a result JSON) on a real machine; not in CI.
+- The pipeline end to end with each real adapter on its fake binary, as a VM workspace runs it (`harnesstest.E2E.Pipeline`: gateway mode through `internal/fakegateway`, from the run bundle). The real harnesses run only in a VM workspace; there is no host smoke target.
 
 ## Decisions taken in AGT-S1-T03
 
-- **Nothing was run against a real codex.** The owner decided (2026-10-19) that codex isn't run while the adapter is written, not even `--help`. So every part of codex's interface the adapter relies on is a constant in `internal/agent/harness/codex/flags.go`, each marked `UNVERIFIED (owner to verify with make smoke-codex)`, to be fixed there in one place. The unverified list:
+- **Nothing was run against a real codex.** The owner decided (2026-10-19) that codex isn't run while the adapter is written, not even `--help`. So every part of codex's interface the adapter relies on is a constant in `internal/agent/harness/codex/flags.go`, each marked `UNVERIFIED` (now "owner to verify on a VM workspace run"), to be fixed there in one place. The unverified list:
   - the minimum version `0.72.0` and `codex --version`'s `codex-cli x.y.z`;
   - `codex login status`, its exit status, and its `ChatGPT` / `API key` wording;
   - `codex login --device-auth` (only quoted in errors);
@@ -109,7 +110,7 @@ Scriptable (`fake.Script{Events, Result, Err, RateLimitAfter}`) for pipeline and
   3. **`read-only` blocked commands: resolved.** It denies commands both the network and writes. A live plan-epic run (2026-10-21, a `mode: ro` repo) confirmed it and ended `failed`: the agent could create no temporary file and write no `$FACTORY_RESULT`, and its `factory result` retry failed because "the MCP result tool required unavailable approval". So a read-only checkout now runs `workspace-write` with `--cd out/` (see Run): the risk's alternative. The MCP part is codex's approval of MCP tool calls, read from its source (openai/codex at `d138398`, 2026-10-21, and the same in `rust-v0.163.0`), not a run: `codex-rs/core/src/mcp_tool_call.rs` `maybe_request_mcp_tool_approval` skips approval only when `mcp_permission_prompt_is_auto_approved` (`codex-rs/codex-mcp/src/mcp/mod.rs`: the tool's approval mode is `approve`, or the policy is `never` with full disk write access, which neither `read-only` nor `workspace-write` has) or when `requires_mcp_tool_approval_for_mode` says none is needed (the default mode, `auto`, asks unless the tool is annotated `readOnlyHint`, or `destructiveHint` and `openWorldHint` false; the Effector's tools carry no annotations). Otherwise `request_mcp_tool_user_approval` denies the call under `approval_policy = "never"` ("MCP tool call requires approval, but approval policy is never"). The mode comes from `[mcp_servers.<name>] default_tools_approval_mode`, overridden per tool by `tools.<tool>.approval_mode` (`codex-rs/config/src/mcp_types.rs` `AppToolApproval`: `auto`, `prompt`, `writes`, `approve`; `codex-rs/codex-mcp/src/server.rs` `McpServerMetadata::tool_approval_mode`). So `[mcp_servers.factory]` sets `default_tools_approval_mode = "approve"`, for that server only: the Effector checks every op against the task's allowed effects itself. The owner checks both on a plan-epic rerun.
   4. **`.git` is read-only unless listed.** A release-docs run (2026-10-21) confirmed it and ended `blocked`: the sandbox denied writes to `repo/.git/FETCH_HEAD` and `repo/.git/index.lock`, so nothing was fetched, committed or pushed (`factory push` runs `git push` in the sandboxed shell, which updates refs in `.git`). codex's `workspace-write` keeps `<writable root>/.git`, and the gitdir a `.git` pointer file names, read-only, the cwd included. Its source (openai/codex `codex-rs/protocol/src/permissions.rs`: `get_writable_roots_with_cwd_impl` and `from_legacy_sandbox_policy_for_cwd` skip a default read-only path that has an explicit entry, and `metadata_write_denial` allows writes under a writable root at or below the protected path; `codex-rs/sandboxing/src/seatbelt.rs` grants each writable root on its own; `codex-rs/linux-sandbox/src/bwrap.rs` binds deeper writable roots after their parents' carveouts) shows that listing the git dir as a writable root of its own lifts the protection for that path. So `config.toml`'s `writable_roots` list the git dir of the primary checkout when it is writable and of every writable mount. Read-only checkouts keep codex's protection. A symlinked `.git` isn't listed: seatbelt refuses a writable root with a symlink in it. A writable `.git` can't plant a hook that runs outside the sandbox because worker-side git ignores the checkout's hooks (fx/git-ignore-repo-hooks). This was read from the source, not run: the owner checks it on a release-docs or `implement` run that commits and pushes.
   5. **Usage may be cumulative.** If `turn.completed.usage` is cumulative per thread, a resumed repair double-counts it.
-- **`make smoke-codex`** runs `TestSmokeCodex` (`FACTORY_SMOKE_CODEX=1`, refused when `CI` is set). It probes the real codex, then runs the pipeline end to end against an in-process dispatcher and git server on a trivial task: `ls`, then write a fixed Result. It logs the exec arguments, stderr and progress so the flags above can be checked. Settings: `FACTORY_SMOKE_CODEX_HOME` (default `~/.factory-agent/codex-home`), `_MODEL` (`gpt-5-codex`), `_EFFORT` (`low`), `_BIN` (`codex`). It is skipped everywhere else, `make test` included.
+- **`make smoke-codex`** (phase 10: removed with the host path).
 - **Tests** never run codex. The test binary is the fake codex, behind a wrapper script: it replays a recorded JSONL file, writes `$FACTORY_RESULT` or the last-message file, records its arguments, environment, stdin and `CODEX_HOME` listing, and can start a child that ignores SIGTERM. The tests cover:
   - golden parsing of `testdata/codex-*.jsonl` (success, multi-turn, a usage limit with its reset, a 429, `resets_in_seconds`, a failed turn with retries, the older `token_count`), with `-update`, plus the semantics behind the goldens;
   - reset parsing;
@@ -180,7 +181,7 @@ Scriptable (`fake.Script{Events, Result, Err, RateLimitAfter}`) for pipeline and
   6. **The Effector over MCP fails today**: `factory-agent fx mcp` is AGT-S1-T05's, so `system/init` reports the server `failed` (an error event, not a failure).
   7. **An `ANTHROPIC_API_KEY` in the owner's environment switches the agent to API-key auth** (Probe reports `apiKey`); in the PoC the worker must run without it.
   8. **Cost on resume.** If `total_cost_usd` is per session rather than per process, a resumed repair double-counts it.
-- **`make smoke-claude`** runs `TestSmokeClaude` (`FACTORY_SMOKE_CLAUDE=1`; the target and the test both refuse when `CI` is set). It probes the real claude, then runs the pipeline end to end on a trivial task: `ls`, a `git push --dry-run` the hook must refuse, then a fixed Result. It logs the exec arguments, stderr, `system/init`, the `result` and the progress, and says whether the hook refused the push. Settings: `FACTORY_SMOKE_CLAUDE_CONFIG_DIR` (default `~/.factory-agent/claude`), `_MODEL` (`claude-sonnet-5-5`), `_EFFORT` (`low`), `_BIN` (`claude`).
+- **`make smoke-claude`** (phase 10: removed with the host path).
 - **Tests** never run claude. The test binary is the fake claude behind a wrapper script: it replays a recorded stream-json file, writes `$FACTORY_RESULT`, records its arguments, environment, stdin, settings and MCP config, puts scripted tool calls to the settings' PreToolUse hooks through `sh -c` (the real `fx claude-hook` path), and can start a child that ignores SIGTERM. The tests cover:
   - golden parsing of `testdata/claude-*.jsonl` (success with structured output, multi-turn with a subagent, a todo list, a failed MCP server and a denial, a usage limit with its `|<reset>`, `resets 3pm (Europe/Lisbon)`, an API 429, a `rate_limit_event`, an error result, max turns, a plugin error, StructuredOutput retries exhausted with a stringified `data`, and with one that isn't JSON), with `-update`, plus the semantics behind the goldens;
   - reset parsing; flag assembly for read-only and read-write, resume, budget; the effort mapping;

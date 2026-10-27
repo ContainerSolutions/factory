@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
@@ -78,12 +77,6 @@ func (a *Adapter) Name() string {
 // Capabilities implements harness.Adapter.
 func (a *Adapter) Capabilities() v1alpha1.AdapterCapabilities {
 	return v1alpha1.AdapterCapabilities{Harness: a.Name(), Features: []string{"structured-output", "skills-dir"}}
-}
-
-// Probe implements harness.Adapter: the config's models and efforts.
-func (a *Adapter) Probe(_ context.Context, cfg config.Harness) (v1alpha1.HarnessOffer, error) {
-	return v1alpha1.HarnessOffer{Name: a.Name(), Version: "0.0.0-fake", Auth: "subscription",
-		Models: slices.Clone(cfg.Models), DefaultModel: cfg.Default, ReasoningEffort: slices.Clone(cfg.Efforts)}, nil
 }
 
 // Prepare implements harness.Adapter.

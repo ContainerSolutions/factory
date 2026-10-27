@@ -17,7 +17,7 @@ import (
 )
 
 // The adapter's files in the workspace: a scratch directory of the run's HOME (claude's own
-// state stays in the dedicated CLAUDE_CONFIG_DIR, where the login is).
+// state is in the scratch CLAUDE_CONFIG_DIR, configDir).
 const (
 	scratchDir = ".factory-claude"
 	// settingsFile is --settings: plugins, effort, the PreToolUse hook.
@@ -28,43 +28,29 @@ const (
 	sessionFile = "factory-session.json"
 	// promptFile keeps the run's prompt for a Repair that can't resume.
 	promptFile = "factory-prompt.md"
-	// vmConfigDir is CLAUDE_CONFIG_DIR under IsolationVM: a scratch directory of the run's
-	// HOME, since a VM workspace has no login of the owner's.
-	vmConfigDir = ".claude"
+	// configDir is CLAUDE_CONFIG_DIR: a scratch directory of the run's HOME, since a VM
+	// workspace has no login of the owner's.
+	configDir = ".claude"
 )
 
 // scratch is the run's scratch directory.
 func scratch(ws harness.Workspace) string { return filepath.Join(ws.Home, scratchDir) }
 
-// vmConfigPath is the run's CLAUDE_CONFIG_DIR under IsolationVM (on the host it is the
-// owner's dedicated Config.ConfigDir).
-func vmConfigPath(ws harness.Workspace) string { return filepath.Join(ws.Home, vmConfigDir) }
+// configPath is the run's CLAUDE_CONFIG_DIR.
+func configPath(ws harness.Workspace) string { return filepath.Join(ws.Home, configDir) }
 
 // readOnly reports whether the run may not write its primary checkout (there is none, or it
 // is read-only): it then runs without the write tools.
 func readOnly(ws harness.Workspace) bool { return ws.Repo == "" || !ws.RepoWritable }
 
-// Prepare implements harness.Adapter: the OS sandbox must be supported, the dedicated config
-// dir must exist, every plugin directory must have its manifest, and the scratch directory
-// gets the settings file (no marketplace plugin, t's reasoning effort, the sandbox and its
-// permission rules, the PreToolUse hook) and the MCP config (the
-// Effector, with the run's variables passed by name).
-//
-// Under IsolationVM the VM is the sandbox and there is no owner's config dir: neither is
-// checked, the settings have no sandbox block and no permission rules (renderVMSettings),
-// and the scratch CLAUDE_CONFIG_DIR is made.
+// Prepare implements harness.Adapter: every plugin directory must have its manifest, the
+// scratch CLAUDE_CONFIG_DIR is made, and the scratch directory gets the settings file (no
+// marketplace plugin, t's reasoning effort, the PreToolUse hook; no sandbox block and no
+// permission rules: the VM is the boundary) and the MCP config (the Effector, with the run's
+// variables passed by name).
 func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, t v1alpha1.Task) error {
-	vm, err := a.vm()
-	if err != nil {
+	if err := a.checkVM(); err != nil {
 		return err
-	}
-	if !vm {
-		if err := a.sandboxSupport(); err != nil {
-			return err // never a run on the host without the OS sandbox
-		}
-		if err := checkConfigDir(a.o.Config.ConfigDir); err != nil {
-			return err
-		}
 	}
 	if ws.Home == "" || ws.Bin == "" {
 		return errors.New("claude-code: the workspace has no scratch HOME or bin/")
@@ -83,21 +69,14 @@ func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, t v1alpha1.Ta
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("claude-code: %w", err)
 	}
-	if vm {
-		if err := os.MkdirAll(vmConfigPath(ws), 0o700); err != nil {
-			return fmt.Errorf("claude-code: %w", err)
-		}
+	if err := os.MkdirAll(configPath(ws), 0o700); err != nil {
+		return fmt.Errorf("claude-code: %w", err)
 	}
 	effort := ""
 	if h := t.Spec.Harness; h != nil && h.Resolved != nil {
 		effort = h.Resolved.ReasoningEffort
 	}
-	var settings []byte
-	if vm {
-		settings, err = renderVMSettings(ws, effort)
-	} else {
-		settings, err = renderSettings(ws, effort, clirun.LookupEnv(a.o.Environ(), "HOME"), a.o.Config.ConfigDir)
-	}
+	settings, err := renderSettings(ws, effort)
 	if err != nil {
 		return err
 	}
@@ -127,8 +106,8 @@ func pluginDirs(ws harness.Workspace) []string {
 	return out
 }
 
-// writableRoots are where the PreToolUse hook lets the file tools write: out/ and tmp/, and
-// the checkouts the harness may write.
+// writableRoots are where the PreToolUse hook lets the file tools write in a read-only run
+// (vmWritableRoots): out/ and tmp/, and the checkouts the harness may write.
 func writableRoots(ws harness.Workspace) []string {
 	var roots []string
 	add := func(d string) {
@@ -149,9 +128,9 @@ func writableRoots(ws harness.Workspace) []string {
 	return roots
 }
 
-// vmWritableRoots are where the PreToolUse hook lets the file tools write under IsolationVM:
-// anywhere (/) when the run may write its checkout, since the VM is the boundary; else
-// writableRoots, as on the host (the write tools are disallowed then anyway).
+// vmWritableRoots are where the PreToolUse hook lets the file tools write: anywhere (/) when
+// the run may write its checkout, since the VM is the boundary; else writableRoots (the write
+// tools are disallowed then anyway).
 func vmWritableRoots(ws harness.Workspace) []string {
 	if readOnly(ws) {
 		return writableRoots(ws)
@@ -169,25 +148,16 @@ func hookCommand(ws harness.Workspace, roots []string) string {
 	return strings.Join(parts, " ")
 }
 
-// renderSettings is the --settings file: no marketplace plugin, the effort, the OS sandbox
-// and its permission rules (ownerHome is the worker's HOME, whose credentials stay
-// unreadable), and the PreToolUse hook on the write tools and Bash.
-func renderSettings(ws harness.Workspace, effort, ownerHome, configDir string) ([]byte, error) {
-	s := baseSettings(effort, hookCommand(ws, writableRoots(ws)))
-	s[keySandbox], s[keyPermissions] = sandboxSettings(ws, ownerHome, configDir)
-	return marshalSettings(s)
-}
-
-// renderVMSettings is the --settings file under IsolationVM: no marketplace plugin, the
-// effort and the PreToolUse hook, which keeps its git push and gh write rules (pushes go
+// renderSettings is the --settings file: no marketplace plugin, the effort and the
+// PreToolUse hook, which keeps its git push and gh write rules (pushes go
 // through `factory push`, other GitHub writes through the Effector) and lets the file tools
 // write vmWritableRoots. No sandbox block and no permission rules: the VM is the boundary.
-func renderVMSettings(ws harness.Workspace, effort string) ([]byte, error) {
+func renderSettings(ws harness.Workspace, effort string) ([]byte, error) {
 	return marshalSettings(baseSettings(effort, hookCommand(ws, vmWritableRoots(ws))))
 }
 
-// baseSettings are the keys of the settings file in every isolation: no marketplace plugin,
-// the effort when there is one, and the PreToolUse hook (hook) on the write tools and Bash.
+// baseSettings are the keys of the settings file: no marketplace plugin, the effort when
+// there is one, and the PreToolUse hook (hook) on the write tools and Bash.
 func baseSettings(effort, hook string) map[string]any {
 	s := map[string]any{
 		keyEnabledPlugins: map[string]any{},

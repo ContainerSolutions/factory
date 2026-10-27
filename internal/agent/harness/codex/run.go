@@ -33,31 +33,8 @@ type session struct {
 	WorkDir  string `json:"workDir"`
 }
 
-// workDirFor is where codex runs, its cwd and so one of workspace-write's writable roots: the
-// primary checkout when the harness may write it (the pipeline's WorkDir), else out/
-// ($FACTORY_OUT, a writable root anyway). So a read-only checkout, or the workspace root of a
-// task without one, is never a writable root: workspace-write reads the whole disk but writes
-// only its writable roots, so the checkout stays read-only while $FACTORY_OUT,
-// $FACTORY_RESULT, the scratch TMPDIR and the networked `factory` CLI work. "" when the
-// workspace has neither.
-//
-// A read-only checkout used to run in codex's read-only sandbox, which denies every write and
-// the network: a live plan-epic run (2026-10-21, a `mode: ro` repo) ended failed, unable to
-// write a temporary file or $FACTORY_RESULT or to reach the dispatcher.
-func workDirFor(ws harness.Workspace) string {
-	if ws.Repo != "" && ws.RepoWritable {
-		if ws.WorkDir != "" {
-			return ws.WorkDir
-		}
-		return ws.Repo
-	}
-	return ws.Out
-}
-
-// vmWorkDir is where codex runs under IsolationVM: the pipeline's WorkDir, else the
-// workspace root. workDirFor's out/ isn't needed there: there is no sandbox whose writable
-// roots the cwd would join.
-func vmWorkDir(ws harness.Workspace) string {
+// workDir is where codex runs: the pipeline's WorkDir, else the workspace root.
+func workDir(ws harness.Workspace) string {
 	if ws.WorkDir != "" {
 		return ws.WorkDir
 	}
@@ -65,22 +42,15 @@ func vmWorkDir(ws harness.Workspace) string {
 }
 
 // Run implements harness.Adapter: `codex exec --json` on the prompt (stdin) with the task's
-// resolved model and effort, in the workspace-write sandbox from workDirFor's directory.
-// Under IsolationVM it runs danger-full-access from vmWorkDir's.
+// resolved model and effort, danger-full-access (the VM is the boundary) from workDir's
+// directory.
 func (a *Adapter) Run(ctx context.Context, ws harness.Workspace, t v1alpha1.Task, prompt string, sink harness.EventSink) (harness.Raw, error) {
-	vm, err := a.vm()
-	if err != nil {
+	if err := a.checkVM(); err != nil {
 		return harness.Raw{}, err
 	}
-	s := session{Sandbox: sandboxWorkspaceWrite, WorkDir: workDirFor(ws), Model: a.o.Config.Default}
-	switch {
-	case vm:
-		s.Sandbox, s.WorkDir = sandboxDangerFullAccess, vmWorkDir(ws)
-		if s.WorkDir == "" {
-			return harness.Raw{}, errors.New("codex: the workspace has neither a work dir nor a root to run in")
-		}
-	case s.WorkDir == "":
-		return harness.Raw{}, errors.New("codex: the workspace has neither a writable checkout nor out/ to run in")
+	s := session{Sandbox: sandboxDangerFullAccess, WorkDir: workDir(ws), Model: a.o.Config.Default}
+	if s.WorkDir == "" {
+		return harness.Raw{}, errors.New("codex: the workspace has neither a work dir nor a root to run in")
 	}
 	if h := t.Spec.Harness; h != nil && h.Resolved != nil {
 		if h.Resolved.Model != "" {
@@ -105,7 +75,7 @@ func (a *Adapter) Run(ctx context.Context, ws harness.Workspace, t v1alpha1.Task
 // gets the original prompt followed by the problems. The sandbox and working directory are
 // the Run's, from the session record.
 func (a *Adapter) Repair(ctx context.Context, ws harness.Workspace, problems []string, sink harness.EventSink) (harness.Raw, error) {
-	if _, err := a.vm(); err != nil {
+	if err := a.checkVM(); err != nil {
 		return harness.Raw{}, err
 	}
 	home := codexHome(ws)

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -32,14 +31,6 @@ func vmWorkspace(t *testing.T, writable bool) harness.Workspace {
 	return ws
 }
 
-// refuseCommands is a Commands that fails the test: no Probe command may run.
-type refuseCommands struct{ t *testing.T }
-
-func (c refuseCommands) Output(_ context.Context, _ []string, name string, args ...string) ([]byte, error) {
-	c.t.Errorf("ran %s %q", name, args)
-	return nil, errors.New("no commands in this test")
-}
-
 // noBinary is a claude path that doesn't exist: an adapter that must not run claude gets it
 // (rather than "claude" on PATH, the real one), so a regression fails the run fast.
 func noBinary(t *testing.T) string {
@@ -48,26 +39,16 @@ func noBinary(t *testing.T) string {
 }
 
 // vmAdapter is the adapter under IsolationVM with uid as the run's user, running binary
-// (noBinary when it is ""). Anything it must not use in the VM (Probe's commands, the
-// owner's environment, the OS sandbox's tools) fails the test.
+// (noBinary when it is "").
 func vmAdapter(t *testing.T, uid int, binary string) *Adapter {
 	t.Helper()
 	if binary == "" {
 		binary = noBinary(t)
 	}
 	return New(Options{
-		Isolation: harness.IsolationVM, Binary: binary, GOOS: "linux", Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond,
-		Config:   config.Harness{Default: "claude-sonnet-5-5"},
-		Commands: refuseCommands{t},
-		Getuid:   func() int { return uid },
-		Environ: func() []string {
-			t.Error("the VM adapter read the worker's environment")
-			return []string{"USER=owner", "ANTHROPIC_API_KEY=sk-ant-api03-worker-key"}
-		},
-		LookPath: func(n string) (string, error) {
-			t.Errorf("the VM adapter looked for the OS sandbox's %s", n)
-			return "", errors.New("no sandbox in the VM")
-		},
+		Isolation: harness.IsolationVM, Binary: binary, Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond,
+		Config: config.Harness{Default: "claude-sonnet-5-5"},
+		Getuid: func() int { return uid },
 	})
 }
 
@@ -245,41 +226,34 @@ func TestVMRun(t *testing.T) {
 	}
 }
 
-// TestVMRefusals: Probe doesn't run in the VM, and an unknown Isolation is refused rather than
-// run without a sandbox. The unknown one's adapter has no claude, no commands, no
-// environment and no OS sandbox to fall back on, so a regressed guard fails the test fast.
+// TestVMRefusals: an Isolation other than IsolationVM, the zero one (the host) included, is
+// refused rather than run without a sandbox. Its adapter has no claude to fall back on, so a
+// regressed guard fails the test fast.
 func TestVMRefusals(t *testing.T) {
 	t.Parallel()
-	if _, err := vmAdapter(t, 1000, "").Probe(context.Background(), config.Harness{}); err == nil || !strings.Contains(err.Error(), "doesn't run in a VM workspace") {
-		t.Errorf("Probe = %v", err)
-	}
-	a := New(Options{
-		Isolation: 7, Binary: noBinary(t), GOOS: "linux", Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond,
-		Config:   config.Harness{ConfigDir: ownerConfigDir(t)},
-		Commands: refuseCommands{t},
-		Environ: func() []string {
-			t.Error("an unknown isolation read the worker's environment")
-			return nil
-		},
-		LookPath: func(n string) (string, error) {
-			t.Errorf("an unknown isolation looked for the OS sandbox's %s", n)
-			return "", errors.New("no sandbox for an unknown isolation")
-		},
-	})
-	ws := vmWorkspace(t, true)
-	for name, err := range map[string]error{
-		"Probe": func() error {
-			_, err := a.Probe(context.Background(), config.Harness{ConfigDir: a.o.Config.ConfigDir})
-			return err
-		}(),
-		"Prepare": a.Prepare(context.Background(), ws, task("", "", AuthSubscription)),
-		"Run": func() error {
-			_, err := a.Run(context.Background(), ws, task("", "", AuthSubscription), "p", &harnesstest.Recorder{})
-			return err
-		}(),
-	} {
-		if err == nil || !strings.Contains(err.Error(), "unknown isolation Isolation(7)") {
-			t.Errorf("%s = %v", name, err)
+	for _, iso := range []harness.Isolation{harness.IsolationSandbox, 7} {
+		a := New(Options{
+			Isolation: iso, Binary: noBinary(t), Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond,
+			Config: config.Harness{ConfigDir: ownerConfigDir(t)},
+		})
+		ws := vmWorkspace(t, true)
+		for name, err := range map[string]error{
+			"Prepare": a.Prepare(context.Background(), ws, task("", "", AuthSubscription)),
+			"Run": func() error {
+				_, err := a.Run(context.Background(), ws, task("", "", AuthSubscription), "p", &harnesstest.Recorder{})
+				return err
+			}(),
+			"runEnv": func() error {
+				_, err := a.runEnv(ws, session{Auth: AuthSubscription})
+				return err
+			}(),
+		} {
+			if want := "runs only in a VM workspace, not under isolation " + iso.String(); err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("%s under %s = %v, want %q", name, iso, err, want)
+			}
+		}
+		if _, err := os.Lstat(filepath.Join(ws.Home, ".factory-claude")); err == nil {
+			t.Errorf("isolation %s made the scratch dir", iso)
 		}
 	}
 }

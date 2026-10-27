@@ -22,7 +22,7 @@ const (
 const maxHookInput = 64 << 20
 
 // hookInput is what claude writes to a PreToolUse hook's stdin.
-// UNVERIFIED (owner to verify with make smoke-claude)
+// UNVERIFIED (owner to verify on a VM workspace run)
 type hookInput struct {
 	ToolName  string          `json:"tool_name"`
 	ToolInput json.RawMessage `json:"tool_input"`
@@ -38,8 +38,7 @@ type hookInput struct {
 //
 // It fails closed: unreadable input or arguments block the call. It is a second layer that
 // guards against mistakes and injected instructions: what a Bash command writes or reads is
-// bounded by the OS sandbox (sandbox.go) or, under harness.IsolationVM, by the VM and its
-// gateway, and the token scopes stay the boundary.
+// bounded by the VM and its gateway, and the token scopes stay the boundary.
 func HookMain(args []string, stdin io.Reader, stderr io.Writer) int {
 	deny := func(format string, a ...any) int {
 		fmt.Fprintf(stderr, "factory: "+format+"\n", a...)

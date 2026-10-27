@@ -47,15 +47,6 @@ kata-context: ## Write the kata image's build context (provision/kata and base.s
 test: ## Run Go tests with the race detector
 	go test -race -count=1 ./...
 
-.PHONY: smoke-codex
-smoke-codex: ## Maintainer machine only, never CI: a trivial task end to end through the real codex. FACTORY_SMOKE_CODEX_MODEL is required: a gpt-5* or gpt-6* model your codex sign-in offers (see /model in codex). Optional: FACTORY_SMOKE_CODEX_HOME, _EFFORT, _BIN
-	FACTORY_SMOKE_CODEX=1 go test -count=1 -v -run '^TestSmokeCodex$$' ./internal/agent/harness/codex/
-
-.PHONY: smoke-claude
-smoke-claude: ## Maintainer machine only, never CI: a trivial task end to end through the real claude (FACTORY_SMOKE_CLAUDE_CONFIG_DIR, _MODEL, _EFFORT, _BIN)
-	@if [ -n "$$CI" ]; then echo "smoke-claude runs a real claude on a maintainer machine, never in CI"; exit 1; fi
-	FACTORY_SMOKE_CLAUDE=1 go test -count=1 -v -run '^TestSmokeClaude$$' ./internal/agent/harness/claudecode/
-
 # The container layer of factory-agent run's tests (workspace-run.md §Tests, layer 5). The
 # image stands in for the workspace base (ghcr.io/cirruslabs/ubuntu): Ubuntu 24.04 with bash,
 # git and the CA roots, run as root, as linux/$(E2E_GOARCH) (emulated when the runtime can).

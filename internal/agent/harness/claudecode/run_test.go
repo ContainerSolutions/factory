@@ -12,32 +12,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/harness/harnesstest"
-	"github.com/compliance-framework/factory/internal/clock"
 )
 
 const okResult = `{"status":"done","outcome":"pr-opened","summary":"opened acme/docs#13","data":{"prs":["acme/docs#13"]}}`
-
-// workerEnv is the worker's environment the adapter reads its auth from.
-func workerEnv(extra ...string) func() []string {
-	env := append([]string{"PATH=/usr/bin:/bin", "HOME=/Users/owner", "USER=owner", "SECRET=owner-only"}, extra...)
-	return func() []string { return env }
-}
 
 // slow bounds what a loaded machine can take for what an idle one does in milliseconds:
 // starting the fake (a re-exec of the race-built test binary, which macOS also scans on its first
 // runs) or stopping it. The fakes that would hang block forever, so a hang still fails.
 const slow = time.Minute
 
-// prepared is a prepared workspace and an adapter running the fake claude.
-func prepared(t *testing.T, writable bool, plan fakePlan, environ func() []string) (*Adapter, harness.Workspace, *fakeClaude) {
+// prepared is a prepared VM workspace and an adapter running the fake claude.
+func prepared(t *testing.T, writable bool, plan fakePlan) (*Adapter, harness.Workspace, *fakeClaude) {
 	t.Helper()
 	fc := newFakeClaude(t, plan)
-	a := New(Options{LookPath: sandboxed, Config: config.Harness{ConfigDir: ownerConfigDir(t), Default: "claude-sonnet-5-5"}, Binary: fc.Binary,
-		Environ: environ, GOOS: "linux", Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond})
-	ws := workspace(t, writable)
+	a := vmAdapter(t, 1000, fc.Binary)
+	ws := vmWorkspace(t, writable)
 	if err := a.Prepare(context.Background(), ws, task("", "high", "")); err != nil {
 		t.Fatal(err)
 	}
@@ -56,32 +47,31 @@ func TestRun(t *testing.T) {
 		writable  bool
 		model     string
 		auth      string
-		environ   func() []string
 		wantArgs  []string
 		lackArgs  []string
 		wantEnv   map[string]string
 		wantHooks []int // exit codes for: write out/, write repo/, git push
 		wantCost  bool
 	}{
-		{"read-write on a subscription", true, "claude-opus-5-5", AuthSubscription, workerEnv("ANTHROPIC_API_KEY=sk-ant-api03-worker-key"),
+		{"read-write on a subscription", true, "claude-opus-5-5", AuthSubscription,
 			[]string{"--model", "claude-opus-5-5", "--max-turns", "30"},
 			[]string{"--disallowedTools", "--max-budget-usd"},
-			map[string]string{"ANTHROPIC_API_KEY": ""},
+			map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": harness.Placeholder},
 			[]int{0, 0, hookExitBlock}, false},
-		{"read-only on an API key", false, "", AuthAPIKey, workerEnv("ANTHROPIC_API_KEY=sk-ant-api03-worker-key"),
+		{"read-only on an API key", false, "", AuthAPIKey,
 			[]string{"--model", "claude-sonnet-5-5", "--disallowedTools", "Write,Edit,MultiEdit,NotebookEdit", "--max-budget-usd", "2.5"},
 			nil,
-			map[string]string{"ANTHROPIC_API_KEY": "sk-ant-api03-worker-key"},
+			map[string]string{"ANTHROPIC_API_KEY": harness.Placeholder},
 			[]int{0, hookExitBlock, hookExitBlock}, true},
-		{"the auth from the worker's environment", true, "", "", workerEnv("CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-worker-token"),
+		{"no resolved auth: the subscription", true, "", "",
 			nil, []string{"--max-budget-usd"},
-			map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-worker-token", "ANTHROPIC_API_KEY": ""},
+			map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": harness.Placeholder},
 			[]int{0, 0, hookExitBlock}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			a, ws, _ := prepared(t, tt.writable, fakePlan{}, tt.environ)
+			a, ws, _ := prepared(t, tt.writable, fakePlan{})
 			// The tool calls put to the hook: the Result in out/, an edit in the checkout, a push.
 			fc := newFakeClaude(t, fakePlan{Runs: []fakeRun{{Stream: "claude-success.jsonl", ToolCalls: []json.RawMessage{
 				toolCall("Write", map[string]any{"file_path": ws.Result, "content": okResult}),
@@ -119,8 +109,8 @@ func TestRun(t *testing.T) {
 			if slices.Contains(c.Args, "--resume") || c.Stdin != "the prompt\n" || !sameDir(c.Dir, ws.Repo) {
 				t.Errorf("args %q, stdin %q, dir %s", c.Args, c.Stdin, c.Dir)
 			}
-			env := map[string]string{"CLAUDE_CONFIG_DIR": a.o.Config.ConfigDir, "DISABLE_AUTOUPDATER": "1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-				"FACTORY_TOKEN": "agent-token-never-on-disk", "USER": "owner", "SECRET": "", "HOME": ws.Home}
+			env := map[string]string{"CLAUDE_CONFIG_DIR": filepath.Join(ws.Home, ".claude"), "DISABLE_AUTOUPDATER": "1",
+				"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "FACTORY_TOKEN": "", "USER": "", "HOME": ws.Home}
 			for k, v := range tt.wantEnv {
 				env[k] = v
 			}
@@ -135,11 +125,6 @@ func TestRun(t *testing.T) {
 			}
 			if !slices.Equal(codes, tt.wantHooks) {
 				t.Errorf("hook answers %v, want %v: %+v", codes, tt.wantHooks, c.Hooks)
-			}
-			var sd settingsDoc
-			if err := json.Unmarshal([]byte(c.Settings), &sd); err != nil || sd.Sandbox.Enabled == nil || !*sd.Sandbox.Enabled ||
-				slices.Contains(sd.Permissions.Allow, "Edit(/"+ws.Repo+"/**)") != tt.writable {
-				t.Errorf("the run's settings don't sandbox it as the checkout allows (%v):\n%s", err, c.Settings)
 			}
 			if !strings.Contains(c.Settings, `"effortLevel": "high"`) || !strings.Contains(c.MCP, `"${GH_TOKEN}"`) {
 				t.Errorf("settings %s\nmcp %s", c.Settings, c.MCP)
@@ -174,34 +159,31 @@ func TestRunFailures(t *testing.T) {
 		name      string
 		run       fakeRun
 		auth      string
-		environ   func() []string
 		wantErr   string
 		wantLimit time.Time
 		isLimit   bool
 	}{
-		{"usage limit in the stream", fakeRun{Stream: "claude-ratelimit.jsonl", Exit: 1}, AuthSubscription, workerEnv(),
+		{"usage limit in the stream", fakeRun{Stream: "claude-ratelimit.jsonl", Exit: 1}, AuthSubscription,
 			"rate limited until 2026-10-19T14:05:00Z", t0.Add(2*time.Hour + 5*time.Minute), false},
-		{"usage limit on stderr only", fakeRun{Stderr: "Error: Claude AI usage limit reached|1792422000\n", Exit: 1}, AuthSubscription, workerEnv(),
+		{"usage limit on stderr only", fakeRun{Stderr: "Error: Claude AI usage limit reached|1792422000\n", Exit: 1}, AuthSubscription,
 			"rate limited", time.Unix(1792422000, 0), false},
-		{"an error result", fakeRun{Stream: "claude-error.jsonl", Exit: 1}, AuthSubscription, workerEnv(),
+		{"an error result", fakeRun{Stream: "claude-error.jsonl", Exit: 1}, AuthSubscription,
 			"exit status 1: Connection error.", time.Time{}, false},
-		{"an error result, exit 0", fakeRun{Stream: "claude-error.jsonl"}, AuthSubscription, workerEnv(),
+		{"an error result, exit 0", fakeRun{Stream: "claude-error.jsonl"}, AuthSubscription,
 			"the run failed: Connection error.", time.Time{}, false},
-		{"max turns", fakeRun{Stream: "claude-maxturns.jsonl", Exit: 1}, AuthSubscription, workerEnv(),
+		{"max turns", fakeRun{Stream: "claude-maxturns.jsonl", Exit: 1}, AuthSubscription,
 			"limit maxTurns reached: claude stopped after 2 turns", time.Time{}, true},
-		{"a plugin error stops the run", fakeRun{Stream: "claude-plugin-error.jsonl", Block: true}, AuthSubscription, workerEnv(),
+		{"a plugin error stops the run", fakeRun{Stream: "claude-plugin-error.jsonl", Block: true}, AuthSubscription,
 			"plugins failed to load", time.Time{}, false},
-		{"no output", fakeRun{Stderr: "error: unknown option '--frobnicate'\n", Exit: 2}, AuthSubscription, workerEnv(),
+		{"no output", fakeRun{Stderr: "error: unknown option '--frobnicate'\n", Exit: 2}, AuthSubscription,
 			"exit status 2: error: unknown option", time.Time{}, false},
-		{"an API-key run without the key", fakeRun{Stream: "claude-success.jsonl"}, AuthAPIKey, workerEnv(),
-			"ANTHROPIC_API_KEY isn't set", time.Time{}, false},
-		{"an unknown auth", fakeRun{Stream: "claude-success.jsonl"}, "sso", workerEnv(),
+		{"an unknown auth", fakeRun{Stream: "claude-success.jsonl"}, "sso",
 			`unknown auth "sso"`, time.Time{}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			a, ws, _ := prepared(t, true, fakePlan{Runs: []fakeRun{tt.run}}, tt.environ)
+			a, ws, _ := prepared(t, true, fakePlan{Runs: []fakeRun{tt.run}})
 			s := &harnesstest.Recorder{}
 			start := time.Now()
 			_, err := a.Run(context.Background(), ws, task("claude-sonnet-5-5", "high", tt.auth), "p", s)
@@ -228,7 +210,7 @@ func TestRepair(t *testing.T) {
 		a, ws, fc := prepared(t, true, fakePlan{Runs: []fakeRun{
 			{Stream: "claude-multiturn.jsonl", Result: `{"status":"done"}`},
 			{Stream: "claude-success.jsonl"},
-		}}, workerEnv())
+		}})
 		if _, err := a.Run(context.Background(), ws, task("claude-opus-5-5", "medium", AuthSubscription), "the prompt", &harnesstest.Recorder{}); err != nil {
 			t.Fatal(err)
 		}
@@ -250,7 +232,7 @@ func TestRepair(t *testing.T) {
 	})
 	t.Run("a new run without a session", func(t *testing.T) {
 		t.Parallel()
-		a, ws, fc := prepared(t, true, fakePlan{Runs: []fakeRun{{Stderr: "boom\n", Exit: 1}, {Stream: "claude-success.jsonl"}}}, workerEnv())
+		a, ws, fc := prepared(t, true, fakePlan{Runs: []fakeRun{{Stderr: "boom\n", Exit: 1}, {Stream: "claude-success.jsonl"}}})
 		if _, err := a.Run(context.Background(), ws, task("claude-sonnet-5-5", "low", AuthSubscription), "the prompt", &harnesstest.Recorder{}); err == nil {
 			t.Fatal("the run succeeded")
 		}
@@ -268,7 +250,7 @@ func TestRepair(t *testing.T) {
 	})
 	t.Run("nothing to repair", func(t *testing.T) {
 		t.Parallel()
-		a, ws, _ := prepared(t, true, fakePlan{}, workerEnv())
+		a, ws, _ := prepared(t, true, fakePlan{})
 		if _, err := a.Repair(context.Background(), ws, []string{"x"}, &harnesstest.Recorder{}); err == nil {
 			t.Error("Repair before Run succeeded")
 		}
@@ -279,7 +261,7 @@ func TestRepair(t *testing.T) {
 // command it started both ignore SIGTERM, and neither process survives.
 func TestRunCancelKillsTheProcessTree(t *testing.T) {
 	t.Parallel()
-	a, ws, fc := prepared(t, true, fakePlan{Runs: []fakeRun{{Stream: "claude-success.jsonl", Child: true, Block: true, IgnoreTerm: true}}}, workerEnv())
+	a, ws, fc := prepared(t, true, fakePlan{Runs: []fakeRun{{Stream: "claude-success.jsonl", Child: true, Block: true, IgnoreTerm: true}}})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
@@ -323,7 +305,7 @@ func TestRunCancelKillsTheProcessTree(t *testing.T) {
 // running, is stopped.
 func TestRunRateLimitStopsTheRun(t *testing.T) {
 	t.Parallel()
-	a, ws, _ := prepared(t, true, fakePlan{Runs: []fakeRun{{Stream: "claude-ratelimit-event.jsonl", Block: true}}}, workerEnv())
+	a, ws, _ := prepared(t, true, fakePlan{Runs: []fakeRun{{Stream: "claude-ratelimit-event.jsonl", Block: true}}})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s := &harnesstest.Recorder{OnLimit: cancel}
