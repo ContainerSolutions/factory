@@ -71,23 +71,30 @@ func TestForkLock(t *testing.T) {
 			done := make(chan error, 1)
 			syscall.ForkLock.Lock()
 			go func() { done <- WriteFile(p, []byte("x"), tt.perm) }()
-			select {
-			case err := <-done:
+			// A write that must wait is still blocked after 100 ms (at worst a slow write
+			// passes falsely); one that mustn't fails only when it is really blocked, so its
+			// bound is generous enough for a loaded -race run.
+			var err error
+			if tt.waits {
+				select {
+				case werr := <-done:
+					syscall.ForkLock.Unlock()
+					t.Fatalf("the write finished (%v) while ForkLock was held", werr)
+				case <-time.After(100 * time.Millisecond):
+				}
 				syscall.ForkLock.Unlock()
-				if tt.waits {
-					t.Fatalf("the write finished (%v) while ForkLock was held", err)
+				err = <-done
+			} else {
+				select {
+				case err = <-done:
+					syscall.ForkLock.Unlock()
+				case <-time.After(10 * time.Second):
+					syscall.ForkLock.Unlock()
+					<-done
+					t.Fatal("the write waited for ForkLock")
 				}
-				if err != nil {
-					t.Fatal(err)
-				}
-				return
-			case <-time.After(100 * time.Millisecond):
 			}
-			syscall.ForkLock.Unlock()
-			if !tt.waits {
-				t.Fatal("the write waited for ForkLock")
-			}
-			if err := <-done; err != nil {
+			if err != nil {
 				t.Fatal(err)
 			}
 			if b, err := os.ReadFile(p); err != nil || string(b) != "x" {
