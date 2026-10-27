@@ -112,7 +112,7 @@ func runSupervise(ctx context.Context, args []string, stderr io.Writer, d superv
 		warmBase: *warmBase, warmBaseSet: warmBaseSet, keep: *keepWorkspace, unlock: func() {}}
 	defer func() { s.unlock() }()
 	return runAgentLoop(ctx, stderr, d.Worker, agentLoop{
-		name: "supervisor", path: *path, log: log, newRunner: s.newRunner, lending: s.lending,
+		name: "supervisor", path: *path, log: log, newRunner: s.newRunner, lending: s.lending, reload: s.reloadMemory,
 	})
 }
 
@@ -162,7 +162,8 @@ type supervisor struct {
 	// unlock releases the supervise lock newRunner takes, if it did.
 	unlock func()
 	// memTotal and workspaceGiB are the kata host's physical memory and one workspace's
-	// (workspace.size.memory), set by newRunner before the first lending call.
+	// (workspace.size.memory), set by newRunner before the first lending call; reloadMemory
+	// re-reads memTotal on SIGHUP. After newRunner only the signal handler uses them.
 	memTotal     uint64
 	workspaceGiB int
 }
@@ -181,6 +182,27 @@ func (s *supervisor) lending(l v1alpha1.Lending) v1alpha1.Lending {
 	}
 	l.MaxConcurrent = n
 	return l
+}
+
+// reloadMemory re-reads the kata host's physical memory on SIGHUP, before lending caps the
+// reloaded maxConcurrent with it: a VM host's memory can be resized without a restart. A failed
+// read keeps the last good value. workspace.size stays the start's, as the runner's does.
+func (s *supervisor) reloadMemory() {
+	if s.e.Workspace.Driver != config.DriverKata {
+		return
+	}
+	m, err := s.e.MemTotal()
+	if err != nil {
+		s.log.Warn("SIGHUP: physical memory not re-read; the lending cap keeps the last", "memoryGiB", s.memTotal>>30, "err", err)
+		return
+	}
+	if m == s.memTotal {
+		return
+	}
+	was, _ := kataConcurrency(katahelper.Slots, s.memTotal, s.workspaceGiB)
+	now, _ := kataConcurrency(katahelper.Slots, m, s.workspaceGiB)
+	s.log.Info("SIGHUP: physical memory changed", "memoryGiB", m>>30, "wasGiB", s.memTotal>>30, "maxWorkspaces", now, "wasMaxWorkspaces", was)
+	s.memTotal = m
 }
 
 // kataConcurrency is the kata driver's most workspaces at once for a lending.maxConcurrent of

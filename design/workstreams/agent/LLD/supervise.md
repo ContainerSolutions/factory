@@ -128,7 +128,7 @@ execute(lease):
 ### Drain and SIGHUP
 
 - **Drain.** The first SIGTERM/SIGINT stops leasing at once: the parked long poll is cancelled (a lease that still arrives is abandoned with `shutdown`), then `PATCH {Draining}`. Each running task may finish until its start + `limits.maxWallClock` (1 h when the TaskSpec sets none); then it is cancelled and abandoned with `shutdown`. The second signal cancels every run at once (abandon `shutdown`). A run that produced its Result just as the shutdown hit is still completed.
-- **SIGHUP** re-reads the config and re-sends only `lending` (`PATCH /agents/{id}`, through supervise's cap), with the local concurrency; other changes need a restart.
+- **SIGHUP** re-reads the config and re-sends only `lending` (`PATCH /agents/{id}`, through supervise's cap, for kata with the physical memory re-read too), with the local concurrency; other changes need a restart.
 
 ### `factory-agent probe`
 

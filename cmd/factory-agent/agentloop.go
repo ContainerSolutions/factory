@@ -73,6 +73,9 @@ type agentLoop struct {
 	newRunner func(ctx context.Context, cfg *config.Config) (runner.Runner, error)
 	// lending adjusts the config's lending, at start and on SIGHUP; nil keeps it.
 	lending func(v1alpha1.Lending) v1alpha1.Lending
+	// reload runs on SIGHUP once the config is re-read, before lending: what lending depends on
+	// besides the config (supervise's kata cap re-reads the physical memory); nil does nothing.
+	reload func()
 }
 
 // runAgentLoop is supervise's worker loop once its flags are parsed: load the config, probe,
@@ -84,6 +87,9 @@ func runAgentLoop(ctx context.Context, stderr io.Writer, d workerDeps, l agentLo
 	}
 	if l.lending == nil {
 		l.lending = func(x v1alpha1.Lending) v1alpha1.Lending { return x }
+	}
+	if l.reload == nil {
+		l.reload = func() {}
 	}
 
 	co := d.Config
@@ -141,7 +147,7 @@ func runAgentLoop(ctx context.Context, stderr io.Writer, d workerDeps, l agentLo
 	}
 	runCtx, abort := context.WithCancel(ctx)
 	defer abort()
-	go handleSignals(runCtx, sigs, w, abort, l.path, co, l.lending, log)
+	go handleSignals(runCtx, sigs, w, abort, l, co, log)
 
 	log.Info("factory-agent "+l.name+" starting", "version", version.Version, "dispatcher", cfg.Dispatcher, "pool", cfg.Pool, "host", cfg.Host)
 	if err := w.Run(runCtx); err != nil {
@@ -153,9 +159,9 @@ func runAgentLoop(ctx context.Context, stderr io.Writer, d workerDeps, l agentLo
 }
 
 // handleSignals: the first SIGTERM/SIGINT drains, the second aborts (running tasks are
-// abandoned with shutdown); SIGHUP re-reads the config and re-sends lending.
+// abandoned with shutdown); SIGHUP re-reads the config, runs l.reload and re-sends lending.
 func handleSignals(ctx context.Context, sigs <-chan os.Signal, w *worker.Worker, abort context.CancelFunc,
-	path string, co config.Options, lending func(v1alpha1.Lending) v1alpha1.Lending, log *slog.Logger) {
+	l agentLoop, co config.Options, log *slog.Logger) {
 	draining := false
 	for {
 		select {
@@ -163,12 +169,13 @@ func handleSignals(ctx context.Context, sigs <-chan os.Signal, w *worker.Worker,
 			return
 		case s := <-sigs:
 			if s == syscall.SIGHUP {
-				cfg, err := config.Load(path, co)
+				cfg, err := config.Load(l.path, co)
 				if err != nil {
 					log.Error("SIGHUP: config not reloaded", "err", err)
 					continue
 				}
-				if err := w.SetLending(ctx, lending(cfg.Lending)); err != nil {
+				l.reload()
+				if err := w.SetLending(ctx, l.lending(cfg.Lending)); err != nil {
 					log.Error("SIGHUP: lending not updated", "err", err)
 					continue
 				}

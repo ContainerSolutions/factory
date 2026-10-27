@@ -714,7 +714,8 @@ func TestKataConcurrency(t *testing.T) {
 
 // Two leases at once through supervise --driver kata: each in its own workspace behind its own
 // gateway (the real one, on loopback), both completed; the workspaces are sized from the config,
-// the cleanup leaves host init's warm build alone, and lending is capped by memory on SIGHUP.
+// the cleanup leaves host init's warm build alone, and lending is capped on SIGHUP by the memory
+// it re-reads, keeping the last good value when the read fails.
 func TestSuperviseKataTwoLeases(t *testing.T) {
 	e := harnesstest.NewE2E(t, "tsk_kata1", "Write the intro.\n")
 	var leases []apiclient.Lease
@@ -753,12 +754,22 @@ func TestSuperviseKataTwoLeases(t *testing.T) {
 	code := make(chan int, 1)
 	go func() { code <- runSupervise(context.Background(), s.args(), errOut, s.deps) }()
 	waitUntil(t, "both completions", func() bool { return len(disp.completed()) == 2 })
-	// SIGHUP: 61 GiB less 4 fits 3 workspaces of 16 GiB.
+	// SIGHUP: the host is down to 40 GiB (from 61), and 40 less 4 fits 2 workspaces of 16 GiB.
 	if err := os.WriteFile(s.cfg, bytes.Replace(mustRead(t, s.cfg), []byte("maxConcurrent: 2"), []byte("maxConcurrent: 5"), 1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	meminfo := filepath.Join(s.deps.Host.Root, "proc", "meminfo")
+	if err := os.WriteFile(meminfo, []byte("MemTotal:       41943040 kB\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	sigs <- syscall.SIGHUP
 	waitUntil(t, "the lending PATCH", func() bool { return len(disp.lendings()) == 2 })
+	// SIGHUP with the memory unreadable: the cap keeps 40 GiB's.
+	if err := os.Remove(meminfo); err != nil {
+		t.Fatal(err)
+	}
+	sigs <- syscall.SIGHUP
+	waitUntil(t, "the second lending PATCH", func() bool { return len(disp.lendings()) == 3 })
 	sigs <- syscall.SIGTERM
 	select {
 	case c := <-code:
@@ -806,11 +817,57 @@ func TestSuperviseKataTwoLeases(t *testing.T) {
 		t.Errorf("gateways on %v, want %v", gateways, want)
 	}
 	lmu.Unlock()
-	if l := disp.lendings(); len(l) != 2 || l[0].MaxConcurrent != 2 || l[1].MaxConcurrent != 3 {
-		t.Errorf("registered and reloaded lending %+v, want maxConcurrent 2 then 3", l)
+	if l := disp.lendings(); len(l) != 3 || l[0].MaxConcurrent != 2 || l[1].MaxConcurrent != 2 || l[2].MaxConcurrent != 2 {
+		t.Errorf("registered and reloaded lending %+v, want maxConcurrent 2 each time (the start's 61 GiB would give 3)", l)
 	}
-	if !strings.Contains(errOut.String(), "lending.maxConcurrent capped") {
-		t.Errorf("no warning for the cap:\n%s", errOut.String())
+	for _, want := range []string{"lending.maxConcurrent capped", "physical memory changed", "physical memory not re-read"} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("no %q in the logs:\n%s", want, errOut.String())
+		}
+	}
+}
+
+// On SIGHUP the kata driver re-reads the physical memory and logs it, and the cap, when they
+// change; a failed read keeps the last good value; tart doesn't read it.
+func TestReloadMemory(t *testing.T) {
+	const gib = uint64(1) << 30
+	tests := []struct {
+		name    string
+		driver  string
+		meminfo string // "" removes proc/meminfo
+		want    uint64
+		log     string
+	}{
+		{"changed", config.DriverKata, "MemTotal:       41943040 kB\n", 40 * gib, "memoryGiB=40 wasGiB=61 maxWorkspaces=2 wasMaxWorkspaces=3"},
+		{"unchanged", config.DriverKata, "MemTotal:       64395636 kB\n", 64395636 << 10, ""},
+		{"unreadable", config.DriverKata, "", 64395636 << 10, "physical memory not re-read; the lending cap keeps the last\" memoryGiB=61"},
+		{"garbled", config.DriverKata, "MemTotal: lots\n", 64395636 << 10, "unexpected MemTotal line"},
+		{"tart", config.DriverTart, "", 64395636 << 10, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := kataHostDeps(t).Env
+			e.Workspace.Driver = tt.driver
+			meminfo := filepath.Join(e.Root, "proc", "meminfo")
+			var err error
+			if tt.meminfo == "" {
+				err = os.Remove(meminfo)
+			} else {
+				err = os.WriteFile(meminfo, []byte(tt.meminfo), 0o600)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var buf bytes.Buffer
+			s := &supervisor{e: &e, log: slog.New(slog.NewTextHandler(&buf, nil)), memTotal: 64395636 << 10, workspaceGiB: 16}
+			s.reloadMemory()
+			if s.memTotal != tt.want {
+				t.Errorf("memory %d, want %d", s.memTotal, tt.want)
+			}
+			if got := buf.String(); (tt.log == "") != (got == "") || !strings.Contains(got, tt.log) {
+				t.Errorf("log %q, want %q", got, tt.log)
+			}
+		})
 	}
 }
 
