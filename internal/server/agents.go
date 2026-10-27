@@ -55,6 +55,19 @@ func ownAgent(ctx context.Context, id string) (string, error) {
 	return p.AgentID, nil
 }
 
+// leaseCaller is who calls a lease's task or run route: the calling agent's id and, for a run
+// token, its lease's task (else ""). The handler checks that the agent holds the lease, and
+// that a run token's task is the route's.
+func leaseCaller(ctx context.Context) (agent, task string, err error) {
+	switch p := principal(ctx); p.Kind {
+	case auth.KindAgent:
+		return p.AgentID, "", nil
+	case auth.KindRun:
+		return p.AgentID, p.Task, nil
+	}
+	return "", "", problemf(http.StatusUnauthorized, CodeUnauthenticated, "an agent or run token is required")
+}
+
 // callingAgent is the calling agent's id.
 func callingAgent(ctx context.Context) (string, error) {
 	p := principal(ctx)
@@ -149,6 +162,10 @@ func (s *Server) LeaseTask(ctx context.Context, req gen.LeaseTaskRequestObject) 
 		l.GitCredential = gitCredential(*g.GitCredential)
 	}
 	l.ReadCredentials = gitCredentials(g.ReadCredentials)
+	if g.RunToken != "" {
+		rt := g.RunToken
+		l.RunToken = &rt
+	}
 	return gen.LeaseTask200JSONResponse(l), nil
 }
 

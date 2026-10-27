@@ -63,7 +63,7 @@ func invalid(field, format string, args ...any) error {
 // Internal kinds the scheduler keeps in the store (store.MetaObject; no API, no schema).
 const (
 	// KindLease is one lease: which agent holds which task until when, and the usage deltas
-	// its heartbeats reported. It never holds a credential.
+	// its heartbeats reported. It never holds a credential, only its run token's hash.
 	KindLease = "Lease"
 	// KindAgentToken is an agent's bearer token, hashed (SHA-256), named by the agent id.
 	KindAgentToken = "AgentToken"
@@ -73,6 +73,9 @@ const (
 const (
 	LabelTask  = "factory.ccf.dev/task"
 	LabelAgent = "factory.ccf.dev/agent"
+	// LabelRunToken is the hex SHA-256 of the lease's run token: what AuthenticateRun looks
+	// the lease up by.
+	LabelRunToken = "factory.ccf.dev/run-token"
 )
 
 // Lease ends (LeaseStatus.End).
@@ -115,6 +118,9 @@ type LeaseSpec struct {
 	TTL      time.Duration `json:"ttl"`
 	// Heartbeat is the pool's heartbeat interval, returned to the agent.
 	Heartbeat time.Duration `json:"heartbeat"`
+	// RunTokenHash is "sha256:<hex>" of the lease's run token (the token itself is returned
+	// once, in the grant, and never stored).
+	RunTokenHash string `json:"runTokenHash,omitzero"`
 }
 
 // LeaseStatus is the lease's state.
@@ -197,6 +203,14 @@ type Grant struct {
 	// ReadCredentials are the read-only tokens (contents: read), one per private read repo;
 	// none for public reads. Minted for this lease and never stored.
 	ReadCredentials []provider.Credential
+	// RunToken is the lease's run token (P1 §5): minted for this lease, returned only here,
+	// stored only as its hash. Never log it.
+	RunToken string
+}
+
+// RunAuth is what a run token authenticates: its lease, the lease's task and agent.
+type RunAuth struct {
+	Lease, Task, Agent string
 }
 
 // LeaseInfo is the API's LeaseInfo.

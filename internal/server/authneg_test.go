@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 	"github.com/ContainerSolutions/factory/internal/auth"
 	"github.com/ContainerSolutions/factory/internal/provider/fake"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // reply is a raw response, its body read and closed.
@@ -144,46 +147,153 @@ func TestAuthRequired(t *testing.T) {
 // fakeRunToken has the runToken scheme's format (`rtk_` + 43 base64url characters).
 var fakeRunToken = "rtk_" + strings.Repeat("x", 43)
 
-// TestRunTokenRefused: the five run routes take the runToken scheme, but no run token is
-// issued yet (P1 phase 6), so one is a 401 problem; the agent token still works on them.
-func TestRunTokenRefused(t *testing.T) {
-	e := newEnv(t)
-	agent, tok := e.register("gus", "mac1")
-	e.task("tsk_a", nil)
-	run := *e.lease(agent, tok).Lease.Run
-	gz := gzipped(t, "{}")
-	effect := []byte(`{"op":"comment","idempotencyKey":"k","args":{"body":"hi"}}`)
-	routes := []struct {
-		id, method, path string
-		body             []byte
-		ctype            string
-		ok               int
-	}{
-		{"getTaskPrompt", http.MethodGet, BasePath + "/tasks/tsk_a/prompt", nil, "", http.StatusOK},
-		{"getTaskOutputSchema", http.MethodGet, BasePath + "/tasks/tsk_a/output-schema", nil, "", http.StatusOK},
-		{"getTaskContext", http.MethodGet, BasePath + "/tasks/tsk_a/context/0", nil, "", http.StatusOK},
-		{"createEffect", http.MethodPost, BasePath + "/tasks/tsk_a/effects", effect, "application/json", http.StatusOK},
-		{"uploadTranscript", http.MethodPut, BasePath + "/runs/" + run + "/transcript", gz, "application/gzip", http.StatusOK},
+// runRoute is one of the routes that take a run token, for a task and its run.
+type runRoute struct {
+	id, method, path string
+	body             []byte
+	ctype            string
+	ok               int
+}
+
+func runRoutes(t *testing.T, task, run string) []runRoute {
+	effect := []byte(`{"op":"comment","idempotencyKey":"k-` + task + `","args":{"body":"hi"}}`)
+	return []runRoute{
+		{"getTaskPrompt", http.MethodGet, BasePath + "/tasks/" + task + "/prompt", nil, "", http.StatusOK},
+		{"getTaskOutputSchema", http.MethodGet, BasePath + "/tasks/" + task + "/output-schema", nil, "", http.StatusOK},
+		{"getTaskContext", http.MethodGet, BasePath + "/tasks/" + task + "/context/0", nil, "", http.StatusOK},
+		{"createEffect", http.MethodPost, BasePath + "/tasks/" + task + "/effects", effect, "application/json", http.StatusOK},
+		{"uploadTranscript", http.MethodPut, BasePath + "/runs/" + run + "/transcript", gzipped(t, "{}"), "application/gzip", http.StatusOK},
+		{"uploadEnvironmentLog", http.MethodPut, BasePath + "/runs/" + run + "/environment-log", []byte("up\n"), "text/plain", http.StatusOK},
 	}
-	for _, rt := range routes {
+}
+
+func (r runRoute) do(e *env, tok string) (reply, []byte) {
+	return e.do(r.method, r.path, r.body, withBearer(tok), func(req *http.Request) {
+		if r.ctype != "" {
+			req.Header.Set("Content-Type", r.ctype)
+		}
+	})
+}
+
+// TestRunToken: a lease's run token works on the run routes for its own task and run only,
+// never on another task's or run's (403, even one its agent holds), never on the agent-only
+// and reader routes (401), and not after its lease ends (401).
+func TestRunToken(t *testing.T) {
+	e := newEnv(t)
+	e.cat.Pools["local"].Spec.Lease.MaxTasksPerAgent = 2
+	a, aTok := e.register("gus", "mac1")
+	if r, err := e.c.UpdateAgentWithResponse(e.ctx, a, apiclient.AgentUpdate{
+		Lending: &v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 2},
+	}, bearer(aTok)); err != nil || r.StatusCode() != http.StatusOK {
+		t.Fatalf("update lending: %v %s", err, r.Body)
+	}
+	e.task("tsk_a", nil)
+	la := e.lease(a, aTok)
+	e.task("tsk_b", nil)
+	lb := e.lease(a, aTok) // the same agent's second lease
+	if la.RunToken == nil || !regexp.MustCompile(`^rtk_[A-Za-z0-9_-]{43}$`).MatchString(*la.RunToken) ||
+		lb.RunToken == nil || *lb.RunToken == *la.RunToken {
+		t.Fatalf("lease run tokens %v, %v", la.RunToken, lb.RunToken)
+	}
+	tok := *la.RunToken
+	// The lease record keeps only the token's hash.
+	var stored scheduler.Lease
+	if err := e.st.Get(e.ctx, store.Key{Kind: scheduler.KindLease, Name: la.Lease.Id}, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := json.Marshal(stored); strings.Contains(string(raw), tok[len(scheduler.RunTokenPrefix):]) || !strings.HasPrefix(stored.Spec.RunTokenHash, "sha256:") {
+		t.Errorf("the stored lease %s", raw)
+	}
+
+	own, other := runRoutes(t, "tsk_a", *la.Lease.Run), runRoutes(t, "tsk_b", *lb.Lease.Run)
+	for i, rt := range own {
 		t.Run(rt.id, func(t *testing.T) {
 			if acc := operations[rt.id]; acc != agentOrRun && acc != readerAgentOrRun {
 				t.Fatalf("%s's access is %d, not a run-token one", rt.id, acc)
 			}
-			ctype := func(r *http.Request) {
-				if rt.ctype != "" {
-					r.Header.Set("Content-Type", rt.ctype)
-				}
+			if res, body := rt.do(e, tok); res.StatusCode != rt.ok {
+				t.Errorf("own task: %d %s, want %d", res.StatusCode, body, rt.ok)
 			}
-			res, b := e.do(rt.method, rt.path, rt.body, withBearer(fakeRunToken), ctype)
-			wantProblemReply(t, rt.id+" with a run token", res, b, http.StatusUnauthorized, CodeUnauthenticated)
-			if !strings.Contains(string(b), "run tokens are not issued yet") {
-				t.Errorf("%s with a run token: %s", rt.id, b)
+			res, body := other[i].do(e, tok)
+			wantProblemReply(t, rt.id+" on another task", res, body, http.StatusForbidden, CodeNotLeaseHolder)
+			if res, body := other[i].do(e, aTok); res.StatusCode != other[i].ok {
+				t.Errorf("the agent token on its other task: %d %s, want %d", res.StatusCode, body, other[i].ok)
 			}
-			res, b = e.do(rt.method, rt.path, rt.body, withBearer(tok), ctype)
-			if res.StatusCode != rt.ok {
-				t.Errorf("%s with the agent token: %d %s, want %d", rt.id, res.StatusCode, b, rt.ok)
+		})
+	}
+
+	// The routes that don't take it refuse it as a wrong credential.
+	agentOnly := []struct{ name, method, path string }{
+		{"heartbeatLease", http.MethodPost, BasePath + "/leases/" + la.Lease.Id + "/heartbeat"},
+		{"completeLease", http.MethodPost, BasePath + "/leases/" + la.Lease.Id + "/complete"},
+		{"abandonLease", http.MethodPost, BasePath + "/leases/" + la.Lease.Id + "/abandon"},
+		{"leaseTask", http.MethodGet, BasePath + "/agents/" + a + "/lease?wait=0s"},
+		{"updateAgent", http.MethodPatch, BasePath + "/agents/" + a},
+		{"deregisterAgent", http.MethodDelete, BasePath + "/agents/" + a},
+		{"getTask", http.MethodGet, BasePath + "/tasks/tsk_a"},
+		{"getTranscript", http.MethodGet, BasePath + "/runs/" + *la.Lease.Run + "/transcript"},
+		{"listTasks", http.MethodGet, BasePath + "/tasks"},
+	}
+	for _, r := range agentOnly {
+		var body []byte
+		if r.method == http.MethodPost || r.method == http.MethodPatch {
+			body = []byte("{}")
+		}
+		res, b := e.do(r.method, r.path, body, withBearer(tok))
+		wantProblemReply(t, r.name+" with a run token", res, b, http.StatusUnauthorized, CodeUnauthenticated)
+	}
+	if p := e.getTask("tsk_a").Status; p.Phase != v1alpha1.TaskLeased || *p.Agent != a {
+		t.Errorf("tsk_a changed: %+v", p)
+	}
+}
+
+// TestRunTokenLeaseEnd: a run token stops working once its lease ends, however it ends.
+func TestRunTokenLeaseEnd(t *testing.T) {
+	ends := []struct {
+		name string
+		end  func(e *env, l *apiclient.Lease, tok string)
+	}{
+		{"completed", func(e *env, l *apiclient.Lease, tok string) {
+			r, err := e.c.CompleteLeaseWithResponse(e.ctx, l.Lease.Id, apiclient.CompleteRequest{
+				Result: v1alpha1.Result{Task: "tsk_a", Status: v1alpha1.ResultDone, Outcome: "pr-opened", Summary: "done"},
+			}, bearer(tok))
+			if err != nil || r.StatusCode() != http.StatusNoContent {
+				e.t.Fatalf("complete: %v %s", err, r.Body)
 			}
+		}},
+		{"abandoned", func(e *env, l *apiclient.Lease, tok string) {
+			r, err := e.c.AbandonLeaseWithResponse(e.ctx, l.Lease.Id, apiclient.AbandonRequest{Reason: apiclient.AbandonRequestReasonShutdown}, bearer(tok))
+			if err != nil || r.StatusCode() != http.StatusNoContent {
+				e.t.Fatalf("abandon: %v %s", err, r.Body)
+			}
+		}},
+		{"expired", func(e *env, l *apiclient.Lease, _ string) {
+			e.clk.Advance(l.Lease.ExpiresAt.Sub(e.clk.Now()) + time.Second) // no heartbeat; not yet reconciled
+		}},
+		{"revoked", func(e *env, _ *apiclient.Lease, _ string) {
+			t := e.getTask("tsk_a")
+			t.Status.Phase = v1alpha1.TaskFailed // finished by someone else
+			if err := e.st.Update(e.ctx, t); err != nil {
+				e.t.Fatal(err)
+			}
+			if _, err := e.sched.Reconcile(e.ctx, "tsk_a"); err != nil {
+				e.t.Fatal(err)
+			}
+		}},
+	}
+	for _, c := range ends {
+		t.Run(c.name, func(t *testing.T) {
+			e := newEnv(t)
+			a, aTok := e.register("gus", "mac1")
+			e.task("tsk_a", nil)
+			l := e.lease(a, aTok)
+			rt := runRoutes(t, "tsk_a", *l.Lease.Run)[0]
+			if res, b := rt.do(e, *l.RunToken); res.StatusCode != http.StatusOK {
+				t.Fatalf("before the end: %d %s", res.StatusCode, b)
+			}
+			c.end(e, l, aTok)
+			res, b := rt.do(e, *l.RunToken)
+			wantProblemReply(t, "after the lease "+c.name, res, b, http.StatusUnauthorized, CodeUnauthenticated)
 		})
 	}
 }
