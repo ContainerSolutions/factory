@@ -4,3 +4,6 @@ lisa-design:
 - Not included: login (P3 makes the OAuth state self-contained, no store write), dryRunCatalog (no side effects), reads authenticated by an agent token or a session (the token renewal and expired-session delete are best-effort, logged, never fail the read).
 - /readyz keeps the shared ServiceUnavailable $ref; the conditions are in the operation's description. For memory and the file store, which have nothing to sync, "first sync" counts as done once loaded.
 - api-server.md §Startup order keeps the work-item Rebuild step (PR 5 removes the code); only its "(/readyz 200)" tie to Options.Ready goes.
+
+lisa-selfreview:
+pass 1: [nit] api-server.md (Errors bullet) lists the writing operations' groups without enrollments, which now document 503 store-read-only too. Fix: add enrollments.
