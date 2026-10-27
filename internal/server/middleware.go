@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/ContainerSolutions/factory/internal/auth"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
 )
 
 // access is who may call an operation (the spec's security requirements, api-server.md §Auth).
@@ -37,18 +38,14 @@ const (
 	admin
 	// sessionOnly: a UI session (getMe).
 	sessionOnly
-	// agentOrRun: an agent token, or a run token (runToken scheme, P1 §5) for its own task or
-	// run. Run tokens aren't issued yet (P1 phase 6), so one is refused as unknown.
+	// agentOrRun: an agent token, or a run token (runToken scheme, P1 §5) of a live lease; the
+	// handler takes it only for its lease's task or run.
 	agentOrRun
 	// readerAgentOrRun: readerOrAgent, or a run token for its own task (getTaskOutputSchema).
 	readerAgentOrRun
 	// agentOrAdmin: an agent token, else admin (deregisterAgent: the agent itself, or an admin).
 	agentOrAdmin
 )
-
-// runTokenPrefix starts every run token (the runToken scheme's format). It differs from the
-// run IDs' run_ so a token is always recognisable as a credential.
-const runTokenPrefix = "rtk_"
 
 // operations is the access of every generated operation, by operationId. A test checks it
 // covers exactly the spec's operations.
@@ -167,13 +164,13 @@ func (s *Server) authenticate(ctx context.Context, r *http.Request, acc access) 
 	case agentOnly:
 		return a.Agent(ctx, r)
 	case agentOrRun:
-		if err := refuseRunToken(r); err != nil {
-			return auth.Principal{}, err
+		if isRunToken(r) {
+			return a.Run(ctx, r)
 		}
 		return a.Agent(ctx, r)
 	case readerAgentOrRun:
-		if err := refuseRunToken(r); err != nil {
-			return auth.Principal{}, err
+		if isRunToken(r) {
+			return a.Run(ctx, r)
 		}
 		return s.authenticate(ctx, r, readerOrAgent)
 	case readerOrAgent:
@@ -200,13 +197,11 @@ func (s *Server) authenticate(ctx context.Context, r *http.Request, acc access) 
 	return auth.Principal{}, fmt.Errorf("unknown access %d", acc)
 }
 
-// refuseRunToken refuses a run token: the routes that will take one (agentOrRun,
-// readerAgentOrRun) can't check it until the dispatcher issues them (P1 phase 6).
-func refuseRunToken(r *http.Request) error {
-	if strings.HasPrefix(auth.BearerToken(r), runTokenPrefix) {
-		return problemf(http.StatusUnauthorized, CodeUnauthenticated, "run tokens are not issued yet")
-	}
-	return nil
+// isRunToken reports whether the request's bearer is a run token (by its prefix; the
+// authenticator checks it). Only agentOrRun and readerAgentOrRun take one: every other route
+// refuses it as a wrong credential.
+func isRunToken(r *http.Request) bool {
+	return strings.HasPrefix(auth.BearerToken(r), scheduler.RunTokenPrefix)
 }
 
 // user authenticates the CLI token or a UI session; the session's user must be a reader (or,

@@ -109,6 +109,10 @@ func (a agents) Authenticate(_ context.Context, tok string) (string, error) {
 	return "", scheduler.ErrUnauthorized
 }
 
+func (a agents) AuthenticateRun(context.Context, string) (scheduler.RunAuth, error) {
+	return scheduler.RunAuth{}, scheduler.ErrUnauthorized
+}
+
 type staticCatalog struct{ c *catalog.Catalog }
 
 func (s staticCatalog) Current() *catalog.Catalog { return s.c }
