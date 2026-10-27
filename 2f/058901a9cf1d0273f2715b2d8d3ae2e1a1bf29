@@ -1,6 +1,0 @@
-lisa-design:
-- One shared test-only package, internal/agent/internal/exectest (Write(t, path, script, mode)), instead of a helper per package: seven packages write scripts they exec (claudecode, codex, effector, host, host/provision, vmrun, pipeline), and pipeline's ForkLock helper lived in a _test.go file that couldn't be shared. It sits next to fakegateway/fakegh/gatewaycases, imports only the standard library, so no import cycle.
-- Write takes the mode so every call site keeps its old mode (0700, or 0755 for effector's wrappers and the provisioning stubs); effector's write-0644-then-chmod becomes one write.
-- Only files a test execs go through it. Not changed: files only stat'ed or copied (codex prepare_test's ccfr, tart's run.sh, kata's "#!agent", host tests' fake binaries whose version comes from the fake runner) and repo/skill trees (harnesstest/pipeline addRepo, pipeline writeFiles), which git or the code under test copies before anything runs them.
-- Production code that writes executables (pipeline/workspace.go's factory shim, skills/runbundle/codex copyTree, envrun.writeScripts) is out of this spec (tests only); raised as an open question.
-- exectest's own test reproduces ETXTBSY with a plain os.WriteFile (fails within ~40 writes while 4 goroutines fork) and passes with Write.
