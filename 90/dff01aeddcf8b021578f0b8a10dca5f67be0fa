@@ -1,3 +1,11 @@
 lisa-design:
 - sizeSpec(config.WorkspaceSize) in supervise.go is the one place workspace.size becomes a workspace.Spec, for tart and kata; it stays in cmd/factory-agent rather than a config method so config doesn't import the workspace package.
 - kata still records s.workspaceGiB separately (the lending cap divides by it); it equals sizeSpec's MemoryMiB >> 10.
+
+lisa-design:
+- The re-read is a separate agentLoop.reload hook that handleSignals runs on SIGHUP after the config loads and before lending, not a read inside lending: lending also runs at start, right after newDriver's read (whose failure fails the start), and a hook keeps lending a pure cap.
+- reloadMemory only touches memTotal: workspace.size and every other setting still need a restart (the SIGHUP log line says so).
+- A failed read on SIGHUP keeps the last good memTotal and logs a warning; it never drops the cap or stops the loop.
+- "The cap" logged on a change is kataConcurrency(katahelper.Slots, mem, workspaceGiB): the most workspaces the host takes whatever maxConcurrent says; logged with the old and new memory only when the memory changed (workspaceGiB is fixed until restart, so the cap can only move with the memory). The existing "lending.maxConcurrent capped" warning still reports when it bites.
+- memTotal needs no lock: newRunner writes it before handleSignals' goroutine starts, and only that goroutine touches it after.
+- handleSignals takes the agentLoop instead of its path and lending (it would have grown a ninth parameter).
