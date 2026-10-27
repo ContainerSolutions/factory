@@ -36,7 +36,7 @@ describe('CatalogStatus', () => {
     expect(wrapper.text()).toContain('on main');
     expect(wrapper.get('[data-testid="catalog-status"]').text()).toBe('loaded');
     expect(wrapper.get('a').attributes('href')).toBe(
-      'https://github.com/compliance-framework/factory',
+      'https://github.com/ContainerSolutions/factory',
     );
     expect(wrapper.text()).toContain('2026-10-16 08:00:05 UTC');
     expect(wrapper.get('[data-testid="catalog-counts"]').text()).toBe(
