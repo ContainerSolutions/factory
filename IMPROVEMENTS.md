@@ -38,20 +38,20 @@ Notes for the Linux box agent:
 Stack 1 status (2026-10-26): **merged.** The PRs are listed in IMPROVEMENTS_DONE.md; what it
 left for stack 2 is under "Left over from stack 1, for stack 2" below.
 
-Stack 3 status (2026-10-26): **design agreed with Gustavo; starting.** One stack on main,
+Stack 3 status (2026-10-27): **all 9 PRs open and reviewed with ccf-review, waiting for Gustavo's approval:** #197, #199, #200, #202, #204, #205, #206, #207, #208 (one Should-fix on #207, fixed in #208). Each PR body lists what only a real host can check. One stack on main,
 `fx/p9f-<n>-<slug>`, as `ccf-lisa[bot]`:
 
 | PR | Branch | Fix |
 |---|---|---|
-| 1 | `fx/p9f-1-gateway-port` | a: `RunnerOptions.GatewayPort` from `workspace.gatewayPort` |
-| 2 | `fx/p9f-2-tart-size` | b: tart's `Spec` from `workspace.size` (real check on the Mac) |
-| 3 | `fx/p9f-3-sighup-memory` | c: SIGHUP re-reads `/proc/meminfo` and recomputes the cap |
-| 4 | `fx/p9f-4-sudo-signals` | d: `sudo -n` in its own process group, SIGTERM then grace; the helper handles signals for every verb and kills nerdctl's group; stale build contexts swept; a host-side bound on `image-build` |
-| 5 | `fx/p9f-5-declined-privileges` | e: kataimage/katawarm skipped with a warning; asked again on the next init |
-| 6 | `fx/p9f-6-kind-archives` | f: T4 failed (below): the warm build saves each kind image with `docker save --platform linux/<arch>` and makes the archive readable (0644), on kata and tart |
-| 7 | `fx/p9f-7-e2e-container` | h: T5 passed (below); add it to CI as a job that isn't required |
-| 8 | `fx/p9f-8-limits-size` | g, contract: `Limits.cpus` and `Limits.memory` |
-| 9 | `fx/p9f-9-task-size` | g: the runner sizes each VM from the task's limits, capped at `workspace.size` with a warning |
+| 1 (#197) | `fx/p9f-1-gateway-port` | a: `RunnerOptions.GatewayPort` from `workspace.gatewayPort` |
+| 2 (#199) | `fx/p9f-2-tart-size` | b: tart's `Spec` from `workspace.size` (real check on the Mac) |
+| 3 (#200) | `fx/p9f-3-sighup-memory` | c: SIGHUP re-reads `/proc/meminfo` and recomputes the cap |
+| 4 (#202) | `fx/p9f-4-sudo-signals` | d: a cancelled `sudo -n` gets SIGTERM, then SIGKILL after a grace (sudo relays SIGTERM even from its own process group, so it stays there); the helper handles signals for every verb and kills nerdctl's group; stale build contexts swept; a host-side bound on `image-build` |
+| 5 (#204) | `fx/p9f-5-declined-privileges` | e: kataimage/katawarm skipped with a warning; asked again on the next init |
+| 6 (#205) | `fx/p9f-6-kind-archives` | f: T4 failed (below): the warm build saves each kind image with `docker save --platform linux/<arch>` and makes the archive readable (0644), on kata and tart |
+| 7 (#206) | `fx/p9f-7-e2e-container` | h: T5 passed (below); add it to CI as a job that isn't required |
+| 8 (#207) | `fx/p9f-8-limits-size` | g, contract: `Limits.cpus` and `Limits.memory` |
+| 9 (#208) | `fx/p9f-9-task-size` | g: the runner sizes each VM from the task's limits, capped at `workspace.size` with a warning |
 
 T2 runs last, after stack 2 is merged.
 
@@ -66,7 +66,8 @@ Results on the workstation (2026-10-27, main at #195):
     `ctr import` fails ("content digest … not found") even as root, and the pod then pulls.
 
   `docker save --platform linux/amd64` with `chmod 0644` fixes both: the pod started offline
-  ("already present on machine"). The tart path saves the same way, so it likely has both
+  ("already present on machine"). **Re-run with #205's change applied to main: passed** (0644
+  archive, `kind load` as admin, the pod started offline). The tart path saves the same way, so it likely has both
   problems on arm64.
 - Also seen: every `sudo` in a workspace prints "unable to resolve host
   ws-tskfactory-warm-build": the guest's hostname isn't in its `/etc/hosts`.
@@ -214,6 +215,27 @@ so docs builds stay `not-run`.
     ETXTBSY on Linux).
   - Also seen: pipeline `TestRunEnvironmentWallClockLimit` under load ("the environment didn't
     start" at 32 s). #168 widened its bound; watch it.
+
+### Deferred from stack 3 (#197–#208)
+- **supervise's kata driver still SIGKILLs sudo on cancel** (`workspace/vmexec`'s runner,
+  `vmrun/system.go`), as `host init` did before #202. `runRoot`'s `sudo /bin/sh` keeps SIGKILL
+  too; SIGTERM would let sudo restore the terminal's echo at the password prompt.
+- **`host init --only kataimage` (or `katawarm`) without the helper** never asks about privileges,
+  so it fails with sudo's error (#204 covers only a declined prompt).
+- **Warm records don't capture the build recipe:** a warm disk or base built before #205 still
+  checks ok, so its 0600 multi-platform kind archives stay until `katawarm.json`/`warmbase.json` is
+  deleted or factory-agent's version changes. A recipe version in the records would rebuild them.
+- **Task sizes below the agent config's minimum:** `limits.memory: 1Gi` is valid in the contract,
+  while `workspace.size.memory` must be at least 2Gi. On kata, `limits.cpus: 1` gives a 2-vCPU
+  guest (the driver passes `max(cpus-1, 1)` and Kata adds its own vCPU). Floor, refuse or
+  document? (#208's open questions.)
+- **The web catalog's `limitsText`** shows turns, wall clock and cost, not `cpus`/`memory` (#207).
+- **The advisory `e2e container` job:** make it required once it has a track record? Its log
+  upload is skipped on a timeout (`if: failure()`; #206).
+- **A workspace's hostname isn't in its `/etc/hosts`:** every `sudo` there prints "unable to
+  resolve host ws-tsk…" (seen in T4).
+- **"text file busy" also hits `harness/claudecode` `TestRun`,** next to codex's `TestProbe`
+  (see Flaky tests).
 
 ### P1 leftovers
 - **A memory budget for tasks bigger than `workspace.size`** (stack 3 caps a task's
