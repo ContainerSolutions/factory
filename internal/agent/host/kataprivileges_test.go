@@ -248,7 +248,8 @@ func TestSudoersRuleVisudo(t *testing.T) {
 // TestKataInitHelperRequired: an --only that selects a helper step that isn't ok, but not a
 // privileges step that isn't ok, fails before any prompt, plan or apply (--dry-run and --yes
 // too), naming the steps and the privileges status; with the helper ok, or privileges selected,
-// or no helper step selected, or no --only at all, init runs (privileges first).
+// or no helper step selected, or no --only at all, init runs (privileges first). A failed
+// platform check is reported before it.
 func TestKataInitHelperRequired(t *testing.T) {
 	var installed string // the agent version installKata built the image and the warm disk for
 	noHelper := func(t *testing.T, e *Env, r *fakeRunner) { removeRoot(t, e, katahelper.HelperPath); r.helper = "" }
@@ -257,12 +258,14 @@ func TestKataInitHelperRequired(t *testing.T) {
 	helperOK := func(*testing.T, *Env, *fakeRunner) {}
 	// the image and the warm disk current (the other cases outdate them), the helper out of date
 	current := func(_ *testing.T, e *Env, r *fakeRunner) { e.AgentVersion = installed; r.helper = "0" }
+	// the platform fails too: its error comes first
+	noKVM := func(t *testing.T, e *Env, r *fakeRunner) { noHelper(t, e, r); removeRoot(t, e, "dev/kvm") }
 	tests := []struct {
 		name    string
 		set     func(*testing.T, *Env, *fakeRunner)
 		o       InitOptions
 		err     string
-		steps   []string // the error's steps
+		steps   []string // the HelperRequiredError's steps; nil for another error
 		applied []string // the helper verbs init runs, in order (with the sudo script as "script")
 	}{
 		{"--only kataimage, no helper", noHelper, InitOptions{Only: []string{"kataimage"}},
@@ -276,6 +279,7 @@ func TestKataInitHelperRequired(t *testing.T) {
 			"kataimage needs the kata helper, which isn't usable (privileges wrong: the sudoers rule doesn't let you run the helper", []string{"kataimage"}, nil},
 		{"--dry-run", noHelper, InitOptions{DryRun: true, Only: []string{"kataimage"}}, "run `factory-agent host init`, or add privileges to --only", []string{"kataimage"}, nil},
 		{"--yes", noHelper, InitOptions{Yes: true, Only: []string{"katawarm", "kataimage"}}, "kataimage and katawarm need the kata helper", []string{"kataimage", "katawarm"}, nil},
+		{"--only kataimage, no helper, a failed platform", noKVM, InitOptions{Only: []string{"kataimage"}}, "platform: no /dev/kvm", nil, nil},
 		{"--only kataimage, the helper ok", helperOK, InitOptions{Only: []string{"kataimage"}}, "", nil, []string{"image-build"}},
 		{"--only kataimage, ok, an out-of-date helper", current, InitOptions{Only: []string{"kataimage"}}, "", nil, nil},
 		{"--only statedir, no helper", noHelper, InitOptions{Only: []string{"statedir"}}, "", nil, nil},
@@ -316,10 +320,14 @@ func TestKataInitHelperRequired(t *testing.T) {
 				return
 			}
 			var he *HelperRequiredError
-			if !errors.As(err, &he) || !strings.Contains(err.Error(), tt.err) || strings.Join(he.Steps, ",") != strings.Join(tt.steps, ",") {
-				t.Fatalf("err %v, want a HelperRequiredError with %q for %v", err, tt.err, tt.steps)
-			}
-			if !strings.Contains(err.Error(), katahelper.HelperPath) {
+			switch {
+			case err == nil || !strings.Contains(err.Error(), tt.err):
+				t.Fatalf("err %v, want %q", err, tt.err)
+			case tt.steps == nil && errors.As(err, &he):
+				t.Fatalf("err %v, want another error than a HelperRequiredError", err)
+			case tt.steps != nil && (!errors.As(err, &he) || strings.Join(he.Steps, ",") != strings.Join(tt.steps, ",")):
+				t.Fatalf("err %v, want a HelperRequiredError for %v", err, tt.steps)
+			case tt.steps != nil && !strings.Contains(err.Error(), katahelper.HelperPath):
 				t.Errorf("err %v, want the privileges status's detail", err)
 			}
 			// nothing asked, planned or changed: no prompt, no plan, no sudo, no helper call
