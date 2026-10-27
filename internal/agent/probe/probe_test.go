@@ -14,7 +14,7 @@ import (
 
 func testConfig() *config.Config {
 	return &config.Config{
-		Labels: []string{"has-local-stack", "gif-tooling", "fast-disk"},
+		Labels: []string{"macos", "fast-disk"},
 		Harnesses: map[string]config.Harness{
 			"codex":       {Home: "/c", Models: []string{"gpt-5-codex"}, Efforts: []string{"low", "high"}, Default: "gpt-5-codex"},
 			"claude-code": {ConfigDir: "/cc", Models: []string{"claude-sonnet-5-5"}},
@@ -32,23 +32,18 @@ func TestRun(t *testing.T) {
 	cfg := testConfig()
 	rep := Run(context.Background(), cfg, Options{
 		Harnesses: map[string]Prober{"claude-code": failProber{}},
-		Labels: map[string]LabelChecker{
-			"has-local-stack": LabelFunc(func(context.Context, *config.Config) error { return nil }),
-			"gif-tooling":     LabelFunc(func(context.Context, *config.Config) error { return errors.New("vhs not found") }),
-		},
 	})
 	want := v1alpha1.AgentCapabilities{
 		Harnesses: []v1alpha1.HarnessOffer{{
 			Name: "codex", Auth: "subscription", Models: []string{"gpt-5-codex"}, DefaultModel: "gpt-5-codex", ReasoningEffort: []string{"low", "high"},
 		}},
-		Labels: []string{"has-local-stack", "fast-disk"},
+		Labels: []string{"macos", "fast-disk"},
 	}
 	if !reflect.DeepEqual(rep.Capabilities, want) {
 		t.Errorf("capabilities\n got %+v\nwant %+v", rep.Capabilities, want)
 	}
 	wantDropped := []Dropped{
 		{Kind: "harness", Name: "claude-code", Reason: "not signed in"},
-		{Kind: "label", Name: "gif-tooling", Reason: "vhs not found"},
 	}
 	if !reflect.DeepEqual(rep.Dropped, wantDropped) {
 		t.Errorf("dropped %+v", rep.Dropped)
@@ -71,12 +66,7 @@ func TestReadyWithoutHarness(t *testing.T) {
 	}
 }
 
-type fakeCommands struct {
-	missing map[string]bool
-	exts    string
-	listErr error
-	calls   []string
-}
+type fakeCommands struct{ missing map[string]bool }
 
 func (f *fakeCommands) LookPath(name string) (string, error) {
 	if f.missing[name] {
@@ -85,28 +75,19 @@ func (f *fakeCommands) LookPath(name string) (string, error) {
 	return "/usr/bin/" + name, nil
 }
 
-func (f *fakeCommands) Output(_ context.Context, name string, args ...string) ([]byte, error) {
-	f.calls = append(f.calls, name+" "+strings.Join(args, " "))
-	return []byte(f.exts), f.listErr
-}
-
 func TestBaseTooling(t *testing.T) {
-	const allExts = "gh pr-review\tagynio/gh-pr-review\tv1.2.0\ngh stack\tgithub/gh-stack\tv0.3.1\n"
 	tests := []struct {
 		name    string
 		cmds    *fakeCommands
 		wantBad map[string]string // tool → problem substring
 	}{
-		{"all present", &fakeCommands{exts: allExts}, nil},
-		{"jq missing", &fakeCommands{exts: allExts, missing: map[string]bool{"jq": true}}, map[string]string{"jq": "not found"}},
-		{"extension missing", &fakeCommands{exts: "gh pr-review\tagynio/gh-pr-review\tv1.2.0\n"}, map[string]string{"gh-stack": "not installed"}},
-		{"gh missing", &fakeCommands{missing: map[string]bool{"gh": true}}, map[string]string{"gh": "not found", "gh-pr-review": "needs gh", "gh-stack": "needs gh"}},
-		{"list fails", &fakeCommands{listErr: errors.New("exit 1")}, map[string]string{"gh-pr-review": "gh extension list failed", "gh-stack": "failed"}},
+		{"all present", &fakeCommands{}, nil},
+		{"git missing", &fakeCommands{missing: map[string]bool{"git": true}}, map[string]string{"git": "not found"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tools := BaseTooling{Commands: tt.cmds}.Check(context.Background())
-			if len(tools) != len(BaseTools())+len(GhExtensions()) {
+			if len(tools) != len(BaseTools()) {
 				t.Fatalf("tools %+v", tools)
 			}
 			for _, tool := range tools {
@@ -118,9 +99,6 @@ func TestBaseTooling(t *testing.T) {
 			rep := Report{Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex"}}}, Tooling: tools}
 			if ok, _ := rep.Ready(); ok != (len(tt.wantBad) == 0) {
 				t.Errorf("Ready = %v", ok)
-			}
-			if tt.cmds.missing["gh"] && len(tt.cmds.calls) > 0 {
-				t.Errorf("ran %v without gh", tt.cmds.calls)
 			}
 		})
 	}

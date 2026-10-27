@@ -1063,10 +1063,14 @@ func TestRunConcurrentSkillsCache(t *testing.T) {
 func TestNewOptions(t *testing.T) {
 	t.Parallel()
 	ad := map[string]harness.Adapter{fake.Name: &fake.Adapter{}}
-	for _, o := range []pipeline.Options{{Adapters: ad}, {WorkRoot: "rel", Adapters: ad}, {WorkRoot: "/abs"}} {
+	for _, o := range []pipeline.Options{{Adapters: ad}, {WorkRoot: "rel", Adapters: ad}, {Root: "/abs"}} {
 		if _, err := pipeline.New(o); err == nil {
 			t.Errorf("New(%+v) accepted", o)
 		}
+	}
+	// The host pipeline only builds run bundles: it needs no adapter.
+	if _, err := pipeline.New(pipeline.Options{WorkRoot: "/abs"}); err != nil {
+		t.Errorf("New(WorkRoot without adapters) = %v", err)
 	}
 }
 

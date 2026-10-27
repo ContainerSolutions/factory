@@ -1,20 +1,18 @@
 // Package probe works out what this machine can offer the dispatcher (supervise.md
-// §factory-agent probe): a HarnessOffer per configured harness, the labels whose prerequisites
-// pass, and the base tooling every run needs. It never calls the dispatcher.
+// §factory-agent probe): a HarnessOffer per configured harness, the configured labels, and
+// the base tooling the host itself needs. It never calls the dispatcher.
 //
-// Harness detection proper (versions, auth status) is each adapter's Probe (AGT-S1-T03/T04,
-// harness-adapters.md); until an adapter is registered, Configured reports what the local
-// config says. Label checks plug in as LabelCheckers (none are built in).
+// The harnesses run in the VM, so a harness is offered by its Prober (supervise and probe use
+// the login prober: the owner's model login is in the state dir); Configured reports what the
+// local config says.
 package probe
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
 	"slices"
 	"sort"
-	"strings"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
@@ -38,17 +36,6 @@ func (c Configured) Probe(_ context.Context, h config.Harness) (v1alpha1.Harness
 	}, nil
 }
 
-// LabelChecker verifies a label's prerequisites; a label is advertised only when it passes.
-type LabelChecker interface {
-	Check(ctx context.Context, cfg *config.Config) error
-}
-
-// LabelFunc adapts a function to LabelChecker.
-type LabelFunc func(ctx context.Context, cfg *config.Config) error
-
-// Check calls f.
-func (f LabelFunc) Check(ctx context.Context, cfg *config.Config) error { return f(ctx, cfg) }
-
 // Tooling checks the base tooling the worker refuses to start without.
 type Tooling interface {
 	Check(ctx context.Context) []Tool
@@ -66,16 +53,13 @@ type Options struct {
 	// Harnesses maps a harness name to its Prober; a configured harness without one is
 	// probed with Configured.
 	Harnesses map[string]Prober
-	// Labels maps a label to its checker; a configured label without one is advertised as is
-	// (its probe isn't built yet).
-	Labels map[string]LabelChecker
 	// Tooling checks the base tooling; nil skips the check.
 	Tooling Tooling
 }
 
-// Dropped is a configured harness or label that isn't advertised, and why.
+// Dropped is a configured harness that isn't advertised, and why.
 type Dropped struct {
-	Kind   string `json:"kind"` // harness or label
+	Kind   string `json:"kind"` // harness
 	Name   string `json:"name"`
 	Reason string `json:"reason"`
 }
@@ -102,8 +86,8 @@ func (r Report) Ready() (bool, []string) {
 	return len(why) == 0, why
 }
 
-// Run probes every configured harness and label and the base tooling. Harnesses are offered
-// in name order; labels keep their configured order.
+// Run probes every configured harness and the base tooling. Harnesses are offered in name
+// order; labels are advertised as configured, in their order.
 func Run(ctx context.Context, cfg *config.Config, o Options) Report {
 	var rep Report
 	names := make([]string, 0, len(cfg.Harnesses))
@@ -124,86 +108,42 @@ func Run(ctx context.Context, cfg *config.Config, o Options) Report {
 		off.Name = n
 		rep.Capabilities.Harnesses = append(rep.Capabilities.Harnesses, off)
 	}
-	for _, l := range cfg.Labels {
-		if c := o.Labels[l]; c != nil {
-			if err := c.Check(ctx, cfg); err != nil {
-				rep.Dropped = append(rep.Dropped, Dropped{Kind: "label", Name: l, Reason: err.Error()})
-				continue
-			}
-		}
-		rep.Capabilities.Labels = append(rep.Capabilities.Labels, l)
-	}
+	rep.Capabilities.Labels = slices.Clone(cfg.Labels)
 	if o.Tooling != nil {
 		rep.Tooling = o.Tooling.Check(ctx)
 	}
 	return rep
 }
 
-// Commands runs programs for BaseTooling; tests fake it.
+// Commands finds programs for BaseTooling; tests fake it.
 type Commands interface {
 	LookPath(name string) (string, error)
-	Output(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
-// ExecCommands runs real programs.
+// ExecCommands finds real programs.
 type ExecCommands struct{}
 
 // LookPath is exec.LookPath.
 func (ExecCommands) LookPath(name string) (string, error) { return exec.LookPath(name) }
 
-// Output runs name with args and returns its standard output.
-func (ExecCommands) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
-	var out bytes.Buffer
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stdout = &out
-	err := cmd.Run()
-	return out.Bytes(), err
-}
+// BaseTools are the programs the host needs (supervise.md §factory-agent probe): git, which
+// fetches the skills for the run bundles.
+func BaseTools() []string { return []string{"git"} }
 
-// BaseTools are the programs every run needs (supervise.md §factory-agent probe).
-func BaseTools() []string { return []string{"git", "gh", "jq", "python3"} }
-
-// GhExtensions are the gh extensions every run needs.
-func GhExtensions() []string { return []string{"gh-pr-review", "gh-stack"} }
-
-// BaseTooling checks BaseTools on PATH and the GhExtensions in `gh extension list` (which
-// needs no gh login).
+// BaseTooling checks BaseTools on PATH.
 type BaseTooling struct{ Commands Commands }
 
 // Check implements Tooling.
-func (b BaseTooling) Check(ctx context.Context) []Tool {
+func (b BaseTooling) Check(context.Context) []Tool {
 	cmds := b.Commands
 	if cmds == nil {
 		cmds = ExecCommands{}
 	}
 	var out []Tool
-	ghOK := false
 	for _, name := range BaseTools() {
 		t := Tool{Name: name, OK: true}
 		if _, err := cmds.LookPath(name); err != nil {
 			t.OK, t.Problem = false, "not found on PATH"
-		}
-		ghOK = ghOK || (name == "gh" && t.OK)
-		out = append(out, t)
-	}
-	var list string
-	listErr := ""
-	if ghOK {
-		b, err := cmds.Output(ctx, "gh", "extension", "list")
-		if err != nil {
-			listErr = fmt.Sprintf("gh extension list failed: %v", err)
-		}
-		list = string(b)
-	} else {
-		listErr = "needs gh"
-	}
-	for _, ext := range GhExtensions() {
-		t := Tool{Name: ext, OK: listErr == "" && strings.Contains(list, ext)}
-		switch {
-		case listErr != "":
-			t.Problem = listErr
-		case !t.OK:
-			t.Problem = "not installed (gh extension install …/" + ext + ")"
 		}
 		out = append(out, t)
 	}

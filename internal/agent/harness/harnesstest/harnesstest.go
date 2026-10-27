@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/harness/fake"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/agent/runner"
@@ -250,17 +249,22 @@ func (e *E2E) serve(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Pipeline is the run pipeline with adapter a, the test binary as the agent binary (its
-// TestMain must answer `fx git-credential`), and an owner environment of PATH, LANG, TERM
-// and extra (which the harness must not see).
+// Pipeline is the host run pipeline with adapter a (nil: none, as supervise's, which only
+// builds run bundles), the test binary as the agent binary (its TestMain must answer
+// `fx git-credential`), and an owner environment of PATH, LANG, TERM and extra (which the
+// harness must not see).
 func (e *E2E) Pipeline(a harness.Adapter, extra ...string) *pipeline.Pipeline {
 	e.t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
 		e.t.Fatal(err)
 	}
+	var adapters map[string]harness.Adapter
+	if a != nil {
+		adapters = map[string]harness.Adapter{a.Name(): a}
+	}
 	p, err := pipeline.New(pipeline.Options{
-		WorkRoot: e.WorkRoot, Adapters: map[string]harness.Adapter{a.Name(): a}, AgentBinary: exe,
+		WorkRoot: e.WorkRoot, Adapters: adapters, AgentBinary: exe,
 		GitBaseURL: e.git.URL, SkillsCache: filepath.Join(e.t.TempDir(), "cache"),
 		Environ: func() []string {
 			return append([]string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8", "TERM=dumb"}, extra...)
@@ -332,7 +336,7 @@ func (e *E2E) Bundle(h v1alpha1.HarnessResolved, outcomes []string) (string, *ru
 func (e *E2E) BundleJob(job *runner.Job, x pipeline.BundleExtras) string {
 	e.t.Helper()
 	dir := filepath.Join(e.t.TempDir(), "bundle")
-	if err := e.Pipeline(&fake.Adapter{}).PrepareBundle(context.Background(), job, dir, x); err != nil {
+	if err := e.Pipeline(nil).PrepareBundle(context.Background(), job, dir, x); err != nil {
 		e.t.Fatalf("PrepareBundle: %v", err)
 	}
 	return dir
