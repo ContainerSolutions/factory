@@ -1,0 +1,5 @@
+lisa-addressed:
+pass 2: the LLD names the job by its id, e2e-container.
+
+lisa-selfreview:
+pass 3: approve, no findings. Out of scope, deferred to the PR body: workspace-run.md layer 5 says "a Debian container", but the image is buildpack-deps:noble-scm (Ubuntu 24.04).
