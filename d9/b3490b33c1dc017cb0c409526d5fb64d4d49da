@@ -1,2 +1,5 @@
 lisa-addressed:
 pass 1: 5b41717f690e fixed: served.stop closes the default transport's idle connections before SIGTERM (all real-dispatcher tests). bf9e9d0c852f fixed: worker package comment reflowed.
+
+lisa-selfreview:
+pass 2 (strict): no findings; approve.
