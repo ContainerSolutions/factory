@@ -383,9 +383,17 @@ So the rebuild is **removed**:
 - **Recovery is replay.** Events that matter are stored (90 days, `--retention`), so an event
   handled wrongly is replayed (`POST /events/{id}/replay`) rather than reconstructed from
   markers.
-- **What is lost** is rebuilding from GitHub after the state itself is lost (a deleted bucket or
-  dir). Open items would then start fresh on their next event. Bucket soft delete (GCS's default
-  of 7 days) or S3 versioning covers an accidental delete instead.
+- **What is lost: nothing comes back from GitHub (Decision 7).** When the state itself is lost,
+  open items start fresh on their next event. Their rule state is gone, and their run counters
+  restart, the per-item run cap included. That covers a deleted bucket or dir, a
+  `factory state reset`, and a corrupt state dir that is reset. People recover what they want by
+  replaying stored events, reopening issues or re-applying labels.
+  - `factory state reset` says so. Today its prompt and output, its golden file and README §6
+    promise that "work items come back from the GitHub markers"
+    (`cmd/factory/state.go`, `testdata/state/reset.golden`). They change to say that open items
+    restart with no state and no run counters, and how to recover.
+  - For an accidental delete, bucket soft delete (GCS's default of 7 days) or S3 versioning
+    restores the state itself.
 - **Old markers.** The cloud instance starts fresh (Decision 2), so items on repos that carry
   markers from the workstation's runs start again. Work-item ids are deterministic
   (`objectID("wi", "link/<provider>/<ref>")`) and markers are one per work item and object.
@@ -403,7 +411,7 @@ So the rebuild is **removed**:
     catalog, before the cloud instance's webhook goes live. Two dispatchers on the same App and
     repos would project the same work-item ids onto the same objects, flipping markers and
     labels between them. In the same-App case, the cloud item's first projection removes labels
-    the old marker owned and restarts its counters (see the reset note).
+    the old marker owned and restarts its counters (Decision 7).
 
 ### Only events that can matter are stored
 
@@ -746,7 +754,8 @@ module path. There are seven PRs, each through lisa and ccf-review:
        Rebuild), scheduler-and-pools.md (the `sched` lock);
      - 01-context-and-goals.md, 02-architecture.md, 04-flows.md, 08-roadmap.md,
        workstreams/definitions.md, and ADR-0001's body, where they describe the rebuild;
-     - deploy/poc/README.md.
+     - deploy/poc/README.md (§6, the reset);
+   - `factory state reset`'s prompt and output, and its golden file (Decision 7);
 6. **The provider side of the rebuild's removal** (FND for the `provider.Conn` interface and the
    fake, GH for the GitHub adapter), after PR 5:
    - `Conn.List` (interface, `github/list.go`, fakes);
@@ -786,3 +795,7 @@ Deploying to Cloud Run or Lambda, the tick endpoint and the bucket policy are IM
    briefly), as an agent PR in this rollout. On Cloud Run with CPU only during requests, the
    leader's work then advances only during requests. How to close that (work inside requests,
    always-allocated CPU, or a VM) is IMPROVEMENTS item 9's choice.
+7. **Nothing comes back after lost state:** after a reset, a lost bucket or dir, or a corrupt dir
+   that is reset, open items start fresh, run counters and the run cap included. People replay
+   events, reopen issues or re-apply labels to recover what they want (§No rebuild from
+   markers). The reset's messages say so.
