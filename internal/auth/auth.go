@@ -7,7 +7,6 @@
 //     `Secure`, `SameSite=Lax`, 12 h). Reading needs the readers Group (or the admin Group);
 //     commands need the admin Group (`maintainers`), resolved through Conn.ResolveGroup and
 //     cached;
-//   - agent owners: GitHubOwners, the scheduler's OwnerVerifier (a GitHub user token → login).
 //
 // No token, code or cookie value is ever logged or stored in clear: sessions are stored by the
 // hash of their id, and GitHub user tokens are dropped as soon as the login is known.

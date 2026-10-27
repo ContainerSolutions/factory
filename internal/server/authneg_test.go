@@ -116,7 +116,7 @@ func TestAuthRequired(t *testing.T) {
 			case readerOrAgent:
 				wrong = []func(*http.Request){withSession("forged.cookie"), withBearer("agt_nobody-x.wrong")}
 			case registration:
-				wrong = []func(*http.Request){func(r *http.Request) { r.Header.Set(HeaderJoinToken, joinSecret) }}
+				wrong = []func(*http.Request){func(r *http.Request) { r.Header.Set(HeaderJoinToken, "join-secret") }}
 			}
 			for i, w := range wrong {
 				res, b := e.do(o.Method, path, body, w)
@@ -124,24 +124,22 @@ func TestAuthRequired(t *testing.T) {
 			}
 		})
 	}
-	// The registration headers are checked by the scheduler: a wrong join or owner token.
-	for _, h := range [][2]string{{"wrong-join", "tok-gus"}, {joinSecret, "tok-unknown"}} {
-		body, _ := json.Marshal(apiclient.RegisterAgentRequest{Pool: "local", Host: "mac1", AgentVersion: "1",
-			Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex"}}}})
-		res, b := e.do(http.MethodPost, BasePath+"/agents", body, func(r *http.Request) {
-			r.Header.Set(HeaderJoinToken, h[0])
-			r.Header.Set(HeaderOwnerToken, h[1])
-		})
-		wantProblemReply(t, "register with "+h[0]+"/"+h[1], res, b, http.StatusUnauthorized, CodeUnauthenticated)
-	}
-	// An owner who isn't in the pool's owners Group.
+	// The join and owner tokens are refused, whether or not they're right; an enrollment token
+	// the dispatcher didn't mint is refused by the scheduler.
 	body, _ := json.Marshal(apiclient.RegisterAgentRequest{Pool: "local", Host: "mac1", AgentVersion: "1",
 		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex"}}}})
-	res, b := e.do(http.MethodPost, BasePath+"/agents", body, func(r *http.Request) {
-		r.Header.Set(HeaderJoinToken, joinSecret)
-		r.Header.Set(HeaderOwnerToken, "tok-rita")
-	})
-	wantProblemReply(t, "register as a non-owner", res, b, http.StatusForbidden, CodeForbidden)
+	for name, edit := range map[string]func(*http.Request){
+		"the join and owner tokens": func(r *http.Request) {
+			r.Header.Set(HeaderJoinToken, "join-secret")
+			r.Header.Set(HeaderOwnerToken, "tok-gus")
+		},
+		"the owner token alone":       func(r *http.Request) { r.Header.Set(HeaderOwnerToken, "tok-gus") },
+		"an unknown enrollment token": func(r *http.Request) { r.Header.Set(HeaderEnrollmentToken, "enr_"+strings.Repeat("x", 43)) },
+		"an unknown refresh token":    func(r *http.Request) { r.Header.Set(HeaderAgentRefreshToken, "arf_"+strings.Repeat("x", 43)) },
+	} {
+		res, b := e.do(http.MethodPost, BasePath+"/agents", body, edit)
+		wantProblemReply(t, "register with "+name, res, b, http.StatusUnauthorized, CodeUnauthenticated)
+	}
 }
 
 // fakeRunToken has the runToken scheme's format (`rtk_` + 43 base64url characters).

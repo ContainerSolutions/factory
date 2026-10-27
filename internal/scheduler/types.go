@@ -29,7 +29,7 @@ const (
 // Errors of the scheduler API. Every error it returns for a bad request or a missing object
 // wraps one of these, so the API server maps them to HTTP statuses with errors.Is.
 var (
-	// ErrUnauthorized: a wrong join token, owner token or agent token (401).
+	// ErrUnauthorized: a wrong enrollment, refresh, run or agent token (401).
 	ErrUnauthorized = errors.New("unauthorized")
 	// ErrForbidden: authenticated but not allowed: the owner is not in the pool's owners
 	// Group, the capabilities miss Pool.require, or the lease is someone else's (403).
@@ -163,16 +163,10 @@ func (a *AgentToken) GetObjectMeta() *v1alpha1.ObjectMeta { return &a.Metadata }
 
 // ---- API types -------------------------------------------------------------------------------
 
-// RegisterRequest is registerAgent: the header credentials and the body.
+// RegisterRequest is registerAgent: the header credential and the body.
 type RegisterRequest struct {
-	// JoinToken is X-Factory-Join-Token, the pool's join token.
-	JoinToken string
-	// OwnerToken is X-Factory-Owner-Token, the owner's GitHub user token from the device
-	// flow. It is exchanged for a login and discarded: never stored or logged.
-	OwnerToken string
 	// EnrollmentToken is X-Factory-Enrollment-Token and RefreshToken
-	// X-Factory-Agent-Refresh-Token (P1 §6): each replaces the join and owner pair. Never
-	// stored or logged.
+	// X-Factory-Agent-Refresh-Token (P1 §6): exactly one is set. Never stored or logged.
 	EnrollmentToken string
 	RefreshToken    string
 	Pool            string
@@ -188,8 +182,7 @@ type Registration struct {
 	AgentID    string
 	AgentToken string
 	ExpiresAt  time.Time
-	// RefreshToken is the agent's next refresh token, for an enrollment or refresh
-	// registration; "" for the join and owner pair.
+	// RefreshToken is the agent's next refresh token.
 	RefreshToken string
 }
 

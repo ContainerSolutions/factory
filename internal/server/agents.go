@@ -29,8 +29,6 @@ func (s *Server) RegisterAgent(ctx context.Context, req gen.RegisterAgentRequest
 	r := requestFrom(ctx)
 	b := req.Body
 	reg, err := s.d.Scheduler.Register(ctx, scheduler.RegisterRequest{
-		JoinToken:       r.Header.Get(HeaderJoinToken),
-		OwnerToken:      r.Header.Get(HeaderOwnerToken),
 		EnrollmentToken: r.Header.Get(HeaderEnrollmentToken),
 		RefreshToken:    r.Header.Get(HeaderAgentRefreshToken),
 		Pool:            b.Pool,

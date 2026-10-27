@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
-	"github.com/ContainerSolutions/factory/internal/catalog"
 	"github.com/ContainerSolutions/factory/internal/controllers"
 	"github.com/ContainerSolutions/factory/internal/store"
 )
@@ -36,16 +35,6 @@ func AgentID(login, host string) string { return "agt_" + strings.ToLower(login)
 func hashSecret(secret string) string {
 	sum := sha256.Sum256([]byte(secret))
 	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-// equalSecret compares two secrets in constant time (over their hashes, so not even the
-// length leaks). An empty secret never matches.
-func equalSecret(want []byte, got string) bool {
-	if len(want) == 0 || got == "" {
-		return false
-	}
-	a, b := sha256.Sum256(want), sha256.Sum256([]byte(got))
-	return subtle.ConstantTimeCompare(a[:], b[:]) == 1
 }
 
 func validateCapabilities(c v1alpha1.AgentCapabilities) error {
@@ -80,13 +69,10 @@ func validateLending(l *v1alpha1.Lending) error {
 	return nil
 }
 
-// Register is registerAgent (LLD §Registration), with one of three credentials:
+// Register is registerAgent (LLD §Registration), with one of two credentials (P1 §6):
 //
-//   - the join and owner tokens: the join token matches the pool's admission.tokenRef secret
-//     (constant-time), the owner token is exchanged for a login by the OwnerVerifier, then
-//     dropped, and the owner must be in the pool's admission.owners Group;
-//   - an enrollment token (P1 §6): an unused, unexpired enrollment for the request's pool and
-//     host, which it spends; the owner is the enrollment's (the admin vouched for it), and the
+//   - an enrollment token: an unused, unexpired enrollment for the request's pool and host,
+//     which it spends; the owner is the enrollment's (the admin vouched for it), and the
 //     response adds the agent's first refresh token;
 //   - a refresh token: the agent's current one, which it rotates (the old one stops working);
 //     the response carries the next.
@@ -95,8 +81,8 @@ func validateLending(l *v1alpha1.Lending) error {
 // agt_<owner>-<host> is created or replaced, and a new agent token (32 random bytes, stored
 // hashed, TTL 24 h renewed by use) is returned once.
 func (s *Scheduler) Register(ctx context.Context, req RegisterRequest) (*Registration, error) {
-	ownerToken, enrollToken, refreshToken := req.OwnerToken, req.EnrollmentToken, req.RefreshToken
-	req.OwnerToken, req.EnrollmentToken, req.RefreshToken = "", "", "" // never kept past the checks
+	enrollToken, refreshToken := req.EnrollmentToken, req.RefreshToken
+	req.EnrollmentToken, req.RefreshToken = "", "" // never kept past the checks
 	switch {
 	case req.Pool == "":
 		return nil, invalid("pool", "required")
@@ -126,7 +112,7 @@ func (s *Scheduler) Register(ctx context.Context, req RegisterRequest) (*Registr
 
 	var (
 		owner   Owner
-		refresh func(agent string) (string, error) // the refresh token to return, if any
+		refresh func(agent string) (string, error) // the refresh token to return
 	)
 	switch {
 	case enrollToken != "":
@@ -144,9 +130,7 @@ func (s *Scheduler) Register(ctx context.Context, req RegisterRequest) (*Registr
 		owner = Owner{Provider: rf.OwnerProvider, Login: rf.Owner}
 		refresh = func(string) (string, error) { return next, nil }
 	default:
-		if owner, err = s.joinOwner(ctx, cat, pool, req.JoinToken, ownerToken); err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("registration needs an enrollment or a refresh token: %w", ErrUnauthorized)
 	}
 
 	id := AgentID(owner.Login, req.Host)
@@ -170,54 +154,16 @@ func (s *Scheduler) Register(ctx context.Context, req RegisterRequest) (*Registr
 		return nil, err
 	}
 	reg := &Registration{AgentID: id, AgentToken: id + "." + secret, ExpiresAt: tok.ExpiresAt}
-	if refresh != nil {
-		if reg.RefreshToken, err = refresh(id); err != nil {
-			return nil, err
-		}
+	if reg.RefreshToken, err = refresh(id); err != nil {
+		return nil, err
 	}
 	if _, err := s.syncAgent(ctx, id, nil); err != nil {
 		return nil, err
 	}
 	s.wake()
 	s.log.InfoContext(ctx, "agent registered", "agent", id, "owner", owner.ID(), "pool", req.Pool, "version", req.AgentVersion,
-		"enrolled", refresh != nil)
+		"refreshed", refreshToken != "")
 	return reg, nil
-}
-
-// joinOwner is the join and owner token check: the pool's join token, the owner's login from
-// the owner token, and the owner's membership of the pool's admission.owners Group.
-func (s *Scheduler) joinOwner(ctx context.Context, cat *catalog.Catalog, pool *v1alpha1.Pool, joinToken, ownerToken string) (Owner, error) {
-	adm := pool.Spec.Admission
-	name := pool.Metadata.Name
-	joinSecret, err := s.d.Secrets.Resolve(ctx, adm.TokenRef)
-	if err != nil {
-		return Owner{}, fmt.Errorf("pool %s: resolve join token: %w", name, err)
-	}
-	if !equalSecret(joinSecret, joinToken) {
-		return Owner{}, fmt.Errorf("pool %s: wrong join token: %w", name, ErrUnauthorized)
-	}
-	if ownerToken == "" {
-		return Owner{}, fmt.Errorf("no owner token: %w", ErrUnauthorized)
-	}
-	owner, err := s.d.Owners.VerifyOwner(ctx, ownerToken)
-	if err != nil {
-		return Owner{}, fmt.Errorf("verify owner: %w", err)
-	}
-	if owner.Login == "" || owner.Provider == "" {
-		return Owner{}, fmt.Errorf("verify owner: no login: %w", ErrUnauthorized)
-	}
-	group := cat.Groups[adm.Owners]
-	if group == nil {
-		return Owner{}, fmt.Errorf("pool %s: owners group %q is not in the catalog: %w", name, adm.Owners, ErrForbidden)
-	}
-	member, err := s.groups.isMember(ctx, group, owner)
-	if err != nil {
-		return Owner{}, fmt.Errorf("pool %s: %w", name, err)
-	}
-	if !member {
-		return Owner{}, fmt.Errorf("pool %s: %s is not in group %s: %w", name, owner.ID(), adm.Owners, ErrForbidden)
-	}
-	return owner, nil
 }
 
 // putAgent creates or replaces the Agent: the new spec, and a fresh Ready status that keeps

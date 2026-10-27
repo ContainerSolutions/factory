@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-
-	"github.com/ContainerSolutions/factory/internal/scheduler"
 )
 
 // maxGitHubBody bounds what is read of a GitHub response.
@@ -68,44 +66,6 @@ func redactURLError(err error) error {
 		return ue.Err
 	}
 	return err
-}
-
-// GitHubOwners is the scheduler's OwnerVerifier: it exchanges an agent owner's GitHub user
-// token (from the device flow) for the login with GET /user on APIBase. The token is used for
-// that one call and dropped: never logged or stored.
-type GitHubOwners struct {
-	// Provider is the catalog Provider the logins belong to (Owner.Provider).
-	Provider string
-	// APIBase defaults to https://api.github.com.
-	APIBase string
-	// HTTPClient defaults to http.DefaultClient.
-	HTTPClient *http.Client
-}
-
-var _ scheduler.OwnerVerifier = GitHubOwners{}
-
-// VerifyOwner implements scheduler.OwnerVerifier. A token GitHub refuses wraps
-// scheduler.ErrUnauthorized.
-func (g GitHubOwners) VerifyOwner(ctx context.Context, token string) (scheduler.Owner, error) {
-	if token == "" {
-		return scheduler.Owner{}, fmt.Errorf("no owner token: %w", scheduler.ErrUnauthorized)
-	}
-	base := strings.TrimRight(g.APIBase, "/")
-	if base == "" {
-		base = DefaultAPIBase
-	}
-	hc := g.HTTPClient
-	if hc == nil {
-		hc = http.DefaultClient
-	}
-	u, err := (&userClient{http: hc, apiBase: base}).user(ctx, token)
-	if errors.Is(err, ErrUnauthenticated) {
-		return scheduler.Owner{}, fmt.Errorf("owner token: %w: %w", scheduler.ErrUnauthorized, err)
-	}
-	if err != nil {
-		return scheduler.Owner{}, err
-	}
-	return scheduler.Owner{Provider: g.Provider, Login: u.Login}, nil
 }
 
 // exchange trades an OAuth code for a user access token at TokenURL.

@@ -104,7 +104,7 @@ Environment (names only; values from the secret store — see [rollout](../../po
 
 | Variable | Use |
 |---|---|
-| `FACTORY_SECRET_<NAME>_<KEY>` | resolves a catalog `secretRef{name, key}`: name and key upper-cased, every character but `A-Z0-9` as `_` (e.g. `FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY`, `FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN`). A Pool whose join token isn't set is warned about at startup |
+| `FACTORY_SECRET_<NAME>_<KEY>` | resolves a catalog `secretRef{name, key}`: name and key upper-cased, every character but `A-Z0-9` as `_` (e.g. `FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY`, `FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN`). |
 | `FACTORY_OAUTH_CLIENT_ID`, `FACTORY_OAUTH_CLIENT_SECRET` | UI login (required) |
 | `FACTORY_PUBLIC_URL` | the public base URL (the tunnel), the default of `--public-url`; **not a secret** |
 | `FACTORY_SESSION_KEY` | cookie signing (required, ≥ 32 bytes; `openssl rand -hex 32`) |

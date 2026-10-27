@@ -239,11 +239,7 @@ func TestServeEndToEnd(t *testing.T) {
 			Name: "codex", Auth: "subscription", Models: []string{"gpt-5-codex"}, ReasoningEffort: []string{"high"},
 		}}},
 		Lending: &v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 1},
-	}, func(_ context.Context, r *http.Request) error {
-		r.Header.Set(server.HeaderJoinToken, testJoinToken)
-		r.Header.Set(server.HeaderOwnerToken, "tok-gus")
-		return nil
-	})
+	}, enrolled(t, ctx, c, "e2e"))
 	if err != nil || reg.JSON201 == nil {
 		t.Fatalf("register: %v %s %s", err, reg.Status(), reg.Body)
 	}
@@ -587,5 +583,20 @@ func TestSecretEnv(t *testing.T) {
 	}
 	if _, err := s.Resolve(context.Background(), v1alpha1.SecretRef{Name: "x", Key: "y"}); err == nil || !strings.Contains(err.Error(), "FACTORY_SECRET_X_Y is not set") {
 		t.Errorf("resolve missing: %v", err)
+	}
+}
+
+// enrolled mints an enrollment for gus's agent on host with the CLI token and returns the
+// request editor that registers with it.
+func enrolled(t *testing.T, ctx context.Context, c *apiclient.ClientWithResponses, host string) apiclient.RequestEditorFn {
+	t.Helper()
+	res, err := c.CreateEnrollmentWithResponse(ctx, apiclient.EnrollmentRequest{Pool: "local", Owner: "gus", Name: host}, bearer(testCLIToken))
+	if err != nil || res.JSON201 == nil {
+		t.Fatalf("enroll %s: %v %s", host, err, res.Body)
+	}
+	tok := res.JSON201.Token
+	return func(_ context.Context, r *http.Request) error {
+		r.Header.Set(server.HeaderEnrollmentToken, tok)
+		return nil
 	}
 }

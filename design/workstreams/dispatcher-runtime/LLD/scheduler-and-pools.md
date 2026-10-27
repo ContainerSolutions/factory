@@ -14,19 +14,17 @@ Running ──cancel──▶ Cancelling ──ack or lease expiry──▶ Canc
 
 ## Registration
 
-`POST /api/v1/agents` (`registerAgent`): credentials in the headers `X-Factory-Join-Token` (the pool's join token) and `X-Factory-Owner-Token` (the owner's GitHub user token); body `{pool, host, agentVersion, capabilities, lending}`; response `201 {agentId, agentToken, expiresAt}` ([contracts.md §HTTP API](../../foundation/LLD/contracts.md#http-api)).
+`POST /api/v1/agents` (`registerAgent`): one credential header, an enrollment token or the agent's refresh token ([P1 §6](../../../proposals/P1-agent-workspaces.md#6-enrollment-replaces-the-device-flow)); body `{pool, host, agentVersion, capabilities, lending}`; response `201 {agentId, agentToken, expiresAt, refreshToken}` ([contracts.md §HTTP API](../../foundation/LLD/contracts.md#http-api)). Two credentials are a `401`, and so are the join and owner token headers, which P1 phase 6 removed (with the device flow, the owner-token exchange and the `admission.owners` Group check: the admin who mints the enrollment vouches for its owner).
 
-1. `X-Factory-Join-Token` matches `Pool.admission.tokenRef` secret (constant-time compare).
-2. `X-Factory-Owner-Token` (a short-lived user token from the GitHub **device flow** that `factory-agent register` runs against the dispatcher's OAuth client) → `GET /user` → login; **discarded immediately** (never stored or logged). The worker's OS user needs no `gh` login.
-3. Owner ∈ `Pool.admission.owners` Group (via `Conn.ResolveGroup`, cached 10 min).
-4. Capabilities ⊇ `Pool.require` (e.g. at least one required harness).
-5. Issue `agentToken` (random 32 bytes, stored hashed, TTL 24 h, renewed by heartbeats) and create/replace the `Agent` object (`agt_<owner>-<host>`, `host` from the body).
-
-**Enrollment** ([P1 §6](../../../proposals/P1-agent-workspaces.md#6-enrollment-replaces-the-device-flow)) replaces steps 1 to 3 with one header, exactly one credential per request (two is a `401`):
-
-- `X-Factory-Enrollment-Token` (`enr_…`): the `Enrollment` record (internal kind, `enl_<ulid>`) is found by its token's SHA-256 (a label; the stored hash compared in constant time) and must be unused and unexpired; the request's `pool` and `host` must be its pool and name (`400`, and the token stays unspent). It is **spent** (CAS on the record, so two concurrent uses register once), the owner is the enrollment's (the admin vouched for it: no Group check), and the response adds `refreshToken`. The agent's `AgentRefreshToken` record (named by the agent id, hashed, with the enrollment's pool, owner and name) is created or replaced.
+- `X-Factory-Enrollment-Token` (`enr_…`): the `Enrollment` record (internal kind, `enl_<ulid>`) is found by its token's SHA-256 (a label; the stored hash compared in constant time) and must be unused and unexpired; the request's `pool` and `host` must be its pool and name (`400`, and the token stays unspent). It is **spent** (CAS on the record, so two concurrent uses register once), the owner is the enrollment's (the admin vouched for it), and the response adds `refreshToken`. The agent's `AgentRefreshToken` record (named by the agent id, hashed, with the enrollment's pool, owner and name) is created or replaced.
 - `X-Factory-Agent-Refresh-Token` (`arf_…`): the `AgentRefreshToken` found the same way, its pool and name matching the request; it is **rotated** (CAS: the presented token stops working, a concurrent second use is a `401`) and the response carries the next one.
-- Step 4 and 5 as above. An admin's `deregisterAgent` deletes the `AgentRefreshToken` before deregistering; the agent's own does not, so a restart can still re-register.
+
+Then:
+
+1. Capabilities ⊇ `Pool.require` (e.g. at least one required harness).
+2. Issue `agentToken` (random 32 bytes, stored hashed, TTL 24 h, renewed by heartbeats) and create/replace the `Agent` object (`agt_<owner>-<host>`, `host` from the body).
+
+An admin's `deregisterAgent` deletes the `AgentRefreshToken` before deregistering; the agent's own does not, so a restart can still re-register.
 
 `createEnrollment` takes a registered pool with `admission` (the pools enrollments may be minted for), an owner login (`^[A-Za-z0-9-]{1,39}$`, on the dispatcher's sign-in provider), a name (the host pattern) and a `ttl` (default 7 d, at most 30 d); `listEnrollments` never returns tokens or hashes; `deleteEnrollment` removes the record (`404` unknown).
 
@@ -90,10 +88,8 @@ Counters live in a dedicated runtime kind, **`BudgetCounter`**, one object per (
   - `Heartbeat`, `Complete` and `Abandon`, keyed by `(agent, lease)`. Someone else's lease is `ErrNotLeaseHolder`, and an ended one is `ErrLeaseGone`.
 
   Errors wrap `ErrUnauthorized`, `ErrForbidden`, `ErrInvalid` (`*ValidationError`), `ErrNotFound` and `ErrLeaseGone`, for 401, 403, 400, 404 and 409. `Explain(task, agent)` returns the first failing reason, for the UI and tests. **The API server must call `Scheduler.Complete`, not `RunAPI.Complete`**, because the usage top-up needs the lease's Σ deltas.
-- **Owner verification** goes through an injected `OwnerVerifier.VerifyOwner(ctx, token) → Owner{Provider, Login}`. `FakeOwners` is the test fake; the real verifier (GET /user) belongs to RT-S2-T03. Two details:
-  - the owner must be in `admission.owners` through that Group's sources on the owner's provider (`ResolveGroup`, cached 10 min per source, logins compared case-insensitively);
-  - a source the provider reports as not found has no members.
-- **Agent tokens.** The token is `<agentId>.<base64url(32 random bytes)>`. Only `sha256:<hex>` of the secret part is stored, in an internal `AgentToken` record named by the agent id. The join token is compared in constant time over SHA-256 hashes. Registering again replaces the token.
+- **Owners** come from the enrollment (`Owner{Provider, Login}`, the provider the dispatcher's sign-in uses); the scheduler verifies no login and resolves no Group at registration (P1 phase 6 removed the `OwnerVerifier` and the owners Group cache).
+- **Agent tokens.** The token is `<agentId>.<base64url(32 random bytes)>`. Only `sha256:<hex>` of the secret part is stored, in an internal `AgentToken` record named by the agent id. Registering again replaces the token.
 
   The 24 h TTL is renewed by **any authenticated call** (at most every 10 min), not only heartbeats, so an idle polling agent stays registered. The tick takes an agent whose token expired Offline.
 - **Leases** are an internal `Lease` record (`lse_<hex>`, labels `factory.ccf.dev/task` and `/agent`). It holds the TTL, the resolved auth, the credential's expiry (never the credential) and Σ heartbeat deltas.
