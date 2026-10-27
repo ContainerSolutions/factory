@@ -72,7 +72,6 @@ describe('TaskSpecCard', () => {
         .map((s) => s.text()),
     ).toEqual(['target', 'repo', 'base']);
     expect(workspace.text()).toContain('rw');
-    expect(workspace.text()).toContain('hosts registry.npmjs.org');
     expect(workspace.get('pre').text()).toBe(
       'setup: |\n  corepack enable\n  yarn install --immutable\nexposes:\n  FACTORY_STACK_URL: http://localhost:8000',
     );

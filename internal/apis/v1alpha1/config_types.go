@@ -737,15 +737,6 @@ type Workspace struct {
 	// PublicReads lets the agent clone public repos anonymously at runtime, and says the ro
 	// repos are public: they are cloned anonymously and get no read-only token.
 	PublicReads *bool `json:"publicReads,omitzero"`
-	// Hosts are the extra hostnames a sandboxed harness may reach, on top of the git host, the
-	// dispatcher and the local stack, e.g. registry.npmjs.org for a docs task's yarn install.
-	// Each is a lowercase hostname of at least two labels with an optional port and an
-	// optional single leading "*." label followed by at least two labels (*.example.com, not
-	// *.com); no scheme, path, userinfo, IP literal or localhost; at most 20 (ValidateHost).
-	// The compiler copies them to the Task's spec.hosts.
-	// Hosts widen what a prompt-injected run could reach, so a catalog change to them needs
-	// two approvals (FACTORY-CAT-002).
-	Hosts []string `json:"hosts,omitzero"`
 	// Environment is what the task's VM workspace brings up before the harness runs (P1 §4).
 	// The compiler copies it to the Task's spec.environment.
 	Environment *Environment `json:"environment,omitzero"`
@@ -770,7 +761,8 @@ type Environment struct {
 	// name the runtime sets (ReservedEnvNames, FACTORY_VERSION_*).
 	Exposes map[string]string `json:"exposes,omitzero"`
 	// Egress narrows the workspace's network (P1 §3); default is open through the gateway.
-	// Like hosts, a catalog change to egress.allow needs two approvals.
+	// Egress widens what a prompt-injected run could reach, so a catalog change to egress.allow
+	// (or a mode away from deny-by-default) needs two approvals (FACTORY-CAT-002).
 	Egress *EgressPolicy `json:"egress,omitzero"`
 }
 
@@ -797,8 +789,10 @@ type EgressPolicy struct {
 	// Mode is default (open through the gateway, except its denied ranges) or deny-by-default
 	// (only Allow, plus the git host and the dispatcher).
 	Mode string `json:"mode,omitzero" jsonschema:"enum=default,enum=deny-by-default"`
-	// Allow are hostnames reachable under deny-by-default; same rules as workspace.hosts
-	// (ValidateHost, at most 20). Only valid with deny-by-default.
+	// Allow are hostnames reachable under deny-by-default: each a lowercase hostname of at
+	// least two labels with an optional port and an optional single leading "*." label
+	// followed by at least two labels (*.example.com, not *.com); no scheme, path, userinfo,
+	// IP literal or localhost; at most 20 (ValidateHost). Only valid with deny-by-default.
 	Allow []string `json:"allow,omitzero"`
 }
 
