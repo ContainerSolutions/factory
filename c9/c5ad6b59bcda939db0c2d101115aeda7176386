@@ -1,0 +1,5 @@
+lisa-design:
+- The route is removed outright, not kept for the UI: the UI signs in with the OAuth web flow (login/authCallback) and never called getDeviceConfig.
+- No serve flag or env var ever set OAuthConfig.DeviceScopes (it only defaulted to Scopes), so no CLI/config surface changes.
+- The listener-split tests (serve_test, ops_test) now probe GET /auth/me instead: unauthenticated it is a 401 on the public listener (only the API answers that) and a 404 on the ops listener.
+- LLD lines that only described the route (api-server.md, contracts.md HTTP API table) are deleted; P1 §6's "what goes away" list now says the route is removed.
