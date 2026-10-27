@@ -1,0 +1,4 @@
+lisa-addressed:
+- CORE-DOC-001 d5332d51a10c: design/workstreams/foundation/LLD/contracts.md's TaskSpec row lists CPUs and Memory, their validation and errors.
+- Dismissed CORE-DUP-001 519971d10719: sharing the pattern with the agent's gibRE is agent code, out of a contract PR; deferred to PR 9 (PR body "Deferred").
+- Dismissed FACTORY-CONTRACT-001 833e2b788a13: the stack spec (agreed with Gustavo) asks for TestCompileLimits in this PR; it's a test, no controllers code changes; raised as an open question in the PR body.
