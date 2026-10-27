@@ -48,12 +48,28 @@ Stack 3 status (2026-10-26): **design agreed with Gustavo; starting.** One stack
 | 3 | `fx/p9f-3-sighup-memory` | c: SIGHUP re-reads `/proc/meminfo` and recomputes the cap |
 | 4 | `fx/p9f-4-sudo-signals` | d: `sudo -n` in its own process group, SIGTERM then grace; the helper handles signals for every verb and kills nerdctl's group; stale build contexts swept; a host-side bound on `image-build` |
 | 5 | `fx/p9f-5-declined-privileges` | e: kataimage/katawarm skipped with a warning; asked again on the next init |
-| 6 | `fx/p9f-6-kind-digest` | f: only if T4 fails: tag on the host in `warm-load` (protocol bump) |
-| 7 | `fx/p9f-7-e2e-container` | h: run it (T5), fix it, add it to CI as a job that isn't required |
+| 6 | `fx/p9f-6-kind-archives` | f: T4 failed (below): the warm build saves each kind image with `docker save --platform linux/<arch>` and makes the archive readable (0644), on kata and tart |
+| 7 | `fx/p9f-7-e2e-container` | h: T5 passed (below); add it to CI as a job that isn't required |
 | 8 | `fx/p9f-8-limits-size` | g, contract: `Limits.cpus` and `Limits.memory` |
 | 9 | `fx/p9f-9-task-size` | g: the runner sizes each VM from the task's limits, capped at `workspace.size` with a warning |
 
 T2 runs last, after stack 2 is merged.
+
+Results on the workstation (2026-10-27, main at #195):
+- **T5 passed** on its first run: `make e2e-run-container`, claude-code and codex, 0.5 s.
+- **T4 failed**, with the warm disk built from `busybox:1.37.0@sha256:bdf57e52…` and
+  `kindest/node:v1.35.0`. The digest-to-tag step works: Docker 29's containerd store loads the
+  image as `busybox:1.37.0@sha256:…`, and `docker tag` and `docker save` succeed, with
+  `RepoTags: ["busybox:1.37.0"]`. Two other things break `kind load image-archive`:
+  - the archive is `root:root 0600`, so `up`, which runs as `admin`, gets "permission denied";
+  - the archive's index names every platform but holds only amd64's content, so kind's
+    `ctr import` fails ("content digest … not found") even as root, and the pod then pulls.
+
+  `docker save --platform linux/amd64` with `chmod 0644` fixes both: the pod started offline
+  ("already present on machine"). The tart path saves the same way, so it likely has both
+  problems on arm64.
+- Also seen: every `sudo` in a workspace prints "unable to resolve host
+  ws-tskfactory-warm-build": the guest's hostname isn't in its `/etc/hosts`.
 
 ### 1. Phase 9 follow-ups
 
