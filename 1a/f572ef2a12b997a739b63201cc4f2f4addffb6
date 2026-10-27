@@ -1,0 +1,6 @@
+lisa-selfreview:
+Pass 1 (lenient, final): approve. Checked CORE-SEC-001 (the run token is redacted from the
+transcript and checked against the bundle like the other job secrets; the fallback log has no
+token), CORE-TEST-001 (TestRunnerDispatcherToken: run token, none, empty).
+Deferred nit: pipeline.jobCredential (gateway mode) doesn't list Lease.RunToken; a VM job is
+rebuilt from the bundle and never has one.
