@@ -1,0 +1,2 @@
+lisa-addressed:
+CORE-VERIFY-001 (ccf-review, review body): web CI failed because CatalogStatus.spec.ts:39 expected the old repo URL from api/examples/getCatalog.json. Fixed in cd85c58: the expected link is now https://github.com/ContainerSolutions/factory. web/src/mocks/catalog.ts and other web labels unchanged. npm run reviewable passes (670 tests); gen:api changes nothing.
