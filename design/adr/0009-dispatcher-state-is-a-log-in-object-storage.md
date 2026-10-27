@@ -42,7 +42,7 @@ transactions, no change feed and no order across objects.
     stored events are replayed instead. This supersedes ADR-0001's start-up rebuild and
     `provider.Conn.List`, and `serve` needs a durable store (or an explicit in-memory flag);
   - only events a rule could fire for (`rules.CouldFire`), or that concern a linked object, are
-    stored.
+    stored;
   - agents can poll briefly instead of long-polling, so a dispatcher on Cloud Run or Lambda
     isn't kept busy between tasks;
   - a webhook whose live delivery fails is not recovered automatically (a known limit).

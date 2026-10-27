@@ -398,16 +398,16 @@ This is a change to the provider controller, not to the store, and it applies to
 
 ### Agents poll briefly (`supervise`)
 
-Today `supervise` long-polls: each idle slot calls `LeaseTask` with `wait=30s`, the dispatcher
-holds the request until a task comes or the wait ends, and on a 204 the agent asks again at
-once (`internal/agent/worker`). So a request is always open. On Cloud Run or Lambda that keeps an
+Today `supervise` long-polls. Whenever a slot is free, its lease loop calls `LeaseTask` with
+`wait=30s` (one call open at a time). The dispatcher holds the request until a task comes or the
+wait ends, and on a 204 the agent asks again at once (`internal/agent/worker`). So a request is always open. On Cloud Run or Lambda that keeps an
 instance busy, and billed for CPU, around the clock.
 
 So `agent.yaml` gets a `poll` block:
 
 ```yaml
 poll:
-  wait: 0s       # how long each LeaseTask asks the dispatcher to hold it: 0s–60s (default 30s)
+  wait: 0s       # how long each LeaseTask asks the dispatcher to hold it: whole seconds, 0s–60s (default 30s)
   interval: 30s  # how long an idle agent sleeps after a 204 before asking again (default 0s)
 ```
 
@@ -416,8 +416,12 @@ poll:
 - **A poll that gets a task polls again at once**, so free slots fill without waiting. Only a 204
   sleeps the interval. Throttling and failure backoff are unchanged.
 - **The dispatcher needs no change.** `LeaseTask` already takes any `wait` from `0s` to `60s`, and
-  the scheduler then runs one matching pass and answers. Only the worker's own check, which today
-  requires at least `1s`, is relaxed. No contract change.
+  the scheduler then runs one matching pass and answers. No contract change.
+- **A zero wait must reach the wire.** Today `worker.New` reads a zero `LeaseWait` as unset and
+  puts back the 30 s default, before its at-least-`1s` check. So relaxing the check alone would
+  still send `wait=30s`. The config fills the 30 s default only when `poll.wait` is absent. The
+  worker's options carry the poll settings as a struct whose zero wait means zero, and the check
+  accepts `0s`.
 - **Heartbeats, completes and abandons are unchanged.** They are short requests already.
 - **What it costs:**
   - A task waits up to one interval before an agent sees it.
@@ -426,10 +430,26 @@ poll:
     a few agents.
   - Anti-affinity still holds a task for up to 10 minutes for a different agent, whose next
     poll takes it.
-- **What it buys:** Cloud Run bills CPU only while a request runs: a few milliseconds per poll,
-  not 24 hours of held connections. Between requests the instance's CPU is throttled, so the
-  background loops (the sync every 2 s, the leader lock's renewal) run only during requests. A
-  poll every 30 s still keeps an instance warm, unbilled, so cold starts stay rare.
+- **What it buys:** Cloud Run, with CPU allocated only during requests, bills a few
+  milliseconds per poll, not 24 hours of held connections. A poll every 30 s keeps an instance
+  warm, unbilled, so cold starts stay rare.
+- **What that billing mode costs: the leader's work stalls between requests.** A webhook is
+  acknowledged once its Delivery is stored. Everything after that runs in the leader's loops:
+  normalisation, rules, work items, tasks, effects and their GitHub calls, lease expiry, and
+  the sync and leader-lock renewal. With CPU only during requests, those loops advance only
+  while some request is in flight. A webhook can then take several polls to become a task or a
+  comment, and a slow GitHub call stalls between them. Lambda behaves the same: nothing runs
+  after the response. P3 doesn't close this, because it is a hosting choice (IMPROVEMENTS item 9).
+  The options:
+  - **CPU always allocated** (Cloud Run's instance-based billing): the loops run normally, but a
+    warm instance is billed all the time it lives. Agents polling every 30 s keep it alive, so
+    that costs about as much as long polls.
+  - **Work inside requests:** the webhook handler, and a tick endpoint that Cloud Scheduler
+    calls, run the leader's loops until they are idle (bounded) before answering.
+  - **A VM behind a load balancer:** always-on CPU at a fixed price, the fallback of
+    Decision 5.
+  - With a dispatcher on a VM or a laptop, the loops always run. Brief polling there only adds
+    pickup latency, and the defaults keep the long poll.
 
 This is the agent workstream's change (`internal/agent`, `cmd/factory-agent`).
 
@@ -490,15 +510,15 @@ agents poll (§Agents poll briefly):
 
 | Agents… | Writes / month (Class A, PUT, LIST) | GETs / month (Class B) | GCS (us-central1) | S3 |
 |---|---|---|---|---|
-| poll briefly, every 30 s, on Cloud Run (CPU only during requests) | ~100,000 | ~180,000 | 5,000 + 50,000 free: **~$0.55** | **~$0.57** |
-| long-poll, or the dispatcher runs on a VM (CPU always on) | ~101,000 | ~1,300,000 | **~$1.00** | **~$1.05** |
+| poll briefly, every 30 s, on Cloud Run (CPU only during requests) | ~100,000 | ~180,000 | 5,000 + 50,000 free: **~$0.53** | **~$0.57** |
+| long-poll, or the dispatcher runs on a VM (CPU always on) | ~100,000 | ~1,300,000 | **~$1.00** | **~$1.05** |
 
 These use the list prices: $0.005 per 1,000 writes and $0.0004 per 1,000 reads, on both clouds.
 Storage stays well under 1 GB, inside GCS's 5 GB free tier.
 
 So it costs **about $1 a month**, still not $0. GCS's always-free 5,000 writes a month
-last about 1.5 to 2.5 days. If the instance runs all day, the leader lock is the largest single
-source of writes (over 40%). Then come heartbeats, which rewrite the lease's expiry into three objects
+last about 1.5 days. The leader lock is the largest single source of writes (about 43%), in
+both modes, since an instance stays warm all day either way. Then come heartbeats, which rewrite the lease's expiry into three objects
 (task, lease, agent) on every beat. Levers, if the bill ever matters, all outside the store:
 - a longer leader-lock TTL (10 minutes, renewed every 3) costs a slower takeover after a leader
   dies;
@@ -508,7 +528,8 @@ source of writes (over 40%). Then come heartbeats, which rewrite the lease's exp
 
 The sync interval trades read freshness for GETs. The bucket is the small part of the bill. On
 Cloud Run, agents that long-poll all day keep an instance billed for CPU all day, at roughly $60
-a month, far above the free 180,000 vCPU-seconds. Brief polling avoids that. Hosting itself is
+a month, far above the free 180,000 vCPU-seconds. Brief polling avoids that, at the price in
+§Agents poll briefly: the leader's work stalls between requests. Hosting itself is
 IMPROVEMENTS item 9's question, and so is the fallback of a small VM behind a load balancer,
 which mostly costs the load balancer.
 
@@ -577,11 +598,12 @@ which mostly costs the load balancer.
 - **Brief polling** (`internal/agent/worker`):
   - with `wait: 0s`, a 204 sleeps the interval, and a lease polls again at once;
   - the defaults keep today's long poll;
-  - `agent.yaml` rejects a `wait` outside `0s`–`60s` or a negative interval;
+  - `agent.yaml` rejects a `wait` outside `0s`–`60s` or not in whole seconds (`500ms`, `1.5s`), and a negative interval;
+  - `poll: {wait: 0s}` sends `wait=0s` on the wire, and an absent `wait` sends `wait=30s`;
   - against a real dispatcher, a task created while the agent sleeps is leased on its next
     poll.
 - **No rebuild:**
-  - `serve` starts without listing GitHub, since `Conn.List` is gone;
+  - `serve` starts without calling `Conn.List`;
   - `serve` refuses to start with no `--state-dir`, `--state-url`, `--dev-fake-providers` or
     `--state-memory`;
   - the three old-marker cases: the same id takes over the marker, a different id writes
@@ -635,7 +657,8 @@ module path. There are six PRs, each through lisa and ccf-review:
 6. **Brief polling in `supervise`** (AGT), independent of PRs 1–5:
    - `agent.yaml`'s `poll` block;
    - the worker's sleep after a 204, and the relaxed wait check;
-   - `deploy/poc/agent.yaml.example` and its deploykit test;
+   - `deploy/poc/agent.yaml.example`, and the poll type added to the deploykit test's list of
+     walked types;
    - supervise.md.
 
 Deploying to Cloud Run or Lambda, the tick endpoint and the bucket policy are IMPROVEMENTS item 9.
@@ -655,4 +678,6 @@ Deploying to Cloud Run or Lambda, the tick endpoint and the bucket policy are IM
    dispatchers, the recovery bullet). If cold starts make it bite, the dispatcher runs on a VM
    behind a load balancer instead.
 6. **Agents poll briefly** when the dispatcher runs where idle time is free (§Agents poll
-   briefly), as an agent PR in this rollout.
+   briefly), as an agent PR in this rollout. On Cloud Run with CPU only during requests, the
+   leader's work then advances only during requests. How to close that (work inside requests,
+   always-allocated CPU, or a VM) is IMPROVEMENTS item 9's choice.
