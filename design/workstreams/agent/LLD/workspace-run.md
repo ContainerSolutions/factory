@@ -258,7 +258,7 @@ Both system files are replaced atomically: `install -m <mode>` to `.<name>.facto
 
 `off` does none of these: a plain container has no systemd or dockerd, and tests run unprivileged. Any failure in `on` mode fails the run `environment-error`.
 
-A cancel (the run's first SIGTERM) gives a running `sudo -n` command SIGTERM, which sudo relays, and SIGKILL 10 s later (`vmrun.DefaultSudoGrace`, through `internal/agent/sudocancel`, as host init and the kata driver do with their own sudo calls): these commands end at once on SIGTERM, and 10 s keeps the run well inside the supervisor's 45 s `Grace`, so it still writes its outcome. A command run without sudo gets SIGKILL.
+A cancel (the run's first SIGTERM), or the end of a `docker info` attempt's 10 s, gives a running `sudo -n` command SIGTERM, which sudo relays, and SIGKILL 10 s later (`ExecRunner.SudoGrace`, default `vmrun.DefaultSudoGrace`, through `internal/agent/sudocancel`, as host init and the kata driver do with their own sudo calls): these commands end at once on SIGTERM, and 10 s keeps the run well inside the 45 s the workspace driver's `Exec` gives it after SIGTERM (its `Grace`), so it still writes its outcome. A command run without sudo gets SIGKILL.
 
 ## Harnesses under `IsolationVM`
 

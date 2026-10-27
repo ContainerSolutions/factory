@@ -37,9 +37,9 @@ const stopGrace = 30 * time.Second
 
 // onCancel sets what Run and RunInput do when ctx ends (sudocancel.Apply): a sudo call, the kata
 // helper's verbs (sudo -n) and the root script (sudo /bin/sh) alike, gets SIGTERM, which sudo
-// relays, and SIGKILL only after the runner's Grace; anything else gets SIGKILL.
+// relays, and SIGKILL only after the runner's SudoGrace; anything else gets SIGKILL.
 func (r ExecRunner) onCancel(cmd *exec.Cmd) {
-	g := r.Grace
+	g := r.SudoGrace
 	if g == 0 {
 		g = sudocancel.HelperGrace
 	}

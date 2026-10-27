@@ -1325,16 +1325,16 @@ func TestExecRunnerProcesses(t *testing.T) {
 
 // TestExecRunnerCancel: when ctx ends, a sudo call through Run or RunInput, the kata helper's
 // verbs (sudo -n) and the root script (sudo /bin/sh) alike, gets SIGTERM, which sudo relays,
-// and SIGKILL only after Grace; anything else is killed.
+// and SIGKILL only after SudoGrace; anything else is killed.
 func TestExecRunnerCancel(t *testing.T) {
-	r := ExecRunner{Grace: 2 * time.Second}
+	r := ExecRunner{SudoGrace: 2 * time.Second}
 	t.Run("Run", func(t *testing.T) {
-		sudocanceltest.Check(t, r.Grace, func(ctx context.Context, prog string, args ...string) error {
+		sudocanceltest.Check(t, r.SudoGrace, func(ctx context.Context, prog string, args ...string) error {
 			return r.Run(ctx, io.Discard, prog, args...)
 		})
 	})
 	t.Run("RunInput", func(t *testing.T) {
-		sudocanceltest.Check(t, r.Grace, func(ctx context.Context, prog string, args ...string) error {
+		sudocanceltest.Check(t, r.SudoGrace, func(ctx context.Context, prog string, args ...string) error {
 			return r.RunInput(ctx, strings.NewReader("context.tar"), io.Discard, prog, args...)
 		})
 	})

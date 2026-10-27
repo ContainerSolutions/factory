@@ -133,24 +133,24 @@ type Runner interface {
 
 // ExecRunner runs real programs, found on PATH.
 type ExecRunner struct {
-	// Grace is how long a cancelled sudo call gets after SIGTERM before SIGKILL. Default:
+	// SudoGrace is how long a cancelled sudo call gets after SIGTERM before SIGKILL. Default:
 	// DefaultSudoGrace.
-	Grace time.Duration
+	SudoGrace time.Duration
 }
 
-// DefaultSudoGrace is ExecRunner's Grace: setup's sudo -n commands (install, cat, mv,
+// DefaultSudoGrace is ExecRunner's SudoGrace: setup's sudo -n commands (install, cat, mv,
 // update-ca-certificates, systemctl, docker) end at once on the SIGTERM sudo relays, and
-// SIGKILL after 10 s keeps a cancelled run well inside the supervisor's 45 s Grace, so it
+// SIGKILL after 10 s keeps a cancelled run well inside the 45 s the workspace driver's Exec gives it after SIGTERM, so it
 // still writes its outcome.
 const DefaultSudoGrace = 10 * time.Second
 
 // Run implements Runner. When ctx ends, a sudo call gets SIGTERM, which sudo relays to its
-// command (root, out of the run's reach), and SIGKILL only after Grace; anything else gets
+// command (root, out of the run's reach), and SIGKILL only after SudoGrace; anything else gets
 // SIGKILL (sudocancel.Apply).
 func (r ExecRunner) Run(ctx context.Context, stdout, stderr io.Writer, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
-	g := r.Grace
+	g := r.SudoGrace
 	if g == 0 {
 		g = DefaultSudoGrace
 	}

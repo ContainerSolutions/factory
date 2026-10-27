@@ -693,11 +693,11 @@ func TestExecRunner(t *testing.T) {
 }
 
 // TestExecRunnerCancel: when ctx ends, a sudo call (setup's sudo -n commands) gets SIGTERM,
-// which sudo relays, and SIGKILL only after Grace; anything else is killed.
+// which sudo relays, and SIGKILL only after SudoGrace; anything else is killed.
 func TestExecRunnerCancel(t *testing.T) {
 	t.Parallel()
-	r := ExecRunner{Grace: 2 * time.Second}
-	sudocanceltest.Check(t, r.Grace, func(ctx context.Context, prog string, args ...string) error {
+	r := ExecRunner{SudoGrace: 2 * time.Second}
+	sudocanceltest.Check(t, r.SudoGrace, func(ctx context.Context, prog string, args ...string) error {
 		return r.Run(ctx, io.Discard, io.Discard, prog, args...)
 	})
 }

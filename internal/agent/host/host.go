@@ -79,11 +79,11 @@ type Runner interface {
 // ExecRunner runs real programs. When ctx ends, a command gets SIGKILL, but for a sudo call
 // (the kata helper's verbs, the root script): see onCancel.
 type ExecRunner struct {
-	// Grace is how long a cancelled sudo call gets after SIGTERM before SIGKILL. Default:
+	// SudoGrace is how long a cancelled sudo call gets after SIGTERM before SIGKILL. Default:
 	// sudocancel.HelperGrace, for the root script too: its lines are local (an archive's
 	// extraction, install, systemctl) and sh ends on SIGTERM, so 30 s is plenty, and at its
 	// password prompt sudo ends at once, restoring the terminal's echo.
-	Grace time.Duration
+	SudoGrace time.Duration
 }
 
 // Run implements Runner.

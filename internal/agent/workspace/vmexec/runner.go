@@ -33,9 +33,9 @@ type Runner interface {
 
 // ExecRunner runs real programs.
 type ExecRunner struct {
-	// Grace is how long a cancelled sudo call (the kata helper's verbs) gets after SIGTERM
+	// SudoGrace is how long a cancelled sudo call (the kata helper's verbs) gets after SIGTERM
 	// before SIGKILL. Default: sudocancel.HelperGrace.
-	Grace time.Duration
+	SudoGrace time.Duration
 }
 
 func (c Cmd) apply(cmd *exec.Cmd) {
@@ -46,11 +46,11 @@ func (c Cmd) apply(cmd *exec.Cmd) {
 }
 
 // Run implements Runner. When ctx ends, a sudo call gets SIGTERM, which sudo relays to the kata
-// helper, and SIGKILL only after Grace; anything else (tart) gets SIGKILL (sudocancel.Apply).
+// helper, and SIGKILL only after SudoGrace; anything else (tart) gets SIGKILL (sudocancel.Apply).
 func (r ExecRunner) Run(ctx context.Context, c Cmd) error {
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
 	c.apply(cmd)
-	g := r.Grace
+	g := r.SudoGrace
 	if g == 0 {
 		g = sudocancel.HelperGrace
 	}
