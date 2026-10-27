@@ -29,10 +29,17 @@ func TestParseCloudURL(t *testing.T) {
 		{url: "s3://b/a/b/", bucket: "b", pref: "a/b/"},
 		{url: "gs://", bad: "no bucket"},
 		{url: "gs:///p", bad: "no bucket"},
-		{url: "gs://Bucket/p", bad: "only a-z"},
-		{url: "s3://key:secret@b/p", bad: "credentials in the URL"},
-		{url: "s3://key@b/p", bad: "credentials in the URL"},
+		{url: "gs://Bucket/p", bad: "bucket name may only"},
+		{url: "s3://key:secret@b/p", bad: "has credentials"},
+		{url: "s3://key@b/p", bad: "has credentials"},
+		{url: "s3://key:/secret@b/p", bad: "has credentials"},
+		{url: "gs://b/p@x", bad: "has credentials"},
 		{url: "gs://b:443/p", bad: "port"},
+		{url: "gs://b:/p", bad: "port"},
+		{url: "gs://b/a b", bad: "escaped"},
+		{url: "gs://b/a+b", bad: "prefix may only"},
+		{url: "gs://b/a:b", bad: "prefix may only"},
+		{url: "gs://b/My_Prefix-1.x/y", bucket: "b", pref: "My_Prefix-1.x/y/"},
 		{url: "gs://b/p?x=1", bad: "query"},
 		{url: "gs://b/p?", bad: "query"},
 		{url: "gs://b/p#f", bad: "fragment"},
@@ -50,8 +57,11 @@ func TestParseCloudURL(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), tc.bad) {
 					t.Fatalf("parseCloudURL = %+v, %v; want an error with %q", loc, err, tc.bad)
 				}
-				if strings.Contains(err.Error(), "secret") {
-					t.Fatalf("the error shows the URL's password: %v", err)
+				// Nothing of the URL but its scheme: not the secret, the bucket or the prefix.
+				for _, part := range []string{"secret", "key", "Bucket", "443", "a b", "a+b", "a:b", "x=1", "#f", "/./", "/../"} {
+					if strings.Contains(tc.url, part) && strings.Contains(err.Error(), part) {
+						t.Fatalf("the error repeats %q from the URL: %v", part, err)
+					}
 				}
 				return
 			}
@@ -85,6 +95,13 @@ func TestCloudURLSecrets(t *testing.T) {
 			"KEY:hunter2@bucket:port/p", // a bad port (doesn't parse)
 			"KEY:hun%20ter2@bucket/p",   // an escaped space in the secret
 			"KEY:hunter2@bu%20cket/p",   // an escaped host
+			"KEY:/hunter2@bucket/p",     // a '/' puts the secret in the path
+			"KEY:/hunter2/x@bucket/p",   // and further down it
+			"KEY:x?hunter2@bucket/p",    // a '?' puts it in the query
+			"KEY:x#hunter2@bucket/p",    // a '#' in the fragment
+			`KEY:x"hunter2@bucket/p`,    // a '"' (doesn't parse)
+			`KEY:"hunter2"@bucket/p`,    // quoted
+			"u:/hunter2@b/p",            // a short bucket after the '/'
 		} {
 			urls = append(urls, scheme+"://"+rest)
 		}
@@ -194,24 +211,34 @@ func TestParseURLClouds(t *testing.T) {
 		{"http://10.0.0.5:9000", "only for a loopback host"},
 		{"http://127.0.0.2:9000", "only for a loopback host"},
 		{"http://localhost.example.com", "only for a loopback host"},
-		{"https://u:hunter2@minio.test", "credentials in the URL"},
-		{"http://u:hunter2@localhost", "credentials in the URL"},
+		{"https://u:hunter2@minio.test", "has credentials"},
+		{"http://u:hunter2@localhost", "has credentials"},
 		{"http://u:hunter2@h:x:y", "not a URL"},
-		{"https://hunter2@minio.test", "credentials in the URL"},
-		{"minio:9000", "want https://"},
-		{"ftp://h", "want https://"},
-		{"https://h/path", "want https://"},
-		{"https://h?x=1", "want https://"},
-		{"https://h?", "want https://"},
-		{"https://h#f", "want https://"},
+		{"https://hunter2@minio.test", "has credentials"},
+		{"https://u:/hunter2@minio.test", "has credentials"},
+		{"https://u:x?hunter2@minio.test", "not a URL"},
+		{"https://u:x#hunter2@minio.test", "not a URL"},
+		{"https://minio.test#hunter2@x", "has credentials"},
+		{"https://minio.test/hunter2@x", "has credentials"},
+		{`https://u:x"hunter2@minio.test`, "not a URL"},
+		{"minio:9000", "scheme is not http or https"},
+		{"ftp://h", "scheme is not http or https"},
+		{"https://", "no host"},
+		{"https://h/somedir", "a path, a query or a fragment"},
+		{"https://h?x=1", "a path, a query or a fragment"},
+		{"https://h?", "a path, a query or a fragment"},
+		{"https://h#f", "a path, a query or a fragment"},
 	} {
 		t.Setenv(S3EndpointEnv, tc.ep)
 		_, err := ParseURL(t.Context(), "s3://bucket")
 		if err == nil || !strings.Contains(err.Error(), S3EndpointEnv) || !strings.Contains(err.Error(), tc.why) {
 			t.Fatalf("%s=%s = %v, want refused (%s)", S3EndpointEnv, tc.ep, err, tc.why)
 		}
-		if strings.Contains(err.Error(), "hunter2") {
-			t.Fatalf("the error shows the endpoint's password: %v", err)
+		// Nothing of the value is printed: not the secret, and not its host either.
+		for _, part := range []string{"hunter2", "minio.test", "10.0.0.5", "127.0.0.2", "example.com", "somedir", "x=1"} {
+			if strings.Contains(err.Error(), part) {
+				t.Fatalf("the error repeats %q from the endpoint: %v", part, err)
+			}
 		}
 	}
 	t.Setenv(S3EndpointEnv, "")

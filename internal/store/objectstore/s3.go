@@ -97,26 +97,32 @@ func newS3Bucket(ctx context.Context, loc cloudLocation, hc *http.Client) (*S3Bu
 }
 
 // s3Endpoint is FACTORY_S3_ENDPOINT, checked: https://host[:port], or http:// on a loopback
-// host, with nothing after it. A refused value is shown redacted: it may hold a user and
-// password.
+// host, with nothing after it. As for the state URL, a refused value is never printed, in
+// whole or in part: a password with '/', '?', '#' or '"' lands outside the userinfo. The
+// error says which part is wrong.
 func s3Endpoint() (string, error) {
 	raw := os.Getenv(S3EndpointEnv)
 	if raw == "" {
 		return "", nil
 	}
 	const want = "want https://host[:port], or http:// on localhost, 127.0.0.1 or [::1]"
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "", fmt.Errorf("objectstore: %s is not a URL: %s", S3EndpointEnv, want)
+	refuse := func(why string) (string, error) {
+		return "", fmt.Errorf("objectstore: %s is refused: %s (%s)", S3EndpointEnv, why, want)
 	}
+	u, err := url.Parse(raw)
 	switch {
-	case u.User != nil:
-		return "", fmt.Errorf("objectstore: %s=%q: credentials in the URL are refused (they come from the default chain): %s", S3EndpointEnv, RedactURL(u), want)
+	case err != nil:
+		return refuse("it is not a URL")
+	case u.User != nil || strings.Contains(raw, "@"):
+		return refuse("it has credentials ('@'); they come from the default chain, never the endpoint")
+	case u.Scheme != "http" && u.Scheme != "https":
+		return refuse("its scheme is not http or https")
+	case u.Host == "":
+		return refuse("it has no host")
+	case (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawFragment != "":
+		return refuse("it has a path, a query or a fragment")
 	case u.Scheme == "http" && !isLoopbackHost(u.Hostname()):
-		return "", fmt.Errorf("objectstore: %s=%q: http:// is only for a loopback host: %s", S3EndpointEnv, RedactURL(u), want)
-	case (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
-		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "":
-		return "", fmt.Errorf("objectstore: %s=%q: %s", S3EndpointEnv, RedactURL(u), want)
+		return refuse("http:// is only for a loopback host")
 	}
 	return u.Scheme + "://" + u.Host, nil
 }
