@@ -16,7 +16,7 @@ Three PR stacks, in this order:
 | Stack | Where | Contents | Starts |
 |---|---|---|---|
 | **1. Common phase 10** | the Mac session | The phase 10 work that touches files the phase 9 follow-ups also touch: **(1)** remove `worker` and `--runtime host` from `cmd/factory-agent` (supervise is the only runtime); **(2)** remove the `localDev` and label config from `internal/agent/config`; **(3)** the LLD renames (worker → supervise, run-pipeline, harness-adapters, local-stack → environment). Plus **(4)** lifting the "never install" rule and the `not-run` stopgap (#85) in the prompts: not shared code, but test T2 needs it. | **merged 2026-10-26** (#192–#195, ccf-skills#25; IMPROVEMENTS_DONE.md) |
-| **2. Remaining phase 10** | the Mac session | Everything else in "2. P1 phase 10: removal" below. | **next:** stack 1 is merged; its design goes to Gustavo first |
+| **2. Remaining phase 10** | the Mac session | Everything else in "2. P1 phase 10: removal" below. | **approved, waiting to merge:** #198 → #201 → #203 → #209 (stack #210) |
 | **3. Phase 9 follow-ups** | **the Linux box** | Fixes a–h and tests T1–T6 in "1. Phase 9 follow-ups" below. | **now:** stack 1 is merged (`git log origin/main` has #192–#195) |
 
 Notes for the Linux box agent:
@@ -37,6 +37,11 @@ Notes for the Linux box agent:
 
 Stack 1 status (2026-10-26): **merged.** The PRs are listed in IMPROVEMENTS_DONE.md; what it
 left for stack 2 is under "Left over from stack 1, for stack 2" below.
+
+Stack 2 status (2026-10-27): **all 4 PRs approved** with ccf-review (no blocking findings, two
+Nits deferred), CI green, pushed as `ccf-lisa[bot]`. Merge bottom-up: #198 → #201 → #203 → #209.
+What it leaves is under "2. P1 phase 10: removal" below. It overlaps stack 3 only in
+`internal/agent/workspace` tests and `vmrun`; whichever merges second rebases.
 
 Stack 3 status (2026-10-27): **all 9 PRs open and reviewed with ccf-review, waiting for Gustavo's approval:** #197, #199, #200, #202, #204, #205, #206, #207, #208 (one Should-fix on #207, fixed in #208). Each PR body lists what only a real host can check. One stack on main,
 `fx/p9f-<n>-<slug>`, as `ccf-lisa[bot]`:
@@ -122,51 +127,36 @@ exercised by every docs-review run.
 
 ### 2. P1 phase 10: removal
 
-Phase 9 has shipped (#174–#190), so the host runtime can go. From P1's "What gets removed":
+Stack 1 (#192–#195, merged) and stack 2 (#198, #201, #203, #209) remove the host runtime:
+`worker`, `localDev` and the label probes, the local-stack step, the adapters' host sandboxes
+and probes, `make smoke-*`, `gitsafe`, the host side of `Pipeline.Run` and the Effector's host
+runtime. Kept on purpose: gitcred and `fx git-credential`, because supervise's `PrepareBundle`
+fetches private skills on the host with them.
 
-| Area | Remove |
-|---|---|
-| codex adapter | sandbox flags, `writable_roots`, `gitDirs` (#81), `workDirFor` (#87), the MCP approval key, the `CODEX_HOME` auth symlink, the login probe, the `UNVERIFIED` sandbox flags |
-| claude adapter | `sandbox` settings, `Edit`/`WebFetch` rules, denied reads of the owner's HOME, the sandbox-support probe (`sandbox-exec`, `bwrap`/`socat`), Keychain/`USER` handling, `CLAUDE_CONFIG_DIR` as the owner's dir |
-| pipeline (host) | owner `PATH`/`DOCKER_*` passthrough, the credential-helper socket, the `factory` shim's host path, `gitsafe` (#82) |
-| agent | `internal/agent/stack`, the `localDev` config, the `has-local-stack`/`gif-tooling` probes and label code, `verifyAgainst` as a stack trigger, the device flow, the join-token file, `worker` (`--runtime host`) |
-| catalog and prompts | `workspace.hosts` (replaced by `environment.egress`), the "never install" rules and `not-run` stopgaps (#85), the temporary-API/UI stopgap (#88) |
-| docs | the LLDs (worker → supervise, run-pipeline, harness-adapters, local-stack → environment), LOCAL-GUIDE |
-
-Removing the device flow needs enrollment first: phase 6, under Later.
-
-Left over from stack 1, for stack 2 (from #192–#194's "Deferred" lists):
-- **`runner.Stub`, and the pipeline's stack step:** `pipeline.Options.Stack`,
-  `stackUpIfNeeded` with its `has-local-stack` gate (its error still says "configure
-  localDev"), and `stackURLVars`. Also the claude adapter's local-stack sandbox host.
-- **The host-only pipeline:**
-  - `Pipeline.Run` on the host;
-  - the credential-helper socket (`fx git-credential`);
-  - the `PATH`/`DOCKER_*` passthrough;
-  - the `factory` shim;
-  - `gitsafe`;
-  - the Effector's host runtime (`FACTORY_RUNTIME` unset).
-- **The host side of the adapters and the CLI:** the adapters' host sandbox setup,
-  `factory-agent probe`'s host probes, and `make smoke-codex`/`make smoke-claude`, which drive
-  the host adapters.
-- **The scheduler's `rowLocalStack`.**
-- **Stale docs:**
-  - links into the deleted `local-stack.md` (`run-pipeline.md` lines 17 and 70) and comments
-    citing it (`pipeline.go`, `env.go`);
-  - `worker.md` named in `base.sh` line 135. Edit it with the next `base.sh` change: any edit
-    rebuilds the base VM;
-  - the worker and host-stack wording in 02-architecture, 05-agent-runtime §149, 08-roadmap,
-    10-poc and rollout.md.
-- **`has-local-stack` in `api/examples` and the web mocks:** arbitrary label strings, which can
-  stay.
-- **`ccf-review`'s `verify.md` says "`npm ci` (ask first)".** Under HEADLESS.md rule 9,
-  headless reviews could run it without asking. That's a ccf-skills change.
-
-Stack 1 (above) takes `worker` / `--runtime host`, the `localDev` and label config, the LLD
-renames and the "never install" lift. Stack 2 takes the rest. Test T2 needs the "never install"
-rule gone:
-in VM runs `yarn` now reaches the registry (#172), but agents still don't run `yarn install`,
-so docs builds stay `not-run`.
+Left after stack 2:
+- **`workspace.hosts` and `Task.spec.hosts`** (replaced by `environment.egress`; now ignored):
+  a contract removal (v1alpha1, schemas, openapi, the web regen), after the catalog's docs
+  TaskSpecs and `compile.go` stop setting it. Check first whether the file store strictly
+  decodes stored Tasks with `hosts`. 07-security's allow-list text goes with it.
+- **`config.Harness.home`/`configDir`:** unused since stack 2, but the config decode is strict
+  and existing `agent.yaml` files (and `deploy/poc/agent.yaml.example`) set them. Drop with a
+  warning period, or keep.
+- **The device flow and the join-token file:** need enrollment first (phase 6, under Later).
+- **The #88 temporary-API/UI stopgap** in `implement.md.tmpl`: stays until implement gets an
+  environment.
+- **The MCP approval key** in codex's VM config: `danger-full-access` with `never` should
+  auto-approve without it, but no VM run has checked. Try a codex run without it.
+- **Code leftovers:** the `harness.Isolation` type (only VM remains); the credentials step still
+  runs in gateway mode; dead `clirun` helpers; a stale `RepoWritable` comment; the Effector's
+  `runStackPush` type assertion that's now always true; v1alpha1's `FACTORY_STACK_*` reserved
+  names.
+- **Doc leftovers:** `base.sh` line 135 names `worker.md` (edit it with the next `base.sh`
+  change: any edit rebuilds the base VM); run-pipeline.md's old Tests paragraph and its two
+  "Environment" rows; harness-adapters.md's historical decision text; `has-local-stack` examples
+  in design docs (and in `api/examples` and the web mocks, where they're arbitrary labels and can
+  stay); LOCAL-GUIDE, which lives in local-dev.
+- **`ccf-review`'s `verify.md` says "`npm ci` (ask first)":** under HEADLESS.md rule 9 headless
+  reviews could run it without asking. A ccf-skills change.
 
 ## Later
 
@@ -346,3 +336,7 @@ so docs builds stay `not-run`.
   identity rule. Rewriting them is the owner's call.
 - **Review rule candidates** wait in `~/.ccf-review/proposals.jsonl` for Gustavo's
   `/ccf-review:rules propose`.
+- **`host/provision`'s `TestBaseScriptRuns` fails on macOS** (no `/etc/os-release`), so a local
+  `make test` on the Mac always has one failure; CI runs it on Linux. Skip it off Linux.
+- **The installed ccf-review plugin is stale** (`ccfr version`: 0.2.0 at 992d25d, behind
+  ccf-skills main); stack 2 was reviewed with it. Update the plugin.
