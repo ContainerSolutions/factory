@@ -348,9 +348,9 @@ other listening services. `+"`factory-agent host init --remove-pf`"+` undoes it.
 // again, and the final check reports those steps as they are. An o.Only that selects a helper
 // step that isn't ok but leaves out a privileges step that isn't ok fails at once, before any
 // prompt, plan or apply (a *HelperRequiredError; with DryRun too), unless the platform check
-// failed, which comes first. With o.Only, the statedir
-// step is applied too when it isn't ok, since the applies need the dir. The applies hold
-// <statedir>/host.lock: a second Init fails while one runs.
+// failed, which comes first. With o.Only, the statedir step is applied too when it isn't ok,
+// since the applies need the dir. The applies hold <statedir>/host.lock: a second Init fails
+// while one runs.
 func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	// the kata driver stages its downloads (about 1.3 GB) in <statedir>/stage, not in $TMPDIR,
 	// which may be a tmpfs: it's made once the host lock is held (the dir exists by then) and

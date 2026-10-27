@@ -83,7 +83,7 @@ func (e *HelperRequiredError) Error() string {
 	if len(e.Steps) > 1 {
 		verb = "need"
 	}
-	return fmt.Sprintf("%s %s the kata helper, which %s (%s %s: %s): run `factory-agent host init`, or add %s to --only",
+	return fmt.Sprintf("%s %s the kata helper, which %s (%s %s: %s): run host init without --only (or add %s to --only)",
 		strings.Join(e.Steps, " and "), verb, why, privilegesName, e.Privileges.State, e.Privileges.Detail, privilegesName)
 }
 

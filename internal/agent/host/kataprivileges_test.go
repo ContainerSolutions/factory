@@ -277,7 +277,7 @@ func TestKataInitHelperRequired(t *testing.T) {
 			[]string{"kataimage", "katawarm"}, nil},
 		{"--only kataimage, no sudoers rule", noRule, InitOptions{Only: []string{"kataimage"}},
 			"kataimage needs the kata helper, which isn't usable (privileges wrong: the sudoers rule doesn't let you run the helper", []string{"kataimage"}, nil},
-		{"--dry-run", noHelper, InitOptions{DryRun: true, Only: []string{"kataimage"}}, "run `factory-agent host init`, or add privileges to --only", []string{"kataimage"}, nil},
+		{"--dry-run", noHelper, InitOptions{DryRun: true, Only: []string{"kataimage"}}, "run host init without --only (or add privileges to --only)", []string{"kataimage"}, nil},
 		{"--yes", noHelper, InitOptions{Yes: true, Only: []string{"katawarm", "kataimage"}}, "kataimage and katawarm need the kata helper", []string{"kataimage", "katawarm"}, nil},
 		{"--only kataimage, no helper, a failed platform", noKVM, InitOptions{Only: []string{"kataimage"}}, "platform: no /dev/kvm", nil, nil},
 		{"--only kataimage, the helper ok", helperOK, InitOptions{Only: []string{"kataimage"}}, "", nil, []string{"image-build"}},
