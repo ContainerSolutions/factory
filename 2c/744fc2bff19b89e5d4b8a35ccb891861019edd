@@ -1,0 +1,4 @@
+lisa-selfreview:
+Pass 1 of 1 (lenient), verdict approve, no findings.
+Checked: CORE-CI-001 (actions by SHA as ci.yml, top-level permissions contents: write only, persist-credentials: false); CORE-SEC-003 (the tag reaches run: only through env, and is validated as vX.Y.Z[-suffix] before make sees it); CORE-VERIFY-001 (make -k reviewable: only the known macOS TestBaseScriptRuns failure; actionlint v1.7.7 with shellcheck clean); CORE-DOC-001 (README §12 Releasing, AGENTS.md command, ci.yml header).
+Design: CGO_ENABLED=0 for every target, darwin included (GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 builds both commands), so one ubuntu runner builds everything. No caches in the release workflow (setup-go cache: false, setup-node without cache) so a release restores nothing another workflow wrote. factory-mock is not released.
