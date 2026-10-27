@@ -137,6 +137,25 @@ func TestParseURL(t *testing.T) {
 	if _, err := ParseURL("nope://b/p"); err == nil || !strings.Contains(err.Error(), "file://") {
 		t.Fatalf("unknown scheme = %v, want an error naming file://", err)
 	}
+	// A URL may carry a credential: no error repeats it.
+	for _, u := range []string{
+		"s3a://AKIAEXAMPLE:hunter2@bucket/p",     // unknown scheme
+		"s3://AKIAEXAMPLE:hunter2%zz@bucket/p",   // a bad escape in the userinfo
+		"gs://AKIAEXAMPLE:hunter2@bu cket/p",     // a bad host
+		"s3://AKIAEXAMPLE:hunter2@bucket:port/p", // a bad port
+		"s3://AKIAEXAMPLE:hun ter2@bucket/p",     // bad userinfo
+		"file://u:hunter2@localhost" + dir,       // userinfo on file://
+		"file://u:hunter2@host" + dir,            // and on a host file:// refuses
+	} {
+		_, err := ParseURL(u)
+		if err == nil {
+			t.Fatalf("ParseURL(%q) was accepted", u)
+		}
+		if strings.Contains(err.Error(), "hunter2") || strings.Contains(err.Error(), "hun ter2") {
+			t.Fatalf("ParseURL's error repeats the secret: %v", err)
+		}
+	}
+
 	fake := NewFakeBucket(nil)
 	RegisterScheme("memtest", func(*url.URL) (Bucket, error) { return fake, nil })
 	if b, err := ParseURL("memtest://bucket/prefix"); err != nil || b != fake {

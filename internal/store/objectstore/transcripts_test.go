@@ -3,6 +3,8 @@ package objectstore
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"testing"
@@ -234,5 +236,88 @@ func testRePutAfterRecordDelete(t *testing.T) {
 	}
 	if got := blobRuns(r); slices.Index(got, "x") < 0 {
 		t.Fatalf("blobs of %v: x's re-put blob is gone", got)
+	}
+}
+
+// TestTranscriptGetFollowsRePut: A holds x's old record; between A reading it and A reading its
+// blob, B re-puts x (a new blob, the record moved to it, the old blob deleted). A's read finds
+// the old blob gone, syncs once and follows the record to the new blob, with no Sync of the
+// caller's. A read-only A answers from what it has.
+func TestTranscriptGetFollowsRePut(t *testing.T) {
+	for _, readOnly := range []bool{false, true} {
+		t.Run(fmt.Sprintf("readOnly=%v", readOnly), func(t *testing.T) {
+			r := newRig()
+			a, b := r.open(t, "A"), r.open(t, "B")
+			ctx := t.Context()
+			must(t, a.PutTranscript(ctx, "x", []byte("old")))
+			if _, err := b.GetTranscript(ctx, "x"); err != nil {
+				t.Fatal(err)
+			}
+			old := r.b.Names(transcriptPrefix)[0]
+			raced := false
+			r.b.SetFaults(func(req FakeRequest) Fault {
+				if req.Op != FakeGet || req.Name != old || raced {
+					return Pass
+				}
+				raced = true
+				r.b.SetFaults(nil)
+				defer r.b.SetFaults(func(FakeRequest) Fault { return Pass })
+				must(t, b.PutTranscript(ctx, "x", []byte("new")))
+				if readOnly { // then a newer release writes an entry A can't read
+					c := r.open(t, "C", withSchema(store.SchemaVersion+2, store.SchemaVersion+2))
+					must(t, c.Create(ctx, newRun("newer")))
+				}
+				return Pass
+			})
+			got, err := a.GetTranscript(ctx, "x")
+			if !raced {
+				t.Fatal("A never read the old blob")
+			}
+			must(t, err)
+			if string(got) != "new" {
+				t.Fatalf("A reads %q, want B's re-put", got)
+			}
+			if readOnly {
+				if err := a.Ready(); !errors.Is(err, store.ErrReadOnly) {
+					t.Fatalf("A Ready = %v, want read-only", err)
+				}
+			}
+		})
+	}
+}
+
+// TestTranscriptEvictionBlobDeleteFails: an eviction whose record delete commits but whose
+// blob delete fails still counts as evicted (the record is gone): the put goes through, a
+// warning says the blob waits for the orphan scan, and the scan deletes it a day later.
+func TestTranscriptEvictionBlobDeleteFails(t *testing.T) {
+	r := newRig()
+	r.opts.TranscriptMaxBytes, r.opts.TranscriptTotalBytes = 10, 10
+	var logs bytes.Buffer
+	r.opts.Logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	s := r.open(t, "A")
+	ctx := t.Context()
+	must(t, s.PutTranscript(ctx, "x", make([]byte, 10)))
+	r.b.SetFaults(func(req FakeRequest) Fault {
+		if req.Op == FakeDelete && strings.HasPrefix(req.Name, transcriptPrefix) {
+			return Fail
+		}
+		return Pass
+	})
+	must(t, s.PutTranscript(ctx, "y", make([]byte, 10)))
+	r.b.SetFaults(nil)
+	if _, err := s.GetTranscript(ctx, "x"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("x after its eviction = %v, want ErrNotFound", err)
+	}
+	if !strings.Contains(logs.String(), "orphan scan") {
+		t.Fatalf("no warning about the blob left behind: %q", logs.String())
+	}
+	if got := blobRuns(r); !slices.Equal(got, []string{"x", "y"}) {
+		t.Fatalf("blobs = %v, want x's left behind and y", got)
+	}
+	r.clk.Advance(orphanAge)
+	_, err := s.Sweep(ctx)
+	must(t, err)
+	if got := blobRuns(r); !slices.Equal(got, []string{"y"}) {
+		t.Fatalf("blobs after the orphan scan = %v, want y", got)
 	}
 }
