@@ -50,7 +50,7 @@ const (
 const (
 	// DefaultGatewayPort is the gateway's port on the VM's gateway address when GatewayPort is
 	// zero: workspace.gatewayPort's default, which the host's firewall opens.
-	DefaultGatewayPort = 3128
+	DefaultGatewayPort = config.DefaultGatewayPort
 	// DefaultOverrun is how long past the task's wall clock the runner lets the VM run before
 	// it cancels it: the VM's own deadline (--remaining) fires first and writes the outcome.
 	DefaultOverrun = 2 * time.Minute
