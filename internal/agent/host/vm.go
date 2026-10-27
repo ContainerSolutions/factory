@@ -703,7 +703,7 @@ func (e *Env) buildVM(ctx context.Context, src, final string, set []string, prov
 		// stopping a running VM waits up to stopGrace: after an interrupt, say why init waits,
 		// or, with no VM running, that the .building VM goes (a quick tart delete).
 		interrupted := err != nil && !b.renamed && ctx.Err() != nil
-		running := b.proc != nil && !closed(b.proc.Exited())
+		running := b.proc != nil && !chanClosed(b.proc.Exited())
 		switch {
 		case interrupted && !e.KeepFailed && running:
 			fmt.Fprintf(b.out, "interrupted: stopping and deleting %s (up to %s to stop it; Ctrl-C again leaves it, and the next host init deletes it)\n", b.vm, stopGrace)
@@ -801,8 +801,8 @@ func (b *vmBuild) replace(ctx context.Context, final string) error {
 	return nil
 }
 
-// closed reports whether c is closed (a process that exited).
-func closed(c <-chan struct{}) bool {
+// chanClosed reports whether c is closed (a process's Exited: it exited).
+func chanClosed(c <-chan struct{}) bool {
 	select {
 	case <-c:
 		return true

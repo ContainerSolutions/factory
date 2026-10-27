@@ -646,7 +646,7 @@ func TestBaseVMPreviousVersion(t *testing.T) {
 
 // TestBaseVMInterrupted: an interrupt still stops and deletes the .building VM (keeps it,
 // stopped, with --keep-failed), and first says what init waits for, by case: a running VM's
-// stop, or the delete alone before tart run.
+// stop, or the delete alone before tart run or after it exited.
 func TestBaseVMInterrupted(t *testing.T) {
 	const b = "factory-agent-base-0.1.0.building"
 	tests := []struct {
@@ -661,6 +661,8 @@ func TestBaseVMInterrupted(t *testing.T) {
 			"interrupted: stopping " + b + " (up to 30s; --keep-failed keeps it)\n", "stopped"},
 		{"before tart run", "tart set " + b, false, "interrupted: deleting " + b + "\n", ""},
 		{"before tart run, --keep-failed", "tart set " + b, true, "", "stopped"},
+		// after the shutdown tart run has exited: only the quick delete remains.
+		{"after tart run exited", "tart rename " + b, false, "interrupted: deleting " + b + "\n", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
