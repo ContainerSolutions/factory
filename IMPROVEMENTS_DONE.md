@@ -239,8 +239,11 @@ Stacks 3 and 4, at main 6a3a3f6.
   - After a Ctrl-C, `host init`'s final check reported healthy steps as wrong.
   - The interrupted warm build's cleanup ran silently, so a second Ctrl-C left the build
     workspace behind.
-  - **#221** fixes both. It also prints "interrupted: …" lines, makes a second Ctrl-C exit at
-    once, and makes an interrupted `host check` say so.
+  - **#221** (merged) fixes both. It also prints "interrupted: …" lines, makes a second
+    Ctrl-C exit at once, and makes an interrupted `host check` say so.
+  - Checked on the workstation at main cf9a0d4: Ctrl-C during `--only katawarm`'s `warm-load`
+    printed the waiting line and then the cleanup line. The final check showed every other step
+    ok, and the error read `interrupted: katawarm: …`.
 
 ## Dropped at the closing phase (2026-10-27)
 

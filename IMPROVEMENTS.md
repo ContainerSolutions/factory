@@ -61,10 +61,7 @@ T4 and T5 passed (IMPROVEMENTS_DONE.md).
 
 Real-host checks from stacks 3 and 4 (#197–#217), split by machine.
 
-**Linux workstation (kata):** all done (results in IMPROVEMENTS_DONE.md), except one check
-after **#221** (`fx/p9c-7-init-interrupt-check`, reviewed clean, waiting for Gustavo's
-approval) merges: Ctrl-C `host init --driver kata --only kataimage` during the build. Expect
-`interrupted: waiting for kata-helper image-build to stop …`, then the other steps ok.
+**Linux workstation (kata):** all done (results in IMPROVEMENTS_DONE.md).
 
 **Mac (tart):** everything below, on the Mac at `main` (#217 or later). Stop `supervise` first.
 `<state>` is `~/Library/Application Support/factory-agent`. A kept workspace is stopped: start
