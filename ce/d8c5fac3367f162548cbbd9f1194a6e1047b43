@@ -6,3 +6,10 @@ stored hash), CORE-TEST-001/002 (TestRunToken, TestRunTokenLeaseEnd; the other-t
 the same agent's second lease so only the run-token check can refuse it).
 Deferred should-fix: AuthenticateRun lists leases by label on every call (a scan in the file
 store); fine at PoC scale, an index record would make it O(1).
+
+lisa-design:
+The run token's hash lives on the Lease record (spec.runTokenHash) with its hex as a label, so
+the token dies with the lease record and needs no cleanup of its own. "Its own run" is the open
+run of the lease's task (a live lease's task has exactly one), since the lease's run id may not
+exist yet when the lease is granted. auth.AgentAuthenticator gained AuthenticateRun so serve's
+wiring (Agents: sched) needs no change.
