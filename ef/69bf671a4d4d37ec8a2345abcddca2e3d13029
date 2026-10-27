@@ -1,2 +1,6 @@
 lisa-addressed:
 pass 1: CORE-TEST-001 1688c29de79d: TestKataInitHelperRequired gains "--only kataimage, ok, an out-of-date helper" (no error, nothing applied); it fails when helperRequired drops the not-ok condition (mutation-checked).
+
+lisa-selfreview:
+pass 2 (strict): request_changes
+- [should-fix] CORE-DOC-001 design/workstreams/agent/LLD/workspace-host.md init bullet: "--dry-run ... exits 0 (1 when the platform fails)" is now stale: a dry run whose --only needs a missing kata helper exits 1 too. Fix: name that case.
