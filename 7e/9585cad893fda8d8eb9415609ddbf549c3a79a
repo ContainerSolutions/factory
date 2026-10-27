@@ -1,0 +1,2 @@
+lisa-addressed:
+- ccf-review nit: mock TaskSpec (web/src/mocks/catalog.ts) limits gain cpus: 4, memory: '8Gi' so dev:mock shows the new text.
