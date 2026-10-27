@@ -1,0 +1,5 @@
+lisa-addressed:
+X:docs/lld-myhostname-ipv6-claim: the LLD now says the hostname resolves to the guest's own addresses, without the ::1 claim.
+
+lisa-selfreview:
+pass 2 (strict): approve, no findings. The nit from pass 1 is fixed in e01408e.

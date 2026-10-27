@@ -1,0 +1,2 @@
+lisa-design:
+- (coordinator, answering the PR's open question) A failed platform check comes first: Init returns "platform: <detail>" right after the initial Check, then runs helperRequired. The loop's own platform case is gone (now unreachable).
