@@ -7,3 +7,6 @@ lisa-design:
 - The pipeline's credentials step stays: in gateway mode it still sets the clone base, GIT_ALLOW_PROTOCOL and the git runner the clone and skills steps use; only the helper socket is skipped, and PrepareBundle needs the helper.
 - The v1alpha1 testdata/examples copies of design/03 and design/10 follow the docs' label edits, so they stay copies.
 - Catalog: the docs TaskSpecs drop workspace.hosts (ignored since phase 10); the workspace's default egress is open through the gateway, so yarn still reaches the registries.
+
+lisa-addressed:
+Review of #218 (ccf-review): rebased the stack onto main (6a3a3f6, #215); workspace-run.md keeps #215's sudo-grace paragraph above "## Harnesses in the VM", and contracts.md's TaskSpec row keeps #213's limits.memory text with #219's hosts removal. #218 is now marked breaking (title and commit: refactor(agent)!, BREAKING CHANGE footer for agent.yaml's home/configDir).
