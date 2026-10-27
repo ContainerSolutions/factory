@@ -511,7 +511,7 @@ agents poll (§Agents poll briefly):
 | Agents… | Writes / month (Class A, PUT, LIST) | GETs / month (Class B) | GCS (us-central1) | S3 |
 |---|---|---|---|---|
 | poll briefly, every 30 s, on Cloud Run (CPU only during requests) | ~100,000 | ~180,000 | 5,000 + 50,000 free: **~$0.53** | **~$0.57** |
-| long-poll, or the dispatcher runs on a VM (CPU always on) | ~100,000 | ~1,300,000 | **~$1.00** | **~$1.05** |
+| long-poll, or the dispatcher runs on a VM (CPU always on) | ~100,000 | ~1,300,000 | **~$1.00** | **~$1.02** |
 
 These use the list prices: $0.005 per 1,000 writes and $0.0004 per 1,000 reads, on both clouds.
 Storage stays well under 1 GB, inside GCS's 5 GB free tier.
@@ -656,7 +656,8 @@ module path. There are six PRs, each through lisa and ccf-review:
    - github-provider.md.
 6. **Brief polling in `supervise`** (AGT), independent of PRs 1–5:
    - `agent.yaml`'s `poll` block;
-   - the worker's sleep after a 204, and the relaxed wait check;
+   - the worker's sleep after a 204, its poll settings (a zero wait stays zero; the 30 s default
+     only when `poll.wait` is absent), and the relaxed wait check;
    - `deploy/poc/agent.yaml.example`, and the poll type added to the deploykit test's list of
      walked types;
    - supervise.md.
