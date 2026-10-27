@@ -1,0 +1,3 @@
+lisa-selfreview:
+Pass 1 (lenient, final): approve, no findings. The token goes to stdout alone, never stderr
+(the test checks); list follows every page.
