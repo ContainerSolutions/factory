@@ -315,8 +315,11 @@ So the rebuild is **removed**:
   runs). That flag logs that every item starts fresh on a restart. The run kit already passes
   `--state-dir`.
 - **Projections stay.** The factory still writes its labels and marker comments on GitHub, for
-  people to read. They are no longer read back to rebuild items (see "Old markers" below for
-  the one place the GitHub adapter still reads them).
+  people to read. Nothing reads them back into the store. The GitHub adapter's `Project` still
+  reads the App's own markers, to find the one it updates and which labels it owns ("Old
+  markers" below). `Observe` stops parsing them: `Observation.Projections`, `projectionsIn` and
+  the sentence about it in `provider.go` go, since `mergeProjections` in the rebuild is their
+  only reader (the resync's digest leaves them out).
 - **The work-item resync stays.** It observes each open link and emits
   `factory.workitem.resynced` for changes made on GitHub while no dispatcher was watching.
 - **Recovery is replay.** Events that matter are stored (90 days, `--retention`), so an event
@@ -343,14 +346,16 @@ So the rebuild is **removed**:
 
 Today the provider controller stores every delivery the GitHub App receives (a `Delivery`, then
 an update when it is normalised), and the Events normalisation produces:
-- **Event types the adapter doesn't map** (pushes, workflow runs, check runs, and others:
-  `neutralType` returns "") produce no Event. The delivery alone costs 2 writes, plus a third
-  when the retention sweep deletes it.
-- **Mapped types** (issues, PRs, comments, labels, reviews) are stored as an `Event` whether or
-  not a rule could use them. The rule controller then writes its `EventStatus`, and later the
-  sweep deletes all three records. That is about 7 writes over the event's life, whether or not a
-  rule could ever fire. A `WorkItem` is created only when one could (`workItemFor` checks
-  `rules.CouldFire` first).
+- **Event types the adapter doesn't map** (pushes and workflow runs, for example: `neutralType`
+  returns "") produce no Event. The delivery alone costs 2 writes, plus a third when the
+  retention sweep deletes it.
+- **Mapped types** are stored as an `Event` whether or not a rule could use them: issues, PRs,
+  comments, labels and reviews, but also completed check suites and check runs (one
+  `pr.checks.completed` per PR), releases and deployment statuses. The rule controller then
+  writes its `EventStatus`, and later the sweep deletes all three records. That is about 7 writes
+  over the event's life, whether or not a rule could ever fire. A `WorkItem` is created only when
+  a rule actually fires for the event (`workItemFor` checks `rules.CouldFire`, then evaluates
+  against an empty item with permissive rails).
 
 So the provider controller drops, at normalisation, every event that can't matter. An event is
 stored only when one of these holds:
@@ -426,26 +431,27 @@ cloud instance runs the docs and workflows catalog only. The estimate assumes:
 | Source | Writes each | Per day |
 |---|---|---|
 | A run of about 20 minutes: 40 heartbeats of 3–7 writes (task, lease, agent; run progress and 3 budget counters when there is progress and usage), plus the lease (~9), the completion (~15) and 4 for transcripts | ~150–310 | 3 runs: ~780 |
-| A stored webhook: delivery (2), event, its status, the work-item lock (2), the work item, a task or effect per action, and the sweep's deletes later | ~10–13 | 20: ~250 |
+| A stored webhook a rule fires for: delivery (2), event, its status, the work-item lock (2), the work item, a task or effect per action, and the sweep's deletes later | ~10–13 | 20: ~250 |
+| A stored webhook about a linked object that no rule fires for, mostly completed checks on a tracked PR: delivery (2), event, its status, the work-item lock (2), the item's timeline, and the sweep's deletes | ~10 | 20: ~200 |
 | A webhook that can't matter (§Only events that can matter are stored) | 2 | 200: ~400 |
 | An agent's token renewal: at most every 10 minutes, on any call it makes (`TokenRenewEvery`) | 1 | 2 agents connected all day: ~290 |
 | The leader lock's renewal, every minute while an instance runs | 1 | 60 an hour of uptime |
 
-That is about 1,700 writes a day before the leader lock. Syncs add one GET every 2 s while an
+That is about 1,900 writes a day before the leader lock. Syncs add one GET every 2 s while an
 instance runs, so the bill depends on how long an instance stays up. That in turn depends on how
 agents poll (IMPROVEMENTS item 9):
 
 | An instance runs… | Writes / month (Class A, PUT, LIST) | GETs / month (Class B) | GCS (us-central1) | S3 |
 |---|---|---|---|---|
-| ~2 h a day (agents poll briefly) | ~55,000 | ~110,000 | 5,000 + 50,000 free: **~$0.27** | **~$0.32** |
-| all day (agents long-poll) | ~94,000 | ~1,300,000 | **~$0.95** | **~$1.00** |
+| ~2 h a day (agents poll briefly) | ~61,000 | ~110,000 | 5,000 + 50,000 free: **~$0.30** | **~$0.35** |
+| all day (agents long-poll) | ~101,000 | ~1,300,000 | **~$1.00** | **~$1.05** |
 
 These use the list prices: $0.005 per 1,000 writes and $0.0004 per 1,000 reads, on both clouds.
 Storage stays well under 1 GB, inside GCS's 5 GB free tier.
 
-So it costs **about $1 a month at most**, still not $0. GCS's always-free 5,000 writes a month
-last 2 to 3 days. If the instance runs all day, the leader lock is the largest single source of
-writes (about half). Then come heartbeats, which rewrite the lease's expiry into three objects
+So it costs **about $1 a month**, still not $0. GCS's always-free 5,000 writes a month
+last about 1.5 to 2.5 days. If the instance runs all day, the leader lock is the largest single
+source of writes (over 40%). Then come heartbeats, which rewrite the lease's expiry into three objects
 (task, lease, agent) on every beat. Levers, if the bill ever matters, all outside the store:
 - a longer leader-lock TTL (10 minutes, renewed every 3) costs a slower takeover after a leader
   dies;
@@ -553,7 +559,11 @@ module path. There are four PRs, each through lisa and ccf-review:
    - the recovery on becoming leader;
    - the work-item rebuild removed: `wic.Rebuild`, its call, `/readyz`'s wait, and
      `provider.Conn.List` (interface, GitHub adapter, fakes);
-   - a durable store required, unless `--dev-fake-providers` or `--state-memory`;
+   - a durable store required, unless `--dev-fake-providers` or `--state-memory`. The serve
+     tests that rely on the memory default get `--state-memory`: `TestServeGitHubEndToEnd`,
+     `TestServeGitHubProviderNeedsSecrets` (its expected error must still be the one it
+     reports, not the refusal) and the "defaults" config case in serve_test.go;
+   - `Observation.Projections` and `projectionsIn` removed with the rebuild;
    - the scheduler's `sched` lock around lease commits, `errSchedBusy` and its busy-until;
    - the audit of the leader-only loops' store writes and provider calls;
    - `factory state --state-url` (read-only, as `--state-dir` is);
@@ -570,7 +580,7 @@ Deploying to Cloud Run or Lambda, the tick endpoint and the bucket policy are IM
 ## Decisions (Gustavo, 2026-10-27)
 
 1. **Cost:** a small bill is fine. The cloud instance runs the docs and workflows catalog only,
-   with at most 10–20 webhooks a day that matter (§What it costs: about $1 a month at most).
+   with at most 10–20 webhooks a day that matter (§What it costs: about $1 a month).
 2. **A fresh start:** the cloud instance starts with an empty bucket and a new catalog in its own
    repo (IMPROVEMENTS item 8). Nothing is pushed from the workstation's state dir, so no
    `factory state push`.
