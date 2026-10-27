@@ -691,7 +691,7 @@ func TestOperationsCovered(t *testing.T) {
 		readerAgentOrRun: {"agentToken", "cliToken", "runToken", "uiSession"},
 		admin:            {"cliToken", "uiSession"},
 		sessionOnly:      {"uiSession"},
-		registration:     {"agentRefreshToken", "enrollmentToken", "joinToken", "ownerToken"},
+		registration:     {"agentRefreshToken", "enrollmentToken"},
 		agentOrAdmin:     {"agentToken", "cliToken", "uiSession"},
 		public:           nil,
 	}

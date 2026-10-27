@@ -23,8 +23,6 @@ const (
 	AgentTokenScopes        agentTokenContextKey        = "agentToken.Scopes"
 	CliTokenScopes          cliTokenContextKey          = "cliToken.Scopes"
 	EnrollmentTokenScopes   enrollmentTokenContextKey   = "enrollmentToken.Scopes"
-	JoinTokenScopes         joinTokenContextKey         = "joinToken.Scopes"
-	OwnerTokenScopes        ownerTokenContextKey        = "ownerToken.Scopes"
 	RunTokenScopes          runTokenContextKey          = "runToken.Scopes"
 	UiSessionScopes         uiSessionContextKey         = "uiSession.Scopes"
 )
@@ -338,7 +336,7 @@ type ActionIntentType string
 // Actor Actor is who caused an event.
 type Actor = v1alpha1.Actor
 
-// Admission Admission is how registered agents join.
+// Admission Admission marks a registered pool that takes enrollments (P1 §6): an admin mints them with createEnrollment, naming each agent's owner.
 type Admission = v1alpha1.Admission
 
 // Agent Agent is a registered worker.
@@ -564,7 +562,7 @@ type Decision = v1alpha1.Decision
 // Destination Destination is one recipient of a notification.
 type Destination = v1alpha1.Destination
 
-// DeviceConfig The OAuth client the agent's device flow uses.
+// DeviceConfig The dispatcher's OAuth client, for a device-flow login.
 type DeviceConfig struct {
 	ClientId string   `json:"clientId"`
 	Scopes   []string `json:"scopes"`
@@ -1394,12 +1392,6 @@ type cliTokenContextKey string
 // enrollmentTokenContextKey is the context key for enrollmentToken security scheme
 type enrollmentTokenContextKey string
 
-// joinTokenContextKey is the context key for joinToken security scheme
-type joinTokenContextKey string
-
-// ownerTokenContextKey is the context key for ownerToken security scheme
-type ownerTokenContextKey string
-
 // providerSignatureContextKey is the context key for providerSignature security scheme
 type providerSignatureContextKey string
 
@@ -1923,7 +1915,7 @@ type ServerInterface interface {
 	// Finish the GitHub OAuth login
 	// (GET /auth/callback)
 	AuthCallback(ctx echo.Context, params AuthCallbackParams) error
-	// Device-flow configuration for agent owners
+	// The OAuth client's device-flow configuration
 	// (GET /auth/device-config)
 	GetDeviceConfig(ctx echo.Context) error
 	// Start the GitHub OAuth login
@@ -2077,10 +2069,6 @@ func (w *ServerInterfaceWrapper) ListAgents(ctx echo.Context) error {
 // RegisterAgent converts echo context to params.
 func (w *ServerInterfaceWrapper) RegisterAgent(ctx echo.Context) error {
 	var err error
-
-	ctx.Set(string(JoinTokenScopes), []string{})
-
-	ctx.Set(string(OwnerTokenScopes), []string{})
 
 	ctx.Set(string(EnrollmentTokenScopes), []string{})
 
@@ -6702,7 +6690,7 @@ type StrictServerInterface interface {
 	// Finish the GitHub OAuth login
 	// (GET /auth/callback)
 	AuthCallback(ctx context.Context, request AuthCallbackRequestObject) (AuthCallbackResponseObject, error)
-	// Device-flow configuration for agent owners
+	// The OAuth client's device-flow configuration
 	// (GET /auth/device-config)
 	GetDeviceConfig(ctx context.Context, request GetDeviceConfigRequestObject) (GetDeviceConfigResponseObject, error)
 	// Start the GitHub OAuth login

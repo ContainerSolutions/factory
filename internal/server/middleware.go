@@ -94,8 +94,8 @@ var operations = map[string]access{
 	"getDeviceConfig":      public,
 }
 
-// Registration headers (the enrollmentToken and agentRefreshToken security schemes; the
-// joinToken and ownerToken ones are refused).
+// Registration headers: the enrollmentToken and agentRefreshToken security schemes, and the
+// join and owner token headers of the removed device flow, which are refused with a hint.
 const (
 	HeaderJoinToken         = "X-Factory-Join-Token"
 	HeaderOwnerToken        = "X-Factory-Owner-Token"
