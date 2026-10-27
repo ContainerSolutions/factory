@@ -1,6 +1,8 @@
 # ADR-0001: The factory owns work state (in-memory first); providers hold a rebuildable projection
 
-- **Status:** proposed
+- **Status:** proposed. The start-up rebuild from projections, and the `List` it needs, are
+  superseded by [ADR-0009](0009-dispatcher-state-is-a-log-in-object-storage.md): with durable
+  state, the store is the authority and projections are for people.
 - **Date:** 2026-10-15
 
 ## Context
