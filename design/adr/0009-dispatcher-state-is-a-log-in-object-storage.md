@@ -48,14 +48,18 @@ transactions, no change feed and no order across objects.
     advance only during requests (IMPROVEMENTS item 9 closes that);
   - a webhook whose live delivery fails is not recovered automatically (a known limit).
 - One contract change: `/readyz` no longer waits for a rebuild (the store is loaded and synced).
-- Every log entry carries a schema version, so two releases can share the log during a deploy:
-  an instance that meets a newer one stops writing.
+- Every log entry carries a schema version, and stored-type changes ship expand-then-write over
+  two releases, so two releases can share the log during a deploy or a rollback. An instance
+  that meets a version it can't read stops writing.
 - Per-process state that a client's next request may miss moves to the store or into signed
   tokens: the OAuth state, `/stream`'s resume and the resync's baselines.
 - Writes are serialised through one log, one PUT each (tens per second at most): enough for the
   factory, not for a high-volume service.
 - Each instance holds the whole state in memory, as today. Reads may lag other instances by the
-  sync interval; writes never act on stale state.
+  sync interval. A CAS write never acts on stale state, and a lookup whose empty answer leads to
+  a create or a drop syncs first.
+- Lost state (a reset, a lost bucket or dir) means open items start fresh, run counters and the
+  run cap included. Recovery is redelivering webhooks, reopening issues and re-applying labels.
 - Requests cost money: about $1 a month at our load (docs and workflows), above GCS's
   always-free operations.
 - Old log entries may be deleted only under a time rule (covered by a snapshot and older than

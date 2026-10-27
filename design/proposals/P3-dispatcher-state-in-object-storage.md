@@ -135,8 +135,10 @@ need more:
   item for an object another instance just linked. For example, an agent's effect opens a PR
   and `linkCreated` records the link on the instance that served it, while GitHub's
   `pull_request` webhook follows within a second. So a lookup that finds nothing syncs once and
-  asks again before it acts, like a `Get` that finds nothing. When the instance is current, that
-  costs one GET of a missing log entry.
+  asks again before it acts, like a `Get` that finds nothing. The `Store` interface has no sync,
+  so the object store implements an optional `store.Syncer` (`Sync(ctx)`), and these callers use
+  `store.SyncIfSupported`. Memory and the file store have nothing to sync. When the instance is
+  current, an empty lookup costs one GET of a missing log entry.
 
 ### Watches
 
@@ -242,12 +244,39 @@ then either. Two things would:
   When it CAS-updates that object, the new fields are silently dropped.
 
 So every log entry and snapshot carries the writer's **schema version**: one number for all
-stored types, bumped by any change to a stored kind or its fields. An instance that meets an
-entry with a newer schema version stops writing and reports not-ready, so the platform drains
-it. It still serves reads from what it has, and the new revision takes over. An older version is
-read as today. Stored-type changes stay additive (new kinds and new optional fields), so a new
-revision reads old entries. A test bumps the version on one store and checks the other store
-stops writing with a clear error rather than corrupting or dropping data.
+stored types, bumped by any change to a stored kind or its fields. A golden test of the stored
+types' shape (every v1alpha1 runtime kind and `internalKinds()`) is pinned to the version: a
+change to a stored type fails until both are updated.
+
+**Expand, then write.** Each release knows two numbers: `SchemaVersion`, which it writes, and
+`ReadableSchema`, the newest it can read without losing data. A change to stored types ships in
+two releases:
+1. **Release N adds the new kind or field** to the Go types (additive: new kinds and optional
+   fields). It bumps `ReadableSchema` to N+1, but still writes N.
+2. **Release N+1 bumps `SchemaVersion`** to N+1.
+
+So during a deploy, and after a rollback from N+1 to N, every instance can read every entry and
+keep the fields it rewrites.
+
+**An entry newer than `ReadableSchema`** can only appear when a deploy skipped the expand step.
+The instance that meets it stops writing:
+- its writes answer `503` with a problem saying why;
+- its reads go on from what it has;
+- its `/readyz` turns 503.
+
+An instance whose newest snapshot is newer than its `ReadableSchema` refuses to start, with an
+error naming both versions. Draining comes from the deploy moving traffic to the new revision.
+Cloud Run and Lambda have no readiness probe that drains, and `/readyz` listens on loopback
+only.
+
+**`/readyz`** on any instance, leader or not, answers 200 once the catalog and the store are
+loaded and the first sync has succeeded. It answers 503 when the store has stopped writing, or
+when its last successful sync is older than `MaxLag`.
+
+The tests:
+- a newer version from another store: writes stop, with nothing lost;
+- a rollback within `ReadableSchema`: the old release keeps writing and keeps the new fields;
+- a snapshot past `ReadableSchema`: start refused.
 
 ### Snapshots, cold start and log retention
 
@@ -295,9 +324,21 @@ Event and both post the same notice. So:
 - **Per-process state outside the store** must not break when a client's next request lands on
   another instance:
   - **UI logins.** Pending OAuth logins live in a process map (`internal/auth`), so a callback
-    on another instance fails with `ErrStateMismatch`. The OAuth `state` becomes
-    self-contained: signed with the session key, carrying its expiry and return URL. No map,
-    no store write.
+    on another instance fails with `ErrStateMismatch`. Instead:
+    - **The OAuth `state` becomes self-contained:** signed with the session key under its own
+      label (so it can't pass for a session cookie), and carrying a random id, its expiry and
+      the return URL.
+    - **It stays single-use, as today** (`FinishLogin` deletes the pending state after one use).
+      Finishing a login creates a record of an internal kind, `UsedLoginState`, named by the
+      hash of the state's id, with create-if-absent. A second use is `ErrAlreadyExists` and
+      fails. The sweeper deletes the record after the state's TTL. That is one write per login,
+      and no map, so `MaxPendingLogins` goes. `authneg_test.go`'s "a state used twice" keeps
+      passing, and `TestBeginLoginBounds` changes with the bound's removal.
+    - **Every instance needs the same session key.** Without `FACTORY_SESSION_KEY`, each instance
+      makes up a random one (auth.go), so both the state and the session cookies would fail on
+      another instance. So `serve --state-url` refuses to start without it.
+    - **Rotation:** `FACTORY_SESSION_KEY_PREVIOUS` is also accepted for verifying. Rotating then
+      ends no session or login in flight. Drop the previous key after the session lifetime.
   - **`/stream` resume.** A `Last-Event-ID` from a fresher instance is "ahead of the store" on
     a lagging one: `ErrInvalid`, which the stream doesn't fall back from. The stream syncs and
     retries once. If the version is still ahead, it starts from now, as it does for an
@@ -306,17 +347,23 @@ Event and both post the same notice. So:
     The first resync after a restart or a leader change records a baseline and emits nothing,
     so on a scale-to-zero instance `factory.workitem.resynced` would rarely fire. The digests
     move to the store, in a record per work item of an internal kind, `LinkObservations`. It
-    is written only when a digest changes, so a new leader compares with the last one seen.
+    is written only when a digest changes, so a new leader compares with the last one seen. It
+    is deleted where `forget` clears the digests today: when the item is retired or deleted, or
+    a link is removed (the link's entry then goes). The sweeper deletes records whose work item
+    no longer exists. It holds digests and link refs only, no provider text.
   - **Caches that only save work** stay per process, for example the work-item controller's
-    last-projection digests and the observation cache: a cold one costs a provider call, never
-    a wrong result. So does the scheduler's preference state (§Locks and leases).
+    last-projection digests, its `lastResync` times and the observation cache: a cold one
+    costs a provider call, never a wrong result. A new leader's first resync spreads its
+    checks over the resync interval, with jitter, rather than observing every open item at
+    once. So does the scheduler's preference state (§Locks and leases).
 - **The leader only** runs every loop that writes from a watch or a timer: the controllers
   (provider, rule, debounce, work-item, run), the scheduler's lease controller and its
   `Refresh`, the sweeper (lock records included), compaction, the transcript orphan scan, and
   the App installation check.
 - **The provider's delivery recovery** (`pc.Recover`) runs as today on every instance, at its
-  start and before its listeners open, with `since` its process start. It covers what GitHub
-  sent while the instance was loading. Recovering is the same intake as a webhook (a create of
+  start and before its listeners open, with `since` 10 s (GitHub's timeout) before its process
+  start. It covers what GitHub sent while the instance was loading, including a delivery that
+  timed out while it started. Recovering is the same intake as a webhook (a create of
   each Delivery, deduplicated by id), so any instance may do it. There is no other start-up work:
   the work-item rebuild from markers is removed (§No rebuild from markers).
 
@@ -386,12 +433,14 @@ So the rebuild is **removed**:
 - **What is lost: nothing comes back from GitHub (Decision 7).** When the state itself is lost,
   open items start fresh on their next event. Their rule state is gone, and their run counters
   restart, the per-item run cap included. That covers a deleted bucket or dir, a
-  `factory state reset`, and a corrupt state dir that is reset. People recover what they want by
-  replaying stored events, reopening issues or re-applying labels.
+  `factory state reset`, and a corrupt state dir that is reset. No stored events survive it to
+  replay. People recover what they want by redelivering webhooks from the App's delivery log
+  (GitHub keeps about 3 days), reopening issues or re-applying labels.
   - `factory state reset` says so. Today its prompt and output, its golden file and README §6
     promise that "work items come back from the GitHub markers"
     (`cmd/factory/state.go`, `testdata/state/reset.golden`). They change to say that open items
-    restart with no state and no run counters, and how to recover.
+    restart with no state and no run counters, and how to recover: redelivery from the App's
+    delivery log, reopening issues, re-applying labels.
   - For an accidental delete, bucket soft delete (GCS's default of 7 days) or S3 versioning
     restores the state itself.
 - **Old markers.** The cloud instance starts fresh (Decision 2), so items on repos that carry
@@ -451,7 +500,7 @@ log.
 
 **A delivery left with no stored event is deleted at once,** whether its events were dropped or
 it had none (an unmapped type). A delivery the adapter rejected (`DeliveryFailed`, with its
-reason) keeps the delivery retention, for debugging. It isn't kept for the delivery retention. The create keeps it
+reason) keeps the delivery retention, for debugging. The create keeps it
 durable until the webhook is acknowledged, and the delete is a log entry like any store write.
 So such a delivery costs 2 writes, where today it costs 3 to 7. The bucket's own deletes, of log
 entries and blobs, are free; the store's deletes are not.
@@ -615,7 +664,11 @@ which mostly costs the load balancer.
 - **Nothing secret in the bucket.** The same audit as the file store applies (store.md §File
   store, "What never reaches the disk"). Its two tests (every kind audited, and a scan for
   token-shaped strings) also run over the log entries and snapshots of the conformance run. The
-  new internal kinds hold a lock holder's instance id (`StoreLock`) and a size (`TranscriptBlob`).
+  new internal kinds hold:
+  - a lock holder's instance id (`StoreLock`);
+  - a size and a time (`TranscriptBlob`);
+  - digests and link refs (`LinkObservations`);
+  - the hash of a used OAuth state's id (`UsedLoginState`).
 - **The bucket is private,** with public access prevented (GCS) or blocked (S3). Only the
   dispatcher's identity can read or write it. Storage is encrypted at rest by default. `serve`
   doesn't check the bucket's policy; the deployment docs (IMPROVEMENTS item 9) say how to set it.
@@ -672,7 +725,9 @@ which mostly costs the load balancer.
   - an event about a linked object is stored even when no rule's `on` matches it;
   - an event `CouldFire` accepts is stored even when its `where` would be false, and one outside
     a rule's `providers`, branches or channels is dropped;
-  - a dropped event is logged at debug with its reason, and at Info when the factory caused it;
+  - a dropped event is logged at Info with its reason, and counted in
+    `factory_events_dropped_total`;
+  - a `DeliveryFailed` delivery keeps the delivery retention;
   - a redelivery after a rule was added is stored and evaluated;
   - `factory rules test` fixtures are unchanged.
 - **Brief polling** (`internal/agent/worker`):
@@ -722,16 +777,30 @@ module path. There are seven PRs, each through lisa and ccf-review:
    - the Info log and `factory_events_dropped_total`;
    - its tests;
    - controllers.md §provider, README §6 and §7, and `factory state events --help`.
-4. **Contract: `/readyz`** (FND; AGENTS.md: a contract change goes in its own PR, merged first).
-   `api/openapi.yaml` says "The catalog is loaded and the startup rebuild is done". It becomes
-   "the catalog is loaded and the store is loaded and synced", on every instance, leader or
-   not. `factory_ready` follows. Web's regenerated client (`npm run gen:api`) and
-   api-server.md come with it.
+4. **Contract: readiness and a store that stopped writing** (FND; AGENTS.md: a contract change
+   goes in its own PR, merged first):
+   - `/readyz`'s description today says "The catalog is loaded and the startup rebuild is done".
+     It becomes §Two releases on one log's definition: 200 once the catalog and the store are
+     loaded and the first sync has succeeded; 503 when the store has stopped writing or its
+     last sync is older than `MaxLag`. That holds on every instance, leader or not.
+   - Every operation that writes gets the existing `ServiceUnavailable` response where it lacks
+     one, with a new problem code for a store that stopped writing.
+   - Web's regenerated client (`npm run gen:api`), api-server.md and contracts.md.
 5. **`serve --state-url`** (RT):
    - the leader lock, and which loops run where;
    - the recovery at each instance's start, as today;
-   - per-process state: the signed OAuth state, `/stream`'s resume, the resync's stored
-     baselines (`LinkObservations`);
+   - per-process state:
+     - the signed OAuth state, single-use through `UsedLoginState`;
+     - `FACTORY_SESSION_KEY` required with `--state-url`, and `FACTORY_SESSION_KEY_PREVIOUS`
+       for rotation;
+     - `/stream`'s resume;
+     - the resync's stored baselines (`LinkObservations`, with their deletion), and the new
+       leader's jittered first resync;
+   - `/readyz`, `factory_ready` and the 503 on writes once the store stops writing (PR 4's
+     contract);
+   - the new internal kinds (`LinkObservations`, `UsedLoginState`) in `internalKinds()`,
+     `fixtures_test.go`'s audit and store.md, with `ReadableSchema` and then `SchemaVersion`
+     bumped as §Two releases on one log says;
    - the work-item rebuild removed: `wic.Rebuild`, its call, and `/readyz`'s wait;
    - a durable store required, unless `--dev-fake-providers` or `--state-memory`;
    - the scheduler's `sched` lock around lease commits, `errSchedBusy` and its busy-until;
@@ -742,6 +811,8 @@ module path. There are seven PRs, each through lisa and ccf-review:
      - `TestRestartRebuildsFromProjections` goes;
      - `TestServeStateDirRestart` loses its "work items rebuilt" assertion;
      - `TestServeMemoryStore` asserts the new message;
+     - `TestBeginLoginBounds` changes with `MaxPendingLogins`' removal, and `authneg_test.go`'s
+       "a state used twice" keeps passing through `UsedLoginState`;
      - every `TestParseServeConfig` case that checks a config with no state flag gets
        `--state-memory`, not only "defaults". So do `TestServeGitHubEndToEnd` and
        `TestServeGitHubProviderNeedsSecrets`, whose expected error must still be the one it
@@ -796,6 +867,7 @@ Deploying to Cloud Run or Lambda, the tick endpoint and the bucket policy are IM
    leader's work then advances only during requests. How to close that (work inside requests,
    always-allocated CPU, or a VM) is IMPROVEMENTS item 9's choice.
 7. **Nothing comes back after lost state:** after a reset, a lost bucket or dir, or a corrupt dir
-   that is reset, open items start fresh, run counters and the run cap included. People replay
-   events, reopen issues or re-apply labels to recover what they want (§No rebuild from
-   markers). The reset's messages say so.
+   that is reset, open items start fresh, run counters and the run cap included. No events
+   survive to replay. People redeliver webhooks from the App's delivery log, reopen issues or
+   re-apply labels to recover what they want (§No rebuild from markers). The reset's messages
+   say so.
