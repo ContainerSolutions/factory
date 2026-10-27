@@ -1,18 +1,13 @@
 package filestore
 
 import (
-	"bufio"
-	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
-	"time"
 
-	"github.com/ContainerSolutions/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store/journal"
 	"github.com/ContainerSolutions/factory/internal/store/memory"
 )
 
@@ -23,19 +18,11 @@ const (
 	stepJournalTruncated = "journal-truncated" // journal rewritten with the lines above the snapshot
 )
 
-// snapshotObject is one object in snapshot.json. created, at and v are kept beside obj
-// because kinds without metadata (Event) don't carry them.
-type snapshotObject struct {
-	Kind    string          `json:"kind"`
-	Name    string          `json:"name"`
-	V       string          `json:"v"`
-	Created time.Time       `json:"created"`
-	At      time.Time       `json:"at"`
-	Obj     json.RawMessage `json:"obj"`
-}
+// snapshotObject is one object in snapshot.json.
+type snapshotObject = journal.SnapshotObject
 
 // readSnapshot loads snapshot.json into state and returns its version (0 when there is none).
-func (s *Store) readSnapshot(state map[store.Key]*entry) (uint64, error) {
+func (s *Store) readSnapshot(state journal.State) (uint64, error) {
 	path := filepath.Join(s.dir, snapshotFile)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -48,52 +35,17 @@ func (s *Store) readSnapshot(state map[store.Key]*entry) (uint64, error) {
 }
 
 // parseSnapshot loads the snapshot's bytes into state and returns its version.
-func (s *Store) parseSnapshot(data []byte, state map[store.Key]*entry) (uint64, error) {
+func (s *Store) parseSnapshot(data []byte, state journal.State) (uint64, error) {
 	path := filepath.Join(s.dir, snapshotFile)
 	s.haveSnapshot = true
-	var hdr struct {
-		Format int `json:"format"`
-	}
-	if err := json.Unmarshal(data, &hdr); err != nil {
-		return 0, fmt.Errorf("filestore: %w: %s: %w", ErrCorrupt, snapshotFile, err)
-	}
-	if hdr.Format != Format {
+	version, _, err := journal.ParseSnapshot(data, s.types, state)
+	var fe *journal.FormatError
+	switch {
+	case errors.As(err, &fe):
 		return 0, fmt.Errorf("filestore: %w: %s has format %d and this dispatcher reads format %d: move the state dir aside (mv %s %s.old) to start with an empty one",
-			ErrFormat, path, hdr.Format, Format, s.dir, s.dir)
-	}
-	var snap struct {
-		StoreVersion string           `json:"storeVersion"`
-		Objects      []snapshotObject `json:"objects"`
-	}
-	if err := json.Unmarshal(data, &snap); err != nil {
+			ErrFormat, path, fe.Got, Format, s.dir, s.dir)
+	case err != nil:
 		return 0, fmt.Errorf("filestore: %w: %s: %w", ErrCorrupt, snapshotFile, err)
-	}
-	version, err := store.ParseVersion("load", store.Key{}, snap.StoreVersion)
-	if err != nil {
-		return 0, fmt.Errorf("filestore: %w: %s: storeVersion %q", ErrCorrupt, snapshotFile, snap.StoreVersion)
-	}
-	for i, o := range snap.Objects {
-		k := store.Key{Kind: o.Kind, Name: o.Name}
-		bad := func(format string, args ...any) error {
-			return fmt.Errorf("filestore: %w: %s object %d (%s): %s", ErrCorrupt, snapshotFile, i, k, fmt.Sprintf(format, args...))
-		}
-		if k.Kind == "" || k.Name == "" {
-			return 0, bad("missing kind or name")
-		}
-		if s.types[k.Kind] == nil {
-			return 0, bad("%v", unknownKind(k.Kind))
-		}
-		v, err := store.ParseVersion("load", k, o.V)
-		if err != nil || v == 0 || v > version {
-			return 0, bad("version %q outside 1..%d", o.V, version)
-		}
-		if len(o.Obj) == 0 {
-			return 0, bad("missing obj")
-		}
-		if state[k] != nil {
-			return 0, bad("duplicate")
-		}
-		state[k] = &entry{v: v, created: o.Created, updated: o.At, data: o.Obj}
 	}
 	return version, nil
 }
@@ -130,9 +82,6 @@ func (s *Store) maybeCompact() {
 //     the dir fsync'd: the new snapshot and the short journal.
 func (s *Store) compactLocked() error {
 	recs, v := s.mem.Snapshot()
-	slices.SortFunc(recs, func(a, b memory.Record) int {
-		return cmp.Or(cmp.Compare(a.Key.Kind, b.Key.Kind), cmp.Compare(a.Key.Name, b.Key.Name))
-	})
 	path := filepath.Join(s.dir, snapshotFile)
 	tmp := path + tmpSuffix
 	if err := writeSnapshot(tmp, recs, v); err != nil {
@@ -175,25 +124,8 @@ func writeSnapshot(path string, recs []memory.Record, v uint64) error {
 		return fmt.Errorf("compaction: create snapshot: %w", err)
 	}
 	defer f.Close() //nolint:errcheck // closed explicitly below on the success path
-	w := bufio.NewWriterSize(f, 1<<20)
-	fmt.Fprintf(w, `{"format":%d,"storeVersion":"%d","objects":[`, Format, v)
-	for i, r := range recs {
-		b, err := json.Marshal(snapshotObject{
-			Kind: r.Key.Kind, Name: r.Key.Name, V: store.FormatVersion(r.Version),
-			Created: r.Created, At: r.Updated, Obj: r.Data,
-		})
-		if err != nil {
-			return fmt.Errorf("compaction: encode %s: %w", r.Key, err)
-		}
-		if i > 0 {
-			_ = w.WriteByte(',')
-		}
-		_ = w.WriteByte('\n')
-		_, _ = w.Write(b)
-	}
-	_, _ = w.WriteString("\n]}\n")
-	if err := w.Flush(); err != nil {
-		return fmt.Errorf("compaction: write snapshot: %w", err)
+	if err := journal.WriteSnapshot(f, recs, v, 0); err != nil {
+		return fmt.Errorf("compaction: %w", err)
 	}
 	if err := f.Sync(); err != nil {
 		return fmt.Errorf("compaction: fsync snapshot: %w", err)
