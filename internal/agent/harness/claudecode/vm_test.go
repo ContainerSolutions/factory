@@ -24,7 +24,6 @@ import (
 func vmWorkspace(t *testing.T, writable bool) harness.Workspace {
 	t.Helper()
 	ws := workspace(t, writable)
-	ws.Hosts = nil
 	ws.Env = []string{"FACTORY_API=http://dispatcher.factory.internal", "FACTORY_RESULT=" + ws.Result, "FACTORY_RUNTIME=workspace",
 		"GH_TOKEN=" + harness.Placeholder, "HOME=" + ws.Home, "HTTPS_PROXY=http://192.168.64.1:3128", "NO_PROXY=localhost,127.0.0.1",
 		"PATH=" + ws.Bin + ":/usr/bin:/bin", "SSL_CERT_FILE=/var/lib/factory-agent/run/ca-bundle.pem", "TMPDIR=" + ws.Tmp}

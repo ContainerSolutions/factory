@@ -37,8 +37,8 @@ flowchart LR
 
 **Agent side**
 
-- `factory-agent worker`: registration, lease long-poll, heartbeat, throttling.
-- `codex` and `claude-code` adapters with `Probe`, plus contract tests (a fake harness plus one real smoke run each).
+- `factory-agent worker`: registration, lease long-poll, heartbeat, throttling (P1 phase 10 replaced it with `supervise`, which runs each task in a VM workspace).
+- `codex` and `claude-code` adapters with `Probe`, plus contract tests (a fake harness plus one real smoke run each; phase 10 moved both into the VM workspace and dropped `Probe` and the smoke targets).
 - Effector v0: the `lisa` CLI's GitHub operations behind the Effector API, idempotency keys, marker comments.
 
 **GitHub setup**

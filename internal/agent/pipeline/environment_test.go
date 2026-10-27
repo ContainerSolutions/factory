@@ -72,7 +72,7 @@ func TestRunEnvironmentOnTheHost(t *testing.T) {
 			f.adapter.Script = fake.Script{Turn: fake.Turn{Result: []byte(validResult)}}
 			task := f.task()
 			set(&task)
-			out, err := f.pipeline().Run(context.Background(), f.job(task, time.Now()), &sink{})
+			out, err := f.pipeline().Run(context.Background(), f.vmJob(task, time.Now()), &sink{})
 			if err != nil || out.Status != runner.StatusDone {
 				t.Fatalf("outcome %+v %v", out, err)
 			}
@@ -210,7 +210,7 @@ func TestRunEnvironmentWallClockLimit(t *testing.T) {
 	task.Spec.Environment = &v1alpha1.Environment{Up: "sleep 3600\n"}
 	done := make(chan runner.Outcome, 1)
 	go func() {
-		out, err := f.pipeline().Run(context.Background(), f.job(task, clk.Now()), &sink{})
+		out, err := f.pipeline().Run(context.Background(), f.vmJob(task, clk.Now()), &sink{})
 		if err != nil {
 			t.Error(err)
 		}

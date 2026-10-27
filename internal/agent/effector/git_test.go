@@ -1,14 +1,8 @@
 package effector_test
 
 import (
-	"bufio"
 	"context"
 	"errors"
-	"io"
-	"net/http"
-	"net/http/cgi"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,11 +12,9 @@ import (
 
 	"github.com/compliance-framework/factory/internal/agent/effector"
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
-	"github.com/compliance-framework/factory/internal/agent/gitsafe/gitsafetest"
+	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 )
-
-const gitToken = "ghs_scopedTaskTokenNeverInArgv0123"
 
 // testGit runs git with a clean config and returns its trimmed output.
 func testGit(t *testing.T, dir string, args ...string) string {
@@ -40,8 +32,8 @@ func testGit(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// workspace is a run's checkout of the private repo acme/app, served over smart HTTP (git
-// http-backend) that needs the task token, reached only through the credential helper.
+// workspace is a run's checkout of acme/app, cloned from an unauthenticated local remote (in
+// the VM the gateway injects git's credential, so the run's git holds none).
 type workspace struct {
 	t      *testing.T
 	bare   string
@@ -49,61 +41,32 @@ type workspace struct {
 	env    []string
 	argv   string // the git wrapper's log: one line of arguments, then GH_TOKEN's presence
 	gitBin string // the git wrapper
-	server *httptest.Server
 	run    *run
 	d      *dispatcher
 }
 
 func newWorkspace(t *testing.T, mut func(*pipeline.EffectorConfig)) *workspace {
 	t.Helper()
-	backend := filepath.Join(testGit(t, ".", "--exec-path"), "git-http-backend")
-	if _, err := os.Stat(backend); err != nil {
-		t.Skipf("git http-backend not available: %v", err)
-	}
-	root := t.TempDir()
 	// gc.auto=0 here, in testGit and in the workspace's global config: a push or a rebase
 	// otherwise starts a detached git gc --auto, still writing in a repo when t.TempDir's
 	// cleanup removes it ("directory not empty").
-	h := &cgi.Handler{Path: backend, Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1", "GIT_CONFIG_NOSYSTEM=1", "HOME=" + root,
-		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=gc.auto", "GIT_CONFIG_VALUE_0=0"},
-		InheritEnv: []string{"PATH"}, Stderr: io.Discard}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if u, p, ok := r.BasicAuth(); !ok || u != "x-access-token" || p != gitToken {
-			w.Header().Set("WWW-Authenticate", `Basic realm="git"`)
-			http.Error(w, "auth required", http.StatusUnauthorized)
-			return
-		}
-		h.ServeHTTP(w, r)
-	}))
-	t.Cleanup(srv.Close)
-
-	// The bare repo: main with one commit.
 	seed := t.TempDir()
 	testGit(t, seed, "init", "--quiet", "-b", "main")
 	writeFile(t, filepath.Join(seed, "README.md"), "# app\n")
 	testGit(t, seed, "add", "-A")
 	testGit(t, seed, "commit", "--quiet", "--no-gpg-sign", "-m", "initial")
-	bare := filepath.Join(root, "acme", "app.git")
+	bare := filepath.Join(t.TempDir(), "acme", "app.git")
 	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	testGit(t, seed, "clone", "--quiet", "--bare", seed, bare)
-	testGit(t, bare, "config", "http.receivepack", "true")
+	testGit(t, bare, "config", "gc.auto", "0")
 
-	// The credential helper, answering for acme/app only, from memory.
-	u, _ := url.Parse(srv.URL)
-	creds, err := gitcred.Listen("", func() []gitcred.Entry {
-		return []gitcred.Entry{{Protocol: "http", Host: u.Host, Repo: "acme/app", Username: "x-access-token", Password: gitToken}}
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = creds.Close() })
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, ".gitconfig"), "[gc]\n\tauto = 0\n")
-	w := &workspace{t: t, bare: bare, server: srv, argv: filepath.Join(t.TempDir(), "git-argv.log")}
+	w := &workspace{t: t, bare: bare, argv: filepath.Join(t.TempDir(), "git-argv.log")}
 	// A git wrapper that logs each command line (and whether it got GH_TOKEN) before
-	// running git, so the test can check no token is ever an argument.
+	// running git.
 	wrapper := filepath.Join(t.TempDir(), "git")
 	gitBin, err := exec.LookPath("git")
 	if err != nil {
@@ -115,19 +78,15 @@ func newWorkspace(t *testing.T, mut func(*pipeline.EffectorConfig)) *workspace {
 		t.Fatal(err)
 	}
 	w.gitBin = wrapper
-	w.env = append([]string{
+	w.env = []string{
 		"PATH=" + filepath.Dir(wrapper) + string(filepath.ListSeparator) + os.Getenv("PATH"),
 		"HOME=" + home, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + filepath.Join(home, ".gitconfig"),
-		"GIT_ALLOW_PROTOCOL=http", "GH_TOKEN=" + gitToken, gitcred.EnvSocket + "=" + creds.Path(),
+		"GH_TOKEN=" + harness.Placeholder,
 		"GIT_AUTHOR_NAME=ccf-factory[bot]", "GIT_AUTHOR_EMAIL=bot@example.com", "GIT_COMMITTER_NAME=ccf-factory[bot]", "GIT_COMMITTER_EMAIL=bot@example.com",
-	}, gitcred.ConfigEnv(gitcred.HelperConfig([]string{credHelper, "fx", "git-credential"}))...)
-
-	// The checkout, cloned as the pipeline does (no user info in the URL).
-	w.repo = filepath.Join(t.TempDir(), "repo")
-	w.git(t.TempDir(), "clone", "--quiet", srv.URL+"/acme/app.git", w.repo)
-	if creds.Answered() == 0 {
-		t.Fatal("the clone didn't use the credential helper")
 	}
+
+	w.repo = filepath.Join(t.TempDir(), "repo")
+	w.git(t.TempDir(), "clone", "--quiet", bare, w.repo)
 	w.d = newDispatcher(t)
 	w.run = newRun(t, w.d, func(c *pipeline.EffectorConfig) {
 		c.Repo, c.RepoDir = "acme/app", w.repo
@@ -148,7 +107,7 @@ func writeFile(t *testing.T, p, body string) {
 	}
 }
 
-// git runs git in dir with the run's environment (the credential helper).
+// git runs git in dir with the run's environment.
 func (w *workspace) git(dir string, args ...string) string {
 	w.t.Helper()
 	cmd := exec.Command("git", args...)
@@ -173,10 +132,10 @@ func (w *workspace) commit(branch, file, body string) string {
 }
 
 // effector is the run's Effector with the git wrapper and the run's environment.
-func (w *workspace) effector(gh string) *effector.Effector {
+func (w *workspace) effector() *effector.Effector {
 	w.t.Helper()
 	return effector.New(effector.Options{API: client(w.t, w.d.ts.URL), TaskID: taskID, Config: &w.run.cfg,
-		State: filepath.Join(w.t.TempDir(), "state"), Git: w.gitBin, GH: gh, Env: w.env})
+		State: filepath.Join(w.t.TempDir(), "state"), Git: w.gitBin, Env: w.env})
 }
 
 func (w *workspace) do(e *effector.Effector, op string, args map[string]any) (map[string]any, error) {
@@ -192,39 +151,21 @@ func (w *workspace) remoteSHA(branch string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// checkNoToken: no git command line held the token, git never got GH_TOKEN, and the token is
-// in no file of the checkout's .git.
+// checkNoToken: git never got GH_TOKEN (the placeholder gh would read).
 func (w *workspace) checkNoToken() {
 	w.t.Helper()
-	f, err := os.Open(w.argv)
+	b, err := os.ReadFile(w.argv)
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
-	lines := 0
-	for sc.Scan() {
-		lines++
-		if strings.Contains(sc.Text(), gitToken) {
-			w.t.Errorf("a git command line holds the token: %q", sc.Text())
-		}
-		if sc.Text() == "GH_TOKEN=set" {
+	if len(b) == 0 {
+		w.t.Error("the git wrapper logged nothing")
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if l == "GH_TOKEN=set" {
 			w.t.Error("git got GH_TOKEN")
 		}
 	}
-	if lines == 0 {
-		w.t.Error("the git wrapper logged nothing")
-	}
-	_ = filepath.Walk(filepath.Join(w.repo, ".git"), func(p string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		b, _ := os.ReadFile(p)
-		if strings.Contains(string(b), gitToken) {
-			w.t.Errorf("the token is in %s", p)
-		}
-		return nil
-	})
 }
 
 func (w *workspace) lastRecord() map[string]any {
@@ -236,11 +177,11 @@ func (w *workspace) lastRecord() map[string]any {
 	return reqs[len(reqs)-1].Body
 }
 
-// TestPush: factory push pushes through the credential helper and records push-branch.
+// TestPush: factory push pushes with git and records push-branch.
 func TestPush(t *testing.T) {
 	t.Parallel()
 	w := newWorkspace(t, nil)
-	e := w.effector("")
+	e := w.effector()
 	sha := w.commit("factory/tsk_1", "docs/intro.md", "# Intro\n")
 	out, err := w.do(e, "push", nil)
 	if err != nil {
@@ -295,7 +236,7 @@ func TestPushNotAllowed(t *testing.T) {
 	t.Parallel()
 	w := newWorkspace(t, func(c *pipeline.EffectorConfig) { c.Allow = []string{"comment"} })
 	w.commit("factory/tsk_1", "a.md", "a\n")
-	_, err := w.do(w.effector(""), "push", nil)
+	_, err := w.do(w.effector(), "push", nil)
 	if exitOf(err) != effector.ExitNotAllowed {
 		t.Fatalf("push: %v", err)
 	}
@@ -304,11 +245,11 @@ func TestPushNotAllowed(t *testing.T) {
 	}
 }
 
-// TestStackGit: the git fallback of stack push and stack rebase.
+// TestStackGit: stack push and stack rebase, with git.
 func TestStackGit(t *testing.T) {
 	t.Parallel()
 	w := newWorkspace(t, nil)
-	e := w.effector(filepath.Join(t.TempDir(), "no-gh"))
+	e := w.effector()
 	s1 := w.commit("stack/1", "one.md", "one\n")
 	s2 := w.commit("stack/2", "two.md", "two\n")
 	w.git(w.repo, "branch", "unrelated", "origin/main")
@@ -331,7 +272,7 @@ func TestStackGit(t *testing.T) {
 
 	// main moves on origin; the stack is rebased onto it, both branches updated.
 	other := filepath.Join(t.TempDir(), "other")
-	w.git(t.TempDir(), "clone", "--quiet", w.server.URL+"/acme/app.git", other)
+	w.git(t.TempDir(), "clone", "--quiet", w.bare, other)
 	writeFile(t, filepath.Join(other, "main.md"), "main\n")
 	w.git(other, "add", "-A")
 	w.git(other, "commit", "--quiet", "--no-gpg-sign", "-m", "main moves")
@@ -397,97 +338,15 @@ func toStrings(v any) []string {
 	return out
 }
 
-// TestStackGH: with gh-stack's state in the checkout and `gh stack` available, the ops
-// run gh stack with the run's scoped GH_TOKEN (never an argument) and record the op.
-func TestStackGH(t *testing.T) {
+// TestStackGitFlag: --git, which skills may still pass, is accepted and changes nothing.
+func TestStackGitFlag(t *testing.T) {
 	t.Parallel()
 	w := newWorkspace(t, nil)
-	writeFile(t, filepath.Join(w.repo, ".git", "gh-stack"), "{}\n")
-	log := filepath.Join(t.TempDir(), "gh.log")
-	gh := filepath.Join(t.TempDir(), "gh")
-	// gh stack push runs git itself, as gh-stack does: with gh's environment (its GH_TOKEN
-	// dropped, as the run's git never has it), so through the credential helper and
-	// gitsafe's pairs, in a checkout with planted hooks.
-	writeFile(t, gh, "#!/bin/sh\nprintf '%s|token=%s|prompt=%s\\n' \"$*\" \"${GH_TOKEN:+set}\" \"$GH_PROMPT_DISABLED\" >> "+gitcred.ShellQuote(log)+"\n"+
-		"case \"$*\" in 'stack push --remote origin') GH_TOKEN= exec git push --quiet origin refs/heads/stack/1:refs/heads/stack/1;; esac\n"+
-		"case \"$*\" in 'stack --help'|'stack rebase --remote origin') exit 0;; esac\necho unknown >&2\nexit 1\n")
-	if err := os.Chmod(gh, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	e := w.effector(gh)
 	sha := w.commit("stack/1", "one.md", "one\n")
-	trap := gitsafetest.Plant(t, w.repo, gitsafetest.All)
-	if _, err := w.do(e, "stack_push", nil); err != nil {
+	if _, err := w.do(w.effector(), "stack_push", map[string]any{"git": true}); err != nil {
 		t.Fatal(err)
 	}
-	if got := w.remoteSHA("stack/1"); got != sha {
-		t.Errorf("gh stack's git push: remote stack/1 = %q, want %q", got, sha)
+	if w.remoteSHA("stack/1") != sha || w.lastRecord()["args"].(map[string]any)["via"] != "git" {
+		t.Errorf("stack push --git: %s %v", w.remoteSHA("stack/1"), w.lastRecord())
 	}
-	if _, err := w.do(e, "stack_rebase", nil); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := os.ReadFile(log)
-	want := "stack --help|token=set|prompt=1\nstack push --remote origin|token=set|prompt=1\nstack --help|token=set|prompt=1\nstack rebase --remote origin|token=set|prompt=1\n"
-	if string(b) != want {
-		t.Errorf("gh calls:\n%s\nwant\n%s", b, want)
-	}
-	if strings.Contains(string(b), gitToken) {
-		t.Error("gh got the token as an argument")
-	}
-	rec := w.lastRecord()
-	if rec["op"] != "stack.rebase" || rec["args"].(map[string]any)["via"] != "gh-stack" {
-		t.Errorf("record %v", rec)
-	}
-	// --git forces the fallback; --branches is the fallback's only.
-	if _, err := w.do(e, "stack_push", map[string]any{"branches": []any{"stack/1"}}); err == nil || !strings.Contains(err.Error(), "--branches is for the git fallback") {
-		t.Errorf("--branches with gh stack: %v", err)
-	}
-	if _, err := w.do(e, "stack_push", map[string]any{"git": true}); err != nil {
-		t.Fatal(err)
-	}
-	if w.lastRecord()["args"].(map[string]any)["via"] != "git" {
-		t.Error("--git didn't use git")
-	}
-	if fired := trap.Fired(t); len(fired) > 0 {
-		t.Errorf("planted code ran: %v", fired)
-	}
-	w.checkNoToken()
-}
-
-// TestGitIgnoresPlantedCode: the git-side ops never run the hooks or the fsmonitor an agent
-// can plant in the checkout's .git (the Effector may run outside the harness's sandbox).
-func TestGitIgnoresPlantedCode(t *testing.T) {
-	t.Parallel()
-	w := newWorkspace(t, nil)
-	e := w.effector(filepath.Join(t.TempDir(), "no-gh"))
-	w.commit("stack/1", "one.md", "one\n")
-	w.commit("stack/2", "two.md", "two\n")
-	// main moves on origin, with a change that conflicts with stack/2.
-	other := filepath.Join(t.TempDir(), "other")
-	w.git(t.TempDir(), "clone", "--quiet", w.server.URL+"/acme/app.git", other)
-	writeFile(t, filepath.Join(other, "two.md"), "conflicting\n")
-	w.git(other, "add", "-A")
-	w.git(other, "commit", "--quiet", "--no-gpg-sign", "-m", "conflict")
-	w.git(other, "push", "--quiet", "origin", "main")
-
-	trap := gitsafetest.Plant(t, w.repo, gitsafetest.All)
-	if _, err := w.do(e, "push", nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.do(e, "stack_push", nil); err != nil {
-		t.Fatal(err)
-	}
-	// The rebase checks out, rewrites and stops on the conflict (then lists it).
-	if _, err := w.do(e, "stack_rebase", nil); exitOf(err) != effector.ExitGit || !strings.Contains(err.Error(), "two.md") {
-		t.Fatalf("stack rebase: %v", err)
-	}
-	if fired := trap.Fired(t); len(fired) > 0 {
-		t.Errorf("planted code ran: %v", fired)
-	}
-	// The fixture is live: the test's own git runs it.
-	w.git(w.repo, "rebase", "--abort")
-	if len(trap.Fired(t)) == 0 {
-		t.Error("plain git ran nothing planted: the fixture is dead")
-	}
-	w.checkNoToken()
 }

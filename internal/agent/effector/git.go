@@ -7,13 +7,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/gitsafe"
-	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
@@ -23,8 +20,7 @@ const remote = "origin"
 // maxOutput bounds the git or gh output kept for an error message.
 const maxOutput = 4 << 10
 
-// Variables git never needs: the scoped token reaches git only through the credential
-// helper, and gh gets it from the run's GH_TOKEN.
+// Variables git never needs: the gateway injects git's credential.
 var gitDropped = []string{"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"}
 
 // gitError is a failed git or gh command (exit 5) with the tail of its output.
@@ -65,19 +61,10 @@ func (e *Effector) gitEnv() []string {
 	return append(out, "GIT_TERMINAL_PROMPT=0")
 }
 
-// ghEnv is gh's environment: the run's (GH_TOKEN is the task's scoped token and HOME is the
-// run's scratch one, so the owner's gh login is never used), never prompting. gh stack runs
-// git itself and takes no -c, so gitsafe's pairs go in the environment, after the
-// credential helper's.
-func (e *Effector) ghEnv() []string {
-	return append(gitsafe.Env(e.env()), "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "GIT_TERMINAL_PROMPT=0", "NO_COLOR=1")
-}
-
 // git runs git in the workspace and returns its trimmed stdout. No argument ever carries a
-// credential. The checkout's hooks and fsmonitor never run (gitsafe): the agent can write
-// its .git, and this git may run outside the harness's sandbox (the MCP server).
+// credential.
 func (e *Effector) git(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, e.o.Git, gitsafe.Args(args...)...)
+	cmd := exec.CommandContext(ctx, e.o.Git, args...)
 	cmd.Dir = e.o.Dir
 	cmd.Env = e.gitEnv()
 	var stdout, stderr bytes.Buffer
@@ -86,18 +73,6 @@ func (e *Effector) git(ctx context.Context, args ...string) (string, error) {
 		return "", gitError("git "+args[0], err, append(stderr.Bytes(), stdout.Bytes()...))
 	}
 	return strings.TrimSpace(stdout.String()), nil
-}
-
-// gh runs gh in the workspace and returns its combined output.
-func (e *Effector) gh(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, e.o.GH, args...)
-	cmd.Dir = e.o.Dir
-	cmd.Env = e.ghEnv()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", gitError("gh "+strings.Join(args, " "), err, out)
-	}
-	return strings.TrimSpace(string(out)), nil
 }
 
 // branchName checks a branch name: what git accepts, and never option-like.
@@ -192,28 +167,6 @@ func (e *Effector) base(ctx context.Context, a args) (string, error) {
 	return "main", nil
 }
 
-// useGHStack: gh stack runs when not refused (--git), the run isn't in a VM workspace, the
-// checkout has gh-stack's state (<git-common-dir>/gh-stack) and `gh stack` exists for the
-// run's gh. A workspace always takes the git fallback (workspace-run.md §The Effector in the
-// workspace runtime): gh-stack writes through the GitHub API, which the gateway refuses.
-func (e *Effector) useGHStack(ctx context.Context, a args) bool {
-	if a.flag("git") || e.o.Runtime == pipeline.RuntimeWorkspace {
-		return false
-	}
-	common, err := e.git(ctx, "rev-parse", "--git-common-dir")
-	if err != nil {
-		return false
-	}
-	if !filepath.IsAbs(common) {
-		common = filepath.Join(e.o.Dir, common)
-	}
-	if _, err := os.Stat(filepath.Join(common, "gh-stack")); err != nil {
-		return false
-	}
-	_, err = e.gh(ctx, "stack", "--help")
-	return err == nil
-}
-
 // stackBranches are the stack's branches, bottom first: the given ones, else the local
 // branches merged into HEAD but not into origin/<base>.
 func (e *Effector) stackBranches(ctx context.Context, base string, given []string) ([]string, error) {
@@ -285,37 +238,25 @@ func runStackPush(ctx context.Context, e *Effector, a args) (map[string]any, err
 	if err != nil {
 		return nil, err
 	}
-	rec := map[string]any{"base": base}
-	if e.useGHStack(ctx, a) {
-		if len(a.list("branches")) > 0 {
-			return nil, usagef("stack push: --branches is for the git fallback; gh stack pushes its own stack (or pass --git)")
-		}
-		if _, err := e.gh(ctx, "stack", "push", "--remote", remote); err != nil {
-			return nil, err
-		}
-		rec["via"] = "gh-stack"
-		if bs, err := e.stackBranches(ctx, base, nil); err == nil { // for the record only
-			rec["branches"] = bs
-		}
-	} else {
-		bs, err := e.stackBranches(ctx, base, a.list("branches"))
-		if err != nil {
-			return nil, err
-		}
-		push := []string{"push", "--porcelain", "--atomic"}
-		for _, b := range bs {
-			push = append(push, "--force-with-lease=refs/heads/"+b)
-		}
-		push = append(push, remote)
-		for _, b := range bs {
-			push = append(push, "refs/heads/"+b+":refs/heads/"+b)
-		}
-		if _, err := e.git(ctx, push...); err != nil {
-			return nil, err
-		}
-		rec["via"] = "git"
-		rec["branches"] = bs
+	// --git is accepted and ignored: the push is always git's (gh stack writes through the
+	// GitHub API, which the gateway refuses; workspace-run.md §The Effector in the workspace
+	// runtime).
+	bs, err := e.stackBranches(ctx, base, a.list("branches"))
+	if err != nil {
+		return nil, err
 	}
+	push := []string{"push", "--porcelain", "--atomic"}
+	for _, b := range bs {
+		push = append(push, "--force-with-lease=refs/heads/"+b)
+	}
+	push = append(push, remote)
+	for _, b := range bs {
+		push = append(push, "refs/heads/"+b+":refs/heads/"+b)
+	}
+	if _, err := e.git(ctx, push...); err != nil {
+		return nil, err
+	}
+	rec := map[string]any{"base": base, "via": "git", "branches": bs}
 	if bs, ok := rec["branches"].([]string); ok {
 		shas, err := e.shas(ctx, bs)
 		if err != nil {
@@ -336,40 +277,33 @@ func runStackRebase(ctx context.Context, e *Effector, a args) (map[string]any, e
 	if err != nil {
 		return nil, err
 	}
-	rec := map[string]any{"base": base}
-	if e.useGHStack(ctx, a) {
-		if _, err := e.gh(ctx, "stack", "rebase", "--remote", remote); err != nil {
-			return nil, err
-		}
-		rec["via"] = "gh-stack"
-	} else {
-		head, err := e.currentBranch(ctx)
-		if err != nil {
-			return nil, err
-		}
-		trunk := "refs/remotes/" + remote + "/" + base
-		if _, err := e.git(ctx, "fetch", "--quiet", remote, "+refs/heads/"+base+":"+trunk); err != nil {
-			return nil, err
-		}
-		bs, err := e.stackBranches(ctx, base, nil)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := e.git(ctx, "rebase", "--update-refs", trunk); err != nil {
-			if conflicts := e.conflicts(ctx); conflicts != "" {
-				var fe *Error
-				if errors.As(err, &fe) {
-					fe.Msg = fmt.Sprintf("the rebase of %s onto %s/%s stopped on conflicts in: %s. Resolve them, run `git rebase --continue`, then `factory stack push`", head, remote, base, conflicts)
-				}
-			}
-			return nil, err
-		}
-		onto, err := e.git(ctx, "rev-parse", "--verify", trunk)
-		if err != nil {
-			return nil, err
-		}
-		rec["via"], rec["onto"], rec["head"], rec["branches"] = "git", onto, head, bs
+	// --git is accepted and ignored: the rebase is always git's (as stack push).
+	head, err := e.currentBranch(ctx)
+	if err != nil {
+		return nil, err
 	}
+	trunk := "refs/remotes/" + remote + "/" + base
+	if _, err := e.git(ctx, "fetch", "--quiet", remote, "+refs/heads/"+base+":"+trunk); err != nil {
+		return nil, err
+	}
+	bs, err := e.stackBranches(ctx, base, nil)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := e.git(ctx, "rebase", "--update-refs", trunk); err != nil {
+		if conflicts := e.conflicts(ctx); conflicts != "" {
+			var fe *Error
+			if errors.As(err, &fe) {
+				fe.Msg = fmt.Sprintf("the rebase of %s onto %s/%s stopped on conflicts in: %s. Resolve them, run `git rebase --continue`, then `factory stack push`", head, remote, base, conflicts)
+			}
+		}
+		return nil, err
+	}
+	onto, err := e.git(ctx, "rev-parse", "--verify", trunk)
+	if err != nil {
+		return nil, err
+	}
+	rec := map[string]any{"base": base, "via": "git", "onto": onto, "head": head, "branches": bs}
 	if b, err := e.currentBranch(ctx); err == nil {
 		if s, err := e.sha(ctx, b); err == nil {
 			rec["sha"] = s

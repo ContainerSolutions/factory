@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -23,7 +22,6 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/effector"
-	"github.com/compliance-framework/factory/internal/agent/gitcred"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
@@ -36,25 +34,13 @@ const (
 	agentToken = "agent-token-never-in-argv"
 )
 
-// credHelper is the credential helper git runs (`<helper> fx git-credential get`): the
-// testdata/credhelper build of gitcred.Helper, or the test binary itself (TestMain) when
-// it can't be built. A -race test binary per helper call is slow enough to load the machine.
-var credHelper string
-
 func TestMain(m *testing.M) {
-	if len(os.Args) > 2 && os.Args[1] == "fx" && os.Args[2] == "git-credential" {
-		if err := gitcred.Helper(context.Background(), os.Args[3:], os.Stdin, os.Stdout, os.Getenv(gitcred.EnvSocket)); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(5)
-		}
-		os.Exit(0)
-	}
 	// `fx <op>`: the test binary is the run's `factory` CLI, as cmd/factory-agent's fx is, so
 	// a test can run an op in a process of its own environment (workspace_test.go).
 	if len(os.Args) > 2 && os.Args[1] == "fx" && effector.IsOp(os.Args[2:]) {
 		os.Exit(fxMain(os.Args[2:]))
 	}
-	os.Exit(runTests(m))
+	os.Exit(m.Run())
 }
 
 // fxMain is cmd/factory-agent's `fx <op>`: the Effector from this process's environment.
@@ -65,25 +51,6 @@ func fxMain(args []string) int {
 		return effector.ExitUsage
 	}
 	return effector.Main(context.Background(), e, args, os.Stdin, os.Stdout, os.Stderr)
-}
-
-func runTests(m *testing.M) int {
-	dir, err := os.MkdirTemp("", "effector-test-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	credHelper, _ = os.Executable()
-	if gobin, err := exec.LookPath("go"); err == nil {
-		bin := filepath.Join(dir, "credhelper")
-		if out, err := exec.Command(gobin, "build", "-o", bin, "./testdata/credhelper").CombinedOutput(); err == nil {
-			credHelper = bin
-		} else {
-			fmt.Fprintf(os.Stderr, "build the credential helper (using the test binary): %v\n%s", err, out)
-		}
-	}
-	return m.Run()
 }
 
 // dispatcher is an httptest Effector API: it records every request and answers like the
@@ -216,7 +183,7 @@ func newRun(t *testing.T, d *dispatcher, mut func(*pipeline.EffectorConfig)) *ru
 		mut(&cfg)
 	}
 	r := &run{t: t, d: d, cfg: cfg, dir: dir, env: map[string]string{
-		pipeline.EnvTaskID: taskID, pipeline.EnvToken: agentToken,
+		pipeline.EnvTaskID: taskID, pipeline.EnvRuntime: pipeline.RuntimeWorkspace,
 		pipeline.EnvOut: out, pipeline.EnvResult: filepath.Join(out, "result.json"),
 	}}
 	if d != nil {
@@ -322,7 +289,7 @@ func TestAPIOps(t *testing.T) {
 		}
 		reqs := d.requests()
 		last := reqs[len(reqs)-1]
-		if last.Path != "POST /api/v1/tasks/tsk_1/effects" || last.Auth != "Bearer "+agentToken {
+		if last.Path != "POST /api/v1/tasks/tsk_1/effects" || last.Auth != "" {
 			t.Errorf("%s: %s with %q", c.name, last.Path, last.Auth)
 		}
 		key, _ := last.Body["idempotencyKey"].(string)

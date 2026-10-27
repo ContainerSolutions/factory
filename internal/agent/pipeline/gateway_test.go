@@ -148,7 +148,7 @@ func TestRunRootWorkspace(t *testing.T) {
 			before := listTree(t, root)
 			f.opts.WorkRoot, f.opts.Root = "", root
 			f.adapter.Script = fake.Script{Turn: fake.Turn{Result: []byte(validResult)}}
-			out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+			out, err := f.pipeline().Run(context.Background(), f.vmJob(f.task(), time.Now()), &sink{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -217,29 +217,6 @@ func listTree(t *testing.T, root string) []string {
 	return out
 }
 
-// Options.Env on the host: it wins over the owner's variables, reaches the harness and the
-// pipeline's git, and the job's real GH_TOKEN still replaces a placeholder.
-func TestRunEnvOnTheHost(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	f.opts.Env = map[string]string{"DOCKER_HOST": "unix:///run/env.sock", "FACTORY_RUNTIME": "host-test", pipeline.EnvGHToken: fakegateway.DefaultPlaceholder}
-	f.adapter.Script = fake.Script{Turn: fake.Turn{Result: []byte(validResult)}}
-	out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
-	if err != nil || out.Status != runner.StatusDone {
-		t.Fatalf("outcome %+v %v", out, err)
-	}
-	env := envMap(f.adapter.Prepared()[0].Env)
-	for k, want := range map[string]string{"DOCKER_HOST": "unix:///run/env.sock", "FACTORY_RUNTIME": "host-test", pipeline.EnvGHToken: gitSecret, "GIT_CONFIG_COUNT": "3"} {
-		if env[k] != want {
-			t.Errorf("%s=%q, want %q", k, env[k], want)
-		}
-	}
-	if env[gitcred.EnvSocket] == "" {
-		t.Error("the host run has no credential socket")
-	}
-	f.checkClean("")
-}
-
 // recordTranscripts is a TranscriptStore that keeps what it's given and returns no ref, as a
 // workspace's file store does.
 type recordTranscripts struct {
@@ -254,18 +231,11 @@ func (s *recordTranscripts) Store(_ context.Context, _ *runner.Job, gz []byte) (
 	return "", nil
 }
 
-// gatewayJob is the fixture's job as a VM workspace has it: the same task and credential
-// metadata, with every token empty, no dispatcher client and no agent token.
+// gatewayJob is the fixture's task's vmJob, as the dispatcher's runbundle.DefaultDispatcherURL
+// names it in the VM.
 func (f *fixture) gatewayJob() *runner.Job {
-	job := f.job(f.task(), time.Now())
-	cred, reads := job.Git.Get(), job.Git.Reads()
-	cred.Token = ""
-	for i := range reads {
-		reads[i].Token = ""
-	}
-	job.Lease.GitCredential, job.Lease.ReadCredentials = cred, reads
-	job.Git = runner.NewCredentials(cred, reads...)
-	job.API, job.AgentToken, job.Dispatcher = nil, nil, runbundle.DefaultDispatcherURL
+	job := f.vmJob(f.task(), time.Now())
+	job.Dispatcher = runbundle.DefaultDispatcherURL
 	return job
 }
 
@@ -460,5 +430,28 @@ func TestPrepareBundleRefusesAWorkspacePipeline(t *testing.T) {
 			!strings.Contains(err.Error(), "PrepareBundle runs on the host") {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+// Run runs only in a VM workspace: a pipeline without Root, or not in gateway mode, refuses it
+// before any step.
+func TestRunNeedsAVMWorkspace(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	helperRoot := f.opts
+	helperRoot.GitAuth = pipeline.GitAuthHelper
+	hostGateway := f.hostOpts
+	hostGateway.Adapters, hostGateway.GitAuth = f.opts.Adapters, pipeline.GitAuthGateway
+	for name, o := range map[string]pipeline.Options{"the host pipeline": f.hostOpts, "Root in helper mode": helperRoot, "WorkRoot in gateway mode": hostGateway} {
+		p, err := pipeline.New(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := p.Run(context.Background(), f.vmJob(f.task(), time.Now()), &sink{}); err == nil || !strings.Contains(err.Error(), "Run runs in a VM workspace") {
+			t.Errorf("%s: Run = %v", name, err)
+		}
+	}
+	if len(f.adapter.Prepared()) != 0 || len(f.disp.callList()) != 0 {
+		t.Error("a refused Run ran a step")
 	}
 }

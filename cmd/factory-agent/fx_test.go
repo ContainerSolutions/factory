@@ -67,8 +67,8 @@ func TestFxClaudeHook(t *testing.T) {
 	}
 }
 
-// TestFxEffectOp: `factory-agent fx <op>` is the Effector CLI, configured from the run's
-// environment.
+// TestFxEffectOp: `factory-agent fx <op>` is the Effector CLI, configured from the VM
+// workspace run's environment: its requests carry no Authorization (the gateway adds it).
 func TestFxEffectOp(t *testing.T) {
 	var got map[string]any
 	var auth string
@@ -84,14 +84,14 @@ func TestFxEffectOp(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte(`{"task": "tsk_1", "repo": "acme/docs", "allow": ["comment"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{pipeline.EnvAPI: ts.URL, pipeline.EnvTaskID: "tsk_1", pipeline.EnvToken: "agent-tok",
+	env := map[string]string{pipeline.EnvAPI: ts.URL, pipeline.EnvTaskID: "tsk_1", pipeline.EnvRuntime: pipeline.RuntimeWorkspace,
 		pipeline.EnvOut: dir, pipeline.EnvEffector: cfg}
 	getenv := func(k string) string { return env[k] }
 	var out, errOut bytes.Buffer
 	if code := runFx(context.Background(), []string{"comment", "--target", "42", "--body", "hi"}, strings.NewReader(""), &out, &errOut, getenv); code != 0 {
 		t.Fatalf("comment = %d %s", code, errOut.String())
 	}
-	if got["op"] != "comment" || got["target"] != "acme/docs#42" || auth != "Bearer agent-tok" || !strings.Contains(out.String(), `"effectId":"eff_1"`) {
+	if got["op"] != "comment" || got["target"] != "acme/docs#42" || auth != "" || !strings.Contains(out.String(), `"effectId":"eff_1"`) {
 		t.Errorf("sent %v (%q), printed %s", got, auth, out.String())
 	}
 	if code := runFx(context.Background(), []string{"label", "add", "--name", "x"}, strings.NewReader(""), io.Discard, &errOut, getenv); code != 3 {
@@ -114,15 +114,21 @@ func TestFxMCP(t *testing.T) {
 	if got := append([]string{"fx"}, clirun.EffectorArgs()...); !slices.Equal(got, []string{"fx", "mcp"}) {
 		t.Fatalf("the adapters run %q", got)
 	}
+	workspace := func(k string) string {
+		if k == pipeline.EnvRuntime {
+			return pipeline.RuntimeWorkspace
+		}
+		return ""
+	}
 	for _, viaFx := range []bool{true, false} {
 		inR, inW := io.Pipe()
 		outR, outW := io.Pipe()
 		done := make(chan int, 1)
 		go func() {
 			if viaFx {
-				done <- runFx(context.Background(), []string{"mcp"}, inR, outW, io.Discard, func(string) string { return "" })
+				done <- runFx(context.Background(), []string{"mcp"}, inR, outW, io.Discard, workspace)
 			} else {
-				done <- runMCP(context.Background(), nil, inR, outW, io.Discard, func(string) string { return "" })
+				done <- runMCP(context.Background(), nil, inR, outW, io.Discard, workspace)
 			}
 			_ = outW.Close()
 		}()
