@@ -270,6 +270,12 @@ then implement (codex, the default size).
     attestation manifest (no platform). As `admin`, `kind create cluster`, `kind load
     image-archive` (no sudo) and a `--image-pull-policy=Never` pod reaching Running all
     worked. The warm config was reverted afterwards.
+  - S1, Softnet anti-spoofing: Softnet gives each VM its own /29 (A 192.168.98.146, B
+    10.119.237.34, each with its own gateway), so a reply to B's address goes to B and A can't
+    see it: the runbook's "A pings from B's address" couldn't fail. Run instead: A, started
+    with the driver's flags (`--net-softnet-block=0.0.0.0/0 --net-softnet-allow=@host`; B a
+    `tart clone` of A), pinged its gateway from its lease (2/2 received), then from an address
+    in its /29 it wasn't leased (`ip addr add …/32`, `ping -I`): 0/3 received.
   - T3: intercepted requests (chatgpt.com, github.com, api.github.com) carry `injected`, git
     ones `git:<owner>/<repo>`; tunnels carry none; no token values.
 - **Skipped** (Gustavo's call): M1.4, a `limits.memory` above `workspace.size`. The

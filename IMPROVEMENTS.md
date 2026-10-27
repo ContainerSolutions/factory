@@ -15,22 +15,6 @@ How to work: read AGENTS.md first. PRs go through lisa as `ccf-lisa[bot]` with
 name's redirect) and are reviewed with ccf-review. Gustavo merges. When a workstream ships,
 record it in IMPROVEMENTS_DONE.md with its PR numbers and delete its section here.
 
-## 1. Real-host checks (Gustavo)
-
-Shipped work that only fakes have tested. These are runs, not PRs. Record each result in
-IMPROVEMENTS_DONE.md. The Linux workstation's checks and the Mac's T1–T3, M0–M4 are done
-(IMPROVEMENTS_DONE.md, "Real-host checks on the Mac"). Left, on the Mac (`<state>` is
-`~/Library/Application Support/factory-agent`; stop `supervise` first; a kept workspace is
-stopped: `tart run --no-graphics <ws> &` before `tart exec`, then `tart stop <ws>`):
-
-- **S1, Softnet anti-spoofing** (the gateway's client pin relies on it): keep two workspaces A
-  and B (two tasks with `--keep-workspace`), start both with `tart run --no-graphics <ws> &`.
-  - In B: `ip -o -4 addr` (its address `B_IP` and interface) and `ip route | awk '/default/{print
-    $3}'` (`B_GW`); `ping -c 2 B_GW` answers (the control).
-  - In A: `sudo ip addr add B_IP/32 dev <A's interface>`, then `ping -c 3 -W 2 -I B_IP B_GW`.
-  - Pass: no reply from A (Softnet drops packets from an address A wasn't leased). Then
-    `tart stop` and `tart delete` both.
-
 ## 2. Apply `environment.egress` in the gateway
 
 The gateway already implements deny-by-default, `AllowHosts` and the tunnel SNI check, but
