@@ -630,9 +630,12 @@ type TaskSpec struct {
 // GetName returns metadata.name.
 func (t *TaskSpec) GetName() string { return t.Metadata.Name }
 
-// Validate checks the workspace (Workspace.Validate), and that an environment's
-// versions.input names one of the spec's inputs.
+// Validate checks the limits (Limits.Validate), the workspace (Workspace.Validate), and that
+// an environment's versions.input names one of the spec's inputs.
 func (t *TaskSpec) Validate() error {
+	if err := t.Spec.Limits.Validate(); err != nil {
+		return prefixField("spec.limits", err)
+	}
 	ws := t.Spec.Workspace
 	if ws == nil {
 		return nil
@@ -819,6 +822,14 @@ type Limits struct {
 	MaxTurns     int      `json:"maxTurns,omitzero"`
 	MaxWallClock Duration `json:"maxWallClock,omitzero"`
 	MaxCostUSD   float64  `json:"maxCostUSD,omitzero"`
+	// CPUs is the workspace VM's vCPUs for this task: at least 1, and at most the agent's
+	// workspace.size.cpus (the agent caps a larger request and says so in the run log).
+	// Unset means the agent's size.
+	CPUs int `json:"cpus,omitzero"`
+	// Memory is the workspace VM's memory for this task: a whole number of GiB in the form of
+	// the agent's workspace.size.memory (e.g. "4Gi"), and at most that size (the agent caps a
+	// larger request and says so in the run log). Unset means the agent's size.
+	Memory string `json:"memory,omitzero"`
 }
 
 // OutputSpec is the expected Result: its spec-specific schema and outcomes.
