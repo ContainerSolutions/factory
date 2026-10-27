@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -45,9 +44,12 @@ type KataWarmRecord struct {
 // KataWarmRecordPath is katawarm.json.
 func (e *Env) KataWarmRecordPath() string { return filepath.Join(e.StateDir(), "katawarm.json") }
 
-// helper runs the helper's verb with sudo -n; out gets its output.
-func (e *Env) helper(ctx context.Context, out io.Writer, args ...string) error {
-	if err := e.Runner.Run(ctx, out, "sudo", e.helperArgv(args...)...); err != nil {
+// helper runs the helper's verb with sudo -n; e.Out gets its output.
+func (e *Env) helper(ctx context.Context, args ...string) error {
+	out, stop := e.watchSudo(ctx, "kata-helper "+args[0])
+	err := e.Runner.Run(ctx, out, "sudo", e.helperArgv(args...)...)
+	stop()
+	if err != nil {
 		return fmt.Errorf("kata-helper %s: %w", args[0], err)
 	}
 	return nil
@@ -148,7 +150,7 @@ func (s kataWarmStep) Apply(ctx context.Context) (err error) {
 		return err
 	}
 	// a leftover of --keep-failed or a killed init.
-	if err := e.helper(ctx, e.Out, "rm", b); err != nil {
+	if err := e.helper(ctx, "rm", b); err != nil {
 		return err
 	}
 	defer func() {
@@ -164,7 +166,7 @@ func (s kataWarmStep) Apply(ctx context.Context) (err error) {
 			if ctx.Err() != nil {
 				fmt.Fprintf(e.Out, "interrupted: removing the build workspace %s (it can take a minute; Ctrl-C again leaves it, and the next host init removes it)\n", b)
 			}
-			if rerr := e.helper(cctx, e.Out, "rm", b); rerr != nil {
+			if rerr := e.helper(cctx, "rm", b); rerr != nil {
 				err = errors.Join(err, fmt.Errorf("removing %s: %w", b, rerr))
 			}
 		}
@@ -172,7 +174,7 @@ func (s kataWarmStep) Apply(ctx context.Context) (err error) {
 	cpus, mem, diskGiB := s.size()
 	fmt.Fprintf(e.Out, "building the warm disk in %s\n", b)
 	for _, args := range [][]string{{"create", b, cpus, mem, diskGiB, "empty", img.Image}, {"start", b}} {
-		if err := e.helper(ctx, e.Out, args...); err != nil {
+		if err := e.helper(ctx, args...); err != nil {
 			return err
 		}
 	}
@@ -182,7 +184,7 @@ func (s kataWarmStep) Apply(ctx context.Context) (err error) {
 	pctx, cancel := context.WithTimeout(ctx, e.VM.Provision)
 	defer cancel()
 	for _, im := range e.Workspace.Warm.Images {
-		if err := e.helper(pctx, e.Out, "warm-load", b, im); err != nil {
+		if err := e.helper(pctx, "warm-load", b, im); err != nil {
 			return err
 		}
 	}
@@ -196,13 +198,13 @@ func (s kataWarmStep) Apply(ctx context.Context) (err error) {
 		cmds = append(cmds, []string{"exec", b, "sudo", "-n", "docker", "save", "--platform", katahelper.WarmPlatform, "-o", k.archive, k.tag},
 			[]string{"exec", b, "sudo", "-n", "chmod", "0644", k.archive})
 		for _, c := range cmds {
-			if err := e.helper(pctx, e.Out, c...); err != nil {
+			if err := e.helper(pctx, c...); err != nil {
 				return err
 			}
 		}
 	}
 	for _, verb := range []string{"stop", "warm-promote", "rm"} {
-		if err := e.helper(ctx, e.Out, verb, b); err != nil {
+		if err := e.helper(ctx, verb, b); err != nil {
 			return err
 		}
 	}

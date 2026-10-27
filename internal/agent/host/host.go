@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
+	"github.com/compliance-framework/factory/internal/agent/sudocancel"
 	"github.com/compliance-framework/factory/internal/clock"
 	"github.com/compliance-framework/factory/internal/version"
 )
@@ -604,10 +605,39 @@ func runRoot(ctx context.Context, e *Env, script string) error {
 	}
 	defer func() { _ = os.Remove(p) }()
 	fmt.Fprintln(e.Out, "running the root actions with sudo (it may ask for your password)")
-	if err := e.Runner.Run(ctx, e.Out, "sudo", "/bin/sh", p); err != nil {
+	out, stop := e.watchSudo(ctx, "the sudo script")
+	err := e.Runner.Run(ctx, out, "sudo", "/bin/sh", p)
+	stop()
+	if err != nil {
 		return fmt.Errorf("the sudo script: %w", err)
 	}
 	return nil
+}
+
+// watchSudo watches ctx for the length of a sudo call (what): when an interrupt cancels ctx
+// while the call runs, ExecRunner gives sudo SIGTERM and up to sudocancel.HelperGrace before
+// SIGKILL, so it prints one line saying why init waits. A ctx already done, or one that only
+// times out, prints nothing. It returns e.Out behind a lock, for the call's output when that
+// goes to e.Out (the line comes from another goroutine, and exec copies output to a writer
+// that isn't a file from one of its own), and stop, to call when the call returns: it ends the
+// watch, or waits for a line being written, so the line comes before what follows the call.
+func (e *Env) watchSudo(ctx context.Context, what string) (io.Writer, func()) {
+	out := &LockedWriter{W: e.Out}
+	if ctx.Err() != nil {
+		return out, func() {}
+	}
+	done := make(chan struct{})
+	unwatch := context.AfterFunc(ctx, func() {
+		defer close(done)
+		if errors.Is(ctx.Err(), context.Canceled) {
+			fmt.Fprintf(out, "interrupted: waiting for %s to stop (up to %s; Ctrl-C again exits now)\n", what, sudocancel.HelperGrace)
+		}
+	})
+	return out, func() {
+		if !unwatch() {
+			<-done
+		}
+	}
 }
 
 var shellSafeRE = regexp.MustCompile(`^[A-Za-z0-9_./:=@%+,-]+$`)

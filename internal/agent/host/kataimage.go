@@ -64,7 +64,10 @@ func (e *Env) helperArgv(args ...string) []string {
 // own last line (kata-helper <verb>: …) when it printed one, else sudo's.
 func (e *Env) helperOK(ctx context.Context, args ...string) error {
 	var b bytes.Buffer
-	if err := e.Runner.Run(ctx, &b, "sudo", e.helperArgv(args...)...); err != nil {
+	_, stop := e.watchSudo(ctx, "kata-helper "+args[0])
+	err := e.Runner.Run(ctx, &b, "sudo", e.helperArgv(args...)...)
+	stop()
+	if err != nil {
 		l := lastOutputLine(b.String())
 		if strings.HasPrefix(l, "kata-helper ") {
 			return errors.New(l)
@@ -161,7 +164,10 @@ func (s kataImageStep) Apply(ctx context.Context) error {
 	fmt.Fprintf(e.Out, "building %s with the factory's BuildKit (this takes a while)\n", tag)
 	bctx, cancel := context.WithTimeout(ctx, kataImageTimeout)
 	defer cancel()
-	if err := e.Spawner.RunInput(bctx, bytes.NewReader(ctxTar), e.Out, "sudo", e.helperArgv("image-build", tag)...); err != nil {
+	out, stop := e.watchSudo(bctx, "kata-helper image-build")
+	err = e.Spawner.RunInput(bctx, bytes.NewReader(ctxTar), out, "sudo", e.helperArgv("image-build", tag)...)
+	stop()
+	if err != nil {
 		if ctx.Err() == nil && errors.Is(bctx.Err(), context.DeadlineExceeded) {
 			err = fmt.Errorf("%w (timed out after %s)", err, kataImageTimeout)
 		}

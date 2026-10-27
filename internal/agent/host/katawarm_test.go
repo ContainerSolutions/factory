@@ -211,6 +211,13 @@ func TestKataWarmBuildInterrupted(t *testing.T) {
 			if got := strings.Contains(out, line); got != interrupt {
 				t.Errorf("the interrupted line printed %v, want %v; output:\n%s", got, interrupt, out)
 			}
+			// the in-flight warm-load's line, once and before the cleanup's; none for an ordinary
+			// failure.
+			const wait = "interrupted: waiting for kata-helper warm-load to stop (up to 30s; Ctrl-C again exits now)\n"
+			if n := strings.Count(out, "interrupted: waiting for "); n != map[bool]int{true: 1}[interrupt] ||
+				interrupt && (!strings.Contains(out, wait) || strings.Index(out, wait) > strings.Index(out, line)) {
+				t.Errorf("%d waiting lines, want %d (%q, before the cleanup's); output:\n%s", n, map[bool]int{true: 1}[interrupt], wait, out)
+			}
 			if _, ok := fr.kata.ws[KataWarmBuild]; ok || !strings.HasSuffix(fr.helperCalls()[len(fr.helperCalls())-1], " rm "+KataWarmBuild) {
 				t.Errorf("the build workspace is left; calls %q", fr.helperCalls())
 			}
