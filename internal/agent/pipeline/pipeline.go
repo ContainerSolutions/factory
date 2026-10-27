@@ -83,10 +83,11 @@ func (a GitAuth) String() string {
 }
 
 // Options configure a Pipeline. Exactly one of WorkRoot and Root is required, and Adapters
-// with Root.
+// with Root. Run needs Root and GitAuthGateway (the VM workspace); PrepareBundle WorkRoot and
+// GitAuthHelper (supervise, on the host).
 type Options struct {
-	// WorkRoot holds the per-task workspaces (workRoot/<taskID>/), each removed after its
-	// run (the host).
+	// WorkRoot holds PrepareBundle's scratch directories (workRoot/.bundle-<taskID>/), each
+	// removed after its bundle is written (the host).
 	WorkRoot string
 	// Root is the exact workspace root, instead of WorkRoot (the VM workspace: /work). It must
 	// be absolute, and empty or absent when a run starts (its parent must exist); the run lays
@@ -148,9 +149,6 @@ type Options struct {
 	Clock clock.Clock
 	// Logger logs the pipeline's steps; never a token. Default: discard.
 	Logger *slog.Logger
-	// KeepWorkspace keeps the workspace after the run (debugging): it is logged, not
-	// removed. The credential socket is removed anyway. A Root is always kept.
-	KeepWorkspace bool
 	// TranscriptLimit caps the gzipped transcript. Default: DefaultTranscriptLimit.
 	TranscriptLimit int64
 	// DefaultWallClock applies when the task has no maxWallClock. Default:
@@ -271,6 +269,9 @@ var (
 
 // Run implements runner.Runner (run-pipeline.md §Steps).
 func (p *Pipeline) Run(ctx context.Context, job *runner.Job, sink runner.Sink) (runner.Outcome, error) {
+	if p.o.Root == "" || p.o.GitAuth != GitAuthGateway {
+		return runner.Outcome{}, errors.New("pipeline: Run runs in a VM workspace: it needs a pipeline with Root and GitAuthGateway")
+	}
 	task := job.Lease.Task
 	id := task.Metadata.ID
 	if !taskIDRE.MatchString(id) || strings.Contains(id, "..") {
@@ -591,9 +592,8 @@ func (r *run) harnessInfo(u v1alpha1.Usage) *v1alpha1.ResultHarness {
 	}
 }
 
-// cleanup always runs: the environment down, the credential socket closed, the
-// workspace removed (run-pipeline.md §Steps 12), except a Root, which is kept for whoever
-// collects out/.
+// cleanup always runs: the environment down (run-pipeline.md §Steps 12). The Root is kept
+// for whoever collects out/, and a gateway-mode run has no credential socket.
 func (r *run) cleanup(parent context.Context) {
 	if r.envUp {
 		// The Environment owns its budget (envrun's DownTimeout, which vmrun shortens after a
@@ -601,22 +601,6 @@ func (r *run) cleanup(parent context.Context) {
 		if err := r.p.o.Environment.Down(context.WithoutCancel(parent)); err != nil {
 			r.log.Warn("environment down failed", "err", r.red.String(err.Error()))
 		}
-	}
-	if r.creds != nil {
-		if err := r.creds.Close(); err != nil {
-			r.log.Warn("closing the credential socket failed", "err", err)
-		}
-		r.creds = nil
-	}
-	if r.ws.Root == "" || r.p.o.Root != "" {
-		return
-	}
-	if r.p.o.KeepWorkspace {
-		r.log.Warn("keeping the workspace (--keep-workspace)", "dir", r.ws.Root)
-		return
-	}
-	if err := removeAll(r.ws.Root); err != nil {
-		r.log.Error("removing the workspace failed", "dir", r.ws.Root, "err", err)
 	}
 }
 

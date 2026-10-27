@@ -51,17 +51,17 @@ PoC: Gustavo's machine (or a small VM) running `factory serve` (built with `make
 ## Agent onboarding (RUN-S2-T01)
 
 1. `go install github.com/compliance-framework/factory/cmd/factory-agent@<ref>`.
-2. Codex: `CODEX_HOME=~/.factory-agent/codex-home codex login --device-auth`. Claude Code (PoC): `CLAUDE_CONFIG_DIR=~/.factory-agent/claude claude` → `/login` once.
-3. Base tooling: `git`, `gh` + `gh extension install` of `gh-pr-review` and `gh-stack`, `jq`, `python3` (no `gh auth login` needed: tasks get `GH_TOKEN`). For `has-local-stack`/`gif-tooling`: Docker, `local-dev` checkout, `npx playwright install chromium`, `brew install gifski vhs ffmpeg`.
-4. Run the worker as a **dedicated OS user** (e.g. `factory-agent`) with **no `gh` login and no personal GitHub credentials** in its home. Place the join token file, write `agent.yaml` (from example), set `lending`.
+2. The model logins the VM workspaces' gateway adds: `claude setup-token`, then `factory-agent login claude` (paste the token); `codex login` on this machine, then `factory-agent login codex`.
+3. Host tooling: `git` (the host fetches the skills for each run bundle) and the workspace driver: `factory-agent host init` (tart on a Mac, kata on Linux). The harnesses, Docker and the docs tools ship in the workspace image; no `gh` login is needed.
+4. Run the agent as a **dedicated OS user** (e.g. `factory-agent`) with **no `gh` login and no personal GitHub credentials** in its home. Place the join token file, write `agent.yaml` (from example), set `lending`.
    `factory-agent register` proves the owner's identity with a GitHub **device flow** (open the URL, enter the code). The short-lived user token is used once for registration and never stored. Tasks only ever get the factory's per-task App tokens.
-5. `factory-agent probe` → check labels; `factory-agent worker` (or a launchd/systemd unit from the kit).
+5. `factory-agent probe` → check the harnesses' logins; `factory-agent supervise` (or a launchd/systemd unit from the kit).
 
 ## Use case 1 runbook
 
 | Step | Action | Expect |
 |---|---|---|
-| 1 | `factory dispatch --event deploy/poc/events/mock-train.json` (dev RuleSet, mock-docs) | `release-docs` task leased by an agent with `has-local-stack`; PR on mock-docs; `docs-review` runs on the **other harness** |
+| 1 | `factory dispatch --event deploy/poc/events/mock-train.json` (dev RuleSet, mock-docs) | `release-docs` task leased by an agent (its local-dev stack comes up in the task's VM); PR on mock-docs; `docs-review` runs on the **other harness** |
 | 2 | Seed a wrong default in a fixture train's docs (or let the review find a real one) | review requests changes citing `DOCS-ACC-001`; `implement address-review` fixes; re-review approves |
 | 3 | Run a real **mock train** in `workflows` (`workflow_dispatch`, manifest `repos.mock.yaml`, not dry run) | train closes `train:done` → dev flow runs end to end on mock-docs |
 | 4 | Restart the dispatcher mid-flow | UI shows the same work item/state after rebuild; flow continues (criterion 6) |
@@ -103,7 +103,7 @@ Enable `poc-docs-human-review` (already in catalog; confirm `docs` App installed
 
 An automated integration test (`make test-credentials`, run in CI against fakes and once on the real PoC setup):
 
-1. Start `factory serve` and one `factory-agent worker` with **canary values** for every secret: App private keys, webhook secret, OAuth client secret, session key, CLI token, pool join token, a fake Anthropic/OpenAI key in the worker's environment, and the device-flow user token.
+1. Start `factory serve` and one `factory-agent supervise` with **canary values** for every secret: App private keys, webhook secret, OAuth client secret, session key, CLI token, pool join token, a fake Anthropic/OpenAI key in the worker's environment, and the device-flow user token.
 2. Route dispatcher ↔ agent and dispatcher ↔ GitHub (fake) traffic through a recording proxy.
 3. Run a fake task that performs effects and produces a transcript, **and** drive a UI login end to end: `/api/v1/auth/login` → fake GitHub authorize → `/api/v1/auth/callback` → token exchange. The proxy records **full request URLs** (query strings included), not just bodies and headers.
 4. Assert that **no canary appears** in:

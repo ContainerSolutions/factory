@@ -80,7 +80,7 @@ func TestAgainstFactoryMock(t *testing.T) {
 	}
 	w := newWorkspace(t, nil)
 	e := effector.New(effector.Options{API: client(t, base), TaskID: taskID, Config: &w.run.cfg, State: filepath.Join(t.TempDir(), "state"),
-		Git: w.gitBin, GH: filepath.Join(t.TempDir(), "no-gh"), Env: w.env})
+		Git: w.gitBin, Env: w.env})
 	w.commit("stack/1", "one.md", "one\n")
 	for _, op := range []string{"push", "stack_push", "stack_rebase"} {
 		out, err := e.Do(context.Background(), op, nil)

@@ -89,7 +89,6 @@ func workspace(t *testing.T, writable bool) harness.Workspace {
 	if err := os.WriteFile(filepath.Join(ws.Bin, "factory"), []byte(shim), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	ws.Hosts = []string{"github.com", "factory.example.dev"}
 	ws.Env = []string{"FACTORY_API=http://127.0.0.1:1", "FACTORY_GIT_CREDENTIAL_SOCKET=/tmp/fxgc-1/s", "FACTORY_RESULT=" + ws.Result, "FACTORY_TOKEN=agent-token-never-on-disk",
 		"GH_TOKEN=ghs_taskTokenNeverOnDisk0123456789", "HOME=" + ws.Home, "PATH=" + ws.Bin + ":" + os.Getenv("PATH"), "TMPDIR=" + ws.Tmp}
 	return ws

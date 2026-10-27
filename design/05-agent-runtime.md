@@ -8,7 +8,7 @@ It has two modes:
 
 | Mode | Used by | What it does |
 |---|---|---|
-| `factory-agent worker` | **Registered pools (PoC)** | Registers with the dispatcher, long-polls for leases, runs tasks one after another, heartbeats, and reports throttling. The protocol is in [10](10-poc.md#agent-lifecycle-and-lease-protocol). |
+| `factory-agent supervise` | **Registered pools (PoC)** | Registers with the dispatcher, long-polls for leases, runs each task in a VM workspace of its own ([workspace-run.md](workstreams/agent/LLD/workspace-run.md)), heartbeats, and reports throttling. (Phase 10 removed the host `worker`.) The protocol is in [10](10-poc.md#agent-lifecycle-and-lease-protocol). |
 | `factory-agent run --task <id>` | Ephemeral pools (later) | Runs exactly one task and exits. It's launched by a pool backend (an Actions job, a pod). |
 
 Both modes share the run pipeline below.
@@ -19,8 +19,8 @@ Both modes share the run pipeline below.
 flowchart TD
     L([leased Task id]) --> F["Fetch Task from the API<br/>verify digest, read resolved<br/>harness config + inputs"]
     F --> W["Prepare workspace<br/>clone workspace.repos (one rw, others ro)<br/>with the per-task scoped git token"]
-    W --> S{"requires<br/>has-local-stack?"}
-    S -- yes --> ST["Bring up local-dev stack<br/>pinned to the task's version"]
+    W --> S{"TaskSpec has an<br/>environment?"}
+    S -- yes --> ST["Bring it up in the VM<br/>(local-dev, pinned to<br/>the task's version)"]
     S -- no --> K
     ST --> K["Materialise skills<br/>pinned ccf-skills commit →<br/>harness-specific layout"]
     K --> P["Render prompt<br/>headless preamble + TaskSpec template<br/>+ inputs + fenced untrusted context"]
@@ -132,6 +132,8 @@ The dispatcher, not the agent, writes the marker comments that tie artefacts to 
 
 ## Local stack and GIF tooling
 
+> **Phase 10:** the stack is the TaskSpec's `environment`, brought up inside the task's VM workspace ([workspace-run.md](workstreams/agent/LLD/workspace-run.md#local-dev-as-an-environment)); every workspace has Docker and the tools, so the `has-local-stack` and `gif-tooling` labels below are history.
+
 TaskSpecs that check claims or record media declare `requires.labels`, and only agents that offer those labels get leased those tasks:
 
 | Label | Agent provides | Used by |
@@ -146,7 +148,7 @@ TaskSpecs that check claims or record media declare `requires.labels`, and only 
 3. Run the task.
 4. Tear the stack down, including volumes.
 
-One stack at a time per agent (`has-local-stack` tasks force concurrency 1 on that agent) to avoid port clashes. GIFs follow `STYLE.md` limits (size, length, resolution) and land under `static/img/<instance>/<line>/` (the docs instance and its minor line; [docs-revamp.md](workstreams/docs-revamp/LLD/docs-revamp.md), [workspace-run.md](workstreams/agent/LLD/workspace-run.md#local-dev-as-an-environment)). The stack itself is pipeline-managed: skills only read it (`factory-agent stack env|wait`).
+Each task's stack runs in its own VM workspace, so stacks never clash and an agent may run several at once. GIFs follow `STYLE.md` limits (size, length, resolution) and land under `static/img/<instance>/<line>/` (the docs instance and its minor line; [docs-revamp.md](workstreams/docs-revamp/LLD/docs-revamp.md), [workspace-run.md](workstreams/agent/LLD/workspace-run.md#local-dev-as-an-environment)). The stack itself is the environment step's: skills only read its URLs (`FACTORY_STACK_URL`, `FACTORY_STACK_API`).
 
 ## Sandbox and workspace
 

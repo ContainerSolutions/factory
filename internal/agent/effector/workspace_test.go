@@ -284,8 +284,9 @@ func TestWorkspaceRuntime(t *testing.T) {
 	}
 }
 
-// TestFromEnvRuntime: FromEnv fails closed on the runtime. FACTORY_RUNTIME is unset (the host)
-// or "workspace"; anything else is a usage error naming the variable and the accepted values.
+// TestFromEnvRuntime: FromEnv fails closed on the runtime. FACTORY_RUNTIME is "workspace";
+// anything else, unset (the host, which phase 10 removed) included, is a usage error naming
+// the variable and the accepted value.
 // The workspace runtime holds no credential, so a FACTORY_TOKEN there is a usage error naming
 // the variable, never its value.
 func TestFromEnvRuntime(t *testing.T) {
@@ -297,11 +298,12 @@ func TestFromEnvRuntime(t *testing.T) {
 		wantErr []string // substrings of the usage error; nil means FromEnv succeeds
 		leak    string   // a value the error must not contain
 	}{
-		{name: "the host", env: map[string]string{}},
-		{name: "the host with a token", env: map[string]string{pipeline.EnvToken: token}},
+		{name: "the host", env: map[string]string{}, wantErr: []string{"$FACTORY_RUNTIME", `"workspace"`}},
+		{name: "the host with a token", env: map[string]string{pipeline.EnvToken: token},
+			wantErr: []string{"$FACTORY_RUNTIME", `"workspace"`}, leak: token},
 		{name: "the workspace", env: map[string]string{pipeline.EnvRuntime: pipeline.RuntimeWorkspace}},
 		{name: "unknown runtime", env: map[string]string{pipeline.EnvRuntime: "worksapce"},
-			wantErr: []string{"$FACTORY_RUNTIME", "unset (the host)", `"workspace"`}, leak: "worksapce"},
+			wantErr: []string{"$FACTORY_RUNTIME", `"workspace"`}, leak: "worksapce"},
 		{name: "explicit host", env: map[string]string{pipeline.EnvRuntime: "host"},
 			wantErr: []string{"$FACTORY_RUNTIME", `"workspace"`}},
 		{name: "wrong case", env: map[string]string{pipeline.EnvRuntime: "Workspace"},

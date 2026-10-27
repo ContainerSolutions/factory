@@ -126,15 +126,11 @@ type Options struct {
 	Result string
 	// Dir is where git ops run: Config.RepoDir, else the working directory.
 	Dir string
-	// Git and GH are the git and gh executables (default "git" and "gh", from PATH).
-	Git, GH string
-	// Env is git's and gh's environment (default os.Environ()): the run's, with the
-	// credential helper's GIT_CONFIG_* variables and GH_TOKEN (in a VM workspace: no helper,
-	// a placeholder GH_TOKEN, and the gateway's proxy and CA variables).
+	// Git is the git executable (default "git", from PATH).
+	Git string
+	// Env is git's environment (default os.Environ()): the VM workspace run's, with no
+	// credential helper, a placeholder GH_TOKEN, and the gateway's proxy and CA variables.
 	Env []string
-	// Runtime is $FACTORY_RUNTIME: "" on the host; pipeline.RuntimeWorkspace makes
-	// `stack push|rebase` always take the git fallback.
-	Runtime string
 	// Attempts per call on network errors (default DefaultAttempts).
 	Attempts int
 	// Sleep waits between attempts (default: a timer, honouring ctx).
@@ -156,9 +152,6 @@ type Effector struct {
 func New(o Options) *Effector {
 	if o.Git == "" {
 		o.Git = "git"
-	}
-	if o.GH == "" {
-		o.GH = "gh"
 	}
 	if o.Attempts <= 0 {
 		o.Attempts = DefaultAttempts
@@ -190,25 +183,22 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// FromEnv builds the Effector of a run from its environment: FACTORY_API, FACTORY_TOKEN,
-// FACTORY_TASK_ID, FACTORY_OUT, FACTORY_RESULT, FACTORY_EFFECTOR and FACTORY_RUNTIME. Without
-// FACTORY_TOKEN (a VM workspace) requests carry no Authorization. A nil client uses a default
-// one, which honours HTTP_PROXY (the workspace's gateway).
+// FromEnv builds the Effector of a run from its environment: FACTORY_API, FACTORY_TASK_ID,
+// FACTORY_OUT, FACTORY_RESULT, FACTORY_EFFECTOR and FACTORY_RUNTIME. Requests carry no
+// Authorization: the gateway adds the run token. A nil client uses a default one, which
+// honours HTTP_PROXY (the workspace's gateway).
 //
-// It fails closed on the runtime: FACTORY_RUNTIME must be unset (the host) or
-// pipeline.RuntimeWorkspace, and the workspace runtime refuses a FACTORY_TOKEN, since it holds
-// no credential. Both are usage errors that name the variable, never its value.
+// It fails closed on the runtime: FACTORY_RUNTIME must be pipeline.RuntimeWorkspace (the
+// host runtime is gone), and a FACTORY_TOKEN is refused, since the workspace holds no
+// credential. Both are usage errors that name the variable, never its value.
 func FromEnv(getenv func(string) string, client *http.Client) (*Effector, error) {
-	o := Options{TaskID: getenv(pipeline.EnvTaskID), Result: getenv(pipeline.EnvResult), Runtime: getenv(pipeline.EnvRuntime)}
-	switch o.Runtime {
-	case "":
-	case pipeline.RuntimeWorkspace:
-		if getenv(pipeline.EnvToken) != "" {
-			return nil, usagef("$%s is set in the workspace runtime ($%s=%s), which holds no credential: the gateway adds the run token",
-				pipeline.EnvToken, pipeline.EnvRuntime, pipeline.RuntimeWorkspace)
-		}
-	default:
-		return nil, usagef("$%s is not a known runtime: it must be unset (the host) or %q", pipeline.EnvRuntime, pipeline.RuntimeWorkspace)
+	o := Options{TaskID: getenv(pipeline.EnvTaskID), Result: getenv(pipeline.EnvResult)}
+	if getenv(pipeline.EnvRuntime) != pipeline.RuntimeWorkspace {
+		return nil, usagef("$%s must be %q: the Effector runs only in a VM workspace", pipeline.EnvRuntime, pipeline.RuntimeWorkspace)
+	}
+	if getenv(pipeline.EnvToken) != "" {
+		return nil, usagef("$%s is set in the workspace runtime ($%s=%s), which holds no credential: the gateway adds the run token",
+			pipeline.EnvToken, pipeline.EnvRuntime, pipeline.RuntimeWorkspace)
 	}
 	if out := getenv(pipeline.EnvOut); out != "" {
 		o.State = filepath.Join(out, StateFile)
@@ -228,15 +218,7 @@ func FromEnv(getenv func(string) string, client *http.Client) (*Effector, error)
 		if client == nil {
 			client = &http.Client{Timeout: requestTimeout}
 		}
-		token := getenv(pipeline.EnvToken)
-		api, err := apiclient.NewClientWithResponses(strings.TrimRight(base, "/")+"/api/v1",
-			apiclient.WithHTTPClient(client),
-			apiclient.WithRequestEditorFn(func(_ context.Context, r *http.Request) error {
-				if token != "" {
-					r.Header.Set("Authorization", "Bearer "+token)
-				}
-				return nil
-			}))
+		api, err := apiclient.NewClientWithResponses(strings.TrimRight(base, "/")+"/api/v1", apiclient.WithHTTPClient(client))
 		if err != nil {
 			return nil, fmt.Errorf("the dispatcher client: %w", err)
 		}

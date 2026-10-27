@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
 // Harness environment variables (run-pipeline.md §Steps 7, the ccf-skills HEADLESS.md
@@ -28,36 +26,26 @@ const (
 	EnvGHToken  = "GH_TOKEN"
 )
 
-// EnvRuntime names the runtime a run's processes are in: unset on the host, RuntimeWorkspace
-// in a VM workspace (workspace-run.md §System setup), where vmrun sets it through Options.Env.
-// The Effector reads it.
+// EnvRuntime names the runtime a run's processes are in: RuntimeWorkspace, a VM workspace
+// (workspace-run.md §System setup), where vmrun sets it through Options.Env. The Effector
+// reads it and refuses any other value.
 const (
 	EnvRuntime       = "FACTORY_RUNTIME"
 	RuntimeWorkspace = "workspace"
 )
 
-// ownerAllowed are the only variables taken from the owner's environment: PATH, LANG, TERM
-// and Docker's (DOCKER_HOST, DOCKER_CONTEXT, …). Everything else (credentials, the owner's
-// git and gh config, proxies) stays out.
+// ownerAllowed are the only variables taken from the process's environment: PATH (the VM
+// harness's PATH comes from it, since Options.Env may not set PATH), LANG and TERM.
+// Everything else (credentials, git and gh config, proxies, DOCKER_CONFIG) comes through
+// Options.Env or stays out.
 var ownerAllowed = []string{"PATH", "LANG", "TERM"}
-
-const ownerAllowedPrefix = "DOCKER_"
 
 // ownerEnv is the owner's environment reduced to the allow-list, as a map (the last value
 // of a repeated key wins).
 func ownerEnv(environ []string) map[string]string {
 	out := map[string]string{}
 	for _, kv := range environ {
-		k, v, ok := strings.Cut(kv, "=")
-		if !ok || k == "" {
-			continue
-		}
-		for _, a := range ownerAllowed {
-			if k == a {
-				out[k] = v
-			}
-		}
-		if strings.HasPrefix(k, ownerAllowedPrefix) {
+		if k, v, ok := strings.Cut(kv, "="); ok && slices.Contains(ownerAllowed, k) {
 			out[k] = v
 		}
 	}
@@ -170,18 +158,8 @@ func (r *run) buildEnv(context.Context) error {
 	env[EnvHarness] = r.adapter.Name()
 	env[EnvTaskID] = r.id
 	env[EnvAPI] = r.job.Dispatcher
-	if r.job.AgentToken != nil {
-		env[EnvToken] = r.job.AgentToken()
-	}
 	env[EnvOut] = r.ws.Out
 	env[EnvResult] = r.ws.Result
-	// gh, ccfr and lib/lisa read GitHub with the task's scoped token; writes go through the
-	// Effector, and the token's scope bounds any bypass.
-	if r.job.Git != nil {
-		if tok := r.job.Git.Get().Token; tok != "" {
-			env[EnvGHToken] = tok
-		}
-	}
 	for k, v := range r.envVars {
 		env[k] = v
 	}
@@ -191,7 +169,6 @@ func (r *run) buildEnv(context.Context) error {
 	}
 	env[EnvEffector] = cfg
 	r.ws.Env = envList(env)
-	r.ws.Hosts = r.hosts()
 	return nil
 }
 
@@ -211,48 +188,6 @@ func (r *run) pluginBins() []string {
 		if st, err := os.Stat(d); err == nil && st.IsDir() {
 			out = append(out, d)
 		}
-	}
-	return out
-}
-
-// hosts are the git host, the dispatcher's host and then the Task's spec.hosts, each once
-// and in that order: a sandboxed harness reaches only these.
-func (r *run) hosts() []string {
-	var out []string
-	add := func(h string) {
-		if h != "" && !slices.Contains(out, h) {
-			out = append(out, h)
-		}
-	}
-	if r.base != nil {
-		add(r.base.Hostname())
-	}
-	if u, err := url.Parse(r.job.Dispatcher); err == nil {
-		add(u.Hostname())
-	}
-	for _, h := range r.taskHosts() {
-		add(h)
-	}
-	return out
-}
-
-// taskHosts are the Task's spec.hosts the agent accepts. The dispatcher validated them when
-// it compiled the Task, but the wire is not trusted: past MaxWorkspaceHosts entries, and
-// any entry ValidateHost refuses, are skipped with a warning, never failing the run.
-func (r *run) taskHosts() []string {
-	hosts := r.task.Spec.Hosts
-	if n := len(hosts); n > v1alpha1.MaxWorkspaceHosts {
-		r.log.Warn("the task lists too many hosts: ignoring the rest",
-			"hosts", n, "max", v1alpha1.MaxWorkspaceHosts)
-		hosts = hosts[:v1alpha1.MaxWorkspaceHosts]
-	}
-	out := make([]string, 0, len(hosts))
-	for _, h := range hosts {
-		if err := v1alpha1.ValidateHost(h); err != nil {
-			r.log.Warn("skipping an invalid task host", "err", err)
-			continue
-		}
-		out = append(out, h)
 	}
 	return out
 }

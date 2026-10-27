@@ -25,8 +25,8 @@ func needsEnvironment(t v1alpha1.Task) bool {
 	return t.Spec.Environment != nil || len(t.Spec.Versions) > 0
 }
 
-// environmentUp is the environment step, for a task that declares one. On the host
-// (Options.Environment nil) it doesn't run the scripts, which are written for a VM (root
+// environmentUp is the environment step, for a task that declares one. Without an
+// Options.Environment (tests) it doesn't run the scripts, which are written for a VM (root
 // through sudo, Docker, ports): it warns, notes it in the transcript, and the run goes on.
 func (r *run) environmentUp(ctx context.Context) error {
 	if r.p.o.Environment == nil {

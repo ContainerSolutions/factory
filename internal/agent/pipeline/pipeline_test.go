@@ -25,9 +25,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/gitcred"
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/harness/fake"
+	"github.com/compliance-framework/factory/internal/agent/internal/fakegateway"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apiclient"
@@ -72,11 +72,16 @@ func (s *syncBuffer) Write(p []byte) (int, error) {
 func (s *syncBuffer) String() string { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }
 
 type fixture struct {
-	t            *testing.T
-	git          *gitServer
-	disp         *dispatcher
-	adapter      *fake.Adapter
+	t       *testing.T
+	git     *gitServer
+	disp    *dispatcher
+	adapter *fake.Adapter
+	// opts are the VM workspace's pipeline (gateway mode, the exact Root root); hostOpts
+	// supervise's, which only builds run bundles (PrepareBundle) under workRoot.
 	opts         pipeline.Options
+	hostOpts     pipeline.Options
+	gw           *fakegateway.Gateway
+	root         string
 	workRoot     string
 	sockets      string // Options.SocketDir: this test's own, so a leftover socket is seen
 	cache        string
@@ -127,22 +132,87 @@ func newFixture(t *testing.T) *fixture {
 	}
 	helper := wrapper(t, f.argvDir, "helper.sh", filepath.Join(f.argvDir, "helper.log"), exe, "fx", "git-credential")
 	gitw := wrapper(t, f.argvDir, "git.sh", filepath.Join(f.argvDir, "git.log"), realGit)
-	f.opts = pipeline.Options{
+	environ := func() []string {
+		return []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8", "TERM=dumb", "DOCKER_HOST=unix:///tmp/docker.sock",
+			"SECRET_THING=owner-secret", "GH_TOKEN=owner-gh-token", "AWS_SECRET_ACCESS_KEY=owner-aws", "HOME=/Users/owner", "GIT_ASKPASS=/bin/owner"}
+	}
+	logger := slog.New(slog.NewTextHandler(f.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	f.hostOpts = pipeline.Options{
 		WorkRoot:      f.workRoot,
-		Adapters:      map[string]harness.Adapter{fake.Name: f.adapter},
 		AgentBinary:   exe,
 		HelperCommand: []string{helper},
 		Git:           gitw,
 		GitBaseURL:    f.git.ts.URL,
 		SkillsCache:   f.cache,
 		SocketDir:     f.sockets,
-		Environ: func() []string {
-			return []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8", "TERM=dumb", "DOCKER_HOST=unix:///tmp/docker.sock",
-				"SECRET_THING=owner-secret", "GH_TOKEN=owner-gh-token", "AWS_SECRET_ACCESS_KEY=owner-aws", "HOME=/Users/owner", "GIT_ASKPASS=/bin/owner"}
-		},
-		Logger: slog.New(slog.NewTextHandler(f.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Environ:       environ,
+		Logger:        logger,
+	}
+	// The VM's git reaches the git server only through the fake gateway, which holds the
+	// tokens; the dispatcher's prompt, schema and transcript are reached through its client
+	// directly (viaAPI), as the run bundle and the host's upload would give them.
+	f.gw = fakegateway.Start(t, fakegateway.Config{GitUpstream: f.git.ts.URL, Repos: map[string]fakegateway.Repo{
+		"acme/docs": {Token: gitSecret, RW: true}, "acme/private-ro": {Token: readSecret}}})
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(ca, f.gw.CA().CertPEM(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.root = filepath.Join(t.TempDir(), "work")
+	api := viaAPI{f.disp.client(t)}
+	f.opts = pipeline.Options{
+		Root:        f.root,
+		GitAuth:     pipeline.GitAuthGateway,
+		Adapters:    map[string]harness.Adapter{fake.Name: f.adapter},
+		AgentBinary: exe,
+		Git:         gitw,
+		SkillsCache: f.cache,
+		Env: map[string]string{"HTTPS_PROXY": f.gw.URL(), "GIT_SSL_CAINFO": ca, "SSL_CERT_FILE": ca,
+			pipeline.EnvGHToken: fakegateway.DefaultPlaceholder, pipeline.EnvRuntime: pipeline.RuntimeWorkspace},
+		Prompts:     api,
+		Schemas:     api,
+		Transcripts: api,
+		Environ:     environ,
+		Logger:      logger,
 	}
 	return f
+}
+
+// viaAPI is the dispatcher's prompt, context, schema and transcript endpoints through the
+// fixture's client, for a VM job that has none: the API sources on a copy of the job with it.
+type viaAPI struct {
+	api *apiclient.ClientWithResponses
+}
+
+func (s viaAPI) with(job *runner.Job) *runner.Job {
+	j := *job
+	j.API = s.api
+	return &j
+}
+
+func (s viaAPI) Prompt(ctx context.Context, job *runner.Job) ([]byte, error) {
+	return pipeline.APIPrompts{}.Prompt(ctx, s.with(job))
+}
+
+func (s viaAPI) Context(ctx context.Context, job *runner.Job, i int) (apiclient.TaskContext, bool, error) {
+	return pipeline.APIPrompts{}.Context(ctx, s.with(job), i)
+}
+
+func (s viaAPI) OutputSchema(ctx context.Context, job *runner.Job) ([]byte, error) {
+	return pipeline.APISchemas{}.OutputSchema(ctx, s.with(job))
+}
+
+func (s viaAPI) Store(ctx context.Context, job *runner.Job, gz []byte) (string, error) {
+	return pipeline.APITranscripts{}.Store(ctx, s.with(job), gz)
+}
+
+// host is supervise's host pipeline (hostOpts), which builds run bundles.
+func (f *fixture) host() *pipeline.Pipeline {
+	f.t.Helper()
+	p, err := pipeline.New(f.hostOpts)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return p
 }
 
 func (f *fixture) pipeline() *pipeline.Pipeline {
@@ -198,14 +268,26 @@ func (f *fixture) job(task v1alpha1.Task, started time.Time) *runner.Job {
 	}
 }
 
-// checkClean: the workspace and the credential socket are gone, and no secret reached the
-// logs or a command line.
+// vmJob is job(task, started) as a VM workspace has it: the same task and credential
+// metadata, with every token empty, no dispatcher client and no agent token.
+func (f *fixture) vmJob(task v1alpha1.Task, started time.Time) *runner.Job {
+	job := f.job(task, started)
+	cred, reads := job.Git.Get(), job.Git.Reads()
+	cred.Token = ""
+	for i := range reads {
+		reads[i].Token = ""
+	}
+	job.Lease.GitCredential, job.Lease.ReadCredentials = cred, reads
+	job.Git = runner.NewCredentials(cred, reads...)
+	job.API, job.AgentToken = nil, nil
+	return job
+}
+
+// checkClean: the credential socket is gone, and no secret reached the logs, a command line
+// or the skills cache. The Root workspace is kept.
 func (f *fixture) checkClean(socket string) {
 	t := f.t
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(f.workRoot, taskID)); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("the workspace is still there: %v", err)
-	}
 	if socket != "" {
 		if _, err := os.Stat(filepath.Dir(socket)); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("the credential socket directory is still there: %v", err)
@@ -294,7 +376,6 @@ func readTranscript(t *testing.T, b []byte) []map[string]any {
 func TestRunSuccess(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	var socket string
 	f.adapter.Script = fake.Script{Turn: fake.Turn{
 		Events: []harness.ProgressEvent{
 			{Kind: harness.KindTurn, Summary: "reading the train"},
@@ -306,16 +387,15 @@ func TestRunSuccess(t *testing.T) {
 		Transcript: []string{
 			`{"type":"item","text":"cloned with ` + gitSecret + `"}`,
 			`not json: curl -H "Authorization: Bearer abc.def" https://api.github.com`,
-			`{"type":"message","text":"agent token ` + agentSecret + ` and ghs_someOtherToken0123456789abc"}`,
+			`{"type":"message","text":"a token ghs_someOtherToken0123456789abc"}`,
 		},
 		Do: func(_ context.Context, ws harness.Workspace, prompt string) error {
-			socket = envMap(ws.Env)[gitcred.EnvSocket]
 			checkWorkspace(t, f, ws, prompt)
 			return nil
 		},
 	}}
 	s := &sink{}
-	out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), s)
+	out, err := f.pipeline().Run(context.Background(), f.vmJob(f.task(), time.Now()), s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,9 +423,10 @@ func TestRunSuccess(t *testing.T) {
 	if ev := s.events(); len(ev) != 3 || ev[1].Kind != harness.KindTool || strings.Contains(ev[1].Message, gitSecret) {
 		t.Errorf("progress %+v", ev)
 	}
+	// The private repos are reached with the gateway's credentials only.
 	for _, repo := range []string{"acme/docs", "acme/private-ro"} {
-		if authed, denied, _ := f.git.counts(repo); authed == 0 || denied == 0 {
-			t.Errorf("private %s saw %d authenticated and %d anonymous requests: the helper wasn't used", repo, authed, denied)
+		if authed, denied, _ := f.git.counts(repo); authed == 0 || denied != 0 {
+			t.Errorf("private %s saw %d authenticated and %d refused requests", repo, authed, denied)
 		}
 	}
 	for _, repo := range []string{"acme/local-dev", "acme/ccf-skills"} {
@@ -353,19 +434,18 @@ func TestRunSuccess(t *testing.T) {
 			t.Errorf("public %s was sent a credential %d times", repo, authed+sent)
 		}
 	}
-	if b, _ := os.ReadFile(filepath.Join(f.argvDir, "helper.log")); !bytes.Contains(b, []byte(" get")) {
-		t.Errorf("the credential helper never ran: %q", b)
+	if _, err := os.Stat(filepath.Join(f.argvDir, "helper.log")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the credential helper ran: %v", err)
 	}
-	f.checkClean(socket)
-	if socket == "" {
-		t.Error("no credential socket in the harness environment")
-	}
+	gw := f.gw
+	gw.AssertNoClientCredential(t)
+	f.checkClean("")
 }
 
 // checkWorkspace runs inside the fake harness: what the pipeline prepared.
 func checkWorkspace(t *testing.T, f *fixture, ws harness.Workspace, prompt string) {
 	t.Helper()
-	root := filepath.Join(f.workRoot, taskID)
+	root := f.root
 	if ws.Root != root || ws.Repo != filepath.Join(root, "repo") || !ws.RepoWritable || ws.WorkDir != ws.Repo {
 		t.Errorf("workspace %+v", ws)
 	}
@@ -402,7 +482,7 @@ func checkWorkspace(t *testing.T, f *fixture, ws harness.Workspace, prompt strin
 			t.Errorf("%s: %v\n%s", c, err, b)
 		}
 	}
-	// The harness's own git uses the helper too: a fetch of the private repo works.
+	// The harness's own git goes through the gateway too: a fetch of the private repo works.
 	cmd := exec.Command("git", "fetch", "--quiet", "origin")
 	cmd.Dir, cmd.Env = ws.Repo, ws.Env
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -462,8 +542,9 @@ func checkWorkspace(t *testing.T, f *fixture, ws harness.Workspace, prompt strin
 	env := envMap(ws.Env)
 	want := map[string]string{
 		"FACTORY_HEADLESS": "1", "FACTORY_HARNESS": fake.Name, "FACTORY_TASK_ID": taskID, "FACTORY_API": f.disp.ts.URL,
-		"FACTORY_TOKEN": agentSecret, "FACTORY_OUT": ws.Out, "FACTORY_RESULT": ws.Result, "GH_TOKEN": gitSecret,
-		"HOME": ws.Home, "TMPDIR": ws.Tmp, "LANG": "C.UTF-8", "TERM": "dumb", "DOCKER_HOST": "unix:///tmp/docker.sock",
+		"FACTORY_OUT": ws.Out, "FACTORY_RESULT": ws.Result, "GH_TOKEN": fakegateway.DefaultPlaceholder,
+		pipeline.EnvRuntime: pipeline.RuntimeWorkspace, "HTTPS_PROXY": f.gw.URL(),
+		"HOME": ws.Home, "TMPDIR": ws.Tmp, "LANG": "C.UTF-8", "TERM": "dumb",
 		"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1", pipeline.EnvEffector: filepath.Join(ws.Root, pipeline.EffectorFile),
 	}
 	for k, v := range want {
@@ -482,10 +563,6 @@ func checkWorkspace(t *testing.T, f *fixture, ws harness.Workspace, prompt strin
 	if !reflect.DeepEqual(ec, wantEC) {
 		t.Errorf("effector config %+v, want %+v", ec, wantEC)
 	}
-	// Hosts: the git host and the dispatcher's, once each (both are the loopback here).
-	if !slices.Equal(ws.Hosts, []string{"127.0.0.1"}) {
-		t.Errorf("hosts %q", ws.Hosts)
-	}
 	// PATH: the factory CLI's directory, then each plugin's bin/ (ccf-docs has none), then the
 	// owner's.
 	wantPath := []string{ws.Bin, filepath.Join(ws.Skills, "ccf-review", "bin")}
@@ -495,20 +572,14 @@ func checkWorkspace(t *testing.T, f *fixture, ws harness.Workspace, prompt strin
 	if want := strings.Join(wantPath, string(filepath.ListSeparator)); env["PATH"] != want {
 		t.Errorf("PATH %q, want %q", env["PATH"], want)
 	}
+	// No credential helper, socket or agent token; nothing else of the owner's (DOCKER_HOST).
 	allowed := map[string]bool{"PATH": true, "XDG_CONFIG_HOME": true, "XDG_CACHE_HOME": true, "GIT_CONFIG_GLOBAL": true,
-		"GCM_INTERACTIVE": true, "GIT_ALLOW_PROTOCOL": true, gitcred.EnvSocket: true, "GIT_CONFIG_COUNT": true}
+		"GCM_INTERACTIVE": true, "GIT_ALLOW_PROTOCOL": true, "GIT_SSL_CAINFO": true, "SSL_CERT_FILE": true}
 	for k := range env {
-		if _, ok := want[k]; ok || allowed[k] || strings.HasPrefix(k, "GIT_CONFIG_KEY_") || strings.HasPrefix(k, "GIT_CONFIG_VALUE_") {
+		if _, ok := want[k]; ok || allowed[k] {
 			continue
 		}
 		t.Errorf("unexpected variable in the harness environment: %s", k)
-	}
-	// The agent's own git keeps the repo's hooks (it runs in the sandbox): gitsafe's pairs
-	// are the worker's only.
-	for k, v := range env {
-		if strings.HasPrefix(k, "GIT_CONFIG_KEY_") && (v == "core.hooksPath" || v == "core.fsmonitor") {
-			t.Errorf("the harness environment sets %s", v)
-		}
 	}
 	if st, err := os.Stat(filepath.Join(ws.Bin, "factory")); err != nil || st.Mode()&0o100 == 0 {
 		t.Errorf("the factory CLI: %v %v", st, err)
@@ -522,7 +593,7 @@ func TestRunSchemaRepair(t *testing.T) {
 		Turn:    fake.Turn{Result: []byte(invalidResult), Transcript: []string{`{"type":"run"}`}},
 		Repairs: []fake.Turn{{Result: []byte(validResult), Transcript: []string{`{"type":"repair"}`}}},
 	}
-	out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+	out, err := f.pipeline().Run(context.Background(), f.vmJob(f.task(), time.Now()), &sink{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +628,7 @@ func TestRunInvalidTwice(t *testing.T) {
 		Turn:    fake.Turn{Result: []byte(invalidResult)},
 		Repairs: []fake.Turn{{Output: []byte(`{"status": "finished"}`)}},
 	}
-	out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+	out, err := f.pipeline().Run(context.Background(), f.vmJob(f.task(), time.Now()), &sink{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -595,7 +666,7 @@ func TestRunSpecSchemaRepair(t *testing.T) {
 		Turn:    fake.Turn{Result: []byte(specInvalidResult), Do: schemaSeen(&seen)},
 		Repairs: []fake.Turn{{Result: []byte(validResult)}},
 	}
-	out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+	out, err := f.pipeline().Run(context.Background(), f.vmJob(f.task(), time.Now()), &sink{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +698,7 @@ func TestRunNoOutputSchema(t *testing.T) {
 	f.disp.schema = ""
 	var seen []byte
 	f.adapter.Script = fake.Script{Turn: fake.Turn{Result: []byte(specInvalidResult), Do: schemaSeen(&seen)}}
-	out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+	out, err := f.pipeline().Run(context.Background(), f.vmJob(f.task(), time.Now()), &sink{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -651,7 +722,7 @@ func TestRunOutputSchemaUnavailable(t *testing.T) {
 	for _, status := range []int{http.StatusForbidden, http.StatusInternalServerError} {
 		f := newFixture(t)
 		f.disp.schemaStatus = status
-		out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+		out, err := f.pipeline().Run(context.Background(), f.vmJob(f.task(), time.Now()), &sink{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -682,7 +753,7 @@ func TestRunWallClockLimit(t *testing.T) {
 	}}
 	done := make(chan runner.Outcome, 1)
 	go func() {
-		out, err := f.pipeline().Run(context.Background(), f.job(f.task(), clk.Now()), &sink{})
+		out, err := f.pipeline().Run(context.Background(), f.vmJob(f.task(), clk.Now()), &sink{})
 		if err != nil {
 			t.Error(err)
 		}
@@ -716,7 +787,7 @@ func TestRunTurnLimit(t *testing.T) {
 	task.Spec.Limits = &v1alpha1.Limits{MaxTurns: 2}
 	turn := harness.ProgressEvent{Kind: harness.KindTurn, Summary: "turn"}
 	f.adapter.Script = fake.Script{Turn: fake.Turn{Events: []harness.ProgressEvent{turn, turn, turn, turn}, Block: true}}
-	out, err := f.pipeline().Run(context.Background(), f.job(task, time.Now()), &sink{})
+	out, err := f.pipeline().Run(context.Background(), f.vmJob(task, time.Now()), &sink{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -730,7 +801,7 @@ func TestRunAdapterLimit(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	f.adapter.Script = fake.Script{Turn: fake.Turn{Err: &harness.LimitError{Limit: harness.LimitCost, Detail: "budget"}}}
-	out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+	out, err := f.pipeline().Run(context.Background(), f.vmJob(f.task(), time.Now()), &sink{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -747,7 +818,7 @@ func TestRunRateLimited(t *testing.T) {
 		Events:         []harness.ProgressEvent{{Kind: harness.KindTurn}, {Kind: harness.KindTurn}},
 		RateLimitAfter: 1, RateLimitUntil: until,
 	}}
-	out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+	out, err := f.pipeline().Run(context.Background(), f.vmJob(f.task(), time.Now()), &sink{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -762,7 +833,7 @@ func TestRunCloneFailure(t *testing.T) {
 	f := newFixture(t)
 	task := f.task()
 	task.Spec.Context[1].Ref = "acme/missing@main"
-	cred := f.job(task, time.Now())
+	cred := f.vmJob(task, time.Now())
 	g := cred.Git.Get()
 	g.Repo = "acme/missing"
 	cred.Git.Set(g)
@@ -782,33 +853,6 @@ func TestRunCloneFailure(t *testing.T) {
 	f.checkClean("")
 }
 
-func TestRunCleanupOnHarnessError(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	f.adapter.Script = fake.Script{Turn: fake.Turn{
-		Do: func(_ context.Context, ws harness.Workspace, _ string) error {
-			// A read-only directory (a Go module cache) mustn't stop cleanup.
-			d := filepath.Join(ws.Home, "go", "pkg", "mod", "x@v1")
-			if err := os.MkdirAll(d, 0o700); err != nil {
-				return err
-			}
-			if err := os.WriteFile(filepath.Join(d, "f.go"), []byte("package x"), 0o400); err != nil {
-				return err
-			}
-			return os.Chmod(d, 0o500)
-		},
-		Err: errors.New("the harness crashed"),
-	}}
-	out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.Status != runner.StatusFailed || out.Reason != runner.ReasonHarnessError || !strings.Contains(out.Result.Summary, "crashed") {
-		t.Fatalf("outcome %+v %+v", out, out.Result)
-	}
-	f.checkClean("")
-}
-
 func TestRunCancelled(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -817,7 +861,7 @@ func TestRunCancelled(t *testing.T) {
 		Do:    func(context.Context, harness.Workspace, string) error { cancel(); return nil },
 		Block: true,
 	}}
-	out, err := f.pipeline().Run(ctx, f.job(f.task(), time.Now()), &sink{})
+	out, err := f.pipeline().Run(ctx, f.vmJob(f.task(), time.Now()), &sink{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -825,20 +869,6 @@ func TestRunCancelled(t *testing.T) {
 		t.Fatalf("outcome %+v %+v", out, out.Result)
 	}
 	f.checkClean("")
-}
-
-func TestRunKeepWorkspace(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	f.opts.KeepWorkspace = true
-	f.adapter.Script = fake.Script{Turn: fake.Turn{Result: []byte(validResult)}}
-	if _, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(f.workRoot, taskID, "repo", "README.md")); err != nil {
-		t.Errorf("--keep-workspace removed the workspace: %v", err)
-	}
-	scanForSecrets(t, filepath.Join(f.workRoot, taskID))
 }
 
 func TestRunCheckoutPR(t *testing.T) {
@@ -849,7 +879,7 @@ func TestRunCheckoutPR(t *testing.T) {
 	task := f.task()
 	task.Spec.Context = []v1alpha1.ContextItem{{Kind: "pr", Provider: "github-public", Ref: "acme/docs#12", Trust: "untrusted"}}
 	task.Spec.Skills = nil
-	job := f.job(task, time.Now())
+	job := f.vmJob(task, time.Now())
 	g := job.Git.Get()
 	g.Permissions = map[string]string{"contents": "read", "pull_requests": "write"}
 	job.Git.Set(g)
@@ -899,7 +929,7 @@ func TestRunOnStepRedacted(t *testing.T) {
 			t.Errorf("step %s: %v", name, err)
 		}
 	}
-	out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+	out, err := f.pipeline().Run(context.Background(), f.vmJob(f.task(), time.Now()), &sink{})
 	if err != nil || out.Status != runner.StatusFailed || out.Reason != runner.ReasonHarnessError {
 		t.Fatalf("outcome %+v %v", out, err)
 	}
@@ -972,7 +1002,7 @@ func TestRunHooks(t *testing.T) {
 			}
 			var finished *runner.Outcome
 			f.opts.Finished = func(out runner.Outcome) {
-				if _, err := os.Stat(filepath.Join(f.workRoot, taskID)); err != nil {
+				if _, err := os.Stat(f.root); err != nil {
 					t.Errorf("the workspace is gone before Finished: %v", err)
 				}
 				if finished != nil {
@@ -986,7 +1016,7 @@ func TestRunHooks(t *testing.T) {
 			if tt.mutate != nil {
 				tt.mutate(&task)
 			}
-			out, err := f.pipeline().Run(context.Background(), f.job(task, time.Now()), &sink{})
+			out, err := f.pipeline().Run(context.Background(), f.vmJob(task, time.Now()), &sink{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1023,7 +1053,8 @@ func TestRunRefusals(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			task := f.task()
 			tt.mutate(&task, f.disp)
-			out, err := f.pipeline().Run(context.Background(), f.job(task, time.Now()), &sink{})
+			f.opts.Root = filepath.Join(t.TempDir(), "work") // a VM's root holds one run
+			out, err := f.pipeline().Run(context.Background(), f.vmJob(task, time.Now()), &sink{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1035,11 +1066,12 @@ func TestRunRefusals(t *testing.T) {
 	}
 }
 
-func TestRunConcurrentSkillsCache(t *testing.T) {
+// Concurrent run bundles of one host pipeline (supervise's, at concurrency > 1) share the
+// skills cache: one entry, fetched once.
+func TestConcurrentSkillsCache(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	f.adapter.Script = fake.Script{Turn: fake.Turn{Result: []byte(validResult)}}
-	p := f.pipeline()
+	p := f.host()
 	var wg sync.WaitGroup
 	for i := range 3 {
 		wg.Add(1)
@@ -1047,9 +1079,8 @@ func TestRunConcurrentSkillsCache(t *testing.T) {
 			defer wg.Done()
 			task := f.task()
 			task.Metadata.ID = taskID + "-" + string(rune('a'+i))
-			out, err := p.Run(context.Background(), f.job(task, time.Now()), &sink{})
-			if err != nil || out.Status != runner.StatusDone {
-				t.Errorf("run %d: %+v %v", i, out, err)
+			if err := p.PrepareBundle(context.Background(), f.job(task, time.Now()), filepath.Join(t.TempDir(), "bundle"), pipeline.BundleExtras{}); err != nil {
+				t.Errorf("bundle %d: %v", i, err)
 			}
 		}()
 	}
@@ -1072,46 +1103,4 @@ func TestNewOptions(t *testing.T) {
 	if _, err := pipeline.New(pipeline.Options{WorkRoot: "/abs"}); err != nil {
 		t.Errorf("New(WorkRoot without adapters) = %v", err)
 	}
-}
-
-// A heartbeat's refreshed read-only credentials reach the helper at once: once the private
-// read repo only takes the new token, the old one fails and, after the swap, the harness's
-// git fetches with the new one.
-func TestRunReadCredentialRefresh(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	job := f.job(f.task(), time.Now())
-	fetch := func(ws harness.Workspace) error {
-		cmd := exec.Command("git", "fetch", "--quiet", "origin")
-		cmd.Dir, cmd.Env = filepath.Join(ws.Root, "ro", "private-ro"), ws.Env
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return errors.New(err.Error() + ": " + string(out))
-		}
-		return nil
-	}
-	f.adapter.Script = fake.Script{Turn: fake.Turn{
-		Do: func(_ context.Context, ws harness.Workspace, _ string) error {
-			f.git.setToken("acme/private-ro", readSecret2)
-			if err := fetch(ws); err == nil {
-				t.Error("the old read token still fetches")
-			}
-			reads := job.Git.Reads()
-			reads[0].Token = readSecret2
-			job.Git.SetReads(reads)
-			if err := fetch(ws); err != nil {
-				t.Errorf("fetch with the refreshed read token: %v", err)
-			}
-			scanForSecrets(t, ws.Root)
-			return nil
-		},
-		Result:     []byte(validResult),
-		Transcript: []string{`{"text":"read with ` + readSecret + ` then ` + readSecret2 + `"}`},
-	}}
-	out, err := f.pipeline().Run(context.Background(), job, &sink{})
-	if err != nil || out.Status != runner.StatusDone {
-		t.Fatalf("outcome %+v %+v %v", out, out.Result, err)
-	}
-	readTranscript(t, f.disp.uploaded()[0]) // fails on any token, the refreshed one included
-	f.checkClean("")
 }

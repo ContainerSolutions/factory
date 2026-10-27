@@ -703,13 +703,13 @@ The PoC uses only registered agents. **In the PoC itself, both harnesses run on 
 sequenceDiagram
     autonumber
     actor O as Agent owner
-    participant W as factory-agent worker<br/>(owner's machine)
+    participant W as factory-agent supervise<br/>(owner's machine; a VM per task)
     participant H as Harness CLI<br/>(codex: owner plan login ·<br/>claude: API key)
     participant D as Dispatcher API
     participant GH as github-public
 
     O->>H: codex login once (dedicated CODEX_HOME), or set API key for claude
-    O->>W: factory-agent worker --pool maintainer-agents
+    O->>W: factory-agent supervise
     W->>D: authenticate owner (GitHub device flow) + join token
     W->>H: probe: versions, auth mode, configured models / efforts
     W->>D: register {owner, capabilities, lending}

@@ -106,7 +106,7 @@ flowchart TB
 | `WorkItem` | DB | work-item controller | Links provider objects; state keys; projection |
 | `Task` | DB | scheduler → pool controller | One instance of a task spec for a work item (immutable spec, mutable status) |
 | `Run` | DB | run controller | One execution attempt: agent, progress, usage, result |
-| `Agent` | DB | pool controller | A registered worker: owner, capabilities (harnesses, auth mode, models, efforts), consent, heartbeat, throttling. Or an ephemeral agent's handle. |
+| `Agent` | DB | pool controller | A registered agent (`factory-agent supervise`): owner, capabilities (harnesses, auth mode, models, efforts), consent, heartbeat, throttling. Or an ephemeral agent's handle. |
 | `Effect` | DB | API (applied synchronously) | Audit record of every change made on a provider |
 | `BudgetCounter` | DB | scheduler | Daily usage per queue, RuleSet and global scope (runs, tokens, USD) |
 
@@ -210,7 +210,7 @@ flowchart LR
     RC -- "set / notify / cancel" --> WI[("WorkItem")]
     T --> SC{"scheduler<br/>queue: triage<br/>concurrency 3"}
     SC -- "queue triage →<br/>pool maintainer-agents" --> PL{"pool controller"}
-    PL -- "registered (PoC): lease to a<br/>capable, consenting agent" --> AG["Registered agent<br/>factory-agent worker on a<br/>maintainer machine"]
+    PL -- "registered (PoC): lease to a<br/>capable, consenting agent" --> AG["Registered agent<br/>factory-agent supervise on a<br/>maintainer machine (a VM per task)"]
     PL -. "ephemeral (later): Launch()" .-> EA["Ephemeral agent<br/>Actions VM / pod"]
     AG --> RN["Run<br/>progress, effects, usage"]
     RN -- "Result" --> RNC{"run controller"}
@@ -371,4 +371,4 @@ All dispatcher components (API, DB, queue, controllers and the UI's static asset
 | **B. Durable** *(future, not planned)* | Same | Postgres behind `Store` (queue on SKIP LOCKED); history survives; HA possible | + ephemeral pools (`actions-ephemeral`, API-key auth) for capacity that doesn't depend on someone's machine | More repos, budgets and reporting |
 | **C. Scale** *(future, not planned)* | HA | Postgres, or config kinds as CRDs on a cluster | k8s / Agent Sandbox ephemeral pools with warm pools; optional kagent / agent-orca backends | Volume or cost demands it |
 
-For local development, the same binary runs on a laptop: Slack via Socket Mode, GitHub webhooks via smee or `gh webhook forward`, and the developer's own `factory-agent worker` registers as the only agent.
+For local development, the same binary runs on a laptop: Slack via Socket Mode, GitHub webhooks via smee or `gh webhook forward`, and the developer's own `factory-agent supervise` registers as the only agent.

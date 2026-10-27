@@ -36,7 +36,7 @@ const testCA = "-----BEGIN CERTIFICATE-----\nZmFrZS1nYXRld2F5LWNh\n-----END CERT
 func (f *fixture) prepare(job *runner.Job, x pipeline.BundleExtras) (string, *runbundle.Bundle) {
 	f.t.Helper()
 	dir := filepath.Join(f.t.TempDir(), "bundle")
-	if err := f.pipeline().PrepareBundle(context.Background(), job, dir, x); err != nil {
+	if err := f.host().PrepareBundle(context.Background(), job, dir, x); err != nil {
 		f.t.Fatalf("PrepareBundle: %v", err)
 	}
 	b, err := runbundle.Read(dir)
@@ -211,7 +211,7 @@ func TestPrepareBundleRefusals(t *testing.T) {
 				"leaky/skills/leak/SKILL.md":       "---\nname: leak\n---\ntoken " + readSecret + "\n",
 			}, nil)
 			job.Lease.Task.Spec.Skills = []v1alpha1.SkillRef{{Source: f.git.ts.URL + "/acme/leaky-skills", Commit: commit, Use: []string{"leak"}}}
-			f.opts.SkillsCache = "" // the source repo holds the token; without a cache it is fetched into the scratch dir
+			f.hostOpts.SkillsCache = "" // the source repo holds the token; without a cache it is fetched into the scratch dir
 		}, "bundle: skills/leaky/skills/leak/SKILL.md holds one of the job's credentials"},
 		{"the job's token in the task id", func(_ *testing.T, _ *fixture, job *runner.Job, _ *pipeline.BundleExtras, _ string) {
 			job.Lease.Task.Metadata.ID = "x/" + gitSecret
@@ -229,7 +229,7 @@ func TestPrepareBundleRefusals(t *testing.T) {
 			x := pipeline.BundleExtras{CA: []byte(testCA)}
 			dir := filepath.Join(t.TempDir(), "bundle")
 			tt.setup(t, f, job, &x, dir)
-			err := f.pipeline().PrepareBundle(context.Background(), job, dir, x)
+			err := f.host().PrepareBundle(context.Background(), job, dir, x)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("PrepareBundle: %v, want %q", err, tt.want)
 			}
@@ -323,7 +323,7 @@ func TestBundleRunMatchesAPIRun(t *testing.T) {
 			f.disp.gone[0] = tt.gone
 			var api, bundled seen
 			f.adapter.Script = fake.Script{Turn: fake.Turn{Result: []byte(validResult), Do: api.capture(t)}}
-			out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+			out, err := f.pipeline().Run(context.Background(), f.vmJob(f.task(), time.Now()), &sink{})
 			if err != nil || out.Status != runner.StatusDone {
 				t.Fatalf("API run: %+v %v", out, err)
 			}
@@ -336,10 +336,10 @@ func TestBundleRunMatchesAPIRun(t *testing.T) {
 			// Without the cache, a run that fetched its skills would ask the git server for them.
 			f.opts.SkillsCache = ""
 			skillsReqs := f.git.requests("acme/ccf-skills")
+			f.opts.Transcripts = &recordTranscripts{}
+			f.opts.Root = filepath.Join(t.TempDir(), "work") // a VM's root holds one run
 			f.adapter.Script = fake.Script{Turn: fake.Turn{Result: []byte(validResult), Do: bundled.capture(t)}}
-			job := f.job(f.task(), time.Now())
-			job.API = nil
-			out, err = f.pipeline().Run(context.Background(), job, &sink{})
+			out, err = f.pipeline().Run(context.Background(), f.vmJob(f.task(), time.Now()), &sink{})
 			if err != nil || out.Status != runner.StatusDone || out.TranscriptRef != "" {
 				t.Fatalf("bundle run: %+v %v", out, err)
 			}
@@ -374,14 +374,14 @@ func TestPrepareBundleCancelled(t *testing.T) {
 	_, b := f.prepare(f.job(f.task(), time.Now()), pipeline.BundleExtras{})
 	// Sources that don't look at ctx, and no skills to fetch, so only the check before
 	// runbundle.Write can see the cancellation.
-	f.opts.Prompts = pipeline.BundlePrompts{B: b}
-	f.opts.Schemas = pipeline.BundleSchemas{B: b}
+	f.hostOpts.Prompts = pipeline.BundlePrompts{B: b}
+	f.hostOpts.Schemas = pipeline.BundleSchemas{B: b}
 	job := f.job(f.task(), time.Now())
 	job.Lease.Task.Spec.Skills = nil
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	dir := filepath.Join(t.TempDir(), "bundle")
-	err := f.pipeline().PrepareBundle(ctx, job, dir, pipeline.BundleExtras{})
+	err := f.host().PrepareBundle(ctx, job, dir, pipeline.BundleExtras{})
 	if !errors.Is(err, context.Canceled) || !strings.HasPrefix(err.Error(), "bundle: ") {
 		t.Fatalf("PrepareBundle: %v, want bundle: context canceled", err)
 	}
@@ -471,12 +471,12 @@ func TestRunFetchSkillsOption(t *testing.T) {
 			f := newFixture(t)
 			f.opts.Skills = src
 			f.adapter.Script = fake.Script{Turn: fake.Turn{Result: []byte(validResult)}}
-			out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+			out, err := f.pipeline().Run(context.Background(), f.vmJob(f.task(), time.Now()), &sink{})
 			if err != nil || out.Status != runner.StatusDone {
 				t.Fatalf("%+v %v", out, err)
 			}
 			ws := f.adapter.Prepared()
-			if len(ws) != 1 || len(ws[0].SkillList) != 2 || ws[0].Skills != filepath.Join(f.workRoot, taskID, "skills") {
+			if len(ws) != 1 || len(ws[0].SkillList) != 2 || ws[0].Skills != filepath.Join(f.root, "skills") {
 				t.Errorf("workspaces %+v", ws)
 			}
 		})

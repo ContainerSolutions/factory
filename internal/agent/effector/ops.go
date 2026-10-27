@@ -290,21 +290,21 @@ var ops = []*Op{
 	},
 	{
 		Words: []string{"stack", "push"}, Effects: []v1alpha1.EffectOp{v1alpha1.OpStackPush},
-		Help: "Push every branch of the current stack (gh stack push, or git when the repo has no gh-stack stack), and record it (stack.push).",
+		Help: "Push every branch of the current stack with git (an atomic --force-with-lease push), and record it (stack.push).",
 		Params: []Param{
 			{Name: "base", Help: "the stack's trunk (default: origin's default branch)"},
-			{Name: "branches", Kind: List, Help: "the stack's branches, bottom first (git only; default: the local branches between origin/<base> and HEAD)"},
-			{Name: "git", Kind: Bool, Help: "use git even when gh stack is available"},
+			{Name: "branches", Kind: List, Help: "the stack's branches, bottom first (default: the local branches between origin/<base> and HEAD)"},
+			{Name: "git", Kind: Bool, Help: "accepted and ignored: git always runs the stack ops"},
 			pKey,
 		},
 		run: runStackPush,
 	},
 	{
 		Words: []string{"stack", "rebase"}, Effects: []v1alpha1.EffectOp{v1alpha1.OpStackRebase},
-		Help: "Rebase the current stack on its trunk (gh stack rebase, or git rebase --update-refs from the top branch), and record it (stack.rebase).",
+		Help: "Rebase the current stack on its trunk (git rebase --update-refs from the top branch), and record it (stack.rebase).",
 		Params: []Param{
 			{Name: "base", Help: "the stack's trunk (default: origin's default branch)"},
-			{Name: "git", Kind: Bool, Help: "use git even when gh stack is available"},
+			{Name: "git", Kind: Bool, Help: "accepted and ignored: git always runs the stack ops"},
 			pKey,
 		},
 		run: runStackRebase,
