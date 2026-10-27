@@ -48,7 +48,7 @@ transactions, no change feed and no order across objects.
   factory, not for a high-volume service.
 - Each instance holds the whole state in memory, as today. Reads may lag other instances by the
   sync interval; writes never act on stale state.
-- Requests cost money: about $1 a month at most at our load (docs and workflows), above GCS's
+- Requests cost money: about $1 a month at our load (docs and workflows), above GCS's
   always-free operations.
 - Old log entries may be deleted only under a time rule (covered by a snapshot and older than
   7 days, with writers reloading after an hour's lag). Bucket lifecycle rules must not touch
