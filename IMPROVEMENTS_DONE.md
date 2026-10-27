@@ -139,6 +139,37 @@ Merged before the phase 9 follow-ups started, because both touch `cmd/factory-ag
 - **ccf-skills#25 (`v0.10.0`):** HEADLESS.md rule 9, and docs-release runs `yarn install
   --frozen-lockfile` before building.
 
+## P1 phase 9 follow-ups, stack 3 (2026-10-27)
+
+Fixes a–h from the kata track, one stack as `ccf-lisa[bot]`, reviewed with ccf-review, merged
+by Gustavo:
+- **#197 (a):** the runner's gateway listens on `workspace.gatewayPort`, the port the pf anchor
+  and the nft table open, not a hard-coded 3128.
+- **#199 (b):** tart sizes its VMs from `workspace.size`, as kata does.
+- **#200 (c):** SIGHUP re-reads physical memory for the kata concurrency cap, keeping the last
+  good value when the read fails.
+- **#202 (d):** an interrupted `host init` stops the helper: a cancelled `sudo -n` gets SIGTERM,
+  which sudo relays even from factory-agent's own process group, then SIGKILL after 30 s. The
+  helper handles signals for every verb and kills nerdctl's group; image builds take a flock and
+  sweep stale contexts. Helper protocol 7.
+- **#204 (e):** a declined privileges prompt skips `kataimage` and `katawarm` with a warning and
+  records nothing, so the next `host init` asks again.
+- **#205 (f):** the warm build saves each kind image single-platform
+  (`docker save --platform linux/<arch>`) and makes the archive 0644. Test T4 found it: the
+  digest-to-tag step worked, but kind's `ctr import` needs every manifest an index names, and
+  `up` runs as `admin`. T4 passed again with the fix.
+- **#206 (h):** test T5 passed on its first run, and `make e2e-run-container` runs in CI as an
+  advisory job ("e2e container (advisory)"). It stays advisory: it runs the in-VM binary in a
+  container, which can't prove tart or kata.
+- **#207, #208 (g):** a TaskSpec's `limits.cpus`/`limits.memory` size its workspace, hard-capped
+  at the agent's `workspace.size` (a larger request is capped with a warning). By design there's
+  no budget beyond `workspace.size`: a task that needs more runs on an agent whose
+  `workspace.size` is that big.
+
+Decided not to do: a build-recipe version in the warm records (`katawarm.json`,
+`warmbase.json`). A warm disk built before #205 keeps its old archives until its record is
+deleted, which is fine while Gustavo is the only user.
+
 ## Other items closed
 
 - **C. Anti-affinity:** kept, but only for the same harness, with a configurable wait (#137).

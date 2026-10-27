@@ -17,7 +17,7 @@ Three PR stacks, in this order:
 |---|---|---|---|
 | **1. Common phase 10** | the Mac session | The phase 10 work that touches files the phase 9 follow-ups also touch: **(1)** remove `worker` and `--runtime host` from `cmd/factory-agent` (supervise is the only runtime); **(2)** remove the `localDev` and label config from `internal/agent/config`; **(3)** the LLD renames (worker → supervise, run-pipeline, harness-adapters, local-stack → environment). Plus **(4)** lifting the "never install" rule and the `not-run` stopgap (#85) in the prompts: not shared code, but test T2 needs it. | **merged 2026-10-26** (#192–#195, ccf-skills#25; IMPROVEMENTS_DONE.md) |
 | **2. Remaining phase 10** | the Mac session | Everything else in "2. P1 phase 10: removal" below. | **approved, waiting to merge:** #198 → #201 → #203 → #209 (stack #210) |
-| **3. Phase 9 follow-ups** | **the Linux box** | Fixes a–h and tests T1–T6 in "1. Phase 9 follow-ups" below. | **now:** stack 1 is merged (`git log origin/main` has #192–#195) |
+| **3. Phase 9 follow-ups** | **the Linux box** | Fixes a–h and tests T1–T6 in "1. Phase 9 follow-ups" below. | **merged 2026-10-27** (#197–#208; IMPROVEMENTS_DONE.md). Stack 4 closes what it left (below). |
 
 Notes for the Linux box agent:
 - **Read AGENTS.md first.** Use lisa as `ccf-lisa[bot]`, review with ccf-review, and keep one
@@ -30,7 +30,7 @@ Notes for the Linux box agent:
 - **The tart-only parts can't be verified on Linux.** That's fix b and fix a's pf-anchor half.
   Write them against the existing fake tart, and leave the real check to Gustavo on the Mac
   (say so in the PR body).
-- **T1 and T3 run on either machine.** T2 can run now: stack 1 lifted "never install". T4, T5 and T6
+- **T1 and T3 run on either machine.** T2 runs after stack 2. T6
   are Linux only.
 - **When an item ships,** record it in IMPROVEMENTS_DONE.md with its PR numbers, and remove it
   here.
@@ -43,59 +43,33 @@ Nits deferred), CI green, pushed as `ccf-lisa[bot]`. Merge bottom-up: #198 → #
 What it leaves is under "2. P1 phase 10: removal" below. It overlaps stack 3 only in
 `internal/agent/workspace` tests and `vmrun`; whichever merges second rebases.
 
-Stack 3 status (2026-10-27): **all 9 PRs open and reviewed with ccf-review, waiting for Gustavo's approval:** #197, #199, #200, #202, #204, #205, #206, #207, #208 (one Should-fix on #207, fixed in #208). Each PR body lists what only a real host can check. One stack on main,
-`fx/p9f-<n>-<slug>`, as `ccf-lisa[bot]`:
+Stack 3 status (2026-10-27): **merged** (#197–#208, in IMPROVEMENTS_DONE.md with T4 and T5's
+results).
 
-| PR | Branch | Fix |
+Stack 4 status (2026-10-27): **in progress.** It closes everything stack 3 deferred, as
+Gustavo decided on 2026-10-27. Six PRs on main as `ccf-lisa[bot]`, independent of each other,
+each reviewed with ccf-review:
+
+| PR | Branch | What |
 |---|---|---|
-| 1 (#197) | `fx/p9f-1-gateway-port` | a: `RunnerOptions.GatewayPort` from `workspace.gatewayPort` |
-| 2 (#199) | `fx/p9f-2-tart-size` | b: tart's `Spec` from `workspace.size` (real check on the Mac) |
-| 3 (#200) | `fx/p9f-3-sighup-memory` | c: SIGHUP re-reads `/proc/meminfo` and recomputes the cap |
-| 4 (#202) | `fx/p9f-4-sudo-signals` | d: a cancelled `sudo -n` gets SIGTERM, then SIGKILL after a grace (sudo relays SIGTERM even from its own process group, so it stays there); the helper handles signals for every verb and kills nerdctl's group; stale build contexts swept; a host-side bound on `image-build` |
-| 5 (#204) | `fx/p9f-5-declined-privileges` | e: kataimage/katawarm skipped with a warning; asked again on the next init |
-| 6 (#205) | `fx/p9f-6-kind-archives` | f: T4 failed (below): the warm build saves each kind image with `docker save --platform linux/<arch>` and makes the archive readable (0644), on kata and tart |
-| 7 (#206) | `fx/p9f-7-e2e-container` | h: T5 passed (below); add it to CI as a job that isn't required |
-| 8 (#207) | `fx/p9f-8-limits-size` | g, contract: `Limits.cpus` and `Limits.memory` |
-| 9 (#208) | `fx/p9f-9-task-size` | g: the runner sizes each VM from the task's limits, capped at `workspace.size` with a warning |
+| 1 | `fx/p9c-1-sudo-sigterm` | every sudo factory-agent runs (the kata driver's helper calls in supervise, host init's root script, `vmrun`) gets SIGTERM before SIGKILL, as #202 did for host init's helper calls |
+| 2 | `fx/p9c-2-helper-required` | `host init` fails up front, changing nothing, when a selected step needs the kata helper and `privileges` isn't ok and isn't selected (`--only kataimage`) |
+| 3 | `fx/p9c-3-workspace-hostname` | a workspace's hostname resolves: no "sudo: unable to resolve host ws-tsk…" |
+| 4 | `fx/p9c-4-harness-etxtbsy` | the claudecode/codex fake scripts are written under `syscall.ForkLock`, as pipeline's are: no more "text file busy" |
+| 5 | `fx/p9c-5-limits-docs` | contract docs: `limits.cpus`/`limits.memory` are hard-capped at `workspace.size`, and small values are taken as given |
+| 6 | `fx/p9c-6-web-limits` | the web catalog shows `cpus` and `memory` limits |
 
-T2 runs last, after stack 2 is merged.
-
-Results on the workstation (2026-10-27, main at #195):
-- **T5 passed** on its first run: `make e2e-run-container`, claude-code and codex, 0.5 s.
-- **T4 failed**, with the warm disk built from `busybox:1.37.0@sha256:bdf57e52…` and
-  `kindest/node:v1.35.0`. The digest-to-tag step works: Docker 29's containerd store loads the
-  image as `busybox:1.37.0@sha256:…`, and `docker tag` and `docker save` succeed, with
-  `RepoTags: ["busybox:1.37.0"]`. Two other things break `kind load image-archive`:
-  - the archive is `root:root 0600`, so `up`, which runs as `admin`, gets "permission denied";
-  - the archive's index names every platform but holds only amd64's content, so kind's
-    `ctr import` fails ("content digest … not found") even as root, and the pod then pulls.
-
-  `docker save --platform linux/amd64` with `chmod 0644` fixes both: the pod started offline
-  ("already present on machine"). **Re-run with #205's change applied to main: passed** (0644
-  archive, `kind load` as admin, the pod started offline). The tart path saves the same way, so it likely has both
-  problems on arm64.
-- Also seen: every `sudo` in a workspace prints "unable to resolve host
-  ws-tskfactory-warm-build": the guest's hostname isn't in its `/etc/hosts`.
+Dropped by decision, with no PR:
+- a build-recipe version in the warm records: not needed while Gustavo is the only user;
+- making the advisory `e2e container` job required: it stays advisory, since a container can't
+  prove tart or kata. Its log upload on a timeout is skipped too;
+- a memory budget beyond `workspace.size`: limits are hard-capped by design, and a bigger task
+  runs on a host whose `workspace.size` is bigger.
 
 ### 1. Phase 9 follow-ups
 
-#### Fixes
-
-Found while building and running the kata track (#174–#189):
-
-| # | Fix | Notes |
-|---|---|---|
-| a | **The gateway port is hard-coded** | The runner listens on 3128 (`workspace.GatewayPort`, `runner.go`), while the pf anchor (tart) and the nft table (kata) open `workspace.gatewayPort`. Any other port opens the wrong one. Pass the config's port to the runner. Broken on tart since phase 5. |
-| b | **tart doesn't follow `workspace.size`** | supervise gives tart `Spec{}` (6 vCPUs, 8 GiB) whatever the config says. kata uses `workspace.size` (#187). |
-| c | **supervise doesn't re-read physical memory on SIGHUP** | The concurrency cap's memory is read once at start (#187). SIGHUP only re-applies the cap to the reloaded `maxConcurrent`. |
-| d | **An interrupted `host init` leaves `warm-load` running** | The Runner kills sudo with SIGKILL, which sudo can't relay, so the helper's `warm-load` runs on until its own bound (30 min). A killed `image-build` does the same, and also leaves its context copy (≤ 16 MiB) in `/var/lib/factory-agent/build`. |
-| e | **A declined privileges prompt fails the image steps** | `kataimage` and `katawarm` then fail with sudo's "a password is required", instead of being skipped with a warning that names the declined step. |
-| f | **Digest-pinned kind images are unverified on a real host** | The warm build's `docker tag <ref> <tag>` after `nerdctl save` and `docker load` in the workspace has only been tested against fakes. If it doesn't resolve, tag on the host before saving. |
-| g | **VM size from the TaskSpec's `limits`** | Both drivers use the agent's `workspace.size`, never the task's. |
-| h | **The opt-in container test layer** (#116, `make e2e-run-container`) | It has never run. |
-
-The kata LLD's risks stay as they are (`design/workstreams/agent/LLD/workspace-kata.md`,
-"Risks and open questions"):
+Fixes a–h shipped in stack 3 (IMPROVEMENTS_DONE.md). The kata LLD's risks stay as they are
+(`design/workstreams/agent/LLD/workspace-kata.md`, "Risks and open questions"):
 - Docker's ~5 s embedded-DNS wait;
 - the 1.7 GB image, rebuilt on every `base.sh` change;
 - `no-aaaa` covering glibc lookups only.
@@ -117,9 +91,19 @@ Already confirmed from the Mac's run records (2026-10-26), now in IMPROVEMENTS_D
 | T1 | **ChatGPT refresh (#165)**, on the Mac or the workstation | **1.** Stop `supervise`, then `cp -p <state>/logins/codex.json{,.bak}`. **2.** Find the key paths without printing values: `jq -r 'paths(scalars)\|map(tostring)\|join(".")' <state>/logins/codex.json`. Set only the access token to an invalid string with `jq` (keep the refresh token), keeping mode 0600. **3.** Start `supervise` and redispatch any codex task. **4.** Afterwards run `codex login` on the host, because the old refresh token in `~/.codex/auth.json` is spent. | The task succeeds with no re-import. The run's egress log shows `chatgpt.com` 401, then the resent 200. `jq .lastRefresh` on the file shows a new time. `stat` shows 0600. The new access token is a JWT with `exp`. |
 | T2 | **`yarn install` and `yarn build` in a VM (#172)** | After phase 10 lifts "never install": a release-docs or implement run on mock-docs. | The run's checks say `build: pass`, not `not-run`. Its transcript (the run page, or `GET /runs/<id>/transcript`) has `factory.egress` lines for `registry.yarnpkg.com` and `registry.npmjs.org`. |
 | T3 | **The egress log records what the gateway forwards** | Any recent run's transcript in the UI, filtered for `factory.egress`. The VM's local copy doesn't have these lines: the host adds them. | The model host (`api.anthropic.com` or `chatgpt.com`), `github.com` and `api.github.com` appear, with the credential column filled and no token values. |
-| T4 | **Digest-pinned kind images on kata** (fix f) | On the workstation, set `workspace.warm.kindImages` to a `name:tag@sha256:…` ref, run `host init --driver kata`, then a task that runs `kind create cluster` with that image. | kind finds the image without pulling it. |
-| T5 | **The container test layer (#116)** | On the workstation: `make e2e-run-container`, about 300 MB of pulls. | It passes. Fix what it finds, or drop the layer (fix h). |
 | T6 | **An agent-only change on kata** | Rebuild `factory-agent` and restart `supervise`. The kata driver puts the binary into each workspace at start (`AgentBinary`), so nothing needs to be rebuilt. | `host check` stays ok, and the next workspace runs the new binary. |
+
+T4 and T5 passed (IMPROVEMENTS_DONE.md). T2 runs last, after stack 2 is merged.
+
+Real-host checks from stack 3's PRs, which the PR bodies list (Gustavo, with sudo):
+- **#202, workstation:** reinstall the protocol 7 helper (`host init`), then Ctrl-C during
+  `katawarm` and during `kataimage`: no helper or nerdctl process is left, and the build dir is
+  empty. A full `host init` also fixes `containerd: wrong` (`buildkitd.toml`, stale since #188).
+- **#204, workstation:** answer N to the privileges prompt on a host without the helper.
+- **#208, workstation:** a task with `limits.memory: 4Gi` gets a 4 GiB VM (`kata-helper
+  inspect`).
+- **Mac:** #197's pf half (a non-default `workspace.gatewayPort`), #199 (tart follows
+  `workspace.size`), #205's tart path (a kind image loads offline on arm64).
 
 Not testable without a catalog change: #173 for an implement run under claude, because
 implement allows only codex. The claude side of the `ccfr` lookup, the plugin-dir fallback, is
@@ -202,34 +186,11 @@ Left after stack 2:
   - controllers `TestCascadeRunningControllers` (`rule_test.go:79`, "timed out waiting for the
     run" after 10 s, seen on #162's CI), which #168 doesn't cover;
   - claudecode/codex fake scripts are still written with a plain `os.WriteFile` (possible
-    ETXTBSY on Linux).
+    ETXTBSY on Linux): stack 4's PR 4.
   - Also seen: pipeline `TestRunEnvironmentWallClockLimit` under load ("the environment didn't
     start" at 32 s). #168 widened its bound; watch it.
 
-### Deferred from stack 3 (#197–#208)
-- **supervise's kata driver still SIGKILLs sudo on cancel** (`workspace/vmexec`'s runner,
-  `vmrun/system.go`), as `host init` did before #202. `runRoot`'s `sudo /bin/sh` keeps SIGKILL
-  too; SIGTERM would let sudo restore the terminal's echo at the password prompt.
-- **`host init --only kataimage` (or `katawarm`) without the helper** never asks about privileges,
-  so it fails with sudo's error (#204 covers only a declined prompt).
-- **Warm records don't capture the build recipe:** a warm disk or base built before #205 still
-  checks ok, so its 0600 multi-platform kind archives stay until `katawarm.json`/`warmbase.json` is
-  deleted or factory-agent's version changes. A recipe version in the records would rebuild them.
-- **Task sizes below the agent config's minimum:** `limits.memory: 1Gi` is valid in the contract,
-  while `workspace.size.memory` must be at least 2Gi. On kata, `limits.cpus: 1` gives a 2-vCPU
-  guest (the driver passes `max(cpus-1, 1)` and Kata adds its own vCPU). Floor, refuse or
-  document? (#208's open questions.)
-- **The web catalog's `limitsText`** shows turns, wall clock and cost, not `cpus`/`memory` (#207).
-- **The advisory `e2e container` job:** make it required once it has a track record? Its log
-  upload is skipped on a timeout (`if: failure()`; #206).
-- **A workspace's hostname isn't in its `/etc/hosts`:** every `sudo` there prints "unable to
-  resolve host ws-tsk…" (seen in T4).
-- **"text file busy" also hits `harness/claudecode` `TestRun`,** next to codex's `TestProbe`
-  (see Flaky tests).
-
 ### P1 leftovers
-- **A memory budget for tasks bigger than `workspace.size`** (stack 3 caps a task's
-  `limits.cpus`/`limits.memory` at `workspace.size`, since `kataConcurrency` assumes it).
 - **Phase 6, run tokens and enrollment:**
   - the run token (#101's `Lease.runToken`) and the lease credential bundle;
   - enrollment (#102) replacing the join token and device flow. Decide how an agent's owner is
