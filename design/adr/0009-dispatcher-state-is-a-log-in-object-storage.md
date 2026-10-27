@@ -39,15 +39,16 @@ transactions, no change feed and no order across objects.
 - What changes around it:
   - the scheduler's lease commits take a store lock;
   - the work-item rebuild from markers is removed: the stored state is the authority, and
-    stored events are replayed instead;
-  - only events that a rule's `on` and scope could match, or that concern a linked object, are
+    stored events are replayed instead. This supersedes ADR-0001's start-up rebuild and
+    `provider.Conn.List`, and `serve` needs a durable store (or an explicit in-memory flag);
+  - only events a rule could fire for (`rules.CouldFire`), or that concern a linked object, are
     stored.
 - No contract changes.
 - Writes are serialised through one log, one PUT each (tens per second at most): enough for the
   factory, not for a high-volume service.
 - Each instance holds the whole state in memory, as today. Reads may lag other instances by the
   sync interval; writes never act on stale state.
-- Requests cost money: under $1 a month at our load (docs and workflows), above GCS's
+- Requests cost money: about $1 a month at most at our load (docs and workflows), above GCS's
   always-free operations.
 - Old log entries may be deleted only under a time rule (covered by a snapshot and older than
   7 days, with writers reloading after an hour's lag). Bucket lifecycle rules must not touch
