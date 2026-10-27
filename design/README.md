@@ -34,8 +34,8 @@ flowchart LR
 | [09 — Open questions and decisions](09-open-questions.md) | All decisions taken so far (Q1–Q22); nothing open right now |
 | [10 — Proof of concept](10-poc.md) | PoC: **two use cases** (release → docs → review → merge; i18n epic → PR stack → PT-BR live), the **PoC catalog** for both, tooling fit, Kubernetes or not, registered agents |
 | [Workstreams](workstreams/definitions.md) | PoC workstreams (FND, CORE, RT, GH, AGT, WEB, CAT, SKL, DOC, DWF, RUN) as lisa-runnable tasks, each with a Low Level Design under `workstreams/<name>/LLD/` |
-| [adr/](adr/) | Proposed architecture decisions (0001–0008) |
-| [proposals/](proposals/) | Post-PoC redesigns from the live runs: [P1](proposals/P1-agent-workspaces.md) agents run each task in a Kata microVM workspace, with a credential gateway; [P2](proposals/P2-dispatcher-state-file.md) the dispatcher keeps its state in a file |
+| [adr/](adr/) | Proposed architecture decisions (0001–0009) |
+| [proposals/](proposals/) | Post-PoC redesigns from the live runs: [P1](proposals/P1-agent-workspaces.md) agents run each task in a Kata microVM workspace, with a credential gateway; [P2](proposals/P2-dispatcher-state-file.md) the dispatcher keeps its state in a file; [P3](proposals/P3-dispatcher-state-in-object-storage.md) the dispatcher keeps its state in object storage, shared by several dispatchers |
 
 ## Headline proposals
 
