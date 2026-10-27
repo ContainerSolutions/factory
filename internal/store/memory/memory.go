@@ -2,8 +2,8 @@
 // scale: thousands of objects), JSON deep copies on the way in and out, field indexes, watch
 // fan-out with bounded buffers and a replay history, leased locks, retention and the
 // transcript blobs. A commit hook (WithCommitHook) sees every write before it is applied,
-// which is how store/filestore and store/objectstore make it durable; Apply, DeleteAt and
-// Replace (apply.go) serve the object store's shared log.
+// which is how store/filestore (and an object store, P3) make it durable; Apply, DeleteAt and
+// Replace (apply.go) serve a store on a shared log.
 package memory
 
 import (

@@ -99,3 +99,49 @@ type thing struct {
 }
 
 func (t *thing) GetName() string { return t.Metadata.Name }
+
+// TestCheckType: a write of a kind the store can't load back is ErrInvalid; an invalid object
+// is left to memory (nil), so its errors stay the conformant ones.
+func TestCheckType(t *testing.T) {
+	types, err := Registry(map[string]store.Object{"Thing": &thing{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(kind string) *v1alpha1.Run {
+		return &v1alpha1.Run{TypeMeta: v1alpha1.TypeMeta{Kind: kind}, Metadata: v1alpha1.ObjectMeta{Name: "r"}}
+	}
+	for _, tc := range []struct {
+		name string
+		obj  store.Object
+		want string // "" for nil
+	}{
+		{"registered", run(v1alpha1.KindRun), ""},
+		{"registered internal", &thing{TypeMeta: v1alpha1.TypeMeta{Kind: "Thing"}, Metadata: v1alpha1.ObjectMeta{Name: "x"}}, ""},
+		{"unregistered kind", run("Nope"), "no Go type registered with the test store (WithKind)"},
+		{"wrong Go type", run(v1alpha1.KindTask), "the test store holds Task as *v1alpha1.Task"},
+		{"nil, left to memory", nil, ""},
+		{"no name, left to memory", &v1alpha1.Run{TypeMeta: v1alpha1.TypeMeta{Kind: v1alpha1.KindRun}}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := CheckType(types, "create", tc.obj, "test store")
+			switch {
+			case tc.want == "" && err != nil:
+				t.Fatalf("CheckType = %v, want nil", err)
+			case tc.want != "" && (!errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), tc.want)):
+				t.Fatalf("CheckType = %v, want ErrInvalid saying %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestReadHeaderFormatFirst: another format is a *FormatError even when its other header
+// fields wouldn't decode as this format's.
+func TestReadHeaderFormatFirst(t *testing.T) {
+	var fe *FormatError
+	if _, err := ReadHeader([]byte(`{"format":2,"storeVersion":7,"schema":"x"}`)); !errors.As(err, &fe) || fe.Got != 2 {
+		t.Fatalf("ReadHeader = %v, want a *FormatError for format 2", err)
+	}
+	if _, err := ReadHeader([]byte(`{"format":1,"storeVersion":7}`)); err == nil || errors.As(err, &fe) {
+		t.Fatalf("ReadHeader of a bad format-1 header = %v, want a decode error", err)
+	}
+}

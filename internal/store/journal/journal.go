@@ -1,10 +1,11 @@
 // Package journal is the encoding the durable stores share: P2's journal line (one committed
 // change) and snapshot (the whole store at a version), the kinds they can load and the
 // transcript blob names. The file store (store/filestore) writes them to a journal file and a
-// snapshot file; the object store (store/objectstore) writes one line per log object, plus
+// snapshot file; an object store (P3) writes one line per log object, plus
 // the writer and the schema version, and gzip'd snapshots.
 //
-// Design: design/workstreams/dispatcher-runtime/LLD/store.md §File store and §Object store.
+// Design: design/workstreams/dispatcher-runtime/LLD/store.md §File store, and §Object store
+// when present; P3.
 package journal
 
 import (
@@ -147,7 +148,7 @@ func (st State) Records(types map[string]reflect.Type) ([]memory.Record, map[str
 
 // UnknownKind is the error for a stored kind with no registered Go type.
 func UnknownKind(kind string) error {
-	return fmt.Errorf("kind %q has no Go type registered (filestore.WithKind or objectstore.WithKind)", kind)
+	return fmt.Errorf("kind %q has no Go type registered (WithKind on the file store or an object store)", kind)
 }
 
 // BuiltinKinds are the v1alpha1 kinds the store holds.

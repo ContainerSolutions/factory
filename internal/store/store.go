@@ -5,7 +5,7 @@
 //
 // Config kinds live in the catalog snapshot, never here. The in-memory implementation is in
 // store/memory, the file-backed one (memory plus a snapshot and journal) in store/filestore,
-// the shared one (memory plus a log of create-only objects in a bucket) in store/objectstore;
+// and P3's shared one (memory plus a log of create-only objects in a bucket) in an object store;
 // store/storetest is the conformance suite every implementation must pass.
 //
 // Design: design/workstreams/dispatcher-runtime/LLD/store.md.
@@ -137,7 +137,7 @@ type Unlock interface {
 	Renew(ctx context.Context, ttl time.Duration) error
 }
 
-// Syncer is a store that shares its state with other processes (store/objectstore): it may
+// Syncer is a store that shares its state with other processes (an object store, P3): it may
 // lag the shared state by up to its sync interval. Sync brings it up to the shared state's
 // latest change. A caller whose decision rests on an empty answer (a lookup that found
 // nothing, after which it creates or drops something) syncs once and asks again before acting:
