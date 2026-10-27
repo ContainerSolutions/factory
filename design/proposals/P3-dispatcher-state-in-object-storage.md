@@ -286,16 +286,32 @@ Event and both post the same notice. So:
     3. **`Rebuild` gets scoped (PR 3).** Today `wic.Rebuild(ctx)` walks every RuleSet and stops
        at the first error. It changes to take the keys to rebuild and to return a result per
        key, so one failing repo doesn't stop the others.
-    4. **The gate is per RuleSet, in the rule controller only.** An event that a RuleSet with a
-       pending key would evaluate is requeued (with the controller's backoff) until that key is
-       done. If it weren't, it could create a fresh work item for an object whose marker hasn't
-       been read yet. Events for every other RuleSet go on. The debounce and work-item
-       controllers aren't gated: they reconcile stored items, and an item appears only once
-       its rebuild has written it whole.
-    5. **Retries.** A failed key is retried with backoff (capped at 5 minutes) while the
+    4. **The gate is per RuleSet, in one check before `workItemFor`.** Both paths that create
+       work items from events call it:
+       - The rule controller's `Reconcile` **requeues** (with the controller's backoff) an event
+         that any RuleSet with a pending key would evaluate. There is one `EventStatus` per event,
+         so the whole event waits, including the rules of RuleSets already done. Events that
+         no pending RuleSet evaluates go on.
+       - Event replay (`POST /events/{id}/replay`, `RuleController.Replay`), which runs on every
+         instance, **refuses** such an event with a 409 problem naming the RuleSet and its
+         pending key.
+
+       Without the gate, either path could create a fresh work item, with reset counters, for
+       an object whose marker hasn't been read yet. The debounce and work-item controllers
+       aren't gated: they reconcile stored items, and an item is stored only once it is whole
+       (item 5).
+    5. **Items that span keys.** An item's links may sit in objects of two keys, for example an
+       issue in one repo and its PR in another, and each key's rebuild lists only its own
+       objects. So when a rebuild finds an item's marker, it also observes every link that
+       marker names, inside its key or not, and merges all their projections
+       (`mergeProjections`) before it creates the item. If such an observe fails (for example
+       the other repo's key is failing), the item is not created, and this key stays pending
+       with that error until a retry creates it whole. A later key's rebuild then finds the
+       item `Existing` with nothing missing.
+    6. **Retries.** A failed key is retried with backoff (capped at 5 minutes) while the
        instance leads. If it loses the lead, the next leader picks up from the record. A rebuild
        is idempotent: items already stored are `Existing`.
-    6. **Making a failure visible.** Today `serve` exits when the rebuild fails, and the next
+    7. **Making a failure visible.** Today `serve` exits when the rebuild fails, and the next
        start retries it, which shows as a failing deploy. Under P3 the instances stay up, so a
        failure must be reported instead:
        - Each failed attempt is logged at error level, naming the provider, the RuleSet and the
@@ -425,8 +441,10 @@ is a scheduler change, not a store change. The sync interval trades read freshne
     nor mint;
   - rebuild keys:
     - a rebuild that fails half-way on one leader is finished by the next;
-    - while a key is pending, events for its RuleSets are requeued and every other RuleSet's
-      events go on;
+    - while a key is pending, events its RuleSets would evaluate are requeued, other events
+      go on, and a replay of such an event is refused with a 409 and creates no work item;
+    - an item linking objects in two keys is created whole from both keys' markers, and not at
+      all while the other key's observe fails;
     - a failing key is logged at error level and counted in the gauge until it succeeds;
     - a binding added to the catalog at runtime is rebuilt alone, with the controllers
       running;
@@ -465,7 +483,8 @@ module path. There are three PRs, each through lisa and ccf-review:
 3. **`serve --state-url`**:
    - the leader lock, and which loops run where;
    - the rebuild once per key, tracked in `RebuildStatus`. `wic.Rebuild` takes the keys and
-     returns a result per key. The rule controller's per-RuleSet gate, and failures reported;
+     returns a result per key, observing the links each marker names across keys. The per-RuleSet
+     gate in `Reconcile` and `Replay`, and failures reported;
    - the recovery on becoming leader;
    - the scheduler's `errSchedBusy` and its busy-until;
    - the scheduler's `sched` lock around lease commits;
