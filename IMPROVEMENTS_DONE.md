@@ -170,6 +170,35 @@ Decided not to do: a build-recipe version in the warm records (`katawarm.json`,
 `warmbase.json`). A warm disk built before #205 keeps its old archives until its record is
 deleted, which is fine while Gustavo is the only user.
 
+## P1 phase 9 follow-ups, stack 4 (2026-10-27)
+
+It closed everything stack 3 deferred, with nothing deferred in turn: every review finding was
+fixed in its PR. As `ccf-lisa[bot]`, reviewed with ccf-review; merged in this order on
+Gustavo's say-so:
+- **#216:** every file factory-agent or its tests write with an exec bit goes through
+  `internal/agent/internal/execfile`, under `syscall.ForkLock`: no more "text file busy" (the
+  claudecode/codex test flakes, and the same race in production).
+- **#214:** `host init --only kataimage`/`katawarm` fails up front, changing nothing, when the
+  kata helper isn't installed or is out of date (after the platform check). A declined prompt in
+  a full `host init` still skips them (#204).
+- **#217:** a kata workspace's hostname resolves without DNS. systemd strips the `_` from the
+  workspace name, so nothing mapped the hostname and every `sudo` warned. The image now has
+  nss-myhostname (`files myhostname dns`), and CI checks it. The helper didn't change; the
+  guest's hostname still reads `ws-tsk<id>` (cosmetic).
+- **#212:** the web catalog shows `cpus` and `memory` limits.
+- **#213:** `limits.memory` is at least 2Gi on every driver (kata's helper refuses less), and
+  both limits are documented as hard-capped at `workspace.size`. A test ties the helper's
+  minimum to the contract's.
+- **#215:** every sudo factory-agent runs (the kata driver under supervise, host init's root
+  script, `vmrun`) gets SIGTERM, then SIGKILL after a grace: one `internal/agent/sudocancel`
+  policy. The host, kata image and tart base all run Ubuntu 24.04's sudo 1.9.15, which relays
+  SIGTERM from factory-agent's own process group.
+
+Dropped by decision: a build-recipe version in the warm records (Gustavo is the only user);
+making the advisory `e2e container` job required (a container can't prove tart or kata), and
+its log upload on a timeout; a memory budget beyond `workspace.size` (limits are hard-capped by
+design: a bigger task runs on a host whose `workspace.size` is bigger).
+
 ## Dropped at the closing phase (2026-10-27)
 
 When the factory entered its closing phase, the backlog was cut to the next workstreams

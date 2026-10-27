@@ -32,36 +32,7 @@ deferrals:
   openapi, the web regen, v1alpha1's `FACTORY_STACK_*` reserved names, 07-security's allow-list
   text). Check first that the file store tolerates stored Tasks that still have `hosts`.
 
-## 2. Phase 9 follow-ups, stack 4 (the Linux box)
-
-**All six PRs reviewed with ccf-review and green, waiting for Gustavo's approval** (2026-10-27).
-It closes everything stack 3 deferred; every review finding was fixed in its PR, and nothing is
-deferred. As `ccf-lisa[bot]`, on main except #215:
-
-| PR | Branch | What |
-|---|---|---|
-| #215 | `fx/p9c-1-sudo-sigterm` | every sudo factory-agent runs (the kata driver in supervise, host init's root script, `vmrun`) gets SIGTERM, then SIGKILL after a grace: one `internal/agent/sudocancel` policy. **Stacked on #216: merge #216 first.** |
-| #214 | `fx/p9c-2-helper-required` | `host init --only kataimage`/`katawarm` fails up front, changing nothing, when the kata helper isn't installed or is out of date (after the platform check) |
-| #217 | `fx/p9c-3-workspace-hostname` | a kata workspace's hostname resolves without DNS: systemd strips the `_` from the workspace name, so the image now has nss-myhostname (`files myhostname dns`). Image only, helper protocol stays 7 |
-| #216 | `fx/p9c-4-harness-etxtbsy` | every file factory-agent or its tests write with an exec bit goes through `internal/agent/internal/execfile` (under `syscall.ForkLock`): no more "text file busy" |
-| #213 | `fx/p9c-5-limits-docs` | `limits.memory` is at least 2Gi (kata's helper refuses less), and `limits.cpus`/`limits.memory` are documented as hard-capped at `workspace.size` |
-| #212 | `fx/p9c-6-web-limits` | the web catalog shows `cpus` and `memory` limits |
-
-Merge order: #216 before #215; the rest in any order. When merged, move this section to
-IMPROVEMENTS_DONE.md.
-
-Decided along the way: no helper change for the guest's hostname reading `ws-tsk<id>`
-(cosmetic); the sudo these calls meet is Ubuntu 24.04's 1.9.15 everywhere (host, kata image,
-tart base), not sudo-rs.
-
-Dropped by decision, with no PR:
-- a build-recipe version in the warm records: not needed while Gustavo is the only user;
-- making the advisory `e2e container` job required: it stays advisory, since a container can't
-  prove tart or kata. Its log upload on a timeout is skipped too;
-- a memory budget beyond `workspace.size`: limits are hard-capped by design, and a bigger task
-  runs on a host whose `workspace.size` is bigger.
-
-## 3. Real-host checks (Gustavo)
+## 2. Real-host checks (Gustavo)
 
 Shipped work that only fakes have tested. These are runs, not PRs; Gustavo runs them after
 phase 10 merges, from a runbook the Mac session hands him. Record each result in
@@ -86,7 +57,7 @@ Real-host checks from stack 3's PRs, which the PR bodies list (Gustavo, with sud
 - **Mac:** #197's pf half (a non-default `workspace.gatewayPort`), #199 (tart follows
   `workspace.size`), #205's tart path (a kind image loads offline on arm64).
 
-Real-host checks from stack 4's PRs, after they merge (Gustavo):
+Real-host checks from stack 4's PRs (#212–#217, merged 2026-10-27):
 - **Workstation, one `host init`:** it reinstalls the helper (the installed one still answers
   protocol 6, from before #202) and rebuilds the kata image and warm disk (#217 changes the
   image). Then, in a workspace (`kata-helper exec`): `hostname; getent hosts "$(hostname)";
@@ -105,14 +76,14 @@ implement allows only codex. The claude side of the `ccfr` lookup, the plugin-di
 exercised by every docs-review run.
 - **Mac, also:** Softnet's per-VM anti-spoofing, which the gateway's client pin relies on.
 
-## 4. Apply `environment.egress` in the gateway
+## 3. Apply `environment.egress` in the gateway
 
 The gateway already implements deny-by-default, `AllowHosts` and the tunnel SNI check, but
 nothing applies a TaskSpec's `environment.egress` yet. Wire the field from the Task through
 the run bundle into the workspace's gateway policy. This is the network half of P1's hard
 sandbox.
 
-## 5. Phase 6: run tokens and enrollment
+## 4. Phase 6: run tokens and enrollment
 
 - the run token (#101's `Lease.runToken`) and the lease credential bundle;
 - enrollment (#102), replacing the join token and the device flow. Decide how an agent's owner
@@ -120,7 +91,7 @@ sandbox.
 
 Today the gateway injects the agent token on the dispatcher's effects route.
 
-## 6. The org move to `ContainerSolutions/factory`
+## 5. The org move to `ContainerSolutions/factory`
 
 The Go module path is still `github.com/compliance-framework/factory`, and
 `DefaultCatalogRepo` (`internal/controllers/catalogsource.go`), the POC files and the docs
