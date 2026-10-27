@@ -2025,15 +2025,22 @@ export interface components {
             maxWallClock?: components["schemas"]["Duration"];
             maxCostUSD?: number;
             /**
-             * @description CPUs is the workspace VM's vCPUs for this task: at least 1, and at most the agent's
-             *     workspace.size.cpus (the agent caps a larger request and says so in the run log).
-             *     Unset means the agent's size.
+             * @description CPUs is the workspace VM's vCPUs for this task: at least 1, and hard-capped at the
+             *     agent's workspace.size.cpus. A larger request gets workspace.size.cpus, and the run says
+             *     so (a warning in the agent's log and a progress message with the requested and the
+             *     granted size). There is no budget or overcommit, by design: a task that needs more runs
+             *     on an agent whose workspace.size is that big (requires.labels can pick one). A smaller
+             *     value is taken as given: on tart the VM gets cpus vCPUs; on kata the container gets
+             *     max(cpus-1, 1) and Kata adds a vCPU of its own, so cpus 1 and cpus 2 both give a 2-vCPU
+             *     guest. Unset means the agent's size.
              */
             cpus?: number;
             /**
              * @description Memory is the workspace VM's memory for this task: a whole number of GiB in the form of
-             *     the agent's workspace.size.memory (e.g. "4Gi"), and at most that size (the agent caps a
-             *     larger request and says so in the run log). Unset means the agent's size.
+             *     the agent's workspace.size.memory (e.g. "4Gi"), at least 2Gi on every driver (the minimum
+             *     workspace.size.memory has too), and hard-capped at the agent's workspace.size.memory as
+             *     cpus is: a larger request gets workspace.size.memory, and the run says so. A value in
+             *     between is taken as given. Unset means the agent's size.
              */
             memory?: string;
         };

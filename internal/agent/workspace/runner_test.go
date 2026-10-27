@@ -567,6 +567,7 @@ func TestTaskSize(t *testing.T) {
 			wantCapped: []cappedLimit{{"memory", "2Gi", "1536Mi"}},
 		},
 		{name: "memory invalid", agent: agent, limits: &v1alpha1.Limits{Memory: "4G"}, wantErr: true},
+		{name: "memory below the minimum", agent: agent, limits: &v1alpha1.Limits{Memory: "1Gi"}, wantErr: true},
 		{name: "cpus negative", agent: agent, limits: &v1alpha1.Limits{CPUs: -1}, wantErr: true},
 	}
 	for _, tt := range tests {
@@ -603,6 +604,7 @@ func TestRunnerTaskSize(t *testing.T) {
 			wantWarnings: []string{"limits.cpus 12 is larger than the agent's workspace.size: the workspace gets 6", "limits.memory 16Gi is larger than the agent's workspace.size: the workspace gets 8Gi"},
 		},
 		{name: "invalid", memory: "16GB", wantErr: true},
+		{name: "memory below the minimum", memory: "1Gi", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

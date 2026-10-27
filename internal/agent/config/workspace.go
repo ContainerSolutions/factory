@@ -117,7 +117,7 @@ func (w Workspace) validate() []string {
 	for _, s := range []struct {
 		key, v   string
 		min, max int
-	}{{"memory", w.Size.Memory, 2, 64}, {"disk", w.Size.Disk, 20, 500}} {
+	}{{"memory", w.Size.Memory, v1alpha1.WorkspaceMinMemoryGiB, 64}, {"disk", w.Size.Disk, 20, 500}} {
 		if n := GiB(s.v); n < s.min || n > s.max {
 			add("size.%s: %q is not from %dGi to %dGi (a whole number of Gi)", s.key, s.v, s.min, s.max)
 		}
