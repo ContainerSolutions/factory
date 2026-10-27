@@ -1,0 +1,6 @@
+lisa-design:
+- taskSize(agent Spec, l *v1alpha1.Limits) is a pure function in internal/agent/workspace/runner.go: agent.WithDefaults() with each set and smaller-or-equal limit in its place; a larger one is capped at workspace.size and returned as a cappedLimit{Limit, Requested, Granted} (Gustavo's decision: capped, not refused).
+- It runs in Runner.Run next to maxWallClock, so invalid limits (Limits.Validate) are a Run error before any VM exists, the same path as an invalid maxWallClock: the agent re-checks the lease's limits rather than trusting the server's validation.
+- A capped limit is noted twice, just before Create: w.log.Warn (limit, requested, granted) and one runner.Sink progress event of kind message, since the agent's log alone isn't visible to the task's owner. Text is the agent's own (the limit values passed Validate's pattern), so no redaction is needed.
+- CORE-DUP-001 (deferred from PR 8): internal/agent/config's gibRE is now regexp.MustCompile(v1alpha1.LimitsMemoryPattern), and the parser is exported as config.GiB, which the runner uses for limits.memory: one pattern and one parser for workspace.size.memory/.disk and limits.memory.
+- The kata disk (DiskGiB) and the kata concurrency cap stay on workspace.size: limits have no disk, and workspace.size is now the maximum a workspace gets.
