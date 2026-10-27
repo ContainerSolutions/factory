@@ -3,3 +3,8 @@ lisa-design:
 - runner.Stub moved to worker's unexported stubRunner (worker/stub_test.go), its only users; its Jobs() accessor went since no test read it.
 - TestRunOnStepRedacted was ported from the deleted failing Stack to a failing SkillSource: OnStep's redaction is kept behaviour.
 - FACTORY_STACK_* is no longer a reserved Env prefix: the environment's exposes set FACTORY_STACK_URL/_API after Options.Env in buildEnv, so they win anyway.
+
+lisa-selfreview:
+pass 1/1 (lenient, ccf-review core+go): approve, no blocker or must-fix.
+- checked: no remaining Stack/stackEnv/ReasonStackError/rowLocalStack/LabelLocalStack users; vmrun's events golden regenerated (the "stack" step is gone from the VM's event stream); OnStep redaction still covered (ported test).
+- verify: go build (darwin, linux), gofmt, lint 0 issues, catalog 66/66, openapi-lint 100; make test fails only on internal/agent/host/provision TestBaseScriptRuns, which fails identically on main on macOS (/etc/os-release missing; phase 9 area, CI runs Linux).
