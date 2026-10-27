@@ -178,8 +178,11 @@ pools. The section is kept short and bounded:
   as "try the next candidate in this pass"). It is a new sentinel, `errSchedBusy`, that **ends
   the pass**: `tryLease` returns no grant and the poll parks until the next wake or tick. So a
   pass waits for the lock at most once and mints at most once. `Scheduler.mu` is held during
-  that wait, so other polls on the instance (and `Refresh`, `Explain`) wait up to 2 s too, once
-  per pass. Heartbeats, completes and abandons don't take `Scheduler.mu`.
+  that wait. So that several parked polls don't each wait in turn, a timeout also records
+  "sched busy until now + 2 s" in the scheduler. A pass that starts before then ends at once,
+  with no wait and no mint. So an instance's other polls (and `Refresh`, `Explain`) are held up
+  by at most one 2 s wait at a time, even while a dead holder keeps the lock for its 30 s TTL.
+  Heartbeats, completes and abandons don't take `Scheduler.mu`.
 - **The lock's TTL is 30 s, and the section runs under a 15 s deadline (TTL/2).** The section is
   taking the lock (which syncs), reloading the snapshot, checking the candidate again, and the
   commit's writes. The lock can't expire under a running section, so a second instance can't
@@ -264,32 +267,48 @@ Event and both post the same notice. So:
 - **Start-up work runs when an instance becomes leader, not when it starts.** A Cloud Run cold
   start must not redo it each time:
   - **The work-item rebuild from markers** (`wic.Rebuild`) re-lists every bound provider's
-    objects on GitHub. It runs once per binding (a RuleSet's provider instance and scope), not
-    once per leader:
-    1. **The record.** A record of the internal kind `RebuildStatus` lists the bindings already
-       rebuilt and, for a binding that failed, its last error and when it was tried. A leader
-       rebuilds the catalog's bindings that aren't listed as done. On a new bucket or prefix
-       that is all of them. After a catalog change it is only the bindings the change added,
-       so a RuleSet or provider added later still gets its markers rebuilt. A done binding's
-       stored items are authoritative, as in the file store, and the work-item resync observes
-       what changed on GitHub meanwhile.
-    2. **The gate.** Until every binding in the catalog is done, the leader doesn't start the
-       controllers that read work items (rule, debounce, work-item). Webhooks are still
-       accepted, and their Deliveries and Events queue until the controllers start.
-    3. **Retries.** A failed binding is retried with backoff (capped at 5 minutes) while the
+    objects on GitHub. It runs once per **binding**, not once per leader:
+    1. **The binding key** is the provider instance plus the RuleSet's `scope.repos` and
+       `scope.exclude`, each sorted, as written (patterns compared as text). The RuleSet's name
+       and the other scope fields are left out, because they don't change which objects are
+       listed. So a rename, a reordered list or a branch edit re-lists nothing, and a changed
+       repo pattern is a new binding, listed once.
+    2. **The record.** A record of the internal kind `RebuildStatus` lists the keys already
+       rebuilt and, for a key that failed, its last error and when it was tried. The leader
+       rebuilds the catalog's keys that aren't listed as done:
+       - when it becomes leader;
+       - when the catalog syncs (catalog sync is live), so a RuleSet or provider added at
+         runtime is rebuilt alone while everything else keeps running.
+
+       On a new bucket or prefix every key is pending. A done key's stored items are
+       authoritative, as in the file store, and the work-item resync observes what changed on
+       GitHub meanwhile.
+    3. **`Rebuild` gets scoped (PR 3).** Today `wic.Rebuild(ctx)` walks every RuleSet and stops
+       at the first error. It changes to take the keys to rebuild and to return a result per
+       key, so one failing repo doesn't stop the others.
+    4. **The gate is per RuleSet, in the rule controller only.** An event that a RuleSet with a
+       pending key would evaluate is requeued (with the controller's backoff) until that key is
+       done. If it weren't, it could create a fresh work item for an object whose marker hasn't
+       been read yet. Events for every other RuleSet go on. The debounce and work-item
+       controllers aren't gated: they reconcile stored items, and an item appears only once
+       its rebuild has written it whole.
+    5. **Retries.** A failed key is retried with backoff (capped at 5 minutes) while the
        instance leads. If it loses the lead, the next leader picks up from the record. A rebuild
        is idempotent: items already stored are `Existing`.
-    4. **Making a failure visible.** Today `serve` exits when the rebuild fails, and the next
+    6. **Making a failure visible.** Today `serve` exits when the rebuild fails, and the next
        start retries it, which shows as a failing deploy. Under P3 the instances stay up, so a
        failure must be reported instead:
        - Each failed attempt is logged at error level, naming the provider, the RuleSet and the
-         error, so a log-based alert can fire on it.
-       - `/metrics` has a gauge of the bindings still pending.
+         error, so a log-based alert can fire on it. This is the channel that works on Cloud Run
+         and Lambda.
        - `factory state` shows the `RebuildStatus` record with the last error.
+       - `/metrics` has a gauge of pending keys, computed from the stored record, so every
+         instance reports the same. `/metrics` listens on loopback only, so on the cloud it
+         needs a sidecar to be scraped.
 
-       A binding that keeps failing (for example a repo the App lost access to) holds the gate
-       until someone fixes the access or removes the binding from the catalog, as it holds
-       `serve`'s start today.
+       A key that keeps failing (for example a repo the App lost access to) holds only its own
+       RuleSets' events, until someone fixes the access or removes it from the catalog. Today
+       the same failure stops `serve` from starting at all.
   - **The provider's delivery recovery** (`pc.Recover`) runs on becoming leader, with `since`
     set to that moment. Today `since` is the process start.
 - **The leader** is whoever holds the `leader` lock: TTL 3 minutes, renewed every minute. Every
@@ -402,11 +421,16 @@ is a scheduler change, not a store change. The sync interval trades read freshne
     exactly one task leased;
   - a `sched` holder that dies inside the section: the lock expires after its TTL, the next
     commit proceeds, and no task is leased twice. Meanwhile each pass waits for the lock at
-    most once and mints at most once;
-  - a rebuild that fails half-way on one leader is finished by the next. The rule, debounce
-    and work-item controllers start only once every binding is done. A failing binding is
-    logged at error level and counted in the gauge until it succeeds. A binding added to the
-    catalog later is rebuilt alone.
+    most once and mints at most once, and passes started within 2 s of a timeout neither wait
+    nor mint;
+  - rebuild keys:
+    - a rebuild that fails half-way on one leader is finished by the next;
+    - while a key is pending, events for its RuleSets are requeued and every other RuleSet's
+      events go on;
+    - a failing key is logged at error level and counted in the gauge until it succeeds;
+    - a binding added to the catalog at runtime is rebuilt alone, with the controllers
+      running;
+    - a renamed RuleSet, or a reordered `repos` list, re-lists nothing.
 - **Faults** (fake bucket):
   - lost races at every step;
   - a create that timed out but landed, and one that didn't;
@@ -440,9 +464,10 @@ module path. There are three PRs, each through lisa and ccf-review:
    CI job).
 3. **`serve --state-url`**:
    - the leader lock, and which loops run where;
-   - the rebuild (once per binding, tracked in `RebuildStatus`, failures reported) and the
-     recovery on becoming leader;
-   - the scheduler's `errSchedBusy`;
+   - the rebuild once per key, tracked in `RebuildStatus`. `wic.Rebuild` takes the keys and
+     returns a result per key. The rule controller's per-RuleSet gate, and failures reported;
+   - the recovery on becoming leader;
+   - the scheduler's `errSchedBusy` and its busy-until;
    - the scheduler's `sched` lock around lease commits;
    - the audit of the leader-only loops' store writes and provider calls;
    - `factory state --state-url` (read-only, as `--state-dir` is);
