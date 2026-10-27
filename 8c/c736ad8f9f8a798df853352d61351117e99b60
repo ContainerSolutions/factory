@@ -1,0 +1,3 @@
+lisa-addressed:
+- self-review pass 1: api-server.md amended (provider controller decision, metrics bullet, startup order); ErrNoCatalog reused; intake's empty-view comment clarified; newIntakeEnv's gh only from the default adapter.
+- serve now starts pc.Run after wic.Rebuild, so the intake filter sees the links the rebuild restores (TestServeNormalisesAfterRebuild fails on the old order).
