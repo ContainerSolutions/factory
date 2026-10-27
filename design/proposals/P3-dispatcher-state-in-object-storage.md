@@ -3,7 +3,7 @@
 > Status: **proposed**. Workstream: RT (dispatcher runtime). Builds on
 > [P2](P2-dispatcher-state-file.md) (its journal and snapshot formats) and
 > [ADR-0009](../adr/0009-dispatcher-state-is-a-log-in-object-storage.md). One contract change:
-> a new 409 problem on event replay (§Rollout, PR 3). Touches `internal/store`, `cmd/factory
+> a new 409 problem code (`Problem.code`) on event replay (§Rollout, PR 3). Touches `internal/store`, `cmd/factory
 > serve`, `factory state` and the API contract.
 
 ## Why
@@ -294,8 +294,8 @@ Event and both post the same notice. So:
          so the whole event waits, including the rules of RuleSets already done. Events that
          no pending RuleSet evaluates go on.
        - Event replay (`POST /events/{id}/replay`, `RuleController.Replay`), which runs on every
-         instance, **refuses** such an event with a 409 problem of a new type,
-         `rebuild-pending`, naming the RuleSet and its pending key. That is a contract change:
+         instance, **refuses** such an event with a 409 problem with a new code
+         (`Problem.code`), `rebuild-pending`, naming the RuleSet and its pending key. That is a contract change:
          today `replay-history-gone` is the endpoint's only 409. It gets its own PR (§Rollout,
          PR 3).
 
@@ -307,9 +307,10 @@ Event and both post the same notice. So:
        issue in one repo and its PR in another, and each key's rebuild lists only its own
        objects. So when a rebuild finds an item's marker, it also observes every link that
        marker names, inside its key or not, and merges all their projections
-       (`mergeProjections`) before it creates the item. An observe that fails is handled the
-       way `observeLinks` splits errors (view.go), and as `Rebuild` already skips objects
-       that are not found:
+       (`mergeProjections`) before it creates the item. An observe that fails is split as
+       `observeLinks` splits errors (view.go: not found and forbidden count as gone). The
+       rebuild also counts a provider with no connection as gone, as `Rebuild` already skips
+       unconnected providers and objects that are not found:
        - **Permanent** (not found, forbidden, or no connection for the provider): the link
          counts as gone. The item is created from the markers that could be read, keeps the
          link in `spec.links`, and a warning names it. So a repo the App lost access to
@@ -317,7 +318,11 @@ Event and both post the same notice. So:
        - **Transient** (rate limit, 5xx, timeout): the item is not created, and this key stays
          pending with that error until a retry creates it whole.
 
-       A later key's rebuild then finds the item `Existing`.
+       A later key's rebuild then finds the item `Existing`. That includes the key of a link
+       counted as gone, once its access is back: the item keeps what it was built from, and the
+       marker of the regained object is not merged. That is the price of not holding other keys
+       on a lost repo. It only happens to a rebuild during an access loss, and effects on the
+       lost repo fail meanwhile anyway.
     6. **Retries.** A failed key is retried with backoff (capped at 5 minutes) while the
        instance leads. If it loses the lead, the next leader picks up from the record. A rebuild
        is idempotent: items already stored are `Existing`.
@@ -353,7 +358,7 @@ Event and both post the same notice. So:
   start-up work makes. Each must be one of these, and it fixes any that isn't.
 - **Scale to zero.** With no instance running nothing runs, and nothing needs to. A webhook or an
   agent call starts an instance, which takes the leader lock if it is free. Timed work
-  (debounces, lease expiry, schedules) needs a request to happen; item 9 adds a tick endpoint for
+  (debounces, lease expiry, schedules) needs a request to happen; IMPROVEMENTS item 9 adds a tick endpoint for
   that (Cloud Scheduler or EventBridge). The store needs nothing from it.
 
 With one dispatcher, as today, that dispatcher is always the leader and nothing changes.
@@ -419,7 +424,7 @@ is a scheduler change, not a store change. The sync interval trades read freshne
   new internal kinds hold a lock holder's instance id (`StoreLock`) and a size (`TranscriptBlob`).
 - **The bucket is private,** with public access prevented (GCS) or blocked (S3). Only the
   dispatcher's identity can read or write it. Storage is encrypted at rest by default. `serve`
-  doesn't check the bucket's policy; the deployment docs (item 9) say how to set it.
+  doesn't check the bucket's policy; the deployment docs (IMPROVEMENTS item 9) say how to set it.
 - **Deliveries hold raw webhook payloads** (untrusted, not secret), as in P2. Their bodies are
   dropped once handled.
 
@@ -455,7 +460,9 @@ is a scheduler change, not a store change. The sync interval trades read freshne
       go on, and a replay of such an event is refused with a 409 and creates no work item;
     - an item linking objects in two keys is created whole from both keys' markers. If the
       other key's observe fails transiently, the item isn't created and the key stays pending.
-      An item linking into a forbidden repo is created without it, and its key ends done;
+      An item linking into a forbidden repo, or a provider with no connection, is created
+      from the other markers. It keeps that link in `spec.links`, a warning names it, and its
+      key ends done;
     - a failing key is logged at error level and counted in the gauge until it succeeds;
     - a binding added to the catalog at runtime is rebuilt alone, with the controllers
       running;
@@ -491,7 +498,7 @@ module path. There are four PRs, each through lisa and ccf-review:
    - store.md §Object store.
 2. **GCS and S3 buckets**, with the opt-in emulator tests and their CI job (RT, plus a non-required
    CI job).
-3. **Contract: the replay endpoint's `409 rebuild-pending` problem** (AGENTS.md: a contract
+3. **Contract: the replay endpoint's 409 problem code `rebuild-pending` (`Problem.code`)** (AGENTS.md: a contract
    change goes in its own PR, merged before the code that uses it):
    - `api/openapi.yaml`'s replay responses;
    - web's regenerated client (`npm run gen:api`);
@@ -506,9 +513,11 @@ module path. There are four PRs, each through lisa and ccf-review:
    - the scheduler's `sched` lock around lease commits;
    - the audit of the leader-only loops' store writes and provider calls;
    - `factory state --state-url` (read-only, as `--state-dir` is);
-   - the two-`serve` test, and the docs.
+   - the two-`serve` test;
+   - the docs: store.md, controllers.md (Replay's second refusal, the Reconcile gate and the
+     scoped `Rebuild`) and scheduler-and-pools.md (the `sched` lock).
 
-Deploying to Cloud Run or Lambda, the tick endpoint and the bucket policy are item 9.
+Deploying to Cloud Run or Lambda, the tick endpoint and the bucket policy are IMPROVEMENTS item 9.
 
 ## Questions for Gustavo
 
