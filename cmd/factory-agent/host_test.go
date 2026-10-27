@@ -10,10 +10,14 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/host"
@@ -401,5 +405,42 @@ func TestHostKataTartFlags(t *testing.T) {
 				t.Error("a usage error made the state dir")
 			}
 		})
+	}
+}
+
+// TestHostSecondSignal: after the first SIGINT cancels host's context, a second one ends the
+// process (the default handling is back), however long init's final check or a sudo call's
+// grace would take. The test binary runs itself as the child that signals itself.
+func TestHostSecondSignal(t *testing.T) {
+	if os.Getenv("FACTORY_AGENT_TEST_SECOND_SIGNAL") == "1" {
+		if signal.Ignored(os.Interrupt) {
+			os.Exit(3) // started with SIGINT ignored: stop restores that, so nothing to test
+		}
+		ctx, stop := hostSignalContext(context.Background())
+		defer stop()
+		p, err := os.FindProcess(os.Getpid())
+		if err != nil {
+			os.Exit(4)
+		}
+		_ = p.Signal(os.Interrupt)
+		<-ctx.Done()
+		for range 100 {
+			_ = p.Signal(os.Interrupt)
+			time.Sleep(50 * time.Millisecond)
+		}
+		os.Exit(0) // still running: the signals after the first were swallowed
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("no SIGINT to send on windows")
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHostSecondSignal$")
+	cmd.Env = append(os.Environ(), "FACTORY_AGENT_TEST_SECOND_SIGNAL=1")
+	out, err := cmd.CombinedOutput()
+	if cmd.ProcessState != nil && cmd.ProcessState.ExitCode() == 3 {
+		t.Skip("SIGINT is ignored in this test's process")
+	}
+	ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok || !ws.Signaled() || ws.Signal() != syscall.SIGINT {
+		t.Fatalf("the child ended with %v (want killed by SIGINT)\n%s", err, out)
 	}
 }

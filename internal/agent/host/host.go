@@ -333,6 +333,9 @@ type InitOptions struct {
 	Only []string
 }
 
+// finalCheckTimeout bounds Init's final check after an interrupt (see Init).
+const finalCheckTimeout = 30 * time.Second
+
 // pfNotice is what Init says before asking about the pf step.
 func pfNotice() string {
 	return fmt.Sprintf(`The pf step lets VMs on %[1]s reach only the gateway port on this Mac.
@@ -356,7 +359,9 @@ other listening services. `+"`factory-agent host init --remove-pf`"+` undoes it.
 // prompt, plan or apply (a *HelperRequiredError; with DryRun too), unless the platform check
 // failed, which comes first. With o.Only, the statedir step is applied too when it isn't ok,
 // since the applies need the dir. The applies hold <statedir>/host.lock: a second Init fails
-// while one runs.
+// while one runs. When ctx ends during the applies (an interrupt), the final check runs on a
+// context of its own, bounded by finalCheckTimeout, so it reports the host as it is, and the
+// error names the interruption.
 func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	// the kata driver stages its downloads (about 1.3 GB) in <statedir>/stage, not in $TMPDIR,
 	// which may be a tmpfs: it's made once the host lock is held (the dir exists by then) and
@@ -478,6 +483,21 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	// <statedir>/host.lock: a second host init would delete this one's .building VMs.
 	release := func() {}
 	defer func() { release() }()
+	// final is Init's return once the applies start: the final check, and err. After an
+	// interrupt, ctx is done, and a check on it would fail every command it runs (each such
+	// step reported wrong, "context canceled"): the checks are read-only and quick, so they get
+	// a fresh context, bounded, and err says the run was interrupted.
+	final := func(err error) ([]Status, error) {
+		if ctx.Err() == nil {
+			return Check(ctx, steps), err
+		}
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finalCheckTimeout)
+		defer cancel()
+		if err != nil {
+			err = fmt.Errorf("interrupted: %w (%w)", err, context.Cause(ctx))
+		}
+		return Check(cctx, steps), err
+	}
 	locked := false
 	lock := func() error {
 		if locked {
@@ -503,47 +523,47 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	}
 	if optOut != "" && !slices.ContainsFunc(todo, func(s Step) bool { return s.Name() == stateDirName }) {
 		if err := lock(); err != nil {
-			return Check(ctx, steps), err
+			return final(err)
 		}
 		if err := writePFOptOut(e, optOut); err != nil {
-			return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
+			return final(fmt.Errorf("%s: %w", pfName, err))
 		}
 		optOut = ""
 	}
 	for i, s := range todo {
 		if s.Name() != stateDirName {
 			if err := lock(); err != nil {
-				return Check(ctx, steps), err
+				return final(err)
 			}
 		}
 		e.Log.DebugContext(ctx, "host init: apply", "step", s.Name())
 		if err := s.Apply(ctx); err != nil {
-			return Check(ctx, steps), fmt.Errorf("%s: %w", s.Name(), err)
+			return final(fmt.Errorf("%s: %w", s.Name(), err))
 		}
 		// the statedir step, just applied, made the dir the opt-out goes in.
 		if s.Name() == stateDirName && optOut != "" {
 			if err := lock(); err != nil {
-				return Check(ctx, steps), err
+				return final(err)
 			}
 			if err := writePFOptOut(e, optOut); err != nil {
-				return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
+				return final(fmt.Errorf("%s: %w", pfName, err))
 			}
 			optOut = ""
 		}
 		if i == lastRoot {
 			if err := runRoot(ctx, e, script); err != nil {
-				return Check(ctx, steps), err
+				return final(err)
 			}
 			// pf's root lines are in the script, so it's installed now: before the VM builds,
 			// which may fail.
 			if pfTodo {
 				if err := removePFOptOut(e); err != nil {
-					return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
+					return final(fmt.Errorf("%s: %w", pfName, err))
 				}
 			}
 		}
 	}
-	return Check(ctx, steps), nil
+	return final(nil)
 }
 
 // onlySet is --only's step names as a set; nil when there are none. An unknown name is an
