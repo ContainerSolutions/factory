@@ -1,0 +1,4 @@
+lisa-design:
+- Gustavo (via the coordinator, 2026-10-27): keep the GCS SDK; one PR with size-exception; S3 409 as an unknown outcome and ParseURL taking a ctx are accepted; closing a bucket's connections is PR 5's (serve closes an io.Closer).
+- Garage v2.5.0 (and main 99923a87) ignores If-None-Match: * on PutObject (200, overwrites): the S3 emulator stays pgsty/minio.
+- Bucket.Put goes away when #238 switches transcripts to unique names with Create; then delete GCS/S3 Put and their tests.
