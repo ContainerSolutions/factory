@@ -1,0 +1,4 @@
+lisa-selfreview:
+Pass 1 (final, lenient): approve. No blocker or must-fix.
+- nit (kept): claudecode's testSecrets still lists the old owner-login tokens, which no fixture plants any more; the scans stay harmless and cover the placeholder-only rule.
+- behaviour (intended, in the PR body): an agent.yaml that still sets harnesses.*.home or configDir no longer loads (strict decode: unknown field); the owner deletes the two lines.
