@@ -1,0 +1,2 @@
+lisa-addressed:
+review PRRT_kwDOVK0lgs6wxG1y (CORE-DUP-001): config.Poll.validate parses the strings and calls worker.Poll.Validate (typed *PollError{Field, Value, Reason}), reported as poll.<field>; config's MaxPollWait/MinPollInterval removed. Held nit: a unit-less "0" is refused for poll.wait and poll.interval.
