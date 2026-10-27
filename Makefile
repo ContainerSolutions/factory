@@ -148,6 +148,14 @@ web: ## Build the web UI into internal/webui/dist
 build-release: web ## Build the binaries with the real UI embedded
 	go build -tags webui -trimpath -ldflags "$(LDFLAGS)" -o bin/ ./cmd/...
 
+# IMAGE is the tag make image gives the dispatcher image; release-image.yml pushes the same
+# Dockerfile as ghcr.io/containersolutions/factory:<tag> and :latest.
+IMAGE ?= factory:dev
+
+.PHONY: image
+image: ## Build the dispatcher image locally with docker build (Dockerfile; IMAGE, default factory:dev; VERSION into the binary). Never pushes
+	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE) .
+
 # The assets a published GitHub release carries (.github/workflows/release-binaries.yml uploads
 # them; deploy/poc/README.md §Releasing). Every build is static (CGO_ENABLED=0), darwin too: the
 # code needs no cgo. factory-agent-linux-arm64 is also what a Mac host's tart VMs run
