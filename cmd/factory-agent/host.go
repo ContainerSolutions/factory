@@ -203,6 +203,10 @@ func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hos
 			return fail(err)
 		}
 		sts = host.Check(ctx, steps)
+		// interrupted: the statuses are the interrupt's failures, not the host's.
+		if ctx.Err() != nil {
+			return fail(host.Interrupted(ctx, nil))
+		}
 	}
 	if err := printStatuses(stdout, sts, *asJSON); err != nil {
 		return fail(err)

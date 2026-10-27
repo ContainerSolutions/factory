@@ -188,35 +188,47 @@ func TestKataWarmBuildFails(t *testing.T) {
 }
 
 // TestKataWarmBuildInterrupted: a warm build interrupted (the context cancelled during a
-// warm-load) says why init waits before it removes the build workspace, and still removes it;
-// an ordinary failure removes it without that line.
+// warm-load, through e.helper, or the wait for dockerd, through e.helperOK) prints the in-flight
+// call's waiting line, then says why init waits before it removes the build workspace, and
+// still removes it; an ordinary failure removes it without either line.
 func TestKataWarmBuildInterrupted(t *testing.T) {
 	const line = "interrupted: removing the build workspace " + KataWarmBuild + " (it can take a minute; Ctrl-C again leaves it, and the next host init removes it)\n"
-	for _, interrupt := range []bool{true, false} {
-		t.Run(map[bool]string{true: "interrupted", false: "warm-load fails"}[interrupt], func(t *testing.T) {
+	tests := []struct {
+		name, at string // the interrupted call ("": none, warm-load fails)
+		verb     string // the waiting line's
+		wantErr  string
+	}{
+		{"interrupted in warm-load", " warm-load ", "warm-load", "kata-helper warm-load: "},
+		{"interrupted waiting for dockerd", " docker info", "exec", "context canceled"},
+		{"warm-load fails", "", "", "kata-helper warm-load: "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			interrupt := tt.at != ""
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			var r *interruptRunner
 			e, fr, out, err := buildWarmCtx(t, ctx, func(e *Env, fr *fakeRunner) {
 				if interrupt {
-					r = &interruptRunner{fakeRunner: fr, at: " warm-load ", cancel: cancel}
+					r = &interruptRunner{fakeRunner: fr, at: tt.at, cancel: cancel}
 					e.Runner, e.Spawner = r, r
 				} else {
 					fr.kata.fail = "warm-load"
 				}
 			})
-			if err == nil || !strings.Contains(err.Error(), "kata-helper warm-load: ") {
-				t.Fatalf("err = %v", err)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("err = %v, want %q", err, tt.wantErr)
 			}
 			if got := strings.Contains(out, line); got != interrupt {
 				t.Errorf("the interrupted line printed %v, want %v; output:\n%s", got, interrupt, out)
 			}
-			// the in-flight warm-load's line, once and before the cleanup's; none for an ordinary
+			// the in-flight call's line, once and before the cleanup's; none for an ordinary
 			// failure.
-			const wait = "interrupted: waiting for kata-helper warm-load to stop (up to 30s; Ctrl-C again exits now)\n"
-			if n := strings.Count(out, "interrupted: waiting for "); n != map[bool]int{true: 1}[interrupt] ||
+			wait := "interrupted: waiting for kata-helper " + tt.verb + " to stop (up to 30s; Ctrl-C again exits now)\n"
+			want := map[bool]int{true: 1}[interrupt]
+			if n := strings.Count(out, "interrupted: waiting for "); n != want ||
 				interrupt && (!strings.Contains(out, wait) || strings.Index(out, wait) > strings.Index(out, line)) {
-				t.Errorf("%d waiting lines, want %d (%q, before the cleanup's); output:\n%s", n, map[bool]int{true: 1}[interrupt], wait, out)
+				t.Errorf("%d waiting lines, want %d (%q, before the cleanup's); output:\n%s", n, want, wait, out)
 			}
 			if _, ok := fr.kata.ws[KataWarmBuild]; ok || !strings.HasSuffix(fr.helperCalls()[len(fr.helperCalls())-1], " rm "+KataWarmBuild) {
 				t.Errorf("the build workspace is left; calls %q", fr.helperCalls())

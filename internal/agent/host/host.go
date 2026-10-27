@@ -334,6 +334,32 @@ type InitOptions struct {
 	Only []string
 }
 
+// InterruptedError is an operation's error after an interrupt ended its context. Its text says
+// so once ("interrupted", or "interrupted: " and Err's), and it wraps the context's cause as
+// well as Err, so errors.Is(err, context.Canceled) holds.
+type InterruptedError struct {
+	Err, Cause error
+}
+
+func (e *InterruptedError) Error() string {
+	if e.Err == nil {
+		return "interrupted"
+	}
+	return "interrupted: " + e.Err.Error()
+}
+
+func (e *InterruptedError) Unwrap() []error {
+	if e.Err == nil {
+		return []error{e.Cause}
+	}
+	return []error{e.Err, e.Cause}
+}
+
+// Interrupted is err (nil: none) after ctx ended: an *InterruptedError with ctx's cause.
+func Interrupted(ctx context.Context, err error) error {
+	return &InterruptedError{Err: err, Cause: context.Cause(ctx)}
+}
+
 // finalCheckTimeout bounds Init's final check after an interrupt (see Init).
 const finalCheckTimeout = 30 * time.Second
 
@@ -360,9 +386,10 @@ other listening services. `+"`factory-agent host init --remove-pf`"+` undoes it.
 // prompt, plan or apply (a *HelperRequiredError; with DryRun too), unless the platform check
 // failed, which comes first. With o.Only, the statedir step is applied too when it isn't ok,
 // since the applies need the dir. The applies hold <statedir>/host.lock: a second Init fails
-// while one runs. When ctx ends during the applies (an interrupt), the final check runs on a
-// context of its own, bounded by finalCheckTimeout, so it reports the host as it is, and the
-// error names the interruption.
+// while one runs. When ctx ends during the first check (an interrupt), Init returns no
+// statuses and an *InterruptedError at once, before any prompt, plan or apply. When it ends
+// during the applies, the final check runs on a context of its own, bounded by
+// finalCheckTimeout, so it reports the host as it is, and the error is an *InterruptedError.
 func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	// the kata driver stages its downloads (about 1.3 GB) in <statedir>/stage, not in $TMPDIR,
 	// which may be a tmpfs: it's made once the host lock is held (the dir exists by then) and
@@ -390,6 +417,10 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 		return nil, err
 	}
 	sts := Check(ctx, steps)
+	// interrupted during the check: its statuses are the interrupt's failures, not the host's.
+	if ctx.Err() != nil {
+		return nil, Interrupted(ctx, nil)
+	}
 	// a failed platform check comes first, with or without --only: nothing else can be fixed
 	// on that host.
 	if i := slices.IndexFunc(steps, func(s Step) bool { return s.Name() == platformName }); i >= 0 && sts[i].State != StateOK {
@@ -495,7 +526,7 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finalCheckTimeout)
 		defer cancel()
 		if err != nil {
-			err = fmt.Errorf("interrupted: %w (%w)", err, context.Cause(ctx))
+			err = Interrupted(ctx, err)
 		}
 		return Check(cctx, steps), err
 	}

@@ -771,7 +771,7 @@ func TestInitInterrupted(t *testing.T) {
 				return e, r
 			},
 			o: InitOptions{Yes: true}, at: "sudo /bin/sh",
-			wantErr: "interrupted: the sudo script: sudo: exit status 1 (context canceled)", wait: "the sudo script",
+			wantErr: "interrupted: the sudo script: sudo: exit status 1", wait: "the sudo script",
 			ok: []string{platformName, stateDirName, "tart"}, notOK: "softnet",
 		},
 		{
@@ -783,7 +783,7 @@ func TestInitInterrupted(t *testing.T) {
 				return e, r
 			},
 			o: InitOptions{Only: []string{"kataimage"}}, at: " image-build ",
-			wantErr: "interrupted: kataimage: kata-helper image-build: sudo: exit status 1 (context canceled)", wait: "kata-helper image-build",
+			wantErr: "interrupted: kataimage: kata-helper image-build: sudo: exit status 1", wait: "kata-helper image-build",
 			ok:    []string{platformName, stateDirName, "nerdctl", "kata", "kataconfig", "containerd", "network", privilegesName},
 			notOK: "kataimage",
 		},
@@ -821,6 +821,40 @@ func TestInitInterrupted(t *testing.T) {
 			}
 			if st := got[tt.notOK]; st.State == StateOK || st.State == "" || strings.Contains(st.Detail, "context canceled") {
 				t.Errorf("%s: %+v, want it as the interrupt left it", tt.notOK, st)
+			}
+		})
+	}
+}
+
+// TestInitInterruptedCheck: an interrupt during Init's first check returns no statuses and
+// the interrupted error at once: no prompt, plan, apply or sudo, and no output.
+func TestInitInterruptedCheck(t *testing.T) {
+	for _, driver := range []string{config.DriverTart, config.DriverKata} {
+		t.Run(driver, func(t *testing.T) {
+			var e *Env
+			var fr *fakeRunner
+			if driver == config.DriverKata {
+				e, fr = kataEnv(t)
+			} else {
+				e, fr = testEnv(t)
+			}
+			var out bytes.Buffer
+			e.Out = &out
+			e.Prompt = func(q string) (bool, error) { t.Errorf("prompted %q", q); return false, nil }
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			// the platform step's first command: the check goes on, every later command failing.
+			r := &interruptRunner{fakeRunner: fr, at: map[string]string{config.DriverTart: "sw_vers", config.DriverKata: "df"}[driver], cancel: cancel}
+			e.Runner, e.Spawner = r, r
+			sts, err := Init(ctx, e, InitOptions{})
+			if err == nil || err.Error() != "interrupted" || !errors.Is(err, context.Canceled) || sts != nil {
+				t.Fatalf("statuses %+v, err %v; want none and \"interrupted\" (a context.Canceled)", sts, err)
+			}
+			if !r.fired || out.Len() > 0 || fr.ran("sudo") > 0 {
+				t.Errorf("interrupted %v, sudo calls %d, output %q", r.fired, fr.ran("sudo"), out.String())
+			}
+			if _, err := os.Stat(e.StateDir()); err == nil {
+				t.Error("an interrupted init made the state dir")
 			}
 		})
 	}
