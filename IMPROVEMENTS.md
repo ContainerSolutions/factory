@@ -21,6 +21,35 @@ Shipped work that only fakes have tested. These are runs, not PRs; Gustavo runs 
 phase 10 merged (2026-10-27), from the order the Mac session gave him. Record each result in
 IMPROVEMENTS_DONE.md.
 
+**Order on the Mac** (main at #219 or later; `S="$HOME/Library/Application Support/factory-agent"`):
+1. **Restart on the new code:** `make build`, restart the dispatcher (`make poc-up`), then M0
+   below (`make tart-up`), then `bin/factory-agent supervise --keep-workspace`. `agent.yaml` no
+   longer has `harnesses.*.home`/`configDir` (#218 refuses them).
+2. **M1** (below). Its run also gives **T3**: on that run's page, filter the transcript for
+   `factory.egress`.
+3. **T2:** `bin/factory dispatch --event deploy/poc/events/mock-train.json --server
+   http://127.0.0.1:8800` (FACTORY_CLI_TOKEN in env; give the event a new `id` if it was
+   dispatched before). The release-docs run and its docs-review both count.
+4. **T1** (codex refresh), step by step:
+   - stop supervise; `cp -p "$S/logins/codex.json" "$S/logins/codex.json.bak"`;
+   - `jq 'keys' "$S/logins/codex.json"` lists the keys, never the values (`accessToken`,
+     `refreshToken`, `lastRefresh`, …);
+   - `jq '.accessToken = "invalid"' "$S/logins/codex.json" > "$S/logins/c.tmp" && install -m
+     600 "$S/logins/c.tmp" "$S/logins/codex.json" && rm "$S/logins/c.tmp"`;
+   - start supervise and dispatch any codex task;
+   - pass: the task succeeds, `jq -r .lastRefresh "$S/logins/codex.json"` shows a new time,
+     `stat -f %Sp` shows `-rw-------`, and the run's egress lines show `chatgpt.com` 401 then 200;
+   - afterwards `codex login` on the Mac (its own refresh token is now spent), and
+     `rm "$S/logins/codex.json.bak"`.
+5. **M2, M3, M4** (below), in that order.
+6. **S1, Softnet anti-spoofing** (the gateway's client pin relies on it): keep two workspaces A
+   and B (two tasks with `--keep-workspace`), start both with `tart run --no-graphics <ws> &`.
+   - In B: `ip -o -4 addr` (its address `B_IP` and interface) and `ip route | awk '/default/{print
+     $3}'` (`B_GW`); `ping -c 2 B_GW` answers (the control).
+   - In A: `sudo ip addr add B_IP/32 dev <A's interface>`, then `ping -c 3 -W 2 -I B_IP B_GW`.
+   - Pass: no reply from A (Softnet drops packets from an address A wasn't leased). Then
+     `tart stop` and `tart delete` both.
+
 | # | What | How | Pass when |
 |---|---|---|---|
 | T1 | **ChatGPT refresh (#165)**, on the Mac or the workstation | **1.** Stop `supervise`, then `cp -p <state>/logins/codex.json{,.bak}`. **2.** Find the key paths without printing values: `jq -r 'paths(scalars)\|map(tostring)\|join(".")' <state>/logins/codex.json`. Set only the access token to an invalid string with `jq` (keep the refresh token), keeping mode 0600. **3.** Start `supervise` and redispatch any codex task. **4.** Afterwards run `codex login` on the host, because the old refresh token in `~/.codex/auth.json` is spent. | The task succeeds with no re-import. The run's egress log shows `chatgpt.com` 401, then the resent 200. `jq .lastRefresh` on the file shows a new time. `stat` shows 0600. The new access token is a JWT with `exp`. |
