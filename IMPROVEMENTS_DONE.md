@@ -285,6 +285,15 @@ then implement (codex, the default size).
   them (`model-path`, 403, no credential added). Inference is unaffected, and refusing them
   keeps the owner's ChatGPT plugins out of tasks: log noise only.
 
+## The org move (2026-10-27)
+
+#222 moved the Go module path to `github.com/ContainerSolutions/factory`, with
+`DefaultCatalogRepo`, the PoC files, AGENTS.md and the design docs' links; generated code
+regenerated (web's client needed no change). Two web labels (`web/src/mocks/catalog.ts`,
+`internal/apis/v1alpha1/testdata/examples/03-13-pool.yaml`) keep the old name on purpose. Left
+outside the repo: workflows' `repos.yaml` entry (Gustavo's change). Dropped: ccf-review's default
+owner (pass full `ContainerSolutions/factory#N` refs).
+
 ## Dropped at the closing phase (2026-10-27)
 
 When the factory entered its closing phase, the backlog was cut to the next workstreams

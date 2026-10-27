@@ -17,6 +17,8 @@ record it in IMPROVEMENTS_DONE.md with its PR numbers and delete its section her
 
 ## 2. Apply `environment.egress` in the gateway
 
+**In review (2026-10-27):** #224, the bottom of gh stack #233 (#224–#232), approved.
+
 The gateway already implements deny-by-default, `AllowHosts` and the tunnel SNI check, but
 nothing applies a TaskSpec's `environment.egress` yet. Wire the field from the Task through
 the run bundle into the workspace's gateway policy. This is the network half of P1's hard
@@ -24,22 +26,17 @@ sandbox.
 
 ## 3. Phase 6: run tokens and enrollment
 
+**In review (2026-10-27):** #225–#232 in gh stack #233, all approved. Open: `Pool.spec.admission` (`tokenRef`, `owners`) stays in the contract, unread; the UI's pool card shows `owners`. Removing it is a small web + catalog + contract stack, only if Gustavo wants it.
+
 - the run token (#101's `Lease.runToken`) and the lease credential bundle;
 - enrollment (#102), replacing the join token and the device flow. Decide how an agent's owner
   is attributed when no person logs in. Then remove the device flow and the join-token file.
 
 Today the gateway injects the agent token on the dispatcher's effects route.
 
-## 4. The org move to `ContainerSolutions/factory`
-
-The Go module path is still `github.com/compliance-framework/factory`, and
-`DefaultCatalogRepo` (`internal/controllers/catalogsource.go`), the POC files and the docs
-still name the old org; clones work only through GitHub's redirect. ccf-review's default owner
-is still `compliance-framework`, so pass it full `ContainerSolutions/factory#N` refs.
-
 ## Then: a shippable factory (Gustavo, 2026-10-27)
 
-The final list. Start it after 1–4, in this order. **The goal:** the factory ships as a product,
+The final list. Start it after 2 and 3, in this order. **The goal:** the factory ships as a product,
 and our own prod instance runs at `factory.container-solutions.com` for compliance-framework,
 from the catalog in its own repo. Several dispatchers must be able to run at once, and the whole
 thing must stay inside a cloud free tier. That's why state moves to object storage.
