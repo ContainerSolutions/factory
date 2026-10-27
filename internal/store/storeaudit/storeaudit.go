@@ -68,7 +68,7 @@ var KindAudit = map[string]string{
 	controllers.KindTaskPrompt:     "the rendered prompt: catalog templates and untrusted provider text; no credential is templated into prompts",
 	controllers.KindKillSwitch:     "a pause scope, target, actor and time",
 	objectstore.KindStoreLock:      "a lock's name, the holding store's instance id, a random per-hold id and an expiry; no credential",
-	objectstore.KindTranscriptBlob: "a transcript blob's run name, size and put time; the blob itself is agent output, kept beside the log",
+	objectstore.KindTranscriptBlob: "a transcript blob's run name, random blob id, size and put time; the blob itself is agent output, kept beside the log",
 }
 
 // TokenMarkers are the prefixes of the credentials the dispatcher handles.
@@ -309,7 +309,7 @@ func ObjectStoreFixtures() []store.Object {
 		&objectstore.TranscriptBlob{
 			TypeMeta: v1alpha1.TypeMeta{Kind: objectstore.KindTranscriptBlob},
 			Metadata: v1alpha1.ObjectMeta{Name: "run_1"},
-			Size:     2048, PutAt: Epoch,
+			ID:       "0123456789abcdef", Size: 2048, PutAt: Epoch,
 		},
 	}
 }

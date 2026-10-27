@@ -20,7 +20,6 @@ type FakeOp string
 const (
 	FakeGet    FakeOp = "get"
 	FakeCreate FakeOp = "create"
-	FakePut    FakeOp = "put"
 	FakeList   FakeOp = "list"
 	FakeDelete FakeOp = "delete"
 )
@@ -185,21 +184,6 @@ func (b *FakeBucket) Create(ctx context.Context, name string, data []byte) error
 		return timedOut(FakeCreate, name)
 	case taken || fl == LandedTaken:
 		return fmt.Errorf("%s: %w", name, ErrExists)
-	}
-	return nil
-}
-
-// Put implements Bucket.
-func (b *FakeBucket) Put(ctx context.Context, name string, data []byte) error {
-	fl, err := b.fault(ctx, FakePut, name)
-	if err != nil {
-		return err
-	}
-	b.mu.Lock()
-	b.objects[name] = fakeObject{data: slices.Clone(data), updated: b.clk.Now()}
-	b.mu.Unlock()
-	if fl == LandedTimedOut {
-		return timedOut(FakePut, name)
 	}
 	return nil
 }

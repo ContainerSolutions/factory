@@ -553,6 +553,7 @@ TaskPrompt .metadata.name string
 TaskPrompt .metadata.resourceVersion string
 TaskPrompt .text string
 TranscriptBlob .apiVersion string
+TranscriptBlob .id string
 TranscriptBlob .kind string
 TranscriptBlob .metadata object
 TranscriptBlob .metadata.createdAt time.Time
