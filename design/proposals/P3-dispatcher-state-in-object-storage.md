@@ -1,0 +1,363 @@
+# P3: The dispatcher keeps its state in object storage
+
+> Status: **proposed**. Workstream: RT (dispatcher runtime). Builds on
+> [P2](P2-dispatcher-state-file.md) (its journal and snapshot formats) and
+> [ADR-0009](../adr/0009-dispatcher-state-is-a-log-in-object-storage.md). Replaces nothing in
+> the contracts. Touches `internal/store`, `cmd/factory serve` and `factory state`.
+
+## Why
+
+P2's file store keeps the dispatcher's state in a local directory and allows one writer: it
+holds an exclusive flock on the dir. The next step (IMPROVEMENTS.md, "a shippable factory") runs
+our own instance at `factory.container-solutions.com` on Cloud Run or Lambda:
+
+- **No local disk survives.** An instance's filesystem is gone when it scales to zero.
+- **Several instances run at once.** The platform starts a second instance under load, and
+  during a deploy the old and new revisions overlap. Both write the same state.
+- **Idle costs nothing.** Nothing may need to run between requests just to keep state
+  correct.
+- **The bill stays at or near zero.**
+
+## Goal
+
+1. **One state, many dispatchers:** `factory serve --state-url gs://bucket/prefix` (or
+   `s3://…`) keeps all state in a bucket. Any number of dispatchers can share it, and no write is
+   lost or applied twice.
+2. **The same store semantics:** the `Store` interface is unchanged and the new backend passes
+   `storetest` as is. That covers CAS on `resourceVersion`, the global version order, `List` at
+   a version, `Watch` with `SinceVersion`, leased locks, retention and transcripts.
+3. **One precondition only:** every object is either created once or not at all ("create if
+   absent"). GCS (`ifGenerationMatch=0`) and S3 (`If-None-Match: *`) both support it, and so does
+   a local directory (`O_EXCL`).
+4. **Cold start in about a second** from a snapshot and a short log.
+
+Non-goals:
+- High write throughput (we expect a few writes a second at peak).
+- Strict linearizable reads across instances. Writes are always checked against the latest
+  state; reads may lag by up to the sync interval (§Reads).
+- Moving P2's dir. The local file store stays, for development and for the run kit.
+
+## Design: a shared log of create-only objects, replayed into memory
+
+Every dispatcher keeps a full copy of the state in memory, using the same `store/memory` engine as
+the file store. The bucket holds the authoritative history: an **append-only log** with one
+object per change, named by its version, and periodic **snapshots**. A change is committed when
+its log object is created. Creation is conditional on the name being free, so two dispatchers
+can't both take the same version.
+
+This is P2's design with the journal file split into objects, one per line, and fsync replaced
+by a conditional create. Delta Lake's transaction log on S3 uses the same pattern.
+
+```
+<prefix>/
+  log/00000000000000001043.json     one change: P2's journal line, plus the writer's id
+  log/00000000000000001044.json
+  snapshots/00000000000000001000.json.gz   the whole store at version 1000 (P2's snapshot format, gzip'd)
+  transcripts/<run>.jsonl.gz        one blob per transcript or environment log (P2's naming)
+```
+
+- **Log entries** are `{"v","at","op","kind","name","obj"?,"w"}`. This is P2's journal line plus
+  `w`, the writer's instance id and a per-write nonce. The version `v` is the object's name, and
+  versions are contiguous. An entry is about 1–2 KB.
+- **Snapshots** are named by the version they hold. They are written by the leader (§Several
+  dispatchers) and are never overwritten.
+- Names are zero-padded to 20 digits, so a listing comes back in version order.
+
+### The write path, and a lost write
+
+The file store's commit hook is the seam (`memory.WithCommitHook`, store.md §File store). When a
+write is checked and encoded under memory's write lock, the hook creates `log/<v>` if absent,
+where `v` is memory's next version. Then:
+
+- **Created:** the write is committed. Memory applies it and tells the watchers, as in the file
+  store.
+- **Taken (a lost write):** another dispatcher committed version `v` first. The hook fails the
+  write with an internal `errBehind`, leaving memory untouched. The object store then **syncs**:
+  it reads `log/<v>`, `log/<v+1>`, and so on until one is missing, and applies them to memory.
+  Their watch events fire. Then it **re-runs the caller's operation** against the fresh state:
+  - A `Create` whose key now exists gets `ErrAlreadyExists`.
+  - An `Update` whose object changed gets `ErrConflict`, and the caller re-reads and retries, as
+    every caller does today.
+  - A `Delete` of something now gone gets `ErrNotFound`.
+  - Anything else is tried at the next free version.
+
+  A successful create of `log/<v>` proves the writer had applied `1…v-1`. So a CAS checked
+  against local memory is a CAS against the whole history, and no two writes can both pass the
+  check. After 20 lost races in a row the call fails with an error.
+- **Unknown outcome** (a timeout or a 5xx after the request was sent): the hook reads `log/<v>`.
+  If it holds this write's nonce, the write committed. If it holds another nonce, the write was
+  lost. If it is missing, the create is retried, which is safe because it is create-if-absent.
+  Each request has a 5 s deadline.
+
+The hook holds memory's write lock for one PUT, about 20–60 ms in-region. Reads wait during it,
+as they wait for the file store's fsync. That is fine at a few writes a second. If it shows up in
+latency, the next step is to check writes in the object store under its own commit lock, outside
+memory's read lock; it is not built.
+
+There is no group commit: one change makes one object. A heartbeat makes about six sequential
+writes (task, lease, agent, run progress, budget counters), so about 0.3 s.
+
+### Reads and freshness
+
+Reads (`Get`, `List`) are served from memory, so they never list the bucket. To see other
+dispatchers' writes, an instance syncs (reads the log from its version + 1 until an entry is
+missing):
+
+- **before a read**, when its last sync is older than `--state-sync-interval` (default 2 s);
+- **before every write** (implicitly: a lost race syncs);
+- **on a `Get` that finds nothing**, once, before returning `ErrNotFound`. The common
+  cross-instance case is an agent that leases on instance A and heartbeats on B, or a UI session
+  created on A and used on B. That case finds the object without waiting for the interval;
+- **in the background**, every sync interval while the process runs. This keeps watches live on
+  a long-running `serve`. On Cloud Run the CPU is throttled between requests, so this loop may
+  not run; correctness never depends on it.
+
+An up-to-date instance's sync is one GET of a missing object (a 404).
+
+**Stale reads are safe.** A read may be up to one sync interval old. Every decision that matters
+is a CAS write, so a stale read costs a retry, not a wrong result. The rest are notices, such as
+"was a cancel requested?" on a heartbeat, which arrive one heartbeat later.
+
+### Watches
+
+Watches are memory's: changes applied from the log (from a sync or a lost race) fire watch events
+exactly like local writes, in version order. A watcher on B sees A's writes in order, one sync
+interval late at most while syncs run. `SinceVersion` replays memory's ring, as before. After a
+cold start the ring begins at the loaded version, and an older `SinceVersion` is
+`ErrWatchExpired` (the informer resyncs), as after a file-store restart.
+
+### Locks and leases
+
+`Lock` is the only part of the `Store` interface that memory keeps per process today. In the
+object store a lock is a stored record of an internal kind, `StoreLock`, named after the lock.
+It holds `{holder, token, expiresAt}` on the store's clock and is written through the log like
+any other object:
+
+- **Lock** creates the record. If the record exists and has expired, Lock takes it with a CAS
+  update. While another holder has it, Lock waits, syncing every second until the lock is free
+  or expired, or until `ctx` ends.
+- **Renew** is a CAS update of the record, with `ErrLockLost` if the record changed or expired.
+- **Unlock** deletes the record only at the version this holder last wrote. Memory gets a
+  conditional delete for this: it is internal to the store packages, and the `Store` interface
+  doesn't change. So a holder never removes a lock someone else reclaimed after it expired.
+
+So the work-item locks (`wi/<id>`, taken by controllers and by the API's work-item admin
+actions) and the leader lease hold across dispatchers. A locked section costs two writes. Lock
+expiry compares instance clocks; the platforms keep them within milliseconds, and the TTLs are
+minutes.
+
+The scheduler's **task leases** (the `Lease` kind) are already CAS writes on the `Task` and the
+`Lease`, so they need nothing new: two dispatchers matching the same task can't both lease it,
+and the loser skips it.
+
+### Transcripts
+
+Each blob (a transcript or an environment log) is an object at `transcripts/<run>.jsonl.gz`,
+with P2's escaping for unsafe names. It is written with a plain PUT, because a re-put replaces
+it, and read with a GET.
+
+The caps and retention need sizes and creation times on the store's clock. Listing can't give
+these (S3's listing has no custom metadata), so each blob gets an index record of an internal kind,
+`TranscriptBlob`, `{size}` plus the usual `createdAt`, written through the log:
+- **The 2 GB total cap and oldest-first eviction** come from these records, read from memory.
+- **Retention** sweeps the records and deletes their blobs.
+- **A Run's delete** removes its records and blobs, after the Run's own delete commits.
+
+A crash between the blob and its record leaves an orphan blob. Once a day the leader lists
+`transcripts/` and deletes blobs that have had no record for a day.
+
+### Snapshots, cold start and log retention
+
+- **Compaction** runs on the leader when the log is 1,000 entries past the last snapshot, and
+  when the leader stops. It writes `snapshots/<V>.json.gz` from `memory.Snapshot` at version V.
+- **Cold start:**
+  1. List `snapshots/` and GET the newest snapshot.
+  2. List `log/` starting after V, then GET those entries in parallel. There are at most about
+     1,000 of them.
+  3. Check the versions are contiguous from V + 1, and replay them into memory (`memory.Restore`,
+     then apply).
+
+  That is two LISTs and a few hundred small GETs, about a second.
+
+- **Deleting old objects without losing a write.** A log entry is never deleted while a lagging
+  writer could still try to create it again. If it were deleted, a stale `create if absent`
+  would succeed and rewrite history. Two rules make that impossible:
+  1. The leader deletes a log entry only when it is covered by a snapshot **and** is older than
+     `SegmentRetention` (7 days). Snapshots are kept while they are the newest two or are less
+     than 7 days old.
+  2. Before a write, an instance whose last successful sync started more than `MaxLag` (1 hour)
+     ago reloads instead of probing. The reload lists from its version, so it sees any gap left
+     by deleted entries, and if there is one it starts again from the newest snapshot.
+
+  Together these guarantee a writer has always seen the log within the last hour. An entry it
+  hasn't seen is less than an hour old, so it can't have been deleted yet.
+
+- **Retention of stored objects** is unchanged: the leader's sweeper deletes through the log, as
+  the file store's deletes go through the journal.
+- **No bucket lifecycle rules.** An age-based lifecycle rule could delete log entries that no
+  snapshot covers yet, for example after weeks at zero instances. Deletes are explicit, and both
+  GCS and S3 charge nothing for them.
+
+### Several dispatchers: who runs what
+
+Every write is a CAS or a create on the log, so any number of instances can serve requests. The
+background loops, though, must not run twice. Two rule controllers would both evaluate the same
+Event and both post the same notice. So:
+
+- **Every instance** serves the API: webhooks (which store Deliveries), the agents' register,
+  lease, heartbeat and complete calls, the UI and the CLI. The scheduler's lease matching runs
+  in the agent's request on any instance. Each instance also loads its own catalog snapshot, and
+  runs the tick that wakes its parked polls.
+- **The leader only** runs every loop that writes from a watch or a timer: the controllers
+  (provider, rule, debounce, work-item, run), the scheduler's lease controller and its
+  `Refresh`, the sweeper, compaction, the transcript orphan scan, and the App installation
+  check.
+- **The leader** is whoever holds the `leader` lock: TTL 3 minutes, renewed every minute. Every
+  instance tries to take it at start and on each tick. The holder checks it still holds the lock
+  before each reconcile, and stops its loops when Renew fails.
+- **When leaders overlap** (an old leader paused past its TTL, for example by Cloud Run
+  throttling its CPU), the result is still correct:
+  - Every write is a CAS.
+  - Effects are created under deterministic ids (`objectID("eff", idempotencyKey)`), so a
+    duplicate is `ErrAlreadyExists`.
+  - Work items are serialised by the store-wide `wi/` locks.
+
+  The `serve` PR checks that every write a leader-only loop makes is one of these, and fixes any
+  that isn't.
+- **Scale to zero.** With no instance running nothing runs, and nothing needs to. A webhook or an
+  agent call starts an instance, which takes the leader lock if it is free. Timed work
+  (debounces, lease expiry, schedules) needs a request to happen; item 9 adds a tick endpoint for
+  that (Cloud Scheduler or EventBridge). The store needs nothing from it.
+
+With one dispatcher, as today, that dispatcher is always the leader and nothing changes.
+
+### Backends
+
+`internal/store/objectstore` holds the log store and a small interface it uses:
+
+```go
+// Bucket is the little the object store needs from object storage.
+type Bucket interface {
+    Get(ctx context.Context, name string) ([]byte, error)              // ErrNotExist
+    Create(ctx context.Context, name string, data []byte) error        // if absent; ErrExists when taken
+    Put(ctx context.Context, name string, data []byte) error           // unconditional (transcript blobs)
+    List(ctx context.Context, prefix, startAfter string, fn func(ObjectInfo) error) error // name order
+    Delete(ctx context.Context, name string) error                     // ErrNotExist
+}
+```
+
+| Bucket | `Create` | Credentials |
+|---|---|---|
+| `gs://` (`cloud.google.com/go/storage`) | `ifGenerationMatch=0` | Application Default Credentials (Cloud Run's service account) |
+| `s3://` (`github.com/aws/aws-sdk-go-v2/service/s3`) | `If-None-Match: *` (S3 since Aug 2024) | the default chain (Lambda's role) |
+| `file://` (a local directory) | `O_CREAT\|O_EXCL`, then fsync | none. For development and for tests with two dispatchers on one machine |
+| fake (tests) | in memory, with injected failures and lost races | none |
+
+`If-Match` and `ifGenerationMatch=<n>` are not needed: no object is ever updated in place. Only
+transcript blobs, which have no concurrent writers that matter, are overwritten. GCS's limit of
+one write per second per object name doesn't apply either, since each name is written once.
+
+The two SDKs are new dependencies (the repo-layout LLD's allow-list): they get a justification in
+their PR. Signing S3 requests (SigV4) and finding credentials on each platform are not worth
+writing ourselves. Credentials always come from the platform's identity, never from a key in the
+config or the image.
+
+`serve` takes `--state-url` or `--state-dir` (not both). Without either, the store stays in
+memory.
+
+## What it costs
+
+Object storage charges per request. Estimate for our instance, at 30 runs a day of about 20
+minutes each and 300 webhooks a day:
+
+| Item | Count per month | GCS (us-central1) | S3 |
+|---|---|---|---|
+| Writes (log entries, locks, snapshots, blobs): ~260 per run, ~15 per webhook, leader renewals | ~420,000 Class A / PUT | 5,000 free, then $0.005 per 1,000: **~$2.10** | $0.005 per 1,000: **~$2.10** |
+| Syncs (one GET every 2 s while an instance runs), cold starts | ≤ 1,300,000 Class B / GET | 50,000 free, then $0.0004 per 1,000: **≤ $0.50** | $0.0004 per 1,000: **≤ $0.52** |
+| Storage: snapshots, a week of log, transcripts | < 2 GB | 5 GB-months free | ~$0.05 |
+| Deletes | — | free | free |
+
+So it costs **about $2–3 a month, not $0.** GCS's always-free tier (5,000 Class A operations a
+month) is used up in the first day; AWS gives new accounts credits rather than an S3 free tier.
+
+Heartbeats make most of the writes: each one rewrites the task, the lease, the agent and the
+run. If the bill matters, the cheapest lever is to write a heartbeat's fields to one record. That
+is a scheduler change, not a store change. The sync interval trades read freshness for GETs.
+
+## Security
+
+- **Nothing secret in the bucket.** The same audit as the file store applies (store.md §File
+  store, "What never reaches the disk"). Its two tests (every kind audited, and a scan for
+  token-shaped strings) also run over the log entries and snapshots of the conformance run. The
+  new internal kinds hold a lock holder's instance id (`StoreLock`) and a size (`TranscriptBlob`).
+- **The bucket is private,** with public access prevented (GCS) or blocked (S3). Only the
+  dispatcher's identity can read or write it. Storage is encrypted at rest by default. `serve`
+  doesn't check the bucket's policy; the deployment docs (item 9) say how to set it.
+- **Deliveries hold raw webhook payloads** (untrusted, not secret), as in P2. Their bodies are
+  dropped once handled.
+
+## Alternatives considered
+
+| Option | For | Against |
+|---|---|---|
+| **A log of create-only objects, replayed into memory** (proposed) | One precondition, the same on GCS, S3 and a local dir. Memory stays the engine, so `storetest` passes as is and the global version, `List` at a version and `Watch` with `SinceVersion` keep working. P2's formats are reused. | Writes are serialised: one PUT each, a few dozen a second at most. Every instance holds the whole state in memory, as today. |
+| One object per record, changed with `If-Match` / generation preconditions | Writes to different records don't contend. | No global order: `resourceVersion` becomes per object, so `ListMeta.ResourceVersion`, `SinceVersion` and informer resync need a new design, and `storetest` changes. Other dispatchers can't see changes without listing everything or adding Pub/Sub or SQS notifications. A cold start is a LIST plus a GET per record. |
+| One state object rewritten with `If-Match` | Simplest. | Each write rewrites the whole state, and GCS allows one write a second per object. |
+| Firestore (GCP) or DynamoDB (AWS) | Built for small records with transactions. Firestore's free quota (about 20,000 writes a day) would cover our load at $0. | Two backends, one per cloud, each with its own concurrency model to keep `storetest`-conformant. Ties the store to a provider's database. |
+| Postgres (store.md's "later") | The usual multi-node answer. | No free tier on Cloud SQL or RDS. A server to run. |
+
+## Tests
+
+- **Conformance:** `storetest.Run` on the object store over the fake bucket and the `file://`
+  bucket.
+- **Two dispatchers on one bucket:**
+  - concurrent CAS updates of one object from two stores: exactly one wins per version;
+  - concurrent creates of one key: one gets `ErrAlreadyExists`;
+  - B's watch sees A's writes in version order;
+  - lock exclusion and expiry reclaim across stores;
+  - a leased task heartbeated through the other store.
+- **Faults** (fake bucket):
+  - lost races at every step;
+  - a create that timed out but landed, and one that didn't;
+  - GET and LIST errors during sync;
+  - a writer paused past `MaxLag` reloads;
+  - a stale writer never re-creates a deleted entry (fake clock across `SegmentRetention`).
+- **Compaction and cold start:** load from every combination of snapshot and log tail, with
+  snapshots and entries deleted under the retention rules mid-load.
+- **Secrets:** the file store's two tests, run over the bucket's objects.
+- **Real buckets:** opt-in tests against `fake-gcs-server` and MinIO in Docker
+  (`make e2e-objectstore`). CI runs them as a non-required job, like `e2e-run-container`.
+- **`serve`:** two `serve` processes on one `file://` bucket. A webhook taken by one leads to a
+  task leased and completed through the other, with one leader at a time, and the second takes
+  over when the first stops.
+
+## Rollout
+
+These start after the org move (IMPROVEMENTS item 4) is merged, since every file imports the
+module path. There are three PRs, each through lisa and ccf-review:
+
+1. **`internal/store/objectstore`**:
+   - the log store, sync, locks, transcripts, compaction and load;
+   - the `Bucket` interface with the fake and `file://` buckets;
+   - memory's apply-from-log and conditional delete;
+   - the conformance, two-store, fault and secrets tests;
+   - store.md §Object store.
+2. **GCS and S3 buckets**, with the opt-in emulator tests and their CI job (RT, plus a non-required
+   CI job).
+3. **`serve --state-url`**:
+   - the leader lock, and which loops run where;
+   - the audit of the leader-only loops' writes;
+   - `factory state --state-url` (read-only, as `--state-dir` is);
+   - the two-`serve` test, and the docs.
+
+Deploying to Cloud Run or Lambda, the tick endpoint and the bucket policy are item 9.
+
+## Questions for Gustavo
+
+1. **Cost.** Object storage costs about $2–3 a month at our load, not $0 (§What it costs).
+   Is that acceptable, or should "inside the free tier" be strict? If it must be strict, the
+   only fit found is Firestore (GCP only), which replaces this design's backends.
+2. **Existing state.** Move the workstation's file-store state into the bucket (a
+   `factory state push` that uploads the snapshot and transcripts), or start the cloud
+   instance fresh? Work items come back from GitHub's markers either way. Starting fresh needs
+   no code.
