@@ -345,9 +345,9 @@ other listening services. `+"`factory-agent host init --remove-pf`"+` undoes it.
 // dir; one that's installed removes it. The kata driver's privileges step is asked about the
 // same way (unless o.Yes); declined, it's left out, and so are the steps that run the helper it
 // installs (helperStep), each with a warning. Nothing records that decline: the next Init asks
-// again, and the final check reports those steps as they are. With o.Only, the statedir step is applied
-// too when it isn't ok, since the applies need the dir. The applies hold <statedir>/host.lock:
-// a second Init fails while one runs.
+// again, and the final check reports those steps as they are. With o.Only, the statedir step is
+// applied too when it isn't ok, since the applies need the dir. The applies hold
+// <statedir>/host.lock: a second Init fails while one runs.
 func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	// the kata driver stages its downloads (about 1.3 GB) in <statedir>/stage, not in $TMPDIR,
 	// which may be a tmpfs: it's made once the host lock is held (the dir exists by then) and
