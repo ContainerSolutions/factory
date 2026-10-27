@@ -1,0 +1,4 @@
+lisa-design:
+- Docs-only contract PR: the Limits.CPUs/Memory doc comments (and their regenerated openapi.yaml and web/src/api/schema.d.ts copies) plus the design docs; no behaviour change.
+- The spec said limits.memory "1Gi gives a 1 GiB VM"; verified in code that this holds on tart only (tart.go Create passes MemoryMiB to tart set), while the kata helper's create refuses memMiB below 2048 (katahelper/verbs.go minMemMiB, intIn), so the run fails at the workspace create step. The docs state that truth instead of the spec's claim; whether to lower the helper's minimum is an open question for a code PR, not this one.
+- workspace.size as a hard cap is documented as by design (no budget/overcommit); a task needing more runs on an agent with a bigger workspace.size, picked e.g. by requires.labels.

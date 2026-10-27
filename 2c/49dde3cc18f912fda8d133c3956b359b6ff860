@@ -1,0 +1,2 @@
+lisa-addressed:
+review 1: PRRT_kwDOVK0lgs6wnefg (--only help now says the named step must not be ok itself); PRRT_kwDOVK0lgs6wnehb (Init's doc comment refilled); coordinator: HelperRequiredError's fix hint is "run host init without --only (or add privileges to --only)", keeping the user's --driver/--config (test and workspace-kata.md updated).

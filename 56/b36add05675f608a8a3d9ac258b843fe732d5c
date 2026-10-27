@@ -1,0 +1,2 @@
+lisa-addressed:
+ccf-review nit: ci.yml's 'The hostname resolves' comment now says the step proves nss-myhostname is installed and answers, not its order (dns fails at once with no network); the Dockerfile's build-time grep enforces files myhostname dns.
