@@ -13,7 +13,10 @@ package store
 //
 // So during a deploy, and after a rollback from N+1 to N, every instance can read every entry
 // and keep the fields it rewrites. While ReadableSchema is pending (SchemaVersion+1), further
-// changes accumulate into it, until a release writes it by bumping SchemaVersion. A store that meets an entry past its ReadableSchema stops
+// changes accumulate into it, until a release that reads it ships. Then N+1 is frozen: the
+// deployed expand release wouldn't know a later change and would drop its fields on rewrite,
+// so a later change waits for SchemaVersion N+1 to ship and opens N+2. Tests can't know what
+// shipped, so this is the release checklist's to check. A store that meets an entry past its ReadableSchema stops
 // writing (ErrReadOnly); one whose newest snapshot is past it refuses to start.
 //
 // cmd/factory's TestStoredSchema keeps these honest: a golden of every stored kind's JSON

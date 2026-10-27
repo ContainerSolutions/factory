@@ -33,7 +33,15 @@ func TestStoredSchema(t *testing.T) {
 		t.Fatalf("%v: run go test ./cmd/factory -run TestStoredSchema -update", err)
 	}
 	goldenSchema, want := parseSchemaGolden(t, string(raw))
-	write, msg := schemaVerdict(slices.Equal(got, want), goldenSchema, store.ReadableSchema, store.SchemaVersion, *updateGolden)
+	same := slices.Equal(got, want)
+	write, msg := schemaVerdict(same, goldenSchema, store.ReadableSchema, store.SchemaVersion, *updateGolden)
+	if !write && msg == "" && string(raw) != renderSchemaGolden(got) {
+		// Same fields and version, other text (the header): rewrite it, or say to.
+		write, msg = *updateGolden, "the text of "+schemaGolden+" is out of date: run go test ./cmd/factory -run TestStoredSchema -update"
+		if write {
+			msg = ""
+		}
+	}
 	if write {
 		if err := os.MkdirAll(filepath.Dir(schemaGolden), 0o755); err != nil {
 			t.Fatal(err)
@@ -53,31 +61,41 @@ func TestStoredSchema(t *testing.T) {
 // written at goldenSchema.
 //
 // Expand-then-write (internal/store/schema.go): a change to a stored type goes into a pending
-// ReadableSchema of SchemaVersion+1. Once it is pending, further changes accumulate into it
-// (the golden is rewritten at the same ReadableSchema) until a release writes it by bumping
-// SchemaVersion; only then does the next change need a new ReadableSchema.
+// ReadableSchema of SchemaVersion+1, which -update accepts. Further changes join it until a
+// release that reads it ships; a test can't know that, so schema.go and store.md say it. A
+// change that also bumps SchemaVersion skips the expand step, and -update refuses it.
 func schemaVerdict(same bool, goldenSchema, readable, schemaVersion int, update bool) (write bool, msg string) {
 	pending := readable == schemaVersion+1
 	switch {
 	case same && goldenSchema == readable:
 		return false, ""
-	case update && (same || readable > goldenSchema || pending):
+	case update && (same || pending):
 		return true, ""
-	case !same && readable == goldenSchema && pending:
+	case same:
+		return false, fmt.Sprintf("store.ReadableSchema is %d and %s was written at %d: run go test ./cmd/factory -run TestStoredSchema -update",
+			readable, schemaGolden, goldenSchema)
+	case pending && readable == goldenSchema:
 		return false, fmt.Sprintf(`the stored types changed. store.ReadableSchema %d is pending (store.SchemaVersion is still %d),
-so this change joins it: the release that bumps store.SchemaVersion to %d writes them all.
-Run go test ./cmd/factory -run TestStoredSchema -update.`, readable, schemaVersion, readable)
-	case !same && readable == goldenSchema:
+so this change joins it, and the release that bumps store.SchemaVersion to %d writes them all.
+Unless a release that reads %d has shipped: then %d is frozen, and this change waits for
+SchemaVersion %d to ship and opens %d.
+Run go test ./cmd/factory -run TestStoredSchema -update.`, readable, schemaVersion, readable, readable, readable, readable, readable+1)
+	case pending:
+		return false, fmt.Sprintf("store.ReadableSchema is now %d (pending; %s was written at %d): run go test ./cmd/factory -run TestStoredSchema -update",
+			readable, schemaGolden, goldenSchema)
+	case readable == goldenSchema:
 		return false, fmt.Sprintf(`the stored types changed, and store.ReadableSchema is still %d.
 A shared log (an object store) is read by two releases during a deploy, so a change to a stored
 kind ships expand-then-write (internal/store/schema.go):
   1. this release: add the kind or optional field, bump store.ReadableSchema to %d and keep
      store.SchemaVersion at %d; then go test ./cmd/factory -run TestStoredSchema -update
-     (later changes before step 2 join the same pending version);
+     (later changes join the pending version until a release that reads it ships);
   2. a later release: bump store.SchemaVersion to %d.`, readable, schemaVersion+1, schemaVersion, schemaVersion+1)
 	default:
-		return false, fmt.Sprintf("store.ReadableSchema is %d and %s was written at %d: run go test ./cmd/factory -run TestStoredSchema -update",
-			readable, schemaGolden, goldenSchema)
+		return false, fmt.Sprintf(`the stored types changed, and store.ReadableSchema (%d) and store.SchemaVersion (%d) both
+moved past the golden's %d: a release would write a schema no deployed release reads.
+Expand first: bump ReadableSchema alone and ship it; bump SchemaVersion in a later release
+(internal/store/schema.go).`, readable, schemaVersion, goldenSchema)
 	}
 }
 
@@ -102,6 +120,9 @@ func TestSchemaVerdict(t *testing.T) {
 		{name: "written, unchanged", same: true, golden: 2, readable: 2, schemaVersion: 2},
 		{name: "written, changed again", golden: 2, readable: 2, schemaVersion: 2, update: true, msg: "bump store.ReadableSchema to 3"},
 		{name: "bumped with no change, -update", same: true, golden: 1, readable: 2, schemaVersion: 1, update: true, write: true},
+		{name: "changed, both bumped", golden: 1, readable: 2, schemaVersion: 2, msg: "Expand first"},
+		{name: "changed, both bumped, -update refused", golden: 1, readable: 2, schemaVersion: 2, update: true, msg: "Expand first"},
+		{name: "unchanged, versions moved, -update", same: true, golden: 1, readable: 2, schemaVersion: 2, update: true, write: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			write, msg := schemaVerdict(tc.same, tc.golden, tc.readable, tc.schemaVersion, tc.update)
@@ -234,8 +255,10 @@ func cmpPath(p string) string {
 func renderSchemaGolden(lines []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# The JSON fields of every stored kind (the v1alpha1 runtime kinds and cmd/factory's\n")
-	fmt.Fprintf(&b, "# internalKinds), at store.ReadableSchema below. A change here needs a ReadableSchema bump\n")
-	fmt.Fprintf(&b, "# first (expand-then-write, internal/store/schema.go), then:\n")
+	fmt.Fprintf(&b, "# internalKinds), a sorted set, at store.ReadableSchema below. A change here needs a\n")
+	fmt.Fprintf(&b, "# pending ReadableSchema (SchemaVersion+1, bumped alone: expand-then-write,\n")
+	fmt.Fprintf(&b, "# internal/store/schema.go). Changes join it until a release that reads it ships; then it\n")
+	fmt.Fprintf(&b, "# is frozen until SchemaVersion catches up. To rewrite this file:\n")
 	fmt.Fprintf(&b, "#   go test ./cmd/factory -run TestStoredSchema -update\n")
 	fmt.Fprintf(&b, "readableSchema %d\n", store.ReadableSchema)
 	for _, l := range lines {
