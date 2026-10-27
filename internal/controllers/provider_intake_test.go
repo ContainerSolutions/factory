@@ -83,7 +83,8 @@ func (s *syncStore) count() int {
 }
 
 // intakeEnv is the provider controller over the fake GitHub, a catalog the test picks and a
-// store (memory, or a syncStore over it), logging to an attrRecorder.
+// store (memory, or a syncStore over it), logging to an attrRecorder. gh is the fake GitHub's
+// Conn; nil when the test brings its own adapters.
 type intakeEnv struct {
 	ctx  context.Context
 	clk  *clock.Fake
@@ -104,9 +105,9 @@ func newIntakeEnv(t *testing.T, cat *catalog.Catalog, wrap func(*memory.Store) s
 		st = wrap(mem)
 	}
 	e := &intakeEnv{ctx: context.Background(), clk: clk, mem: mem, st: st, cat: newSwapCatalog(cat), logs: &attrRecorder{}}
-	ad := fake.NewAdapter(fake.Options{Clock: clk})
-	e.gh = ad.Conn(ghProvider)
 	if adapters == nil {
+		ad := fake.NewAdapter(fake.Options{Clock: clk})
+		e.gh = ad.Conn(ghProvider)
 		adapters = []provider.Adapter{ad}
 	}
 	reg, err := provider.NewRegistry(adapters...)

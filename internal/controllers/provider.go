@@ -359,7 +359,7 @@ func (p *ProviderController) Reconcile(ctx context.Context, id string) (Result, 
 	default:
 		cat := p.cat.Current()
 		if cat == nil {
-			return Result{}, errors.New("no catalog loaded yet")
+			return Result{}, fmt.Errorf("delivery %s: %w", id, ErrNoCatalog)
 		}
 		ids := make([]string, 0, len(evs))
 		for i := range evs {
@@ -400,7 +400,8 @@ func (p *ProviderController) Reconcile(ctx context.Context, id string) (Result, 
 // controller then adds it to that item's timeline). It returns "" to keep it, else why it is
 // dropped. The link lookup, made only before a drop, syncs the store when it finds nothing.
 func (p *ProviderController) intake(ctx context.Context, cat *catalog.Catalog, ev v1alpha1.Event) (string, error) {
-	// A provider event's scope reads no work item, so the empty view is the new item's.
+	// The empty view is exact: scope reads a work item's links only for factory.* events, which
+	// are created in the store directly and never come through here.
 	if rules.CouldFire(cat, ev, rules.WorkItemView{}) {
 		return "", nil
 	}

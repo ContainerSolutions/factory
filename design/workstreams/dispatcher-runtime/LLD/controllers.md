@@ -93,10 +93,10 @@ Timer wheel over `Debounce` objects; at `Until` re-evaluates the held intent's r
 
 ```text
 start store → catalog-sync (wait first good catalog) → provider (connect) → work-item rebuild (blocking, bounded 5 min)
-→ rule, work-item, run, scheduler controllers → HTTP server (agents may now lease)
+→ provider (normalise), rule, work-item, run, scheduler controllers → HTTP server (agents may now lease)
 ```
 
-Webhooks received during rebuild are accepted and stored as Events; the rule controller processes them after rebuild.
+Webhooks received during rebuild, and the deliveries `Recover` brings back, are accepted and stored as Deliveries; the provider controller normalises them after the rebuild, so its intake filter sees the links the rebuild restores, and the rule controller processes the Events it keeps.
 
 With `factory serve --state-dir` ([store.md §Serving](store.md#serving-factory-serve---state-dir)) the store starts with everything the last run left, and the same order applies: the rebuild leaves the work items the file holds alone (the file is authoritative for them; markers only bring back the items it lacks), the informers list and watch from the restored version, and the rule controller skips the Events it processed (`EventStatus` is stored), so nothing is dispatched twice.
 
