@@ -6,3 +6,11 @@ pass 1:
 - [should-fix] emulator_test.go GCS isCreate doesn't require uploadType=multipart -> fix.
 - [nit] Makefile e2e-objectstore filter uses \s and hides failing assertions -> fix.
 - [nit] NewGCSBucket/NewS3Bucket exported but unused -> fix (remove).
+
+lisa-design:
+- The GCS and S3 buckets live in package objectstore, registered in ParseURL's scheme table (not self-registering subpackages).
+- ParseURL and Opener take a context (opening a cloud bucket is I/O).
+- GCS: JSON API for reads too (storage.WithJSONReads); ChunkSize = len(data)+1 so the SDK retries the one-shot upload.
+- S3: 409 ConditionalRequestConflict is NOT ErrExists (deviation from the PR spec): re-sent 3 times, then an unknown outcome. Delete = HeadObject then DeleteObject to keep the Bucket contract's ErrNotExist.
+- FACTORY_S3_ENDPOINT turns on path-style; STORAGE_EMULATOR_HOST is the GCS override.
+- Emulators: fake-gcs-server 1.56.1 and pgsty/minio (minio/minio images are no longer pullable), pinned by index digest.
