@@ -27,7 +27,9 @@ import (
 // 4: exec runs as admin (3's ran as root).
 // 5: image-build, image-exists and image-rm.
 // 6: warm-load, warm-promote and warm-exists.
-const Protocol = 6
+// 7: every verb stops on SIGTERM, SIGINT or SIGHUP, killing its command's process group, and
+// image-build sweeps the build contexts a killed one left.
+const Protocol = 7
 
 // Env is the whole environment of the commands the helper runs: nothing comes from the
 // caller's. NERDCTL_TOML names /dev/null, so no /etc/nerdctl/nerdctl.toml changes nerdctl's
@@ -49,7 +51,14 @@ type Runner interface {
 	Run(ctx context.Context, env []string, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error
 }
 
-// ExecRunner runs real programs.
+// killWait is how long ExecRunner waits, once its command is killed, for the output a child
+// that escaped the kill holds open.
+const killWait = 5 * time.Second
+
+// ExecRunner runs real programs. A command leads its own process group, and when ctx ends the
+// whole group is killed: nerdctl build's buildctl, say, dies with it. A command given the
+// helper's own stdin (exec -i) stays in the helper's group instead, since its stdin may be a
+// terminal, which a background group can't read; ctx's end kills only it.
 type ExecRunner struct{}
 
 // Run implements Runner.
@@ -57,7 +66,11 @@ func (ExecRunner) Run(ctx context.Context, env []string, stdin io.Reader, stdout
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env, cmd.Dir = env, "/"
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, stdout, stderr
-	cmd.WaitDelay = 10 * time.Second
+	if _, file := stdin.(*os.File); !file {
+		ownGroup(cmd)
+		cmd.Cancel = func() error { return killGroup(cmd) }
+	}
+	cmd.WaitDelay = killWait
 	return cmd.Run()
 }
 
@@ -77,14 +90,13 @@ type Options struct {
 
 // Main runs one verb: kata-helper <verb> [args]. It returns the exit code: 0 on success, 2 for
 // usage, 1 for any other failure (with one line on stderr); exec's are execVerb's.
+//
+// A signal (sudo relays the caller's SIGTERM, a terminal's SIGINT or SIGHUP) ends the verb's
+// context: its command's process group is killed and the verb removes what it made, rather
+// than dying with nerdctl left running and an image-build's context copy left behind.
 func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	ctx := context.Background()
-	if len(args) > 0 && args[0] == "exec" {
-		// a signal stops nerdctl exec and the helper says so, rather than leaving it behind.
-		var stop context.CancelFunc
-		ctx, stop = signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
-		defer stop()
-	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	defer stop()
 	return Run(ctx, Options{Runner: ExecRunner{}, Stdin: stdin, Stdout: stdout, Stderr: stderr}, args)
 }
 

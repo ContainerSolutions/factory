@@ -20,6 +20,10 @@ import (
 
 const kataImageName = "kataimage"
 
+// kataImageTimeout bounds the helper's image-build: its own nerdctl build bound is 90 minutes,
+// so this one ends only a helper that hangs past it (receiving the context, or its cleanup).
+const kataImageTimeout = 2 * time.Hour
+
 // KataBaseRecord is <statedir>/katabase.json: the workspace image host init built.
 type KataBaseRecord struct {
 	Image string `json:"image"`
@@ -153,7 +157,12 @@ func (s kataImageStep) Apply(ctx context.Context) error {
 	}
 	prev := s.previous()
 	fmt.Fprintf(e.Out, "building %s with the factory's BuildKit (this takes a while)\n", tag)
-	if err := e.Spawner.RunInput(ctx, bytes.NewReader(ctxTar), e.Out, "sudo", e.helperArgv("image-build", tag)...); err != nil {
+	bctx, cancel := context.WithTimeout(ctx, kataImageTimeout)
+	defer cancel()
+	if err := e.Spawner.RunInput(bctx, bytes.NewReader(ctxTar), e.Out, "sudo", e.helperArgv("image-build", tag)...); err != nil {
+		if ctx.Err() == nil && errors.Is(bctx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("%w (timed out after %s)", err, kataImageTimeout)
+		}
 		return fmt.Errorf("kata-helper image-build: %w", err)
 	}
 	rec := KataBaseRecord{Image: tag, ContextSHA256: sum, BuiltAt: e.Clock.Now().UTC().Format(time.RFC3339)}

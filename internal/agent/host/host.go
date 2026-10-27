@@ -76,14 +76,15 @@ type Runner interface {
 	Run(ctx context.Context, out io.Writer, name string, args ...string) error
 }
 
-// ExecRunner runs real programs.
+// ExecRunner runs real programs. When ctx ends, a command gets SIGKILL, but for a sudo -n
+// call (the kata helper's verbs): see onCancel.
 type ExecRunner struct{}
 
 // Run implements Runner.
 func (ExecRunner) Run(ctx context.Context, out io.Writer, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout, cmd.Stderr = out, out
-	cmd.WaitDelay = 10 * time.Second
+	onCancel(cmd, name, args)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}

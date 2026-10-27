@@ -42,3 +42,25 @@ func (h *helper) lock(ctx context.Context) (func(), error) {
 		}
 	}
 }
+
+// errBuildBusy is image-build's error while another one holds BuildDir.
+var errBuildBusy = errors.New("another image-build is running")
+
+// buildLock takes the exclusive flock on BuildDir itself, without waiting: an image-build holds
+// it while it sweeps the dir and builds, so it never sweeps a running one's context. The
+// returned func releases it.
+func (h *helper) buildLock() (func(), error) {
+	p := h.path(BuildDir)
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil { //nolint:gosec // a file descriptor fits an int
+		_ = f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errBuildBusy
+		}
+		return nil, fmt.Errorf("flock %s: %w", p, err)
+	}
+	return func() { _ = f.Close() }, nil
+}

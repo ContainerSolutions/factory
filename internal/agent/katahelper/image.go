@@ -41,7 +41,20 @@ func validImage(tag string) error {
 // level, a Dockerfile among them. The helper copies it into a root-only directory first, so
 // BuildKit reads nothing the owner can change or point elsewhere. nerdctl's output goes to
 // stderr (stdout is the verbs' result).
+//
+// It holds BuildDir's lock throughout, and first sweeps the contexts a killed image-build left.
 func (h *helper) imageBuild(ctx context.Context, tag string) error {
+	if err := os.MkdirAll(h.path(BuildDir), 0o700); err != nil {
+		return err
+	}
+	unlock, err := h.buildLock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := h.sweepContexts(); err != nil {
+		return err
+	}
 	dir, err := h.receiveContext()
 	if dir != "" {
 		defer func() { _ = os.RemoveAll(dir) }()
@@ -62,9 +75,6 @@ func (h *helper) imageBuild(ctx context.Context, tag string) error {
 func (h *helper) receiveContext() (string, error) {
 	if h.o.Stdin == nil {
 		return "", errors.New("no stdin")
-	}
-	if err := os.MkdirAll(h.path(BuildDir), 0o700); err != nil {
-		return "", err
 	}
 	dir, err := os.MkdirTemp(h.path(BuildDir), "context-")
 	if err != nil {
@@ -104,6 +114,21 @@ func (h *helper) receiveContext() (string, error) {
 		return dir, errors.New("no Dockerfile")
 	}
 	return dir, nil
+}
+
+// sweepContexts removes the context-* directories under BuildDir: with its lock held, they're
+// a killed image-build's, whose deferred removal never ran.
+func (h *helper) sweepContexts() error {
+	stale, err := filepath.Glob(filepath.Join(h.path(BuildDir), "context-*"))
+	if err != nil {
+		return err
+	}
+	for _, d := range stale {
+		if err := os.RemoveAll(d); err != nil {
+			return fmt.Errorf("a stale build context: %w", err)
+		}
+	}
+	return nil
 }
 
 // writeNew writes size bytes of r to the new file p (a file of that name already there is an
