@@ -82,7 +82,8 @@ func (a GitAuth) String() string {
 	return "GitAuth(" + strconv.Itoa(int(a)) + ")"
 }
 
-// Options configure a Pipeline. Adapters and exactly one of WorkRoot and Root are required.
+// Options configure a Pipeline. Exactly one of WorkRoot and Root is required, and Adapters
+// with Root.
 type Options struct {
 	// WorkRoot holds the per-task workspaces (workRoot/<taskID>/), each removed after its
 	// run (the host).
@@ -204,7 +205,8 @@ func New(o Options) (*Pipeline, error) {
 		return nil, fmt.Errorf("pipeline: Env: %w", err)
 	}
 	o.Env = maps.Clone(o.Env)
-	if len(o.Adapters) == 0 {
+	// The host pipeline only builds run bundles (PrepareBundle), which run no harness.
+	if o.Root != "" && len(o.Adapters) == 0 {
 		return nil, errors.New("pipeline: no harness adapters")
 	}
 	if o.AgentBinary == "" {

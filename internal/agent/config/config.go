@@ -90,8 +90,10 @@ type Config struct {
 // allows (harnesses don't reliably list it, 10-poc.md §Capabilities).
 type Harness struct {
 	// Home is codex's dedicated CODEX_HOME, signed in once with `codex login --device-auth`.
+	// Unused since phase 10 (the harnesses run in the VM, with the login `factory-agent login`
+	// stored): kept, and still validated, so existing agent.yaml files load.
 	Home string `json:"home,omitzero"`
-	// ConfigDir is claude-code's dedicated CLAUDE_CONFIG_DIR.
+	// ConfigDir is claude-code's dedicated CLAUDE_CONFIG_DIR. Unused since phase 10, as Home.
 	ConfigDir string `json:"configDir,omitzero"`
 	// Models the owner's plan allows.
 	Models []string `json:"models"`

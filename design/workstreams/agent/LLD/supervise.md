@@ -132,7 +132,7 @@ execute(lease):
 
 ### `factory-agent probe`
 
-`factory-agent probe [--config] [--json]` prints what the host offers and never calls the dispatcher: each harness adapter's `Probe` (`probe.Prober`; `probe.Configured` offers the config's models, efforts and default with `auth: subscription` when an adapter has none), the labels as configured (a `probe.LabelChecker` can still check one; none is built in), and the base tooling (`git`, `gh`, `jq`, `python3` on PATH, and `gh-pr-review`, `gh-stack` in `gh extension list`). It exits 1 when a harness or a base tool is missing. supervise doesn't use these probes: it offers a harness by its login (above).
+`factory-agent probe [--config] [--state-dir] [--json]` prints what the host offers and never calls the dispatcher, the way supervise sees it: a configured harness is offered when its login is in `<state-dir>/logins` (`loginProbe`, as above), the labels as configured, and the base tooling: `git` on PATH, which fetches the skills for the run bundles. It exits 1 when no harness is offered or `git` is missing.
 
 ### The loop's tests
 

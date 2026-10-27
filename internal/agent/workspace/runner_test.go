@@ -242,7 +242,7 @@ func newRig(t *testing.T, h v1alpha1.HarnessResolved, script vmScript) *rig {
 	r := &rig{t: t, e: e, job: e.Job(h, []string{"pr-opened"}), state: t.TempDir(), sink: &sink{}, script: script}
 	r.driver = &fakeDriver{r: r, root: t.TempDir()}
 	r.opts = RunnerOptions{
-		Driver: r.driver, Pipeline: e.Pipeline(&fake.Adapter{}), StateDir: r.state,
+		Driver: r.driver, Pipeline: e.Pipeline(nil), StateDir: r.state,
 		Listen: func(ctx context.Context, a netip.AddrPort) (net.Listener, error) {
 			if a != netip.AddrPortFrom(gwAddr, GatewayPort) {
 				return nil, fmt.Errorf("listen on %s", a)

@@ -5,19 +5,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"net/http"
 	"os"
 	"os/signal"
-	"slices"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/harness/claudecode"
-	"github.com/compliance-framework/factory/internal/agent/harness/codex"
 	"github.com/compliance-framework/factory/internal/agent/owner"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/probe"
@@ -49,27 +44,13 @@ type runnerOptions struct {
 	Home func() (string, error)
 }
 
-// harnessAdapters builds each harness's adapter from its local config, one line per
-// harness: AGT-S1-T03 registers codex and AGT-S1-T04 claude-code.
-var harnessAdapters = map[string]func(config.Harness) harness.Adapter{
-	config.HarnessCodex:      func(h config.Harness) harness.Adapter { return codex.New(codex.Options{Config: h}) },
-	config.HarnessClaudeCode: func(h config.Harness) harness.Adapter { return claudecode.New(claudecode.Options{Config: h}) },
-}
-
 // skillsCache is where skills checkouts are cached by commit (run-pipeline.md §Steps 5).
 const skillsCache = "~/.factory-agent/cache/ccf-skills"
 
-// hostPipelineOptions are the host run pipeline's options supervise builds its runner on: an
-// adapter for every configured harness, the work root and the skills cache.
+// hostPipelineOptions are the host run pipeline's options supervise builds its runner on: the
+// work root and the skills cache. The host pipeline only builds run bundles, so it has no
+// harness adapters: the harnesses run in the VM (vmrun's adapters).
 func hostPipelineOptions(cfg *config.Config, o runnerOptions) (pipeline.Options, error) {
-	adapters := map[string]harness.Adapter{}
-	for _, name := range slices.Sorted(maps.Keys(cfg.Harnesses)) {
-		mk, ok := harnessAdapters[name]
-		if !ok {
-			return pipeline.Options{}, fmt.Errorf("no harness adapter for %s", name)
-		}
-		adapters[name] = mk(cfg.Harnesses[name])
-	}
 	home := o.Home
 	if home == nil {
 		home = os.UserHomeDir
@@ -78,7 +59,7 @@ func hostPipelineOptions(cfg *config.Config, o runnerOptions) (pipeline.Options,
 	if err != nil {
 		return pipeline.Options{}, err
 	}
-	return pipeline.Options{WorkRoot: cfg.WorkRoot, Adapters: adapters, SkillsCache: cache, Logger: o.Logger}, nil
+	return pipeline.Options{WorkRoot: cfg.WorkRoot, SkillsCache: cache, Logger: o.Logger}, nil
 }
 
 // agentLoop is what runAgentLoop needs of its command (supervise).

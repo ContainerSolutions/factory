@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/effector"
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
 	"github.com/compliance-framework/factory/internal/agent/harness/clirun"
@@ -47,19 +46,6 @@ func TestFxGitCredential(t *testing.T) {
 	gone := func(string) string { return filepath.Join(t.TempDir(), "nope") }
 	if code := runFx(context.Background(), []string{"git-credential", "get"}, strings.NewReader("protocol=https\n"), &out, &errOut, gone); code != 5 {
 		t.Errorf("a missing socket = %d, want 5", code)
-	}
-}
-
-func TestHarnessAdaptersRegistered(t *testing.T) {
-	for _, name := range config.Harnesses() {
-		mk, ok := harnessAdapters[name]
-		if !ok {
-			t.Errorf("no adapter registered for %s", name)
-			continue
-		}
-		if got := mk(config.Harness{}).Name(); got != name {
-			t.Errorf("the %s adapter is named %s", name, got)
-		}
 	}
 }
 

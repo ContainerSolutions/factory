@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -62,7 +61,7 @@ type fakeTooling struct{ missing string }
 
 func (f fakeTooling) Check(context.Context) []probe.Tool {
 	var out []probe.Tool
-	for _, n := range append(probe.BaseTools(), probe.GhExtensions()...) {
+	for _, n := range probe.BaseTools() {
 		t := probe.Tool{Name: n, OK: n != f.missing}
 		if !t.OK {
 			t.Problem = "not found on PATH"
@@ -73,12 +72,7 @@ func (f fakeTooling) Check(context.Context) []probe.Tool {
 }
 
 func probeOpts(missing string) probe.Options {
-	return probe.Options{
-		Tooling: fakeTooling{missing: missing},
-		Labels: map[string]probe.LabelChecker{
-			"gpu": probe.LabelFunc(func(context.Context, *config.Config) error { return errors.New("no GPU found") }),
-		},
-	}
+	return probe.Options{Tooling: fakeTooling{missing: missing}, Harnesses: map[string]probe.Prober{}}
 }
 
 func homeIn(dir string) config.Options {
@@ -95,7 +89,7 @@ func TestProbeCommand(t *testing.T) {
 	}
 	for _, want := range []string{
 		"codex: auth subscription, models gpt-5-codex (default gpt-5-codex), efforts low, high",
-		"labels: fast-disk\n", "label gpu: no GPU found", "gh-stack: ok",
+		"labels: fast-disk, gpu\n", "git: ok",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("probe output lacks %q:\n%s", want, out.String())
@@ -110,14 +104,14 @@ func TestProbeCommand(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &rep); err != nil {
 		t.Fatalf("probe --json: %v\n%s", err, out.String())
 	}
-	if len(rep.Capabilities.Harnesses) != 1 || rep.Capabilities.Harnesses[0].Name != "codex" || len(rep.Dropped) != 1 {
+	if len(rep.Capabilities.Harnesses) != 1 || rep.Capabilities.Harnesses[0].Name != "codex" || len(rep.Dropped) != 0 {
 		t.Errorf("report %+v", rep)
 	}
 
 	errOut.Reset()
-	if code := runProbe(context.Background(), []string{"--config", p}, io.Discard, &errOut, probeOpts("jq"), homeIn(dir)); code != 1 ||
-		!strings.Contains(errOut.String(), "base tool jq") {
-		t.Errorf("probe without jq = %d %q", code, errOut.String())
+	if code := runProbe(context.Background(), []string{"--config", p}, io.Discard, &errOut, probeOpts("git"), homeIn(dir)); code != 1 ||
+		!strings.Contains(errOut.String(), "base tool git") {
+		t.Errorf("probe without git = %d %q", code, errOut.String())
 	}
 	if code := runProbe(context.Background(), []string{"--config", filepath.Join(dir, "missing.yaml")}, io.Discard, io.Discard, probeOpts(""), homeIn(dir)); code != 1 {
 		t.Errorf("probe with no config = %d", code)
