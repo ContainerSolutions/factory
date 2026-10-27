@@ -4,3 +4,8 @@ dispatcher route under deny-by-default), GO-NIL-001 (nil environment / nil egres
 zero Egress), CORE-DOC-001 (gateway.md, supervise.md, workspace-run.md). The gateway's own
 hosts under deny-by-default with an empty allow list already worked (policy: intercepted
 hosts and the dispatcher skip the host check); no code change needed there.
+
+lisa-design:
+Runner.newGateway (default gateway.New) is the seam the runner tests use to see the Config;
+not a configuration knob. taskEgress copies only Mode and AllowHosts: Deny and OpenAddrs are
+the supervisor's, not the Task's.
