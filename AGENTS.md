@@ -13,7 +13,7 @@ make openapi-lint               # vacuum on api/openapi.yaml (ruleset api/vacuum
 go test ./internal/webui -run TestHandler   # one test
 go run ./cmd/factory rules test --catalog catalog [--update | --base-catalog <dir>] [--coverage]   # replay catalog/testdata against the rules
 make build-release              # web/ build + go build -tags webui
-make e2e-run-container          # opt-in, needs docker: factory-agent run (linux) in a plain container as root, fake harnesses, no network
+make e2e-run-container          # opt-in, needs docker: factory-agent run (linux) in a plain container as root, fake harnesses, no network; CI runs it too, advisory (not in ci / required)
 make kata-context KATA_CONTEXT_DIR=dir && docker build dir   # the kata image's build context (provision/kata + base.sh), what CI's kata job builds
 cd web && npm ci && npm run gen:api   # after changing api/openapi.yaml or api/examples: regenerates web's committed client (CI's web job checks it)
 bin/factory serve --dev-fake-providers --catalog-dir internal/catalog/testdata/poc   # local dispatcher, fake GitHub (needs FACTORY_OAUTH_CLIENT_ID/_SECRET, FACTORY_SESSION_KEY, FACTORY_CLI_TOKEN in env)
