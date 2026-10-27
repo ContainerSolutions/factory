@@ -113,6 +113,15 @@ func TestProbeCommand(t *testing.T) {
 		!strings.Contains(errOut.String(), "base tool git") {
 		t.Errorf("probe without git = %d %q", code, errOut.String())
 	}
+	// Without its own probers, probe offers a harness by its login in the state dir, as
+	// supervise does: there is none here.
+	out.Reset()
+	errOut.Reset()
+	if code := runProbe(context.Background(), []string{"--config", p, "--state-dir", t.TempDir()}, &out, &errOut,
+		probe.Options{Tooling: fakeTooling{}}, homeIn(dir)); code != 1 ||
+		!strings.Contains(out.String(), "run `factory-agent login codex`") || !strings.Contains(errOut.String(), "no harness passed its probe") {
+		t.Errorf("probe without logins = %d %q %q", code, out.String(), errOut.String())
+	}
 	if code := runProbe(context.Background(), []string{"--config", filepath.Join(dir, "missing.yaml")}, io.Discard, io.Discard, probeOpts(""), homeIn(dir)); code != 1 {
 		t.Errorf("probe with no config = %d", code)
 	}
