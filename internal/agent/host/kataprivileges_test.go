@@ -250,10 +250,13 @@ func TestSudoersRuleVisudo(t *testing.T) {
 // too), naming the steps and the privileges status; with the helper ok, or privileges selected,
 // or no helper step selected, or no --only at all, init runs (privileges first).
 func TestKataInitHelperRequired(t *testing.T) {
+	var installed string // the agent version installKata built the image and the warm disk for
 	noHelper := func(t *testing.T, e *Env, r *fakeRunner) { removeRoot(t, e, katahelper.HelperPath); r.helper = "" }
 	outdated := func(_ *testing.T, _ *Env, r *fakeRunner) { r.helper = "0" }
 	noRule := func(_ *testing.T, _ *Env, r *fakeRunner) { r.sudoErr = errors.New("exit status 1") }
 	helperOK := func(*testing.T, *Env, *fakeRunner) {}
+	// the image and the warm disk current (the other cases outdate them), the helper out of date
+	current := func(_ *testing.T, e *Env, r *fakeRunner) { e.AgentVersion = installed; r.helper = "0" }
 	tests := []struct {
 		name    string
 		set     func(*testing.T, *Env, *fakeRunner)
@@ -274,6 +277,7 @@ func TestKataInitHelperRequired(t *testing.T) {
 		{"--dry-run", noHelper, InitOptions{DryRun: true, Only: []string{"kataimage"}}, "run `factory-agent host init`, or add privileges to --only", []string{"kataimage"}, nil},
 		{"--yes", noHelper, InitOptions{Yes: true, Only: []string{"katawarm", "kataimage"}}, "kataimage and katawarm need the kata helper", []string{"kataimage", "katawarm"}, nil},
 		{"--only kataimage, the helper ok", helperOK, InitOptions{Only: []string{"kataimage"}}, "", nil, []string{"image-build"}},
+		{"--only kataimage, ok, an out-of-date helper", current, InitOptions{Only: []string{"kataimage"}}, "", nil, nil},
 		{"--only statedir, no helper", noHelper, InitOptions{Only: []string{"statedir"}}, "", nil, nil},
 		{"--only privileges,kataimage, no helper", noHelper, InitOptions{Only: []string{"privileges", "kataimage"}}, "", nil, []string{"script", "image-build"}},
 		{"no --only, no helper", noHelper, InitOptions{}, "", nil, []string{"script", "image-build", "create"}},
@@ -282,6 +286,7 @@ func TestKataInitHelperRequired(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e, r := kataEnv(t)
 			installKata(t, e, r)
+			installed = e.AgentVersion
 			e.AgentVersion = "v0.2.0" // kataimage and katawarm are outdated
 			tt.set(t, e, r)
 			var out bytes.Buffer
