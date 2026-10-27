@@ -44,6 +44,8 @@ P3's four-PR rollout, which starts once #223 and the org move (item 4) are both 
 
 ### 6. Binaries and an install script for `supervise`
 
+**In review (2026-10-27):** gh stack #243 (#240 binaries, #241 the dispatcher image, #242 install.sh), approved. Not verifiable in CI: the workflows run only on a published release, and install.sh only for real on a host. Gustavo cuts a first release (e.g. `v0.1.0`) after the merge to test them.
+
 One command sets an agent up, for example
 `curl -fsSL https://github.com/ContainerSolutions/factory/releases/latest/download/install.sh | bash`.
 It:
