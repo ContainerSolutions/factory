@@ -14,7 +14,7 @@
 
 ## The run bundle: `internal/agent/runbundle`
 
-A new package that imports only `internal/apis/v1alpha1`, `internal/apiclient` (types only) and the standard library. It has no network code.
+A new package that imports only `internal/apis/v1alpha1`, `internal/apiclient` and `internal/agent/runner` (types only), `internal/agent/internal/execfile` (which writes its executable files under `syscall.ForkLock`, [run-pipeline.md](run-pipeline.md#decisions-taken-in-agt-s1-t02)) and the standard library. It has no network code.
 
 ### Layout
 

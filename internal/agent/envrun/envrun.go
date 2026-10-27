@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
@@ -336,7 +337,7 @@ func writeScripts(dir string, e *v1alpha1.Environment) (map[string]string, error
 		if body == "" {
 			continue
 		}
-		if err := os.WriteFile(p, []byte(body), 0o700); err != nil {
+		if err := execfile.WriteFile(p, []byte(body), 0o700); err != nil {
 			return nil, fmt.Errorf("the %s script: %w", name, err)
 		}
 		out[name] = p

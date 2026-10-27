@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
 	"github.com/compliance-framework/factory/internal/agent/katahelper"
 	"github.com/compliance-framework/factory/internal/agent/workspace"
 	"github.com/compliance-framework/factory/internal/agent/workspace/vmexec"
@@ -228,12 +229,10 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer func() { _ = in.Close() }()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
-	if err != nil {
+	return execfile.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755, func(out *os.File) error {
+		_, err := io.Copy(out, in)
 		return err
-	}
-	_, err = io.Copy(out, in)
-	return errors.Join(err, out.Close())
+	})
 }
 
 // Put implements workspace.Driver: vmexec's tar stream through kata-helper exec -i.

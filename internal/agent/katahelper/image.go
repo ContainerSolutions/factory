@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"time"
+
+	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
 )
 
 // The image verbs (workspace-kata.md#the-image-provisionkata): image-build builds the workspace
@@ -134,13 +136,10 @@ func (h *helper) sweepContexts() error {
 // writeNew writes size bytes of r to the new file p (a file of that name already there is an
 // error) with exactly mode.
 func writeNew(p string, r io.Reader, size int64, mode fs.FileMode) error {
-	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-	if err != nil {
-		return err
-	}
-	_, err = io.CopyN(f, r, size)
-	err = errors.Join(err, f.Chmod(mode), f.Close())
-	return err
+	return execfile.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode, func(f *os.File) error {
+		_, err := io.CopyN(f, r, size)
+		return errors.Join(err, f.Chmod(mode))
+	})
 }
 
 // stream runs nerdctl with stdin and stdout, its stderr to the helper's; a failure names what

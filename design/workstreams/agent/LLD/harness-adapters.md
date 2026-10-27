@@ -64,7 +64,7 @@ Scriptable (`fake.Script{Events, Result, Err, RateLimitAfter}`) for pipeline and
 - Golden parsing of recorded streams (`testdata/codex-*.jsonl`, `testdata/claude-*.jsonl`) → progress/usage/rate-limit events.
 - Command-line construction tables per TaskSpec variant (read-only vs rw, effort, schema).
 - The pipeline end to end with each real adapter on its fake binary, as a VM workspace runs it (`harnesstest.E2E.Pipeline`: gateway mode through `internal/fakegateway`, from the run bundle). The real harnesses run only in a VM workspace; there is no host smoke target.
-- The fake binaries are wrapper scripts the test writes and then execs. Every script a `factory-agent` test execs (these, the pipeline's and effector's git wrappers, the provisioning stubs) is written through `internal/agent/internal/exectest` (test-only), which holds `syscall.ForkLock` around the write: a child that parallel tests fork meanwhile would otherwise inherit the file open for writing, and exec'ing it then fails with ETXTBSY ("text file busy").
+- The fake binaries are wrapper scripts the test writes and then execs. Every script a `factory-agent` test execs (these, the pipeline's and effector's git wrappers, the provisioning stubs) is written through `internal/agent/internal/exectest` (test-only), a wrapper over `execfile`, which holds `syscall.ForkLock` around the write as production code does ([run-pipeline.md](run-pipeline.md#decisions-taken-in-agt-s1-t02)): a child that parallel tests fork meanwhile would otherwise inherit the file open for writing, and exec'ing it then fails with ETXTBSY ("text file busy").
 
 ## Decisions taken in AGT-S1-T03
 

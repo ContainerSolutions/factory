@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
@@ -545,7 +546,7 @@ func copyTree(src, dst string, skip map[string]bool, b *budget) error {
 			if info.Mode()&0o111 != 0 {
 				mode = 0o700
 			}
-			return os.WriteFile(target, data, mode)
+			return execfile.WriteFile(target, data, mode)
 		case d.Type()&fs.ModeSymlink != 0:
 			return nil
 		}
