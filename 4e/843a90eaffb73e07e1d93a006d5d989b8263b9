@@ -1,0 +1,3 @@
+lisa-selfreview:
+Pass 1 (lenient, final): approve after one fix in the gate: three helpers left unused by the
+removal (sortedKeys, equalSecret, the userAPI test fake) were deleted (lint).
