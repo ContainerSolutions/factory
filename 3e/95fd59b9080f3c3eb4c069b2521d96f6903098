@@ -1,0 +1,5 @@
+lisa-addressed:
+- 986e687d0f8f CORE-DUP-001: config.DefaultGatewayPort names 3128 once; WithDefaults and workspace.DefaultGatewayPort use it.
+
+lisa-selfreview:
+pass 2 (strict): approve, no findings (make reviewable green at 3e95fd5).

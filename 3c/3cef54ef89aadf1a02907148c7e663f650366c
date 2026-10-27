@@ -1,0 +1,9 @@
+lisa-design:
+- The const workspace.GatewayPort became workspace.DefaultGatewayPort (3128) in the RunnerOptions defaults block, and RunnerOptions.GatewayPort (0 = default) is what startGateway listens on: renamed rather than kept so no caller can keep using a hard-coded port by accident.
+- NewRunner rejects a GatewayPort outside 0..65535 (config.Workspace already validates 1024..65535; the runner only guards its uint16 conversion, it does not repeat the config's range).
+- supervise passes w.GatewayPort from the config after WithDefaults (newRunner's w), the same value host check rendered into the pf anchor / kata nft table, so the firewall and the listener can't disagree.
+- vmrun, harness and pipeline tests keep 3128 as sample input (the VM learns the port only from --proxy).
+
+lisa-selfreview:
+pass 1 (strict): request_changes
+- CORE-DUP-001 should-fix 986e687d0f8f internal/agent/workspace/runner.go:53 DefaultGatewayPort: the default 3128 is written in workspace and as a bare literal in config.Workspace.WithDefaults; name it once in config.
