@@ -1765,12 +1765,7 @@ components:
         replaces it.
       headers:
         Retry-After:
-          description: |
-            Seconds to wait before retrying, rounded up to whole seconds. Only the 503s that know
-            when to retry set it: `too-many-subscribers` (the SSE keep-alive interval, 15 s by
-            default), `provider-retryable` (the provider's own delay, when it gave one) and
-            `unavailable` from a redispatch whose skills couldn't be resolved (1 s). The other
-            503s, `store-read-only` included, don't.
+          description: Seconds to wait before retrying; set when the server knows.
           schema:
             type: integer
       content:
