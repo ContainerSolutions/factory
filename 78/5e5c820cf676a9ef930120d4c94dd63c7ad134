@@ -1,0 +1,4 @@
+lisa-addressed:
+triage 2: Problem.code example lease-expired -> lease-gone (all other example codes checked against internal/server/problem.go; store-read-only is PR 5's constant).
+triage 4: ServiceUnavailable documents Retry-After (integer seconds, rounded up), set today by too-many-subscribers (KeepAlive), provider-retryable (provider delay when > 0) and redispatch's unavailable (1 s).
+coordinator: receiveWebhook documents 200 for a duplicate delivery (ingress.go:103-105); plain-text bodies stay for PR 6.
