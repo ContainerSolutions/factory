@@ -1,0 +1,8 @@
+lisa-selfreview:
+Pass 1 (lenient, final): approve. Checked CORE-SEC-001 (no token in logs or errors; only the
+hash is stored), CORE-SEC-002 (run token only on the six run routes, only for its task/run;
+every other route refuses it), CORE-ID-001 (label lookup then a constant-time compare of the
+stored hash), CORE-TEST-001/002 (TestRunToken, TestRunTokenLeaseEnd; the other-task case uses
+the same agent's second lease so only the run-token check can refuse it).
+Deferred should-fix: AuthenticateRun lists leases by label on every call (a scan in the file
+store); fine at PoC scale, an index record would make it O(1).
