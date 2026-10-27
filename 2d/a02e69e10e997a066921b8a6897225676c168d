@@ -1,0 +1,32 @@
+lisa-addressed:
+---
+Comment (internal/agent/host/kataimage.go:67):
+**[Must-fix] CORE-TEST-001 · New behaviour without a test**
+
+`helperOK` now runs its sudo call under `watchSudo`, so an interrupt during katawarm's wait for dockerd (`exec … docker info`, polled for up to 3 minutes), `image-exists` or `image-rm` prints the waiting line. No test covers that wiring. I replaced `_, stop := e.watchSudo(ctx, "kata-helper "+args[0])` with `stop := func() {}` and the host package's tests still pass. `TestWatchSudo` tests the watcher itself, and `e.helper`, `image-build` and the sudo script each have an interrupted test, but `helperOK` has none.
+
+**Why:** Untested behaviour regresses silently and the next refactor removes it without anyone noticing.
+**Fix:** Add a `TestKataWarmBuildInterrupted` row that interrupts at the dockerd wait (`interruptRunner{at: " docker info"}`) and asserts one `interrupted: waiting for kata-helper exec to stop (up to 30s; Ctrl-C again exits now)` line before the cleanup's line.
+
+<sub>ccf-review · b7c6e5d92564 · rules@fe7cb9dc86ce</sub>
+---
+Comment (internal/agent/host/vm.go:708):
+**[Must-fix] CORE-TEST-001 · New behaviour without a test**
+
+The new `case interrupted && b.proc != nil:` branch (an interrupt with `--keep-failed` and a running VM prints `interrupted: stopping <name>.building (up to 30s; --keep-failed keeps it)`) is new logic that no test exercises. I replaced the case with `case false:` and `go test ./internal/agent/host/` still passes. `TestBaseVMInterrupted` covers only the delete branch, and the PR body's mutation list covers only the delete line.
+
+**Why:** Untested behaviour regresses silently and the next refactor removes it without anyone noticing.
+**Fix:** Add a `--keep-failed` row to `TestBaseVMInterrupted` (or a small table around it): `e.KeepFailed = true`, cancel during provisioning as now, and assert the `interrupted: stopping factory-agent-base-0.1.0.building (up to 30s; --keep-failed keeps it)` line, no `stopping and deleting` line, and the `.building` VM kept and stopped.
+
+<sub>ccf-review · ea09fcebb2dd · rules@fe7cb9dc86ce</sub>
+---
+Comment (cmd/factory-agent/host_test.go:442):
+**[Nit] The test panics when the child never starts**
+
+When `cmd.CombinedOutput()` fails before the child starts, `cmd.ProcessState` is nil. The exit-3 check guards against that, but the next line, `cmd.ProcessState.Sys()`, doesn't, so the test panics where it should fail with the start error.
+
+**Why:** It affects only how a test reports a failure that is very unlikely (re-executing the test binary). It's a one-line guard.
+**Fix:** Before the exit-code check: `if cmd.ProcessState == nil { t.Fatalf("running the child: %v", err) }`.
+**Severity basis:** no rule matched; decision tree: none of the tree questions.
+
+<sub>ccf-review · 8951d8aa962e · rules@fe7cb9dc86ce</sub>
