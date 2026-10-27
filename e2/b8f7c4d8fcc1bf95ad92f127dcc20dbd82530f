@@ -1,0 +1,11 @@
+lisa-addressed:
+---
+Comment (internal/agent/host/vm.go:706):
+**[Must-fix] CORE-TEST-001 · New behaviour without a test**
+
+`running` now checks `closed(b.proc.Exited())`, so an interrupt after `shutdown` (which stops `tart run`), e.g. during `replace`'s `tart list` or `tart rename`, prints `interrupted: deleting <vm>` instead of the stop-and-wait line. That is the usual late-interrupt path, but no test reaches it: `TestBaseVMInterrupted` interrupts only while `tart run` is live (`tart exec … true`) or before it starts (`tart set`). Mutation check: making `closed` always return false (the old `b.proc != nil` behaviour) leaves every test passing.
+
+**Why:** Untested behaviour regresses silently and the next refactor removes it without anyone noticing.
+**Fix:** Add a row to `TestBaseVMInterrupted` that interrupts after the shutdown, e.g. `{"after the shutdown", "tart rename " + b, false, "interrupted: deleting " + b + "\n", ""}` (checked: it passes on this head and fails with `closed` always false). A `--keep-failed` row at the same point (no line) would cover the third case too.
+
+<sub>ccf-review · ea09fcebb2dd · rules@fe7cb9dc86ce</sub>
