@@ -16,8 +16,6 @@ import (
 // API).
 const (
 	BasePath                = "/api/v1"
-	HeaderJoinToken         = "X-Factory-Join-Token"
-	HeaderOwnerToken        = "X-Factory-Owner-Token"
 	HeaderEnrollmentToken   = "X-Factory-Enrollment-Token"
 	HeaderAgentRefreshToken = "X-Factory-Agent-Refresh-Token"
 )
@@ -110,8 +108,7 @@ func isTransient(err error) bool {
 	return s == 0 || s >= 500 || s == http.StatusRequestTimeout || s == http.StatusTooManyRequests
 }
 
-// permanentError is a failure retrying won't fix (no join token, the owner refused the
-// login).
+// permanentError is a failure retrying won't fix (no enrollment token, a refused one).
 type permanentError struct{ err error }
 
 func (e *permanentError) Error() string { return e.err.Error() }

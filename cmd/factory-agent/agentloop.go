@@ -10,16 +10,13 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/ContainerSolutions/factory/internal/agent/config"
 	"github.com/ContainerSolutions/factory/internal/agent/enroll"
-	"github.com/ContainerSolutions/factory/internal/agent/owner"
 	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
 	"github.com/ContainerSolutions/factory/internal/agent/probe"
 	"github.com/ContainerSolutions/factory/internal/agent/runner"
 	"github.com/ContainerSolutions/factory/internal/agent/worker"
-	"github.com/ContainerSolutions/factory/internal/apiclient"
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 	"github.com/ContainerSolutions/factory/internal/version"
 )
@@ -32,9 +29,7 @@ type workerDeps struct {
 	// Signals delivers SIGTERM/SIGINT (drain, then abort) and SIGHUP (reload lending).
 	// Default: the process's signals.
 	Signals <-chan os.Signal
-	// Owner replaces the device-flow owner login (tests).
-	Owner owner.TokenSource
-	// HTTPClient calls the dispatcher and GitHub.
+	// HTTPClient calls the dispatcher.
 	HTTPClient *http.Client
 }
 
@@ -121,25 +116,9 @@ func runAgentLoop(ctx context.Context, stderr io.Writer, d workerDeps, l agentLo
 		AgentVersion: version.Version, Capabilities: rep.Capabilities, Lending: l.lending(cfg.Lending),
 		Runner: rn, HTTPClient: d.HTTPClient, Logger: log,
 	}
-	// Enrolled (P1 §6): a refresh token in the state dir, or an enrollment token to exchange.
-	if enr := (enroll.Files{StateDir: l.stateDir, TokenFile: cfg.EnrollmentTokenFile}); cfg.EnrollmentTokenFile != "" || enr.Enrolled() {
-		o.Enrollment = enr
-	} else if o.Owner = d.Owner; o.Owner == nil {
-		plain, err := apiclient.NewClientWithResponses(worker.APIBase(cfg.Dispatcher), apiclient.WithHTTPClient(d.HTTPClient))
-		if err != nil {
-			log.Error("dispatcher client", "err", err)
-			return 1
-		}
-		o.Owner = &owner.DeviceFlow{
-			API: plain, GitHubURL: cfg.GitHubURL, HTTPClient: &http.Client{Timeout: 30 * time.Second},
-			Prompt: func(uri, code string, expires time.Duration) {
-				fmt.Fprintf(stderr, "\nTo register this agent, open %s and enter the code %s (it expires in %s).\n\n", uri, code, expires)
-			},
-		}
-	}
-	if o.Enrollment == nil {
-		o.JoinToken = func() (string, error) { return config.ReadSecretFile(cfg.JoinTokenFile) }
-	}
+	// Enrolled (P1 §6): the refresh token in the state dir, else the enrollment token to
+	// exchange.
+	o.Enrollment = enroll.Files{StateDir: l.stateDir, TokenFile: cfg.EnrollmentTokenFile}
 	w, err := worker.New(o)
 	if err != nil {
 		log.Error("worker", "err", err)

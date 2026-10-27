@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,8 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ContainerSolutions/factory/internal/agent/internal/fakegh"
-	"github.com/ContainerSolutions/factory/internal/agent/owner"
+	"github.com/ContainerSolutions/factory/internal/agent/enroll"
 	"github.com/ContainerSolutions/factory/internal/agent/runner"
 	"github.com/ContainerSolutions/factory/internal/agent/worker"
 	"github.com/ContainerSolutions/factory/internal/apiclient"
@@ -86,7 +86,7 @@ type served struct {
 }
 
 // startServe builds cmd/factory and runs `factory serve --dev-fake-providers` on the test
-// catalog, with test-only secrets and GitHub (OAuth and GET /user) at githubURL, and waits
+// catalog, with test-only secrets and GitHub (OAuth) at githubURL, and waits
 // for /readyz.
 func startServe(t *testing.T, githubURL string) *served {
 	t.Helper()
@@ -101,7 +101,6 @@ func startServe(t *testing.T, githubURL string) *served {
 		"FACTORY_OAUTH_CLIENT_SECRET="+testOAuthKey,
 		"FACTORY_SESSION_KEY="+testSession,
 		"FACTORY_CLI_TOKEN="+testCLIToken,
-		"FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN="+joinSecret,
 	)
 	s := &served{URL: "http://" + addr, cmd: cmd, logs: &logBuffer{}, done: make(chan error, 1), exited: make(chan struct{})}
 	cmd.Stdout, cmd.Stderr = s.logs, s.logs
@@ -172,6 +171,31 @@ func cliClient(t *testing.T, base string) (*apiclient.ClientWithResponses, apicl
 	}
 }
 
+// noGitHub is serve's GitHub (OAuth) URL in these tests, which nothing calls: agents are
+// enrolled, and no one signs in.
+func noGitHub(t *testing.T) string {
+	t.Helper()
+	ts := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(ts.Close)
+	return ts.URL
+}
+
+// enrolled mints an enrollment for gus's agent on host with the CLI token and returns the
+// agent's credential files: the token in a 0600 file, an empty state dir.
+func enrolled(t *testing.T, base, host string) (enroll.Files, string) {
+	t.Helper()
+	c, admin := cliClient(t, base)
+	res, err := c.CreateEnrollmentWithResponse(context.Background(), apiclient.EnrollmentRequest{Pool: "local", Owner: "gus", Name: host}, admin)
+	if err != nil || res.JSON201 == nil {
+		t.Fatalf("enroll %s: %v %s", host, err, res.Body)
+	}
+	file := filepath.Join(t.TempDir(), "enrollment-token")
+	if err := os.WriteFile(file, []byte(res.JSON201.Token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return enroll.Files{StateDir: t.TempDir(), TokenFile: file}, res.JSON201.Token
+}
+
 func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
@@ -185,8 +209,8 @@ func eventually(t *testing.T, what string, cond func() bool) {
 
 // TestAgainstRealDispatcher runs the worker against the real dispatcher: the `factory serve`
 // binary with --dev-fake-providers and the PoC catalog (owners by login, see testCatalog). A
-// recorded webhook creates the plan-epic task; the worker registers through the device flow
-// (serve verifies the owner on the fake GitHub), leases it, heartbeats and completes it with
+// recorded webhook creates the plan-epic task; the worker registers with an enrollment the
+// CLI token minted (its refresh token saved in the state dir), leases it, heartbeats and completes it with
 // the stub runner's Result; the task succeeds with the run's progress recorded; a drain
 // deregisters the agent; serve stops cleanly on SIGTERM.
 func TestAgainstRealDispatcher(t *testing.T) {
@@ -194,9 +218,7 @@ func TestAgainstRealDispatcher(t *testing.T) {
 		t.Skip("builds and runs factory serve")
 	}
 	ctx := context.Background()
-	gh := fakegh.New(t, "gus", 0)
-	gh.SetInterval(1)
-	d := startServe(t, gh.URL)
+	d := startServe(t, noGitHub(t))
 	cli, admin := cliClient(t, d.URL)
 
 	body, err := os.ReadFile(filepath.Join("testdata", "issue-opened.json"))
@@ -212,7 +234,7 @@ func TestAgainstRealDispatcher(t *testing.T) {
 		t.Fatalf("webhook: %s", res.Status)
 	}
 
-	plain, _ := cliClient(t, d.URL)
+	enr, enrollTok := enrolled(t, d.URL, "e2e")
 	logs := &logBuffer{}
 	stub := &stubRunner{
 		Progress: []v1alpha1.ProgressEvent{{At: time.Now().UTC(), Kind: "step", Message: "planning the epic"}},
@@ -233,12 +255,11 @@ func TestAgainstRealDispatcher(t *testing.T) {
 		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{
 			Name: "codex", Auth: "subscription", Models: []string{"gpt-5-codex"}, ReasoningEffort: []string{"high"},
 		}}},
-		Lending:   v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 1},
-		JoinToken: func() (string, error) { return joinSecret, nil },
-		Owner:     &owner.DeviceFlow{API: plain, GitHubURL: gh.URL},
-		Runner:    stub,
-		LeaseWait: 5 * time.Second,
-		Logger:    slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Lending:    v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 1},
+		Enrollment: enr,
+		Runner:     stub,
+		LeaseWait:  5 * time.Second,
+		Logger:     slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -294,7 +315,11 @@ func TestAgainstRealDispatcher(t *testing.T) {
 		t.Errorf("agents after the drain: %v %+v", err, agents.JSON200)
 	}
 	d.stop(t)
-	for _, s := range []string{joinSecret, gh.Token(), "agt_gus-e2e.", testCLIToken, testOAuthKey, testSession} {
+	if !enr.Enrolled() {
+		t.Error("no refresh token saved in the state dir")
+	}
+	refresh, _, _ := enr.Token()
+	for _, s := range []string{enrollTok, refresh, "agt_gus-e2e.", testCLIToken, testOAuthKey, testSession} {
 		if strings.Contains(logs.String(), s) {
 			t.Errorf("a secret is in the worker logs: %q", s)
 		}

@@ -1,6 +1,6 @@
 // Package config is factory-agent's local, owner-controlled configuration
 // (design/workstreams/agent/LLD/supervise.md §The local config): the dispatcher, the pool, the
-// join token file, labels, the harnesses' dedicated config dirs, and the owner's lending consent.
+// enrollment token file, labels, the harnesses' dedicated config dirs, and the owner's lending consent.
 //
 // The file is YAML 1.2 decoded strictly, the way v1alpha1 decodes the catalog: YAML → JSON →
 // encoding/json with DisallowUnknownFields, so unknown keys, duplicate keys and non-string keys
@@ -35,9 +35,6 @@ const DefaultPath = "~/.config/factory-agent/agent.yaml"
 // DefaultWorkRoot holds the per-task scratch workspaces when workRoot isn't set.
 const DefaultWorkRoot = "~/.factory-agent/work"
 
-// DefaultGitHubURL is where the owner's device-flow login goes when githubURL isn't set.
-const DefaultGitHubURL = "https://github.com"
-
 // The harnesses factory-agent has adapters for (harness-adapters.md).
 const (
 	HarnessCodex      = "codex"
@@ -51,7 +48,7 @@ func Harnesses() []string { return []string{HarnessClaudeCode, HarnessCodex} }
 // effort mappings).
 func Efforts() []string { return []string{"minimal", "low", "medium", "high", "max"} }
 
-// maxFileSize bounds the config and join-token files.
+// maxFileSize bounds the config and token files.
 const maxFileSize = 1 << 20
 
 // Config is the worker's local configuration.
@@ -61,20 +58,13 @@ type Config struct {
 	Dispatcher string `json:"dispatcher"`
 	// Pool is the registered Pool to join.
 	Pool string `json:"pool"`
-	// JoinTokenFile holds the pool's join token, given by the pool owner out of band. It must
-	// not be readable by group or others (0600). Required unless EnrollmentTokenFile is set.
-	JoinTokenFile string `json:"joinTokenFile,omitzero"`
 	// EnrollmentTokenFile holds the one-time enrollment token an admin minted with `factory
 	// agent enroll` (P1 §6), 0600. supervise reads it only while its state dir has no refresh
-	// token, exchanges it once and re-registers with the refresh token from then on. When set,
-	// the join token and the device flow are unused.
+	// token, exchanges it once and re-registers with the refresh token from then on.
 	EnrollmentTokenFile string `json:"enrollmentTokenFile,omitzero"`
 	// Host names the agent (agt_<owner>-<host>); default: the machine's short host name,
 	// lower-cased.
 	Host string `json:"host,omitzero"`
-	// GitHubURL is the GitHub the owner's device-flow login runs against; default
-	// https://github.com (a GHE host, or a fake in tests).
-	GitHubURL string `json:"githubURL,omitzero"`
 	// Labels are the capability labels to advertise.
 	Labels []string `json:"labels,omitzero"`
 	// Harnesses configures each harness by name (codex, claude-code).
@@ -170,7 +160,7 @@ func Load(path string, o Options) (*Config, error) {
 }
 
 // LoadWorkspace reads only the workspace block of the config at path, with the defaults
-// filled: `factory-agent host` needs no dispatcher, pool or join token. The file is checked
+// filled: `factory-agent host` needs no dispatcher, pool or enrollment token. The file is checked
 // as Load checks it, and unknown keys are still errors; the other blocks aren't validated.
 // A missing file gives the defaults when missingOK is set.
 func LoadWorkspace(path string, missingOK bool, o Options) (Workspace, error) {
@@ -251,11 +241,7 @@ func (c *Config) complete(o Options) error {
 	if c.WorkRoot == "" {
 		c.WorkRoot = DefaultWorkRoot
 	}
-	if c.GitHubURL == "" {
-		c.GitHubURL = DefaultGitHubURL
-	}
 	c.Dispatcher = strings.TrimRight(c.Dispatcher, "/")
-	c.GitHubURL = strings.TrimRight(c.GitHubURL, "/")
 	if c.Host == "" {
 		h, err := o.Hostname()
 		if err != nil {
@@ -271,7 +257,7 @@ func (c *Config) complete(o Options) error {
 		*p = v
 		return err
 	}
-	for _, p := range []*string{&c.JoinTokenFile, &c.EnrollmentTokenFile, &c.WorkRoot} {
+	for _, p := range []*string{&c.EnrollmentTokenFile, &c.WorkRoot} {
 		if err := expand(p); err != nil {
 			return err
 		}
@@ -309,17 +295,8 @@ func (c *Config) validate() []string {
 	if err := checkBaseURL(c.Dispatcher); err != nil {
 		add("dispatcher: %v", err)
 	}
-	if err := checkBaseURL(c.GitHubURL); err != nil {
-		add("githubURL: %v", err)
-	}
 	if c.Pool == "" {
 		add("pool: required")
-	}
-	switch {
-	case c.JoinTokenFile == "" && c.EnrollmentTokenFile == "":
-		add("enrollmentTokenFile: required (or joinTokenFile)")
-	case c.JoinTokenFile != "" && !filepath.IsAbs(c.JoinTokenFile):
-		add("joinTokenFile: %q must be absolute or start with ~/", c.JoinTokenFile)
 	}
 	if c.EnrollmentTokenFile != "" && !filepath.IsAbs(c.EnrollmentTokenFile) {
 		add("enrollmentTokenFile: %q must be absolute or start with ~/", c.EnrollmentTokenFile)
@@ -472,7 +449,7 @@ func isLoopback(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// ReadSecretFile reads a token file (the join token): it must be a regular file, not readable
+// ReadSecretFile reads a token file (the enrollment or refresh token): it must be a regular file, not readable
 // or writable by group or others, and non-empty once trimmed. Errors never carry the content.
 func ReadSecretFile(path string) (string, error) {
 	data, mode, err := readFile(path)

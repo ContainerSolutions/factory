@@ -11,7 +11,7 @@ import (
 const validYAML = `# the LLD's example
 dispatcher: https://factory.example.dev
 pool: local
-joinTokenFile: ~/.config/factory-agent/join-token
+enrollmentTokenFile: ~/.config/factory-agent/enrollment-token
 labels: [fast-disk, arm64]
 harnesses:
   codex:
@@ -40,9 +40,8 @@ func TestParseValid(t *testing.T) {
 		t.Fatal(err)
 	}
 	if c.Dispatcher != "https://factory.example.dev" || c.Pool != "local" || c.Host != "gus-mbp" ||
-		c.JoinTokenFile != "/home/owner/.config/factory-agent/join-token" ||
-		c.WorkRoot != "/home/owner/.factory-agent/work" ||
-		c.GitHubURL != DefaultGitHubURL || !c.Lending.Unlimited || c.MaxConcurrent() != 1 {
+		c.EnrollmentTokenFile != "/home/owner/.config/factory-agent/enrollment-token" ||
+		c.WorkRoot != "/home/owner/.factory-agent/work" || !c.Lending.Unlimited || c.MaxConcurrent() != 1 {
 		t.Errorf("config %+v", c)
 	}
 	if h := c.Harnesses[HarnessCodex]; h.Default != "gpt-5-codex" {
@@ -57,7 +56,7 @@ func TestParseDefaults(t *testing.T) {
 	c, err := Parse([]byte(`
 dispatcher: http://127.0.0.1:8081/
 pool: local
-joinTokenFile: /etc/factory/join
+enrollmentTokenFile: /etc/factory/enrollment
 host: e2e
 harnesses: {codex: {models: [gpt-5-codex]}}
 lending: {queues: [poc], maxConcurrent: 2}
@@ -88,14 +87,15 @@ func TestParseInvalid(t *testing.T) {
 		{"empty", "", []string{"empty config"}},
 		{"not a mapping", "- a\n", []string{"must be a mapping"}},
 		{"yaml 1.2 strings", base("lending:\n  unlimited: true\n", "lending:\n  unlimited: yes\n"), []string{"cannot unmarshal string"}},
-		{"missing everything", "lending: {unlimited: true}\nharnesses: {}\n", []string{"dispatcher: required", "pool: required", "enrollmentTokenFile: required", "harnesses: at least one"}},
-		{"relative join token", base("~/.config/factory-agent/join-token", "join-token"), []string{"joinTokenFile: \"join-token\" must be absolute"}},
-		{"relative enrollment token", base("joinTokenFile: ~/.config/factory-agent/join-token", "enrollmentTokenFile: enrollment-token"), []string{"enrollmentTokenFile: \"enrollment-token\" must be absolute"}},
+		{"missing everything", "lending: {unlimited: true}\nharnesses: {}\n", []string{"dispatcher: required", "pool: required", "harnesses: at least one"}},
+		{"relative enrollment token", base("~/.config/factory-agent/enrollment-token", "enrollment-token"), []string{"enrollmentTokenFile: \"enrollment-token\" must be absolute"}},
+		// Removed with the device flow (P1 phase 6): an old config is refused, naming the key.
+		{"a join token file", validYAML + "joinTokenFile: ~/.config/factory-agent/join-token\n", []string{`unknown field "joinTokenFile"`}},
+		{"a github url", validYAML + "githubURL: https://github.com\n", []string{`unknown field "githubURL"`}},
 		{"http on a public host", base("https://factory.example.dev", "http://factory.example.dev"), []string{"plain http is only allowed on a loopback host"}},
 		{"dispatcher with credentials", base("https://factory.example.dev", "https://u:p@factory.example.dev"), []string{"must not carry credentials"}},
 		{"dispatcher with query", base("https://factory.example.dev", "https://factory.example.dev/?x=1"), []string{"must not carry credentials, a query"}},
 		{"relative dispatcher", base("https://factory.example.dev", "factory.example.dev"), []string{"absolute http(s) URL"}},
-		{"bad github url", base("lending:", "githubURL: ftp://github.com\nlending:"), []string{"githubURL:"}},
 		{"bad host", base("lending:", "host: Gus_MBP\nlending:"), []string{"host: \"Gus_MBP\" must match"}},
 		{"bad label", base("[fast-disk, arm64]", "[Fast_Disk]"), []string{"labels[0]"}},
 		{"duplicate label", base("[fast-disk, arm64]", "[arm64, arm64]"), []string{"labels[1]: \"arm64\" is listed twice"}},
@@ -342,17 +342,5 @@ func TestGiB(t *testing.T) {
 		if got := GiB(tt.v); got != tt.want {
 			t.Errorf("GiB(%q) = %d, want %d", tt.v, got, tt.want)
 		}
-	}
-}
-
-// An enrollmentTokenFile replaces joinTokenFile; ~/ expands.
-func TestParseEnrollmentTokenFile(t *testing.T) {
-	c, err := Parse([]byte(strings.Replace(validYAML, "joinTokenFile: ~/.config/factory-agent/join-token",
-		"enrollmentTokenFile: ~/.config/factory-agent/enrollment-token", 1)), opts())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.EnrollmentTokenFile != "/home/owner/.config/factory-agent/enrollment-token" || c.JoinTokenFile != "" {
-		t.Errorf("config %+v", c)
 	}
 }

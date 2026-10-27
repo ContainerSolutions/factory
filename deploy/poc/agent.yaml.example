@@ -15,19 +15,13 @@ pool: local
 # `factory agent enroll --pool local --owner <your login> --name <host>`. It must be absolute
 # (or start with ~/) and readable by you only (chmod 600). supervise reads it only while its
 # state dir has no refresh token: it exchanges it once, keeps the refresh token (0600) in the
-# state dir and re-registers with that from then on, with no login.
+# state dir and re-registers with that from then on, with no login. (joinTokenFile and
+# githubURL, the removed device flow's keys, are refused.)
 enrollmentTokenFile: ~/.config/factory-agent/enrollment-token
-
-# Instead of an enrollment (until the next release removes it): the Pool's join token, and a
-# device-flow login of the owner at every start.
-# joinTokenFile: ~/.config/factory-agent/join-token
 
 # Optional: names the agent agt_<owner login>-<host>. Default: this machine's short host name,
 # lower-cased.
 # host: mymac
-
-# Optional: the GitHub the owner's device-flow login runs against. Default https://github.com.
-# githubURL: https://github.com
 
 # Optional: capability labels to advertise, as configured (a TaskSpec's requires.labels). No
 # catalog TaskSpec requires one: release-docs and docs-review-verify declare their environment,

@@ -28,9 +28,9 @@ import (
 	"github.com/ContainerSolutions/factory/internal/agent/harness/harnesstest"
 	"github.com/ContainerSolutions/factory/internal/agent/host"
 	"github.com/ContainerSolutions/factory/internal/agent/login"
-	"github.com/ContainerSolutions/factory/internal/agent/owner"
 	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
 	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/agent/worker"
 	"github.com/ContainerSolutions/factory/internal/agent/workspace"
 	"github.com/ContainerSolutions/factory/internal/agent/workspace/kata"
 	"github.com/ContainerSolutions/factory/internal/agent/workspace/tart"
@@ -200,7 +200,7 @@ func newSupervisedTest(t *testing.T, dispatcher string) *supervisedTest {
 		t.Fatal(err)
 	}
 	s.deps = superviseDeps{
-		Worker: workerDeps{Config: homeIn(s.dir), Owner: owner.TokenFunc(func(context.Context) (string, error) { return ownerSecret, nil })},
+		Worker: workerDeps{Config: homeIn(s.dir)},
 		Host:   hd.Env,
 		HostCheck: func(context.Context, *host.Env) ([]host.Status, error) {
 			return []host.Status{{Step: "platform", State: host.StateOK}, {Step: "pf", State: host.StateSkipped, Detail: "opted out"}}, nil
@@ -422,7 +422,12 @@ func (l *leaseDispatcher) serve(w http.ResponseWriter, r *http.Request) {
 			l.lending = append(l.lending, *req.Lending)
 			l.mu.Unlock()
 		}
-		reply(http.StatusCreated, apiclient.AgentRegistration{AgentId: "agt_gus-cmd-test", AgentToken: "agt_gus-cmd-test.secret", ExpiresAt: time.Now().Add(time.Hour)})
+		if r.Header.Get(worker.HeaderEnrollmentToken) != enrollSecret && r.Header.Get(worker.HeaderAgentRefreshToken) != refreshSecret {
+			reply(http.StatusUnauthorized, apiclient.Problem{Title: "Unauthorized", Status: http.StatusUnauthorized})
+			return
+		}
+		rt := refreshSecret
+		reply(http.StatusCreated, apiclient.AgentRegistration{AgentId: "agt_gus-cmd-test", AgentToken: "agt_gus-cmd-test.secret", ExpiresAt: time.Now().Add(time.Hour), RefreshToken: &rt})
 	case r.Method == http.MethodGet && strings.HasSuffix(p, "/lease"):
 		l.mu.Lock()
 		var next *apiclient.Lease
@@ -539,7 +544,7 @@ func TestSuperviseOneLease(t *testing.T) {
 	if types := e.TranscriptTypes(); !slices.Equal(types, []string{"assistant"}) {
 		t.Errorf("transcript types %q", types)
 	}
-	for _, sec := range []string{joinSecret, ownerSecret, "agt_gus-cmd-test.secret", harnesstest.GitToken, "codex-login-access-0123"} {
+	for _, sec := range []string{enrollSecret, refreshSecret, "agt_gus-cmd-test.secret", harnesstest.GitToken, "codex-login-access-0123"} {
 		if strings.Contains(errOut.String(), sec) {
 			t.Errorf("a secret is in the logs: %q", sec)
 		}

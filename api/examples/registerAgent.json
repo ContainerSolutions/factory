@@ -1,5 +1,6 @@
 {
   "agentId": "agt_gusfcarvalho-mbp-01",
   "agentToken": "EXAMPLE-agent-token-not-real",
-  "expiresAt": "2026-10-17T08:00:00Z"
+  "expiresAt": "2026-10-17T08:00:00Z",
+  "refreshToken": "arf_EXAMPLE-refresh-token-not-real-000000000000"
 }

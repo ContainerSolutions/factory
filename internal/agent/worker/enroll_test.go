@@ -37,9 +37,11 @@ func (m *memEnrollment) Save(r string) error {
 	defer m.mu.Unlock()
 	m.refresh = r
 	m.saves++
-	// The registration that returned r is the last call so far: nothing used its token.
-	calls := m.f.Calls()
-	m.savedBeforeAgentUse = append(m.savedBeforeAgentUse, calls[len(calls)-1].Path == "/agents")
+	if m.f != nil {
+		// The registration that returned r is the last call so far: nothing used its token.
+		calls := m.f.Calls()
+		m.savedBeforeAgentUse = append(m.savedBeforeAgentUse, calls[len(calls)-1].Path == "/agents")
+	}
 	return nil
 }
 
@@ -52,7 +54,7 @@ func (m *memEnrollment) Forget() error {
 }
 
 func withEnrollment(e worker.Enrollment) harnessOpt {
-	return func(o *worker.Options) { o.Enrollment, o.JoinToken, o.Owner = e, nil, nil }
+	return func(o *worker.Options) { o.Enrollment = e }
 }
 
 // An enrolled agent registers with its enrollment token once, saves each refresh token before
@@ -71,8 +73,8 @@ func TestEnrolledRegistration(t *testing.T) {
 		t.Fatal(err)
 	}
 	regs := f.find(http.MethodPost, "/agents")
-	if regs[0].Join != "" || regs[0].Owner != "" {
-		t.Errorf("an enrolled registration sent the join or owner token")
+	if regs[0].Enroll != "enr_enroll-secret" || regs[0].Refresh != "" || regs[1].Enroll != "" || regs[1].Refresh != "arf_refresh-secret-1" {
+		t.Errorf("registration headers: %+v / %+v", regs[0], regs[1])
 	}
 	enr.mu.Lock()
 	defer enr.mu.Unlock()
