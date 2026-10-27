@@ -75,16 +75,27 @@ type Poll struct {
 // DefaultPoll is the long poll: wait 30 s, and after a 204 poll again at once.
 func DefaultPoll() Poll { return Poll{Wait: DefaultLeaseWait} }
 
+// PollError is a Poll that Validate refuses: Field is "wait" or "interval" (agent.yaml's
+// poll keys), Value the refused duration.
+type PollError struct {
+	Field  string
+	Value  time.Duration
+	Reason string
+}
+
+func (e *PollError) Error() string { return fmt.Sprintf("poll %s %s %s", e.Field, e.Value, e.Reason) }
+
 // Validate checks the wait's range and whole seconds, a non-negative interval, and that a zero
-// wait has an interval of at least MinPollInterval.
+// wait has an interval of at least MinPollInterval. It is the one place these rules live:
+// agent.yaml's poll block is checked with it too. The error is a *PollError.
 func (p Poll) Validate() error {
 	switch {
 	case p.Wait < 0 || p.Wait > MaxLeaseWait || p.Wait%time.Second != 0:
-		return fmt.Errorf("poll wait %s must be whole seconds from 0s to %ds", p.Wait, int(MaxLeaseWait/time.Second))
+		return &PollError{"wait", p.Wait, fmt.Sprintf("must be whole seconds from 0s to %ds", int(MaxLeaseWait/time.Second))}
 	case p.Interval < 0:
-		return fmt.Errorf("poll interval %s must not be negative", p.Interval)
+		return &PollError{"interval", p.Interval, "must not be negative"}
 	case p.Wait == 0 && p.Interval < MinPollInterval:
-		return fmt.Errorf("poll interval %s: a wait of 0s needs an interval of at least %s, or the agent polls in a hot loop", p.Interval, MinPollInterval)
+		return &PollError{"interval", p.Interval, fmt.Sprintf("must be at least %s with a wait of 0s, or the agent polls in a hot loop", MinPollInterval)}
 	}
 	return nil
 }

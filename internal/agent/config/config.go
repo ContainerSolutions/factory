@@ -28,6 +28,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/ContainerSolutions/factory/internal/agent/worker"
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
@@ -98,16 +99,13 @@ type Harness struct {
 	Default string `json:"default,omitzero"`
 }
 
-// The poll block's defaults (the long poll) and bounds (P3 §Agents poll briefly).
+// The poll block's defaults: the long poll (P3 §Agents poll briefly). Its rules are the
+// worker's (worker.Poll.Validate).
 const (
 	// DefaultPollWait is poll.wait's default, the long poll's.
 	DefaultPollWait = "30s"
 	// DefaultPollInterval is poll.interval's default: poll again at once after a 204.
 	DefaultPollInterval = "0s"
-	// MaxPollWait is the longest poll.wait (the dispatcher's cap).
-	MaxPollWait = 60 * time.Second
-	// MinPollInterval is the shortest poll.interval a wait of 0s may have.
-	MinPollInterval = time.Second
 )
 
 // Poll is how supervise's lease loop asks the dispatcher for tasks (P3 §Agents poll briefly).
@@ -128,24 +126,43 @@ func (p Poll) WaitDuration() time.Duration { d, _ := time.ParseDuration(p.Wait);
 // IntervalDuration is poll.interval; 0 when it isn't valid (Parse refuses it then).
 func (p Poll) IntervalDuration() time.Duration { d, _ := time.ParseDuration(p.Interval); return d }
 
-// validate checks a poll block with its defaults filled.
+// validate checks a poll block with its defaults filled: the duration syntax here (a unit is
+// required), then the worker's rules (worker.Poll.Validate), reported under the key.
 func (p Poll) validate() []string {
 	var probs []string
-	add := func(format string, args ...any) { probs = append(probs, fmt.Sprintf("poll."+format, args...)) }
-	wait, werr := time.ParseDuration(p.Wait)
-	if werr != nil || wait < 0 || wait > MaxPollWait || wait%time.Second != 0 {
-		add("wait: %q must be whole seconds from 0s to %ds", p.Wait, int(MaxPollWait/time.Second))
+	raw := map[string]string{"wait": p.Wait, "interval": p.Interval}
+	wait, werr := parseDuration(p.Wait)
+	if werr != nil {
+		probs = append(probs, fmt.Sprintf("poll.wait: %q %v", p.Wait, werr))
 	}
-	interval, ierr := time.ParseDuration(p.Interval)
-	switch {
-	case ierr != nil:
-		add("interval: %q is not a duration (like 30s)", p.Interval)
-	case interval < 0:
-		add("interval: %q must not be negative", p.Interval)
-	case werr == nil && wait == 0 && interval < MinPollInterval:
-		add("interval: %q: a wait of 0s needs an interval of at least %s, or the agent polls in a hot loop", p.Interval, MinPollInterval)
+	interval, ierr := parseDuration(p.Interval)
+	if ierr != nil {
+		probs = append(probs, fmt.Sprintf("poll.interval: %q %v", p.Interval, ierr))
+	}
+	if werr != nil || ierr != nil {
+		return probs
+	}
+	if err := (worker.Poll{Wait: wait, Interval: interval}).Validate(); err != nil {
+		var pe *worker.PollError
+		if !errors.As(err, &pe) {
+			return []string{fmt.Sprintf("poll: %v", err)}
+		}
+		probs = append(probs, fmt.Sprintf("poll.%s: %q %s", pe.Field, raw[pe.Field], pe.Reason))
 	}
 	return probs
+}
+
+// parseDuration parses a Go duration that carries a unit: time.ParseDuration also takes a bare
+// "0", which isn't whole seconds as written.
+func parseDuration(s string) (time.Duration, error) {
+	if s == "" || s[len(s)-1] >= '0' && s[len(s)-1] <= '9' {
+		return 0, errors.New("is not a duration with a unit (like 30s)")
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, errors.New("is not a duration with a unit (like 30s)")
+	}
+	return d, nil
 }
 
 // ValidationError lists every problem found in a config, each prefixed with its key.
