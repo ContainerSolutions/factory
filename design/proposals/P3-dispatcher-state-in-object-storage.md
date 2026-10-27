@@ -4,7 +4,8 @@
 > [P2](P2-dispatcher-state-file.md) (its journal and snapshot formats) and
 > [ADR-0009](../adr/0009-dispatcher-state-is-a-log-in-object-storage.md). Replaces nothing in
 > the contracts. Touches `internal/store`, `cmd/factory serve`, `factory state`, the provider
-> controller's intake, and removes the work-item rebuild from markers.
+> controller's intake and `factory-agent supervise`'s polling, and removes the work-item rebuild
+> from markers.
 > Decisions at the end (Gustavo, 2026-10-27).
 
 ## Why
@@ -270,6 +271,13 @@ Event and both post the same notice. So:
   `since` set to that moment, not on every cold start. Today `since` is the process start. There
   is no other start-up work: the work-item rebuild from markers is removed (§No rebuild from
   markers).
+
+  **Known limit (Decision 5):** a webhook is safe once its Delivery is stored and GitHub has its
+  2xx. GitHub doesn't retry a failed delivery, though, and `Recover` covers only the window from
+  becoming leader. So a live delivery that fails is lost unless someone redelivers it from the
+  App's delivery log, which GitHub keeps for about 3 days. It can fail through a cold start past
+  GitHub's 10 s timeout, a 503 during a deploy, or a bucket error. Running the dispatcher on a
+  VM behind a load balancer, with no cold starts, makes this rarer.
 - **The leader** is whoever holds the `leader` lock: TTL 3 minutes, renewed every minute. Every
   instance tries to take it at start and on each tick, with a context of a few seconds, because
   `Lock` waits while another holder has it. The holder checks it still holds the lock before
@@ -388,6 +396,43 @@ later. Otherwise a rule sees only events that arrive after it.
 
 This is a change to the provider controller, not to the store, and it applies to every store.
 
+### Agents poll briefly (`supervise`)
+
+Today `supervise` long-polls: each idle slot calls `LeaseTask` with `wait=30s`, the dispatcher
+holds the request until a task comes or the wait ends, and on a 204 the agent asks again at
+once (`internal/agent/worker`). So a request is always open. On Cloud Run or Lambda that keeps an
+instance busy, and billed for CPU, around the clock.
+
+So `agent.yaml` gets a `poll` block:
+
+```yaml
+poll:
+  wait: 0s       # how long each LeaseTask asks the dispatcher to hold it: 0s–60s (default 30s)
+  interval: 30s  # how long an idle agent sleeps after a 204 before asking again (default 0s)
+```
+
+- **The defaults keep today's long poll** (`wait: 30s`, `interval: 0s`), for a dispatcher on a
+  laptop or a VM. A cloud dispatcher's agents set `wait: 0s` and an interval such as `30s`.
+- **A poll that gets a task polls again at once**, so free slots fill without waiting. Only a 204
+  sleeps the interval. Throttling and failure backoff are unchanged.
+- **The dispatcher needs no change.** `LeaseTask` already takes any `wait` from `0s` to `60s`, and
+  the scheduler then runs one matching pass and answers. Only the worker's own check, which today
+  requires at least `1s`, is relaxed. No contract change.
+- **Heartbeats, completes and abandons are unchanged.** They are short requests already.
+- **What it costs:**
+  - A task waits up to one interval before an agent sees it.
+  - The scheduler's fairness picks among the polls waiting at that moment. With brief polls,
+    that is usually just the agent asking, so fairness becomes "first to poll". That is fine for
+    a few agents.
+  - Anti-affinity still holds a task for up to 10 minutes for a different agent, whose next
+    poll takes it.
+- **What it buys:** Cloud Run bills CPU only while a request runs: a few milliseconds per poll,
+  not 24 hours of held connections. Between requests the instance's CPU is throttled, so the
+  background loops (the sync every 2 s, the leader lock's renewal) run only during requests. A
+  poll every 30 s still keeps an instance warm, unbilled, so cold starts stay rare.
+
+This is the agent workstream's change (`internal/agent`, `cmd/factory-agent`).
+
 ### Backends
 
 `internal/store/objectstore` holds the log store and a small interface it uses:
@@ -437,14 +482,16 @@ cloud instance runs the docs and workflows catalog only. The estimate assumes:
 | An agent's token renewal: at most every 10 minutes, on any call it makes (`TokenRenewEvery`) | 1 | 2 agents connected all day: ~290 |
 | The leader lock's renewal, every minute while an instance runs | 1 | 60 an hour of uptime |
 
-That is about 1,900 writes a day before the leader lock. Syncs add one GET every 2 s while an
-instance runs, so the bill depends on how long an instance stays up. That in turn depends on how
-agents poll (IMPROVEMENTS item 9):
+That is about 1,900 writes a day before the leader lock. On top of that, two things depend on how
+agents poll (§Agents poll briefly):
+- the leader lock's renewal: at most one a minute;
+- syncs: one GET every 2 s while the instance's CPU runs, or about one per request when it is
+  throttled between requests.
 
-| An instance runs… | Writes / month (Class A, PUT, LIST) | GETs / month (Class B) | GCS (us-central1) | S3 |
+| Agents… | Writes / month (Class A, PUT, LIST) | GETs / month (Class B) | GCS (us-central1) | S3 |
 |---|---|---|---|---|
-| ~2 h a day (agents poll briefly) | ~61,000 | ~110,000 | 5,000 + 50,000 free: **~$0.30** | **~$0.35** |
-| all day (agents long-poll) | ~101,000 | ~1,300,000 | **~$1.00** | **~$1.05** |
+| poll briefly, every 30 s, on Cloud Run (CPU only during requests) | ~100,000 | ~180,000 | 5,000 + 50,000 free: **~$0.55** | **~$0.57** |
+| long-poll, or the dispatcher runs on a VM (CPU always on) | ~101,000 | ~1,300,000 | **~$1.00** | **~$1.05** |
 
 These use the list prices: $0.005 per 1,000 writes and $0.0004 per 1,000 reads, on both clouds.
 Storage stays well under 1 GB, inside GCS's 5 GB free tier.
@@ -459,9 +506,11 @@ source of writes (over 40%). Then come heartbeats, which rewrite the lease's exp
   heartbeat 1–2 writes;
 - renewing agent tokens hourly instead of every 10 minutes (the token lasts 24 h).
 
-The sync interval trades read freshness for GETs. On Cloud Run, agents that long-poll all day
-also keep an instance billed for CPU all day. That is far more than the bucket, and it is
-IMPROVEMENTS item 9's question.
+The sync interval trades read freshness for GETs. The bucket is the small part of the bill. On
+Cloud Run, agents that long-poll all day keep an instance billed for CPU all day, at roughly $60
+a month, far above the free 180,000 vCPU-seconds. Brief polling avoids that. Hosting itself is
+IMPROVEMENTS item 9's question, and so is the fallback of a small VM behind a load balancer,
+which mostly costs the load balancer.
 
 ## Security
 
@@ -525,6 +574,12 @@ IMPROVEMENTS item 9's question.
   - a dropped event is logged at debug with its reason, and at Info when the factory caused it;
   - a redelivery after a rule was added is stored and evaluated;
   - `factory rules test` fixtures are unchanged.
+- **Brief polling** (`internal/agent/worker`):
+  - with `wait: 0s`, a 204 sleeps the interval, and a lease polls again at once;
+  - the defaults keep today's long poll;
+  - `agent.yaml` rejects a `wait` outside `0s`–`60s` or a negative interval;
+  - against a real dispatcher, a task created while the agent sleeps is leased on its next
+    poll.
 - **No rebuild:**
   - `serve` starts without listing GitHub, since `Conn.List` is gone;
   - `serve` refuses to start with no `--state-dir`, `--state-url`, `--dev-fake-providers` or
@@ -538,7 +593,7 @@ IMPROVEMENTS item 9's question.
 ## Rollout
 
 These start after the org move (IMPROVEMENTS item 4) is merged, since every file imports the
-module path. There are four PRs, each through lisa and ccf-review:
+module path. There are six PRs, each through lisa and ccf-review:
 
 1. **`internal/store/objectstore`**:
    - the log store, sync, locks, transcripts, compaction and load;
@@ -557,13 +612,11 @@ module path. There are four PRs, each through lisa and ccf-review:
 4. **`serve --state-url`**:
    - the leader lock, and which loops run where;
    - the recovery on becoming leader;
-   - the work-item rebuild removed: `wic.Rebuild`, its call, `/readyz`'s wait, and
-     `provider.Conn.List` (interface, GitHub adapter, fakes);
+   - the work-item rebuild removed: `wic.Rebuild`, its call, and `/readyz`'s wait;
    - a durable store required, unless `--dev-fake-providers` or `--state-memory`. The serve
      tests that rely on the memory default get `--state-memory`: `TestServeGitHubEndToEnd`,
      `TestServeGitHubProviderNeedsSecrets` (its expected error must still be the one it
      reports, not the refusal) and the "defaults" config case in serve_test.go;
-   - `Observation.Projections` and `projectionsIn` removed with the rebuild;
    - the scheduler's `sched` lock around lease commits, `errSchedBusy` and its busy-until;
    - the audit of the leader-only loops' store writes and provider calls;
    - `factory state --state-url` (read-only, as `--state-dir` is);
@@ -571,9 +624,19 @@ module path. There are four PRs, each through lisa and ccf-review:
    - the docs:
      - store.md §Serving (no rebuild), controllers.md (the work-item controller without
        Rebuild), scheduler-and-pools.md (the `sched` lock), api-server.md;
-     - github-provider.md (no `List`; markers are for people);
      - 01-context-and-goals.md and 02-architecture.md, where they describe the rebuild;
      - deploy/poc/README.md.
+5. **The provider side of the rebuild's removal** (FND for the `provider.Conn` interface and the
+   fake, GH for the GitHub adapter), after PR 4:
+   - `Conn.List` (interface, `github/list.go`, fakes) and its tests;
+   - `Observe`'s marker parsing (`Observation.Projections`, `projectionsIn`, and the sentence
+     about it in `provider.go`);
+   - github-provider.md.
+6. **Brief polling in `supervise`** (AGT), independent of PRs 1–5:
+   - `agent.yaml`'s `poll` block;
+   - the worker's sleep after a 204, and the relaxed wait check;
+   - `deploy/poc/agent.yaml.example` and its deploykit test;
+   - supervise.md.
 
 Deploying to Cloud Run or Lambda, the tick endpoint and the bucket policy are IMPROVEMENTS item 9.
 
@@ -588,3 +651,8 @@ Deploying to Cloud Run or Lambda, the tick endpoint and the bucket policy are IM
    removed (§No rebuild from markers).
 4. **Store only the events that can matter:** an event no rule could fire for, about an object
    with no work item, is dropped at intake (§Only events that can matter are stored).
+5. **No webhook-recovery change:** a failed live delivery stays a known limit (§Several
+   dispatchers, the recovery bullet). If cold starts make it bite, the dispatcher runs on a VM
+   behind a load balancer instead.
+6. **Agents poll briefly** when the dispatcher runs where idle time is free (§Agents poll
+   briefly), as an agent PR in this rollout.
