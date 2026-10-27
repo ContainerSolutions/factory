@@ -14,10 +14,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
+	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
 	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
@@ -336,15 +336,6 @@ func wrapper(t *testing.T, dir, name, log, target string, prefix ...string) stri
 	}
 	script := "#!/bin/sh\nprintf '%s\\n' \"$0 $*\" >> " + q(log) + "\nexec " + q(target) + " " + strings.Join(args, " ") + " \"$@\"\n"
 	p := filepath.Join(dir, name)
-	// Under syscall.ForkLock no process this test binary forks meanwhile (parallel tests run
-	// git and the fakes) inherits the file open for writing; exec'ing it while such a child
-	// is between its fork and its exec fails with ETXTBSY ("text file busy"). A rename after
-	// the write wouldn't help: the child holds the same inode.
-	syscall.ForkLock.RLock()
-	err := os.WriteFile(p, []byte(script), 0o700)
-	syscall.ForkLock.RUnlock()
-	if err != nil {
-		t.Fatal(err)
-	}
+	exectest.Write(t, p, script, 0o700)
 	return p
 }

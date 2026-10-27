@@ -14,6 +14,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+
+	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
 )
 
 // MaxArchive bounds what Extract extracts.
@@ -188,13 +190,8 @@ func checkLinks(root *os.Root, links map[string]bool) error {
 }
 
 func writeEntry(root *os.Root, name string, mode fs.FileMode, r io.Reader, size int64) error {
-	w, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode|0o600)
-	if err != nil {
+	return execfile.RootOpenFile(root, name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode|0o600, func(w *os.File) error {
+		_, err := io.CopyN(w, r, size)
 		return err
-	}
-	_, err = io.CopyN(w, r, size)
-	if cerr := w.Close(); err == nil {
-		err = cerr
-	}
-	return err
+	})
 }

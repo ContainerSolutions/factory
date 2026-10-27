@@ -20,6 +20,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/harness/harnesstest"
+	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
 	"github.com/compliance-framework/factory/internal/agent/internal/fakegateway"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
@@ -235,9 +236,7 @@ func fakeHarness(t *testing.T, name string) string {
 	}
 	dir := t.TempDir()
 	script := "#!/bin/sh\nexec " + gitcred.ShellQuote(exe) + " " + fakeHarnessArg + " " + gitcred.ShellQuote(dir) + " " + gitcred.ShellQuote(name) + " \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "harness"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	exectest.Write(t, filepath.Join(dir, "harness"), script, 0o700)
 	return dir
 }
 
@@ -248,9 +247,7 @@ func guardBin(t *testing.T) string {
 	dir := t.TempDir()
 	for _, n := range []string{"claude", "codex"} {
 		script := "#!/bin/sh\necho 'the real " + n + " must not run in a test' >&2\nexit 97\n"
-		if err := os.WriteFile(filepath.Join(dir, n), []byte(script), 0o700); err != nil {
-			t.Fatal(err)
-		}
+		exectest.Write(t, filepath.Join(dir, n), script, 0o700)
 	}
 	return dir
 }

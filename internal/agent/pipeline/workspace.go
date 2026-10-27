@@ -11,6 +11,7 @@ import (
 
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
 	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
 )
 
 // makeWorkspace takes Options.Root and lays the workspace's directories in it, all 0700
@@ -44,7 +45,7 @@ func (r *run) makeWorkspace(context.Context) error {
 	}
 	// `factory` on the harness's PATH is `factory-agent fx` (effector.md §Shape).
 	shim := "#!/bin/sh\nexec " + gitcred.ShellQuote(r.p.o.AgentBinary) + " fx \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(ws.Bin, "factory"), []byte(shim), 0o700); err != nil {
+	if err := execfile.WriteFile(filepath.Join(ws.Bin, "factory"), []byte(shim), 0o700); err != nil {
 		return fmt.Errorf("workspace: the factory CLI: %w", err)
 	}
 	ws.WorkDir = root

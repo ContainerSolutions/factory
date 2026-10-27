@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
 )
 
 // TestWriteKataContext writes the embedded context: exactly the five files, the scripts 0755,
@@ -224,9 +226,7 @@ func runBase(t *testing.T, arch, mode string) (string, string, error) {
 		}
 	}
 	for _, c := range stubCommands {
-		if err := os.WriteFile(filepath.Join(stubs, c), []byte(stubScript), 0o755); err != nil {
-			t.Fatal(err)
-		}
+		exectest.Write(t, filepath.Join(stubs, c), stubScript, 0o755)
 	}
 	// the Rust components' install.sh, which rust_component runs from $TMP.
 	for _, c := range []string{"rustc", "cargo", "rust-std"} {
@@ -235,9 +235,7 @@ func runBase(t *testing.T, arch, mode string) (string, string, error) {
 			if err := os.Mkdir(d, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(d, "install.sh"), []byte(stubScript), 0o755); err != nil {
-				t.Fatal(err)
-			}
+			exectest.Write(t, filepath.Join(d, "install.sh"), stubScript, 0o755)
 		}
 	}
 	script, err := fs.ReadFile(embedded, "base.sh")

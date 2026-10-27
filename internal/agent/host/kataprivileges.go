@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
 	"github.com/compliance-framework/factory/internal/agent/katahelper"
 )
 
@@ -209,13 +210,8 @@ func (s privilegesStep) Apply(context.Context) error {
 	if err := os.Remove(s.staged()); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	dst, err := os.OpenFile(s.staged(), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o700)
-	if err != nil {
+	return execfile.OpenFile(s.staged(), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o700, func(dst *os.File) error {
+		_, err := io.Copy(dst, src)
 		return err
-	}
-	_, err = io.Copy(dst, src)
-	if cerr := dst.Close(); err == nil {
-		err = cerr
-	}
-	return err
+	})
 }

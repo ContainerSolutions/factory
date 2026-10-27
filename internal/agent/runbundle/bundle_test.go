@@ -574,7 +574,8 @@ func TestNoSecretFields(t *testing.T) {
 }
 
 // TestImports keeps the package free of network and pipeline code: the standard library
-// (no net/http), v1alpha1, the apiclient types and the runner's.
+// (no net/http), v1alpha1, the apiclient types, the runner's and execfile (standard library
+// only).
 func TestImports(t *testing.T) {
 	p, err := build.ImportDir(".", 0)
 	if err != nil {
@@ -584,6 +585,7 @@ func TestImports(t *testing.T) {
 		"github.com/compliance-framework/factory/internal/apis/v1alpha1",
 		"github.com/compliance-framework/factory/internal/apiclient",
 		"github.com/compliance-framework/factory/internal/agent/runner",
+		"github.com/compliance-framework/factory/internal/agent/internal/execfile",
 	}
 	for _, imp := range p.Imports {
 		std := !strings.Contains(strings.Split(imp, "/")[0], ".")

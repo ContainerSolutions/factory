@@ -23,6 +23,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
 	"github.com/compliance-framework/factory/internal/apiclient"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
@@ -601,19 +602,12 @@ func writeFile(name string, r io.Reader, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(name), 0o700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(f, r); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	return f.Close()
+	return execfile.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode, func(f *os.File) error {
+		if _, err := io.Copy(f, r); err != nil {
+			return err
+		}
+		return f.Sync()
+	})
 }
 
 // copySkills copies the materialised plugin dirs. They have no symlink or special file (the

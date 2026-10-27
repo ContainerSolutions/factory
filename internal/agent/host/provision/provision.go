@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+
+	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
 )
 
 //go:embed base.sh kata
@@ -60,7 +62,7 @@ func writeContext(fsys fs.FS, files map[string]string, dir string) (string, erro
 			mode = 0o755
 		}
 		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, b, mode); err != nil {
+		if err := execfile.WriteFile(p, b, mode); err != nil {
 			return "", fmt.Errorf("the kata build context: %w", err)
 		}
 		// WriteFile's mode is masked by the umask, and an existing file keeps its own.

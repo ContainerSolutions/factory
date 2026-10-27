@@ -16,6 +16,7 @@ import (
 
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/harness/clirun"
+	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
@@ -297,13 +298,8 @@ func copyFile(src, dst string, mode os.FileMode) error {
 		return err
 	}
 	defer func() { _ = in.Close() }()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-	if err != nil {
+	return execfile.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode, func(out *os.File) error {
+		_, err := io.Copy(out, in)
 		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return err
-	}
-	return out.Close()
+	})
 }
