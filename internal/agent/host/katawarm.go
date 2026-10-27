@@ -159,6 +159,11 @@ func (s kataWarmStep) Apply(ctx context.Context) (err error) {
 		default:
 			cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), warmCleanup)
 			defer cancel()
+			// the helper's rm stops the workspace first (nerdctl stop -t 30): after an interrupt,
+			// say why init waits.
+			if ctx.Err() != nil {
+				fmt.Fprintf(e.Out, "interrupted: removing the build workspace %s (it can take a minute; Ctrl-C again leaves it, and the next host init removes it)\n", b)
+			}
 			if rerr := e.helper(cctx, e.Out, "rm", b); rerr != nil {
 				err = errors.Join(err, fmt.Errorf("removing %s: %w", b, rerr))
 			}

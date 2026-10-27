@@ -439,6 +439,9 @@ func TestBaseVMApplyFails(t *testing.T) {
 			if _, err := os.Stat(baseVMStep{e}.record()); err == nil {
 				t.Error("a failed build wrote basevm.json")
 			}
+			if strings.Contains(out.String(), "interrupted:") {
+				t.Errorf("an ordinary failure says it was interrupted:\n%s", out.String())
+			}
 		})
 	}
 }
@@ -641,10 +644,13 @@ func TestBaseVMPreviousVersion(t *testing.T) {
 	}
 }
 
-// TestBaseVMInterrupted: an interrupt during provisioning still stops and deletes the VM.
+// TestBaseVMInterrupted: an interrupt during provisioning still stops and deletes the VM, and
+// says so first (stopping it can take a while).
 func TestBaseVMInterrupted(t *testing.T) {
 	e, r := testEnv(t)
 	mkStateDir(t, e)
+	var out bytes.Buffer
+	e.Out = &out
 	ctx, cancel := context.WithCancel(context.Background())
 	r.tart.bootFails = 1 << 30
 	go func() {
@@ -658,6 +664,10 @@ func TestBaseVMInterrupted(t *testing.T) {
 	}
 	if st := r.vmState("factory-agent-base-0.1.0.building"); st != "" {
 		t.Errorf("the .building VM is left %q", st)
+	}
+	want := "interrupted: stopping and deleting factory-agent-base-0.1.0.building (it can take a minute; Ctrl-C again leaves it, and the next host init deletes it)\n"
+	if got := out.String(); !strings.Contains(got, want) || strings.Contains(got, "the build failed") {
+		t.Errorf("output %q, want %q and no \"the build failed\"", got, want)
 	}
 }
 

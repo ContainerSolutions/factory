@@ -81,6 +81,12 @@ func removeRecord(t *testing.T, p string) {
 // output and the error.
 func buildWarm(t *testing.T, set func(*Env, *fakeRunner)) (*Env, *fakeRunner, string, error) {
 	t.Helper()
+	return buildWarmCtx(t, context.Background(), set)
+}
+
+// buildWarmCtx is buildWarm with the Apply's context.
+func buildWarmCtx(t *testing.T, ctx context.Context, set func(*Env, *fakeRunner)) (*Env, *fakeRunner, string, error) {
+	t.Helper()
 	e, r := kataEnv(t)
 	installKata(t, e, r)
 	r.kata.warm = false
@@ -92,7 +98,7 @@ func buildWarm(t *testing.T, set func(*Env, *fakeRunner)) (*Env, *fakeRunner, st
 	var out bytes.Buffer
 	e.Out = &out
 	r.calls = nil
-	err := kataWarmStep{e}.Apply(context.Background())
+	err := kataWarmStep{e}.Apply(ctx)
 	return e, r, out.String(), err
 }
 
@@ -179,6 +185,43 @@ func TestKataWarmBuildFails(t *testing.T) {
 			t.Errorf("err %v, calls %q", err, r.helperCalls())
 		}
 	})
+}
+
+// TestKataWarmBuildInterrupted: a warm build interrupted (the context cancelled during a
+// warm-load) says why init waits before it removes the build workspace, and still removes it;
+// an ordinary failure removes it without that line.
+func TestKataWarmBuildInterrupted(t *testing.T) {
+	const line = "interrupted: removing the build workspace " + KataWarmBuild + " (it can take a minute; Ctrl-C again leaves it, and the next host init removes it)\n"
+	for _, interrupt := range []bool{true, false} {
+		t.Run(map[bool]string{true: "interrupted", false: "warm-load fails"}[interrupt], func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var r *interruptRunner
+			e, fr, out, err := buildWarmCtx(t, ctx, func(e *Env, fr *fakeRunner) {
+				if interrupt {
+					r = &interruptRunner{fakeRunner: fr, at: " warm-load ", cancel: cancel}
+					e.Runner, e.Spawner = r, r
+				} else {
+					fr.kata.fail = "warm-load"
+				}
+			})
+			if err == nil || !strings.Contains(err.Error(), "kata-helper warm-load: ") {
+				t.Fatalf("err = %v", err)
+			}
+			if got := strings.Contains(out, line); got != interrupt {
+				t.Errorf("the interrupted line printed %v, want %v; output:\n%s", got, interrupt, out)
+			}
+			if _, ok := fr.kata.ws[KataWarmBuild]; ok || !strings.HasSuffix(fr.helperCalls()[len(fr.helperCalls())-1], " rm "+KataWarmBuild) {
+				t.Errorf("the build workspace is left; calls %q", fr.helperCalls())
+			}
+			if interrupt && (r.late != 1 || r.unbounded || r.maxBound > warmCleanup) {
+				t.Errorf("after the interrupt %d commands on a live context, unbounded %v, bound %s", r.late, r.unbounded, r.maxBound)
+			}
+			if found, _ := readRecord(e.KataWarmRecordPath(), &KataWarmRecord{}); found {
+				t.Error("a record was written")
+			}
+		})
+	}
 }
 
 func TestKataWarmPlan(t *testing.T) {
