@@ -1,0 +1,7 @@
+lisa-selfreview:
+pass 1 (request_changes):
+- [question 9efca3b30a50] proc.go onCancel: sudo kept in factory-agent's process group, unlike the spec's own group (its premise doesn't hold for sudo 1.9.15p5): for the reviewers, not fixed.
+- [nit 365c8cedd2bd] kataimage.go Apply: the "(timed out after 2h)" wrapping isn't exercised by a test (the bound itself is).
+
+lisa-selfreview:
+pass 1 thinker: nit 365c8cedd2bd dismissed (the spec asks for a constant; making the bound injectable only to test an error suffix is churn; the deadline is tested). Question 9efca3b30a50 goes to the PR body. Nothing to fix: loop stops.
