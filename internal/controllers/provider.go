@@ -40,7 +40,8 @@ const (
 const DefaultDeliveryRetention = 24 * time.Hour
 
 // Why the intake filter dropped an event (the reason label of factory_events_dropped_total).
-// It drops an event only when no work item links its object and no rule could fire for it.
+// It drops an event only when no work item links its object, no rule could fire for it and
+// the factory didn't cause it.
 const (
 	// DropNoRule: no rule's on has the event's type for its provider (the rule's providers
 	// included).
@@ -396,13 +397,21 @@ func (p *ProviderController) Reconcile(ctx context.Context, id string) (Result, 
 }
 
 // intake decides whether an event is stored (P3 §Only events that can matter are stored): it
-// is kept when a rule could fire for it, or when a work item links its object (the rule
-// controller then adds it to that item's timeline). It returns "" to keep it, else why it is
-// dropped. The link lookup, made only before a drop, syncs the store when it finds nothing.
+// is kept when a rule could fire for it, when the factory caused it, or when a work item links
+// its object (the rule controller then adds it to that item's timeline). It returns "" to keep
+// it, else why it is dropped. The link lookup, made only before a drop, syncs the store when it
+// finds nothing.
 func (p *ProviderController) intake(ctx context.Context, cat *catalog.Catalog, ev v1alpha1.Event) (string, error) {
 	// The empty view is exact: scope reads a work item's links only for factory.* events, which
 	// are created in the store directly and never come through here.
 	if rules.CouldFire(cat, ev, rules.WorkItemView{}) {
+		return "", nil
+	}
+	// An event the factory's own App caused is kept even unlinked: the Effector links the
+	// object it created only after the provider call returns (linkCreated), and the webhook may
+	// be normalised before that. Stored, the rule controller finds the link when it processes
+	// the event, or logs it at Info if it is still unlinked (skipped). They are few.
+	if a := ev.Data.Actor; a != nil && a.IsFactory {
 		return "", nil
 	}
 	if link, ok := eventLink(ev); ok {

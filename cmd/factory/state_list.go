@@ -166,8 +166,8 @@ func runOutcome(run *v1alpha1.Run) string {
 // eventsDroppedNote ends factory state events --help: the events the intake filter dropped are
 // not stored (P3 §Only events that can matter are stored).
 const eventsDroppedNote = `
-Only stored events are listed. An event no work item links and no rule could fire for is
-dropped when it arrives (logged at info as "event dropped", counted in
+Only stored events are listed. An event no work item links, no rule could fire for and the
+factory didn't cause is dropped when it arrives (logged at info as "event dropped", counted in
 factory_events_dropped_total): it is not here and can't be replayed (404). Its delivery is
 deleted, so to get it back once a rule or link covers it, redeliver the webhook from the
 App's delivery log (Settings > Advanced > Recent Deliveries).

@@ -18,7 +18,10 @@ import (
 	"github.com/ContainerSolutions/factory/internal/store/memory"
 )
 
-const localDev = "compliance-framework/local-dev" // a repo no PoC RuleSet scopes
+const (
+	localDev     = "compliance-framework/local-dev" // a repo no PoC RuleSet scopes
+	factoryLogin = "ccf-factory[bot]"               // the fake's author App (fake.DefaultIdentities)
+)
 
 // attrRecorder is a slog.Handler that keeps every record with its attributes.
 type attrRecorder struct {
@@ -232,6 +235,10 @@ func TestIntakeFilter(t *testing.T) {
 		w.Facts = map[string]any{k: v}
 		return w
 	}
+	byFactory := func(w fake.Webhook) fake.Webhook {
+		w.Sender = fake.Sender{Login: factoryLogin}
+		return w
+	}
 	inChannel := func(ch string) fake.Webhook {
 		return fake.Webhook{Type: v1alpha1.EventIssueOpened, Sender: fake.Sender{Login: "alice"}, Subject: secret,
 			Facts: map[string]any{"channel": ch}}
@@ -255,6 +262,10 @@ func TestIntakeFilter(t *testing.T) {
 		{name: "branch in the scope", cat: mainOnly, hook: withFacts(hook(v1alpha1.EventPROpened, provider.KindPR, docsRepo+"#50"), "branch", "main")},
 		{name: "channel outside the scope", cat: docsChannel, hook: inChannel("#random"), reason: DropOutOfScope},
 		{name: "channel in the scope", cat: docsChannel, hook: inChannel("#docs")},
+		// The factory's own events are kept unlinked: the Effector links its object after the
+		// provider call (linkCreated), and the webhook can come first.
+		{name: "by the factory, out of scope, unlinked", cat: poc, hook: byFactory(hook(v1alpha1.EventPROpened, provider.KindPR, localDev+"#9"))},
+		{name: "by the factory, no rule on the type, unlinked", cat: poc, hook: byFactory(hook(v1alpha1.EventIssueCommented, provider.KindIssue, docsRepo+"#42"))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newIntakeEnv(t, tc.cat, nil)
@@ -519,5 +530,49 @@ func TestWorkItemForSyncsBeforeCreating(t *testing.T) {
 	var wis []*v1alpha1.WorkItem
 	if _, err := e.mem.List(e.ctx, v1alpha1.KindWorkItem, store.ListOptions{}, &wis); err != nil || len(wis) != 1 {
 		t.Fatalf("work items %d %v, want 1", len(wis), err)
+	}
+}
+
+// The race between an effect and its link: the factory opens a PR (conn.Apply) and the
+// Effector links it to the task's work item only after that returns (linkCreated). A
+// pr.opened normalised in between is kept, though no rule could fire for it and nothing links
+// it yet, and once the link exists the rule controller finds the work item.
+func TestIntakeKeepsFactoryEventBeforeItsLink(t *testing.T) {
+	e := newIntakeEnv(t, loadPoC(t), nil)
+	const pr = localDev + "#9" // out of every PoC scope: CouldFire says no
+	if err := e.gh.Seed(provider.Observation{Ref: v1alpha1.ObjectRef{Provider: ghProvider, Kind: provider.KindPR, Ref: pr},
+		PR: &provider.PRObservation{Head: "abc"}}); err != nil {
+		t.Fatal(err)
+	}
+	wiID := e.link(t, e.ctx, provider.KindIssue, localDev+"#8") // the task's work item
+
+	// The webhook first.
+	id := e.emit(t, fake.Webhook{Type: v1alpha1.EventPROpened, Sender: fake.Sender{Login: factoryLogin},
+		Object: &v1alpha1.ObjectRef{Kind: provider.KindPR, Ref: pr}})
+	evID := id + "/0"
+	if !e.has(t, v1alpha1.KindEvent, evID) {
+		t.Fatal("the factory's pr.opened was dropped before its link")
+	}
+	if d := e.delivery(t, id); d == nil || !slices.Equal(d.Status.Events, []string{evID}) {
+		t.Fatalf("delivery %+v, want it kept with the event", d)
+	}
+	if drops := e.pc.Drops(); len(drops) != 0 || len(e.logs.dropLogs()) != 0 {
+		t.Fatalf("drops %+v, logs %+v, want none", drops, e.logs.dropLogs())
+	}
+
+	// Then linkCreated.
+	if added, err := LinkObject(e.ctx, e.st, wiID, v1alpha1.ObjectRef{Provider: ghProvider, Kind: provider.KindPR, Ref: pr}, ghProvider); err != nil || !added {
+		t.Fatalf("link: %v %v", added, err)
+	}
+	rule, err := NewRuleController(e.st, e.cat, StaticConns{ghProvider: e.gh}, RuleOptions{Clock: e.clk, Logger: discardLogger()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rule.Reconcile(e.ctx, evID); err != nil {
+		t.Fatal(err)
+	}
+	var st EventStatus
+	if err := e.mem.Get(e.ctx, store.Key{Kind: KindEventStatus, Name: evID}, &st); err != nil || st.WorkItem != wiID {
+		t.Fatalf("event status %+v %v, want it processed for %s", st, err, wiID)
 	}
 }

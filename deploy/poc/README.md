@@ -139,7 +139,7 @@ bin/factory state events [--since 1h] [--type pr.opened] [--workitem W]   # with
 bin/factory state log [--since 10m]          # the journal (changes since the last snapshot) as a timeline, with task phase changes and run ends
 ```
 
-`state events` lists only the events the dispatcher stored. An event is stored when a rule could fire for it (its type in a rule's `on`, from a provider and an object its RuleSet scopes; `where` aside) or when a work item links its object. Any other event is dropped when it arrives: it isn't in `state events`, and `factory events replay` answers 404 for it. Its delivery is deleted at once, so the way back, once a rule or link covers it, is to redeliver the webhook from the App's delivery log (§7, "Webhook"; GitHub keeps about 3 days). The redelivery is filtered again against the catalog as it is then.
+`state events` lists only the events the dispatcher stored. An event is stored when a rule could fire for it (its type in a rule's `on`, from a provider and an object its RuleSet scopes; `where` aside), when a work item links its object, or when the factory's own App caused it. Any other event is dropped when it arrives: it isn't in `state events`, and `factory events replay` answers 404 for it. Its delivery is deleted at once, so the way back, once a rule or link covers it, is to redeliver the webhook from the App's delivery log (§7, "Webhook"; GitHub keeps about 3 days). The redelivery is filtered again against the catalog as it is then.
 
 An unknown id prints the ids nearest to it by prefix. Nothing it prints is secret (the store holds no credential, and transcripts are redacted by the agent), so its output can be pasted into an issue. `jq` on `snapshot.json` (one object per line) and `journal.jsonl` works too.
 
