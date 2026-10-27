@@ -30,8 +30,8 @@ transactions, no change feed and no order across objects.
   such lock.
 - **One leader**, chosen with a store lock, runs the loops that write from watches and timers.
   Every instance serves requests.
-- **The only precondition used is "create if absent".** Nothing is updated in place, except
-  transcript blobs, which a plain PUT replaces.
+- **The only precondition used is "create if absent".** Nothing is updated in place or
+  overwritten: each transcript put has its own blob name.
 - Design and numbers: [P3](../proposals/P3-dispatcher-state-in-object-storage.md).
 
 ## Consequences

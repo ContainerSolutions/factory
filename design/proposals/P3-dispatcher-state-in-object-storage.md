@@ -56,7 +56,7 @@ by a conditional create. Delta Lake's transaction log on S3 uses the same patter
   log/00000000000000001043.json     one change: P2's journal line, plus the writer's id
   log/00000000000000001044.json
   snapshots/00000000000000001000.json.gz   the whole store at version 1000 (P2's snapshot format, gzip'd)
-  transcripts/<run>.jsonl.gz        one blob per transcript or environment log (P2's naming)
+  transcripts/<run>.<id>.jsonl.gz   one blob per put of a transcript or environment log
 ```
 
 - **Log entries** are `{"v","at","op","kind","name","obj"?,"w"}`. This is P2's journal line plus
@@ -223,9 +223,13 @@ limit:
 
 ### Transcripts
 
-Each blob (a transcript or an environment log) is an object at `transcripts/<run>.jsonl.gz`,
-with P2's escaping for unsafe names. It is written with a plain PUT, because a re-put replaces
-it, and read with a GET.
+Each blob (a transcript or an environment log) is an object at
+`transcripts/<run>.<id>.jsonl.gz`, with P2's escaping for unsafe run names. `<id>` is random and
+new on every put, and the blob is written with create-if-absent. The `TranscriptBlob` record
+names the id, so a read follows the record to its blob. A drop deletes only the blob its deleted
+record named, and a re-put replaces the record and deletes the blob it replaced. So a drop and a
+re-put on two instances can't remove each other's data, in either order. The unique names
+also make the "unconditional `Put`" unnecessary for transcripts.
 
 The caps and retention need sizes and creation times on the store's clock. Listing can't give
 these (S3's listing has no custom metadata), so each blob gets an index record of an internal kind,
@@ -271,7 +275,11 @@ keep the fields it rewrites.
 **Changes accumulate into the pending version** (Gustavo, 2026-10-27). While `ReadableSchema` is
 already N+1 and no release writes it yet, further stored-type changes join N+1. The golden's
 `-update` accepts them. One read-ahead step then covers them all, and the release that bumps
-`SchemaVersion` to N+1 writes them together.
+`SchemaVersion` to N+1 writes them together. **N+1 freezes once a release that reads it ships**
+(the expand release; Gustavo, 2026-10-27). A later change can't join N+1, because the deployed
+expand release wouldn't know it and would drop its fields on rewrite. It waits until
+`SchemaVersion` N+1 ships, then opens N+2. A test can't know what shipped, so `schema.go` and the
+release checklist say this.
 
 **An entry newer than `ReadableSchema`** can only appear when a deploy skipped the expand step.
 The instance that meets it stops writing:
@@ -605,7 +613,6 @@ This is the agent workstream's change (`internal/agent`, `cmd/factory-agent`).
 type Bucket interface {
     Get(ctx context.Context, name string) ([]byte, error)              // ErrNotExist
     Create(ctx context.Context, name string, data []byte) error        // if absent; ErrExists when taken
-    Put(ctx context.Context, name string, data []byte) error           // unconditional (transcript blobs)
     List(ctx context.Context, prefix, startAfter string, fn func(ObjectInfo) error) error // name order
     Delete(ctx context.Context, name string) error                     // ErrNotExist
 }
@@ -618,8 +625,8 @@ type Bucket interface {
 | `file://` (a local directory) | write a tmp file, fsync, then `link(2)` it into place (fails if the name exists); fsync the dir. A reader never sees a half-written entry, and a crash never leaves one that can't be rewritten | none. For development and for tests with two dispatchers on one machine |
 | fake (tests) | in memory, with injected failures and lost races | none |
 
-`If-Match` and `ifGenerationMatch=<n>` are not needed: no object is ever updated in place. Only
-transcript blobs, which have no concurrent writers that matter, are overwritten. GCS's limit of
+`If-Match` and `ifGenerationMatch=<n>` are not needed: no object is ever updated in place or
+overwritten, transcript blobs included (each put has its own name). GCS's limit of
 one write per second per object name doesn't apply either, since each name is written once.
 
 The two SDKs are new dependencies (the repo-layout LLD's allow-list): they get a justification in
@@ -630,8 +637,8 @@ config or the image.
 `serve` takes `--state-url` or `--state-dir` (not both). Without either it refuses to start,
 unless it is given `--dev-fake-providers` or `--state-memory` (§No rebuild from markers).
 
-**A `file://` bucket and a P2 state dir never share a directory.** Both name transcript blobs
-`transcripts/<run>.jsonl.gz`. On a P2 dir the object store would see an empty log, start empty,
+**A `file://` bucket and a P2 state dir never share a directory.** Both keep transcript blobs
+under `transcripts/`. On a P2 dir the object store would see an empty log, start empty,
 and its orphan scan would delete P2's transcripts a day later, with no flock between them. So
 the object store refuses a `file://` directory that holds `snapshot.json`, `journal.jsonl` or
 `LOCK`, and the file store refuses one that holds `log/` or `snapshots/`.
