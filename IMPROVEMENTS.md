@@ -15,34 +15,20 @@ How to work: read AGENTS.md first. PRs go through lisa as `ccf-lisa[bot]` with
 name's redirect) and are reviewed with ccf-review. Gustavo merges. When a workstream ships,
 record it in IMPROVEMENTS_DONE.md with its PR numbers and delete its section here.
 
-## 1. Close P1 phase 10 (the Mac session)
-
-Stacks 1 (#192–#195) and 2 (#198, #201, #203, #209) are merged. **The last stack is approved,
-waiting to merge:** #218 → #219 (gh stack #220), CI green, no deferrals.
-- **#218 `refactor(agent)!`:** the catalog and `compile.go` stop setting `workspace.hosts`;
-  `config.Harness.home`/`configDir`, `harness.Isolation`, dead `clirun` helpers and the doc
-  leftovers go; the implement prompt's dead local-stack opening goes (the #88 steps stay).
-  **Breaking:** every `agent.yaml` must drop `harnesses.codex.home` and
-  `harnesses.claude-code.configDir` before supervise restarts on it.
-- **#219 `refactor(apis)!`:** removes `workspace.hosts` and `Task.spec.hosts` (web client
-  regenerated). Stored Tasks with `hosts` still load: the stores decode leniently.
-
-When both merge: move phase 10 to IMPROVEMENTS_DONE.md and delete this section.
-
-## 2. Real-host checks (Gustavo)
+## 1. Real-host checks (Gustavo)
 
 Shipped work that only fakes have tested. These are runs, not PRs; Gustavo runs them after
-phase 10 merges, from a runbook the Mac session hands him. Record each result in
+phase 10 merged (2026-10-27), from the order the Mac session gave him. Record each result in
 IMPROVEMENTS_DONE.md.
 
 | # | What | How | Pass when |
 |---|---|---|---|
 | T1 | **ChatGPT refresh (#165)**, on the Mac or the workstation | **1.** Stop `supervise`, then `cp -p <state>/logins/codex.json{,.bak}`. **2.** Find the key paths without printing values: `jq -r 'paths(scalars)\|map(tostring)\|join(".")' <state>/logins/codex.json`. Set only the access token to an invalid string with `jq` (keep the refresh token), keeping mode 0600. **3.** Start `supervise` and redispatch any codex task. **4.** Afterwards run `codex login` on the host, because the old refresh token in `~/.codex/auth.json` is spent. | The task succeeds with no re-import. The run's egress log shows `chatgpt.com` 401, then the resent 200. `jq .lastRefresh` on the file shows a new time. `stat` shows 0600. The new access token is a JWT with `exp`. |
-| T2 | **`yarn install` and `yarn build` in a VM (#172)** | After phase 10 lifts "never install": a release-docs or implement run on mock-docs. | The run's checks say `build: pass`, not `not-run`. Its transcript (the run page, or `GET /runs/<id>/transcript`) has `factory.egress` lines for `registry.yarnpkg.com` and `registry.npmjs.org`. |
+| T2 | **`yarn install` and `yarn build` in a VM (#172)** | A release-docs or implement run on mock-docs (phase 10 lifted "never install"). | The run's checks say `build: pass`, not `not-run`. Its transcript (the run page, or `GET /runs/<id>/transcript`) has `factory.egress` lines for `registry.yarnpkg.com` and `registry.npmjs.org`. |
 | T3 | **The egress log records what the gateway forwards** | Any recent run's transcript in the UI, filtered for `factory.egress`. The VM's local copy doesn't have these lines: the host adds them. | The model host (`api.anthropic.com` or `chatgpt.com`), `github.com` and `api.github.com` appear, with the credential column filled and no token values. |
 | T6 | **An agent-only change on kata** | Rebuild `factory-agent` and restart `supervise`. The kata driver puts the binary into each workspace at start (`AgentBinary`), so nothing needs to be rebuilt. | `host check` stays ok, and the next workspace runs the new binary. |
 
-T4 and T5 passed (IMPROVEMENTS_DONE.md). T2 runs last, after stack 2 is merged.
+T4 and T5 passed (IMPROVEMENTS_DONE.md).
 
 Real-host checks from stacks 3 and 4 (#197–#217), split by machine.
 
@@ -112,14 +98,14 @@ implement allows only codex. The claude side of the `ccfr` lookup, the plugin-di
 exercised by every docs-review run.
 - **Mac, also:** Softnet's per-VM anti-spoofing, which the gateway's client pin relies on.
 
-## 3. Apply `environment.egress` in the gateway
+## 2. Apply `environment.egress` in the gateway
 
 The gateway already implements deny-by-default, `AllowHosts` and the tunnel SNI check, but
 nothing applies a TaskSpec's `environment.egress` yet. Wire the field from the Task through
 the run bundle into the workspace's gateway policy. This is the network half of P1's hard
 sandbox.
 
-## 4. Phase 6: run tokens and enrollment
+## 3. Phase 6: run tokens and enrollment
 
 - the run token (#101's `Lease.runToken`) and the lease credential bundle;
 - enrollment (#102), replacing the join token and the device flow. Decide how an agent's owner
@@ -127,7 +113,7 @@ sandbox.
 
 Today the gateway injects the agent token on the dispatcher's effects route.
 
-## 5. The org move to `ContainerSolutions/factory`
+## 4. The org move to `ContainerSolutions/factory`
 
 The Go module path is still `github.com/compliance-framework/factory`, and
 `DefaultCatalogRepo` (`internal/controllers/catalogsource.go`), the POC files and the docs
@@ -136,12 +122,12 @@ is still `compliance-framework`, so pass it full `ContainerSolutions/factory#N` 
 
 ## Then: a shippable factory (Gustavo, 2026-10-27)
 
-The final list. Start it after 1–5, in this order. **The goal:** the factory ships as a product,
+The final list. Start it after 1–4, in this order. **The goal:** the factory ships as a product,
 and our own prod instance runs at `factory.container-solutions.com` for compliance-framework,
 from the catalog in its own repo. Several dispatchers must be able to run at once, and the whole
 thing must stay inside a cloud free tier. That's why state moves to object storage.
 
-### 6. State in GCS / S3 instead of local files
+### 5. State in GCS / S3 instead of local files
 
 Today P2's file store (`internal/store/filestore`, `serve --state-dir`) keeps state in local
 files and assumes a single dispatcher writing them. This probably needs some rearchitecture,
@@ -156,7 +142,7 @@ broken down as:
   (`internal/store/store.go`, with `storetest` as its conformance suite), with GCS and S3
   implementations. Keep the local-file backend for development.
 
-### 7. Binaries and an install script for `supervise`
+### 6. Binaries and an install script for `supervise`
 
 One command sets an agent up, for example
 `curl -fsSL https://github.com/ContainerSolutions/factory/releases/latest/download/install.sh | bash`.
@@ -171,24 +157,24 @@ This needs a release workflow (darwin-arm64 and linux-amd64 binaries, with check
 factory releases, it switches to `release: true` in workflows' `repos.yaml`. That's a
 `workflows` change, so Gustavo approves it.
 
-### 8. Ship the dispatcher
+### 7. Ship the dispatcher
 
 - Ship what `make poc-up` runs (`deploy/poc/run.sh`, which runs `factory serve` with the web UI
   built in, `make build-release`) as release binaries.
 - Ship a container image of the dispatcher (`factory serve`), for example on ghcr.io, built in
   the same release workflow.
 
-### 9. The factory catalog in its own repo
+### 8. The factory catalog in its own repo
 
 Move `catalog/` to a new repo under compliance-framework (for example
 `compliance-framework/factory-catalog`), with its `factory rules test` fixtures run in that
 repo's CI. Point `DefaultCatalogRepo` (`internal/controllers/catalogsource.go`) at it. This repo
 keeps only the test catalogs.
 
-### 10. Run the dispatcher in the cloud, inside the free tier
+### 9. Run the dispatcher in the cloud, inside the free tier
 
 The cheapest setup that works: compare GCP Cloud Run and AWS Lambda (behind API Gateway or a
-function URL) against the free tiers, with state in 6's bucket. Then deploy it at
+function URL) against the free tiers, with state in 5's bucket. Then deploy it at
 `factory.container-solutions.com`, with the GitHub Apps' webhooks pointed there. Constraints to
 design for:
 - Both scale to zero. The dispatcher's background loops (controllers, debounces, lease expiry,
@@ -196,6 +182,6 @@ design for:
   calling a tick endpoint, or they move into request handling.
 - Lambda caps a request at 15 minutes, and agents' lease and heartbeat calls need short
   requests.
-- More than one instance can run at once, which 6(a) makes safe.
+- More than one instance can run at once, which 5(a) makes safe.
 - The secrets (App keys, the session key) live in the cloud's secret manager, never in the
   image.

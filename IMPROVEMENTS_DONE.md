@@ -139,6 +139,27 @@ Merged before the phase 9 follow-ups started, because both touch `cmd/factory-ag
 - **ccf-skills#25 (`v0.10.0`):** HEADLESS.md rule 9, and docs-release runs `yarn install
   --frozen-lockfile` before building.
 
+## P1 phase 10, stack 2 and the last stack (2026-10-27)
+
+Phase 10 is closed: the host runtime is gone, and every task runs in a VM workspace.
+- **Stack 2 (gh stack #210):**
+  - #198: the local-stack step, `rowLocalStack` and `runner.Stub`;
+  - #201: the host pipeline only builds bundles, and `probe` checks the model logins and `git`;
+  - #203: the harness adapters run only in a VM (host sandboxes, `Probe` and `make smoke-*`
+    gone; the end-to-end tests run through the fake gateway);
+  - #209: `Pipeline.Run` and the Effector run only in a VM workspace (`gitsafe`, the host
+    environment passthrough and the Effector's host runtime and gh-stack path gone).
+- **The last stack (gh stack #220):**
+  - #218 `refactor(agent)!`: the catalog and compiler stop setting `workspace.hosts`;
+    `config.Harness.home`/`configDir` (breaking: `agent.yaml` must drop them),
+    `harness.Isolation`, dead `clirun` helpers and doc leftovers go; the implement prompt loses its
+    dead local-stack opening, and #88's throwaway-environment steps stay;
+  - #219 `refactor(apis)!`: `workspace.hosts` and `Task.spec.hosts` removed, with the web client
+    regenerated. Stored Tasks that still have `hosts` load: the stores decode leniently.
+- **Kept on purpose:** gitcred and `fx git-credential`, which supervise's `PrepareBundle` uses to
+  fetch private skills on the host; the pipeline's credentials step, which sets git up in
+  gateway mode too; codex's MCP approval key.
+
 ## P1 phase 9 follow-ups, stack 3 (2026-10-27)
 
 Fixes a–h from the kata track, one stack as `ccf-lisa[bot]`, reviewed with ccf-review, merged
