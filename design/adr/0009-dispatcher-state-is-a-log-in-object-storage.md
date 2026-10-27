@@ -35,8 +35,13 @@ transactions, no change feed and no order across objects.
 - Design and numbers: [P3](../proposals/P3-dispatcher-state-in-object-storage.md).
 
 ## Consequences
-- The `Store` interface and `storetest` don't change. The controllers, the scheduler and the
-  API keep their semantics.
+- The `Store` interface and `storetest` don't change.
+- What changes with several dispatchers:
+  - the scheduler's lease commits take a store lock;
+  - the work-item rebuild from markers runs once per binding, not once per start, and the rule
+    controller holds the events of a RuleSet whose binding isn't rebuilt yet;
+  - event replay refuses such an event with a new 409 problem code, `rebuild-pending`. This
+    is the only contract change.
 - Writes are serialised through one log, one PUT each (tens per second at most): enough for the
   factory, not for a high-volume service.
 - Each instance holds the whole state in memory, as today. Reads may lag other instances by the
