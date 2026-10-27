@@ -2,8 +2,9 @@
 
 > Status: **proposed**. Workstream: RT (dispatcher runtime). Builds on
 > [P2](P2-dispatcher-state-file.md) (its journal and snapshot formats) and
-> [ADR-0009](../adr/0009-dispatcher-state-is-a-log-in-object-storage.md). Replaces nothing in
-> the contracts. Touches `internal/store`, `cmd/factory serve` and `factory state`.
+> [ADR-0009](../adr/0009-dispatcher-state-is-a-log-in-object-storage.md). One contract change:
+> a new 409 problem on event replay (§Rollout, PR 3). Touches `internal/store`, `cmd/factory
+> serve`, `factory state` and the API contract.
 
 ## Why
 
@@ -283,7 +284,7 @@ Event and both post the same notice. So:
        On a new bucket or prefix every key is pending. A done key's stored items are
        authoritative, as in the file store, and the work-item resync observes what changed on
        GitHub meanwhile.
-    3. **`Rebuild` gets scoped (PR 3).** Today `wic.Rebuild(ctx)` walks every RuleSet and stops
+    3. **`Rebuild` gets scoped (PR 4).** Today `wic.Rebuild(ctx)` walks every RuleSet and stops
        at the first error. It changes to take the keys to rebuild and to return a result per
        key, so one failing repo doesn't stop the others.
     4. **The gate is per RuleSet, in one check before `workItemFor`.** Both paths that create
@@ -293,8 +294,10 @@ Event and both post the same notice. So:
          so the whole event waits, including the rules of RuleSets already done. Events that
          no pending RuleSet evaluates go on.
        - Event replay (`POST /events/{id}/replay`, `RuleController.Replay`), which runs on every
-         instance, **refuses** such an event with a 409 problem naming the RuleSet and its
-         pending key.
+         instance, **refuses** such an event with a 409 problem of a new type,
+         `rebuild-pending`, naming the RuleSet and its pending key. That is a contract change:
+         today `replay-history-gone` is the endpoint's only 409. It gets its own PR (§Rollout,
+         PR 3).
 
        Without the gate, either path could create a fresh work item, with reset counters, for
        an object whose marker hasn't been read yet. The debounce and work-item controllers
@@ -304,10 +307,17 @@ Event and both post the same notice. So:
        issue in one repo and its PR in another, and each key's rebuild lists only its own
        objects. So when a rebuild finds an item's marker, it also observes every link that
        marker names, inside its key or not, and merges all their projections
-       (`mergeProjections`) before it creates the item. If such an observe fails (for example
-       the other repo's key is failing), the item is not created, and this key stays pending
-       with that error until a retry creates it whole. A later key's rebuild then finds the
-       item `Existing` with nothing missing.
+       (`mergeProjections`) before it creates the item. An observe that fails is handled the
+       way `observeLinks` splits errors (view.go), and as `Rebuild` already skips objects
+       that are not found:
+       - **Permanent** (not found, forbidden, or no connection for the provider): the link
+         counts as gone. The item is created from the markers that could be read, keeps the
+         link in `spec.links`, and a warning names it. So a repo the App lost access to
+         doesn't hold other keys pending: a failing key holds only its own RuleSets (item 7).
+       - **Transient** (rate limit, 5xx, timeout): the item is not created, and this key stays
+         pending with that error until a retry creates it whole.
+
+       A later key's rebuild then finds the item `Existing`.
     6. **Retries.** A failed key is retried with backoff (capped at 5 minutes) while the
        instance leads. If it loses the lead, the next leader picks up from the record. A rebuild
        is idempotent: items already stored are `Existing`.
@@ -443,8 +453,9 @@ is a scheduler change, not a store change. The sync interval trades read freshne
     - a rebuild that fails half-way on one leader is finished by the next;
     - while a key is pending, events its RuleSets would evaluate are requeued, other events
       go on, and a replay of such an event is refused with a 409 and creates no work item;
-    - an item linking objects in two keys is created whole from both keys' markers, and not at
-      all while the other key's observe fails;
+    - an item linking objects in two keys is created whole from both keys' markers. If the
+      other key's observe fails transiently, the item isn't created and the key stays pending.
+      An item linking into a forbidden repo is created without it, and its key ends done;
     - a failing key is logged at error level and counted in the gauge until it succeeds;
     - a binding added to the catalog at runtime is rebuilt alone, with the controllers
       running;
@@ -470,7 +481,7 @@ is a scheduler change, not a store change. The sync interval trades read freshne
 ## Rollout
 
 These start after the org move (IMPROVEMENTS item 4) is merged, since every file imports the
-module path. There are three PRs, each through lisa and ccf-review:
+module path. There are four PRs, each through lisa and ccf-review:
 
 1. **`internal/store/objectstore`**:
    - the log store, sync, locks, transcripts, compaction and load;
@@ -480,7 +491,12 @@ module path. There are three PRs, each through lisa and ccf-review:
    - store.md §Object store.
 2. **GCS and S3 buckets**, with the opt-in emulator tests and their CI job (RT, plus a non-required
    CI job).
-3. **`serve --state-url`**:
+3. **Contract: the replay endpoint's `409 rebuild-pending` problem** (AGENTS.md: a contract
+   change goes in its own PR, merged before the code that uses it):
+   - `api/openapi.yaml`'s replay responses;
+   - web's regenerated client (`npm run gen:api`);
+   - `contracts.md` and `api-server.md`.
+4. **`serve --state-url`**:
    - the leader lock, and which loops run where;
    - the rebuild once per key, tracked in `RebuildStatus`. `wic.Rebuild` takes the keys and
      returns a result per key, observing the links each marker names across keys. The per-RuleSet
