@@ -4,3 +4,7 @@ lisa-design:
 - A capped limit is noted twice, just before Create: w.log.Warn (limit, requested, granted) and one runner.Sink progress event of kind message, since the agent's log alone isn't visible to the task's owner. Text is the agent's own (the limit values passed Validate's pattern), so no redaction is needed.
 - CORE-DUP-001 (deferred from PR 8): internal/agent/config's gibRE is now regexp.MustCompile(v1alpha1.LimitsMemoryPattern), and the parser is exported as config.GiB, which the runner uses for limits.memory: one pattern and one parser for workspace.size.memory/.disk and limits.memory.
 - The kata disk (DiskGiB) and the kata concurrency cap stay on workspace.size: limits have no disk, and workspace.size is now the maximum a workspace gets.
+
+lisa-selfreview:
+- pass 1 (ccf-review packs core, go, vue-app, repo/factory; make reviewable green): approve, no fix-worthy findings.
+- Question (not fixed): on kata a task with limits.cpus 1 gets a 2-vCPU guest: the driver passes max(spec.CPU-1, 1) and Kata adds its default_vcpus (workspace-kata.md "Sizing"). Pre-existing driver behaviour, outside this PR; listed for reviewers.
