@@ -33,18 +33,25 @@ deferrals:
 
 ## 2. Phase 9 follow-ups, stack 4 (the Linux box)
 
-**In progress (the Linux box session owns it).** It closes everything stack 3 deferred, as
-Gustavo decided on 2026-10-27. Six PRs on main as `ccf-lisa[bot]`, independent of each other,
-each reviewed with ccf-review:
+**All six PRs reviewed with ccf-review and green, waiting for Gustavo's approval** (2026-10-27).
+It closes everything stack 3 deferred; every review finding was fixed in its PR, and nothing is
+deferred. As `ccf-lisa[bot]`, on main except #215:
 
 | PR | Branch | What |
 |---|---|---|
-| 1 | `fx/p9c-1-sudo-sigterm` | every sudo factory-agent runs (the kata driver's helper calls in supervise, host init's root script, `vmrun`) gets SIGTERM before SIGKILL, as #202 did for host init's helper calls |
-| 2 | `fx/p9c-2-helper-required` | `host init` fails up front, changing nothing, when a selected step needs the kata helper and `privileges` isn't ok and isn't selected (`--only kataimage`) |
-| 3 | `fx/p9c-3-workspace-hostname` | a workspace's hostname resolves: no "sudo: unable to resolve host ws-tsk…" |
-| 4 | `fx/p9c-4-harness-etxtbsy` | the claudecode/codex fake scripts are written under `syscall.ForkLock`, as pipeline's are: no more "text file busy" |
-| 5 | `fx/p9c-5-limits-docs` | contract docs: `limits.cpus`/`limits.memory` are hard-capped at `workspace.size`, and small values are taken as given |
-| 6 | `fx/p9c-6-web-limits` | the web catalog shows `cpus` and `memory` limits |
+| #215 | `fx/p9c-1-sudo-sigterm` | every sudo factory-agent runs (the kata driver in supervise, host init's root script, `vmrun`) gets SIGTERM, then SIGKILL after a grace: one `internal/agent/sudocancel` policy. **Stacked on #216: merge #216 first.** |
+| #214 | `fx/p9c-2-helper-required` | `host init --only kataimage`/`katawarm` fails up front, changing nothing, when the kata helper isn't installed or is out of date (after the platform check) |
+| #217 | `fx/p9c-3-workspace-hostname` | a kata workspace's hostname resolves without DNS: systemd strips the `_` from the workspace name, so the image now has nss-myhostname (`files myhostname dns`). Image only, helper protocol stays 7 |
+| #216 | `fx/p9c-4-harness-etxtbsy` | every file factory-agent or its tests write with an exec bit goes through `internal/agent/internal/execfile` (under `syscall.ForkLock`): no more "text file busy" |
+| #213 | `fx/p9c-5-limits-docs` | `limits.memory` is at least 2Gi (kata's helper refuses less), and `limits.cpus`/`limits.memory` are documented as hard-capped at `workspace.size` |
+| #212 | `fx/p9c-6-web-limits` | the web catalog shows `cpus` and `memory` limits |
+
+Merge order: #216 before #215; the rest in any order. When merged, move this section to
+IMPROVEMENTS_DONE.md.
+
+Decided along the way: no helper change for the guest's hostname reading `ws-tsk<id>`
+(cosmetic); the sudo these calls meet is Ubuntu 24.04's 1.9.15 everywhere (host, kata image,
+tart base), not sudo-rs.
 
 Dropped by decision, with no PR:
 - a build-recipe version in the warm records: not needed while Gustavo is the only user;
@@ -76,6 +83,20 @@ Real-host checks from stack 3's PRs, which the PR bodies list (Gustavo, with sud
   inspect`).
 - **Mac:** #197's pf half (a non-default `workspace.gatewayPort`), #199 (tart follows
   `workspace.size`), #205's tart path (a kind image loads offline on arm64).
+
+Real-host checks from stack 4's PRs, after they merge (Gustavo):
+- **Workstation, one `host init`:** it reinstalls the helper (the installed one still answers
+  protocol 6, from before #202) and rebuilds the kata image and warm disk (#217 changes the
+  image). Then, in a workspace (`kata-helper exec`): `hostname; getent hosts "$(hostname)";
+  sudo -n true` prints no "unable to resolve host" (#217).
+- **#215, workstation:** Ctrl-C `supervise` while a workspace starts: `pgrep -af kata-helper`
+  prints nothing. Optionally Ctrl-C at `host init`'s sudo password prompt: the terminal still
+  echoes.
+- **#214, workstation:** with the helper removed, `factory-agent host init --only kataimage`
+  fails at once with the message and runs no sudo.
+- **#216:** a `host init` with tart on the Mac (its archives are extracted through `execfile`),
+  and any kata run here.
+- **#217, Mac:** the PR's `tart exec` one-liner shows the tart guest's hostname resolves.
 
 Not testable without a catalog change: #173 for an implement run under claude, because
 implement allows only codex. The claude side of the `ccfr` lookup, the plugin-dir fallback, is
