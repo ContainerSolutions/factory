@@ -777,7 +777,10 @@ which mostly costs the load balancer.
 These start after the org move (IMPROVEMENTS item 4) is merged, since every file imports the
 module path. There are seven PRs, each through lisa and ccf-review:
 
-1. **`internal/store/objectstore`**:
+1. **`internal/store/objectstore`**. It ships in two parts for review size: first the shared
+   refactor (P2's encoding in `internal/store/journal`, the secrets audit in
+   `internal/store/storeaudit`, memory's apply-from-log and conditional delete, and the store
+   interfaces), then the object store on it:
    - the log store, sync (including the sync-on-empty lookup), schema versions, locks,
      transcripts, compaction and load;
    - the `Bucket` interface with the fake and `file://` buckets, and the guard against a P2 dir
