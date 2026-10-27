@@ -24,11 +24,16 @@ var (
 	ErrLockLost = errors.New("lock lost")
 	// ErrTooLarge: a transcript over the per-transcript cap.
 	ErrTooLarge = errors.New("too large")
+	// ErrReadOnly: the store has stopped writing. A shared log holds a change from a newer
+	// release than this one can read (its schema is past ReadableSchema), so a write could
+	// drop fields it doesn't know. Reads go on; the serve layer answers writes with 503.
+	ErrReadOnly = errors.New("store stopped writing: the shared state has a newer schema than this release reads")
 )
 
 // Error is a store error on one operation.
 type Error struct {
-	// Op is the operation: get, list, create, update, delete, watch, lock, renew, transcript.
+	// Op is the operation: get, list, create, update, delete, watch, lock, renew, transcript,
+	// sweep, sync.
 	Op string
 	// Key is the object, when there is one (Kind only for list and watch; Name only for locks
 	// and transcripts).

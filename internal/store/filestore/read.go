@@ -17,6 +17,7 @@ import (
 
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 	"github.com/ContainerSolutions/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store/journal"
 	"github.com/ContainerSolutions/factory/internal/store/memory"
 )
 
@@ -80,6 +81,9 @@ func Read(dir string, opts store.Options, options ...Option) (*View, error) {
 	if !fi.IsDir() {
 		return nil, fmt.Errorf("filestore: %s is not a directory", dir)
 	}
+	if err := checkNotObjectStore(dir); err != nil {
+		return nil, err
+	}
 	var warnings []string
 	if err := checkTree(dir); err != nil {
 		if !errors.Is(err, ErrInsecure) {
@@ -105,7 +109,7 @@ func Read(dir string, opts store.Options, options ...Option) (*View, error) {
 func readOnce(dir string, opts store.Options, cfg config, types map[string]reflect.Type) (v *View, again bool, err error) {
 	// A throwaway Store, for the parsing Open uses: no lock, no journal handle.
 	s := &Store{dir: dir, opts: opts, clk: opts.Clock, log: slog.New(slog.DiscardHandler), cfg: cfg, types: types}
-	state := map[store.Key]*entry{}
+	state := journal.State{}
 
 	snapPath := filepath.Join(dir, snapshotFile)
 	var snapV uint64
@@ -161,12 +165,8 @@ func readOnce(dir string, opts store.Options, cfg config, types map[string]refle
 		return nil, false, replayErr
 	}
 
-	recs := make([]memory.Record, 0, len(state))
-	s.loaded.Version, s.loaded.Snapshot, s.loaded.Objects = version, s.haveSnapshot, map[string]int{}
-	for k, e := range state {
-		recs = append(recs, memory.Record{Key: k, Type: types[k.Kind], Data: e.data, Version: e.v, Created: e.created, Updated: e.updated})
-		s.loaded.Objects[k.Kind]++
-	}
+	recs, counts := state.Records(types)
+	s.loaded.Version, s.loaded.Snapshot, s.loaded.Objects = version, s.haveSnapshot, counts
 	mem := memory.New(opts)
 	if err := mem.Restore(recs, version); err != nil {
 		return nil, false, fmt.Errorf("filestore: %w: %w", ErrCorrupt, err)

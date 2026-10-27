@@ -6,7 +6,27 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/ContainerSolutions/factory/internal/store/journal"
 )
+
+// objectStoreDirs are what store/objectstore keeps in a file:// bucket. Its transcripts/ has
+// the file store's naming, so a dir holding both would mix the two stores' transcripts, and
+// neither would see the other's state.
+var objectStoreDirs = []string{journal.ObjectStoreLog, journal.ObjectStoreSnapshots}
+
+// checkNotObjectStore refuses a dir that holds an object store's log.
+func checkNotObjectStore(dir string) error {
+	for _, d := range objectStoreDirs {
+		if _, err := os.Lstat(filepath.Join(dir, d)); err == nil {
+			return fmt.Errorf("filestore: %w: %s holds %s/, so it is a file:// bucket of an object store (--state-url file://%s); use another --state-dir",
+				ErrObjectStoreDir, dir, d, dir)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("filestore: %w", err)
+		}
+	}
+	return nil
+}
 
 // checkTree refuses a state dir that isn't private: the dir, the files in it and in
 // transcripts/ must have no group or other permission bits and belong to this user. It
