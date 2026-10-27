@@ -36,7 +36,7 @@ func TestParseCloudURL(t *testing.T) {
 		{url: "gs://b/p@x", bad: "has credentials"},
 		{url: "gs://b:443/p", bad: "port"},
 		{url: "gs://b:/p", bad: "port"},
-		{url: "gs://b/a b", bad: "escaped"},
+		{url: "gs://b/a b", bad: "percent-escaped"},
 		{url: "gs://b/a+b", bad: "prefix may only"},
 		{url: "gs://b/a:b", bad: "prefix may only"},
 		{url: "gs://b/My_Prefix-1.x/y", bucket: "b", pref: "My_Prefix-1.x/y/"},
@@ -47,7 +47,7 @@ func TestParseCloudURL(t *testing.T) {
 		{url: "gs://b//p", bad: "segment"},
 		{url: "gs://b/a/./p", bad: "segment"},
 		{url: "gs://b/a/../p", bad: "segment"},
-		{url: "gs://b/a%2Fb", bad: "escaped"},
+		{url: "gs://b/a%2Fb", bad: "percent-escaped"},
 	} {
 		t.Run(tc.url, func(t *testing.T) {
 			u, err := url.Parse(tc.url)
@@ -72,61 +72,72 @@ func TestParseCloudURL(t *testing.T) {
 	}
 }
 
-// TestCloudURLSecrets: a gs:// or s3:// URL with userinfo is refused, alone or with anything
-// else wrong with it, and neither parseCloudURL's error nor ParseURL's ever repeats the
-// secret. Every case is refused before any network or SDK config is touched.
-func TestCloudURLSecrets(t *testing.T) {
-	const secret = "hunter2"
-	var urls []string
-	for _, scheme := range []string{"gs", "s3"} {
-		for _, rest := range []string{
-			"KEY:hunter2@bucket/p",      // userinfo alone
-			"KEY:hunter2@bucket",        // no prefix
-			"KEY:hunter2@/p",            // no bucket
-			"KEY:hunter2@Bucket/p",      // a bad bucket name
-			"KEY:hunter2@bucket:9000/p", // a port
-			"KEY:hunter2@bucket/p?x=1",  // a query
-			"KEY:hunter2@bucket/p#f",    // a fragment
-			"KEY:hunter2@bucket/a//b",   // an empty segment
-			"KEY:hunter2@bucket/a/../b", // a '..' segment
-			"KEY:hunter2@bucket/a%2Fb",  // an escaped prefix
-			"hunter2@bucket/p",          // the secret as the user
-			"KEY:hunter2%zz@bucket/p",   // a bad escape (doesn't parse)
-			"KEY:hunter2@bucket:port/p", // a bad port (doesn't parse)
-			"KEY:hun%20ter2@bucket/p",   // an escaped space in the secret
-			"KEY:hunter2@bu%20cket/p",   // an escaped host
-			"KEY:/hunter2@bucket/p",     // a '/' puts the secret in the path
-			"KEY:/hunter2/x@bucket/p",   // and further down it
-			"KEY:x?hunter2@bucket/p",    // a '?' puts it in the query
-			"KEY:x#hunter2@bucket/p",    // a '#' in the fragment
-			`KEY:x"hunter2@bucket/p`,    // a '"' (doesn't parse)
-			`KEY:"hunter2"@bucket/p`,    // quoted
-			"u:/hunter2@b/p",            // a short bucket after the '/'
-		} {
-			urls = append(urls, scheme+"://"+rest)
+// secretPiece returns a piece of secret, 3 characters or more, that msg holds, or "".
+func secretPiece(msg, secret string) string {
+	for n := 3; n <= len(secret); n++ {
+		for i := 0; i+n <= len(secret); i++ {
+			if sub := secret[i : i+n]; strings.Contains(msg, sub) {
+				return sub
+			}
 		}
 	}
-	leaks := func(err error) bool {
-		msg := err.Error()
-		return strings.Contains(msg, secret) || strings.Contains(msg, "hun%20ter2") || strings.Contains(msg, "hun ter2")
+	return ""
+}
+
+// TestCloudURLSecrets: a gs:// or s3:// URL with a credential in it is refused, alone or
+// with anything else wrong with it, and neither parseCloudURL's error nor ParseURL's holds
+// any 3 characters of the secret. Secrets with '/', '?', '#' or '"' land outside the
+// userinfo (the path, the query, the fragment), or don't parse. Every case is refused
+// before any network or SDK config is touched.
+func TestCloudURLSecrets(t *testing.T) {
+	type tc struct{ url, secret string }
+	var cases []tc
+	for _, scheme := range []string{"gs", "s3"} {
+		for _, c := range []tc{
+			{"KEY:hunter2@bucket/p", "hunter2"},         // userinfo alone
+			{"KEY:hunter2@bucket", "hunter2"},           // no prefix
+			{"KEY:hunter2@/p", "hunter2"},               // no bucket
+			{"KEY:hunter2@Bucket/p", "hunter2"},         // a bad bucket name
+			{"KEY:hunter2@bucket:9000/p", "hunter2"},    // a port
+			{"KEY:hunter2@bucket/p?x=1", "hunter2"},     // a query
+			{"KEY:hunter2@bucket/p#f", "hunter2"},       // a fragment
+			{"KEY:hunter2@bucket/a//b", "hunter2"},      // an empty segment
+			{"KEY:hunter2@bucket/a/../b", "hunter2"},    // a '..' segment
+			{"KEY:hunter2@bucket/a%2Fb", "hunter2"},     // an escaped prefix
+			{"hunter2@bucket/p", "hunter2"},             // the secret as the user
+			{"KEY:hunter2%zz@bucket/p", "hunter2"},      // a bad escape (doesn't parse)
+			{"KEY:hunter2@bucket:port/p", "hunter2"},    // a bad port (doesn't parse)
+			{"KEY:hun%20ter2@bucket/p", "hun ter2"},     // an escaped space in the secret
+			{"KEY:hunter2@bu%20cket/p", "hunter2"},      // an escaped host
+			{"KEY:/hunter2XYZ@bucket/p", "/hunter2XYZ"}, // a leading '/': the secret is the path
+			{"u:/hunter2XYZ@b/p", "/hunter2XYZ"},        // and a short bucket after it
+			{"KEY:hun/ter2XYZ@bucket/p", "hun/ter2XYZ"}, // a '/' inside
+			{"KEY:hun?ter2XYZ@bucket/p", "hun?ter2XYZ"}, // a '?': the tail is the query
+			{"KEY:hun#ter2XYZ@bucket/p", "hun#ter2XYZ"}, // a '#': the tail is the fragment
+			{`KEY:hun"ter2XYZ@bucket/p`, `hun"ter2XYZ`}, // a '"' (doesn't parse)
+			{`KEY:"hunter2XYZ"@bucket/p`, `"hunter2XYZ"`},
+			{"KEY:a/b?c#hunter2XYZ@bucket/p", "a/b?c#hunter2XYZ"}, // all of them
+		} {
+			cases = append(cases, tc{scheme + "://" + c.url, c.secret})
+		}
 	}
-	for _, raw := range urls {
-		t.Run(raw, func(t *testing.T) {
-			if u, err := url.Parse(raw); err == nil {
+	for _, c := range cases {
+		t.Run(c.url, func(t *testing.T) {
+			if u, err := url.Parse(c.url); err == nil {
 				loc, err := parseCloudURL(u)
 				if err == nil {
-					t.Fatalf("parseCloudURL(%q) = %+v, want refused", raw, loc)
+					t.Fatalf("parseCloudURL(%q) = %+v, want refused", c.url, loc)
 				}
-				if leaks(err) {
-					t.Fatalf("parseCloudURL's error repeats the secret: %v", err)
+				if p := secretPiece(err.Error(), c.secret); p != "" {
+					t.Fatalf("parseCloudURL's error holds %q of the secret: %v", p, err)
 				}
 			}
-			b, err := ParseURL(t.Context(), raw)
+			b, err := ParseURL(t.Context(), c.url)
 			if err == nil {
-				t.Fatalf("ParseURL(%q) = %v, want refused", raw, b)
+				t.Fatalf("ParseURL(%q) = %v, want refused", c.url, b)
 			}
-			if leaks(err) {
-				t.Fatalf("ParseURL's error repeats the secret: %v", err)
+			if p := secretPiece(err.Error(), c.secret); p != "" {
+				t.Fatalf("ParseURL's error holds %q of the secret: %v", p, err)
 			}
 		})
 	}
@@ -221,6 +232,9 @@ func TestParseURLClouds(t *testing.T) {
 		{"https://minio.test#hunter2@x", "has credentials"},
 		{"https://minio.test/hunter2@x", "has credentials"},
 		{`https://u:x"hunter2@minio.test`, "not a URL"},
+		{"https://u:hun/ter2@minio.test", "not a URL"},
+		{"https://u:hun?ter2@minio.test", "not a URL"},
+		{"https://u:hun#ter2@minio.test", "not a URL"},
 		{"minio:9000", "scheme is not http or https"},
 		{"ftp://h", "scheme is not http or https"},
 		{"https://", "no host"},
@@ -234,8 +248,11 @@ func TestParseURLClouds(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), S3EndpointEnv) || !strings.Contains(err.Error(), tc.why) {
 			t.Fatalf("%s=%s = %v, want refused (%s)", S3EndpointEnv, tc.ep, err, tc.why)
 		}
-		// Nothing of the value is printed: not the secret, and not its host either.
-		for _, part := range []string{"hunter2", "minio.test", "10.0.0.5", "127.0.0.2", "example.com", "somedir", "x=1"} {
+		// Nothing of the value is printed: no 3 characters of the secret, and not its host.
+		if p := secretPiece(err.Error(), "hunter2"); p != "" {
+			t.Fatalf("the error holds %q of the endpoint's secret: %v", p, err)
+		}
+		for _, part := range []string{"minio.test", "10.0.0.5", "127.0.0.2", "example.com", "somedir", "x=1"} {
 			if strings.Contains(err.Error(), part) {
 				t.Fatalf("the error repeats %q from the endpoint: %v", part, err)
 			}

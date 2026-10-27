@@ -36,7 +36,7 @@ func parseCloudURL(u *url.URL) (cloudLocation, error) {
 	case u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawFragment != "":
 		return bad("it has a query or a fragment")
 	case u.RawPath != "":
-		return bad("its prefix has escaped characters")
+		return bad("its prefix is percent-escaped")
 	}
 	bucket := u.Hostname()
 	if bucket == "" {
