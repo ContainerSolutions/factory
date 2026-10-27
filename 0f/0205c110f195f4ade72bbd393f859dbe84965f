@@ -1,0 +1,2 @@
+lisa-addressed:
+review 5671424094: GCS bucket 404 kept out of ErrNotExist (message-based, body parsed for media reads) + list at open; NewClient(context.WithoutCancel(ctx)); wctx in Create; FACTORY_S3_ENDPOINT https except loopback http (Gustavo). FACTORY-CRED-001 on ParseURL waits for #238's fix.
