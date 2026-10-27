@@ -194,7 +194,6 @@ func TestGCSErrorMapping(t *testing.T) {
 		{"create 412", func(b Bucket) error { return b.Create(t.Context(), "log/1", []byte("x")) }, 412, "ErrExists"},
 		{"create 403", func(b Bucket) error { return b.Create(t.Context(), "log/1", []byte("x")) }, 403, "other"},
 		{"create 404 (no bucket)", func(b Bucket) error { return b.Create(t.Context(), "log/1", []byte("x")) }, 404, "other"},
-		{"put 403", func(b Bucket) error { return b.Put(t.Context(), "transcripts/r", []byte("x")) }, 403, "other"},
 		{"delete 404", func(b Bucket) error { return b.Delete(t.Context(), "log/1") }, 404, "ErrNotExist"},
 		{"delete 403", func(b Bucket) error { return b.Delete(t.Context(), "log/1") }, 403, "other"},
 		{"list 404 (no bucket)", func(b Bucket) error {
@@ -222,7 +221,6 @@ func TestS3ErrorMapping(t *testing.T) {
 	s3Error := func(code string) string {
 		return `<?xml version="1.0" encoding="UTF-8"?><Error><Code>` + code + `</Code><Message>canned</Message></Error>`
 	}
-	ok := func(string, int) (int, string) { return http.StatusOK, "" }
 	get := func(b Bucket) error { _, err := b.Get(t.Context(), "log/1"); return err }
 	create := func(b Bucket) error { return b.Create(t.Context(), "log/1", []byte("x")) }
 	del := func(b Bucket) error { return b.Delete(t.Context(), "log/1") }
@@ -251,7 +249,7 @@ func TestS3ErrorMapping(t *testing.T) {
 			return 412, s3Error("PreconditionFailed")
 		}, "ErrExists", map[string]int{"PUT": 2}},
 		{"create conflict persists", create, func(string, int) (int, string) { return 409, s3Error("ConditionalRequestConflict") }, "other", map[string]int{"PUT": 1 + s3ConflictRetries}},
-		{"put", func(b Bucket) error { return b.Put(t.Context(), "transcripts/r", []byte("x")) }, ok, "nil", map[string]int{"PUT": 1}},
+		{"create", create, func(string, int) (int, string) { return http.StatusOK, "" }, "nil", map[string]int{"PUT": 1}},
 		{"delete missing", del, func(string, int) (int, string) { return 404, "" }, "ErrNotExist", map[string]int{"HEAD": 1}},
 		{"delete present", del, func(m string, _ int) (int, string) {
 			if m == http.MethodDelete {

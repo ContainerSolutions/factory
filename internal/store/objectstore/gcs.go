@@ -25,7 +25,6 @@ import (
 //     retries it on a 408, 429, 5xx or a broken connection (a conditional upload is
 //     idempotent), so a retry whose first attempt landed answers ErrExists, which the
 //     store's nonce check resolves.
-//   - Put uploads unconditionally (the SDK doesn't retry it).
 //   - Get and Delete answer ErrNotExist on a 404.
 //   - List lists from startOffset, in name order, skipping startAfter itself.
 //
@@ -82,22 +81,10 @@ func (b *GCSBucket) Get(ctx context.Context, name string) ([]byte, error) {
 
 // Create implements Bucket: an upload with ifGenerationMatch=0.
 func (b *GCSBucket) Create(ctx context.Context, name string, data []byte) error {
-	return b.write(ctx, "create", name, data, true)
-}
-
-// Put implements Bucket: an unconditional upload.
-func (b *GCSBucket) Put(ctx context.Context, name string, data []byte) error {
-	return b.write(ctx, "put", name, data, false)
-}
-
-func (b *GCSBucket) write(ctx context.Context, op, name string, data []byte, ifAbsent bool) error {
 	if name == "" {
-		return fmt.Errorf("gs: %s: empty object name", op)
+		return errors.New("gs: create: empty object name")
 	}
-	obj := b.bucket.Object(b.loc.prefix + name)
-	if ifAbsent {
-		obj = obj.If(storage.Conditions{DoesNotExist: true})
-	}
+	obj := b.bucket.Object(b.loc.prefix + name).If(storage.Conditions{DoesNotExist: true})
 	// The SDK's writer runs the upload on a goroutine of its own: cancel it if Write fails, so
 	// it doesn't outlive this call.
 	ctx, cancel := context.WithCancel(ctx)
@@ -111,10 +98,10 @@ func (b *GCSBucket) write(ctx context.Context, op, name string, data []byte, ifA
 	if _, err := w.Write(data); err != nil {
 		cancel()
 		_ = w.Close()
-		return b.err(ctx, op, name, err)
+		return b.err(ctx, "create", name, err)
 	}
 	if err := w.Close(); err != nil {
-		return b.err(ctx, op, name, err)
+		return b.err(ctx, "create", name, err)
 	}
 	return nil
 }

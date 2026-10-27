@@ -106,15 +106,6 @@ func (b *FileBucket) Get(ctx context.Context, name string) ([]byte, error) {
 
 // Create implements Bucket.
 func (b *FileBucket) Create(ctx context.Context, name string, data []byte) error {
-	return b.write(ctx, name, data, true)
-}
-
-// Put implements Bucket.
-func (b *FileBucket) Put(ctx context.Context, name string, data []byte) error {
-	return b.write(ctx, name, data, false)
-}
-
-func (b *FileBucket) write(ctx context.Context, name string, data []byte, create bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -130,7 +121,7 @@ func (b *FileBucket) write(ctx context.Context, name string, data []byte, create
 		return fmt.Errorf("objectstore: write %s: %w", name, err)
 	}
 	tmp := f.Name()
-	defer os.Remove(tmp) //nolint:errcheck // gone already when it was renamed; linked copies stay
+	defer os.Remove(tmp) //nolint:errcheck // the linked name keeps the data
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
 		return fmt.Errorf("objectstore: write %s: %w", name, err)
@@ -142,15 +133,11 @@ func (b *FileBucket) write(ctx context.Context, name string, data []byte, create
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("objectstore: close %s: %w", name, err)
 	}
-	if create {
-		if err := os.Link(tmp, p); err != nil {
-			if errors.Is(err, fs.ErrExist) {
-				return fmt.Errorf("%s: %w", name, ErrExists)
-			}
-			return fmt.Errorf("objectstore: create %s: %w", name, err)
+	if err := os.Link(tmp, p); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("%s: %w", name, ErrExists)
 		}
-	} else if err := os.Rename(tmp, p); err != nil {
-		return fmt.Errorf("objectstore: put %s: %w", name, err)
+		return fmt.Errorf("objectstore: create %s: %w", name, err)
 	}
 	return syncDir(filepath.Dir(p))
 }
@@ -229,7 +216,7 @@ func (b *FileBucket) Delete(ctx context.Context, name string) error {
 	return nil
 }
 
-// syncDir fsyncs a directory, so the links, renames and creates in it survive a crash.
+// syncDir fsyncs a directory, so the links and creates in it survive a crash.
 func syncDir(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {

@@ -14,7 +14,8 @@ import (
 )
 
 // Bucket is the little the object store needs from object storage. Names are paths with '/'
-// separators (log/…, snapshots/…, transcripts/…), relative to the store's prefix.
+// separators (log/…, snapshots/…, transcripts/…), relative to the store's prefix. Every object
+// is created once and never overwritten (transcript blobs too: each put has its own name).
 type Bucket interface {
 	// Get returns the object's bytes. ErrNotExist when there is none.
 	Get(ctx context.Context, name string) ([]byte, error)
@@ -22,8 +23,6 @@ type Bucket interface {
 	// If-None-Match: *, O_EXCL). ErrExists when it is taken. An error other than ErrExists
 	// leaves the outcome unknown: the object may have been created.
 	Create(ctx context.Context, name string, data []byte) error
-	// Put writes the object unconditionally (transcript blobs, which a re-put replaces).
-	Put(ctx context.Context, name string, data []byte) error
 	// List calls fn with the objects whose names start with prefix and sort after startAfter
 	// (all of them when it is ""), in name order. An error from fn stops the listing and is
 	// returned.

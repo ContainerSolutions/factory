@@ -37,13 +37,15 @@ func (l *StoreLock) GetName() string { return l.Metadata.Name }
 // GetObjectMeta implements store.MetaObject.
 func (l *StoreLock) GetObjectMeta() *v1alpha1.ObjectMeta { return &l.Metadata }
 
-// TranscriptBlob is a transcript blob's size and when it was last put, on the store's clock:
-// the caps, eviction (oldest PutAt first) and retention read them from memory, since a bucket
-// listing can't give them on every backend. createdAt can't serve, because an update keeps it
-// and a replaced blob counts as new.
+// TranscriptBlob indexes a transcript's current blob: its id (each put writes a new blob,
+// transcripts/<run>.<id>.jsonl.gz), its size and when it was put, on the store's clock. Reads
+// follow the id; the caps, eviction (oldest PutAt first) and retention read the records from
+// memory, since a bucket listing can't give them on every backend. createdAt can't serve,
+// because an update keeps it and a replaced blob counts as new.
 type TranscriptBlob struct {
 	v1alpha1.TypeMeta
 	Metadata v1alpha1.ObjectMeta `json:"metadata"`
+	ID       string              `json:"id"`
 	Size     int64               `json:"size"`
 	PutAt    time.Time           `json:"putAt"`
 }

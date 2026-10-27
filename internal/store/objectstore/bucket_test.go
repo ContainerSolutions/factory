@@ -28,7 +28,7 @@ func TestBuckets(t *testing.T) {
 }
 
 // testBucket is the bucket conformance every Bucket passes, on an empty bucket: create-only
-// creates, puts that replace, listing in name order after startAfter with sizes and times,
+// creates, listing in name order after startAfter with sizes and times,
 // deletes and not-exist errors, and a cancelled context's error. The GCS and S3 buckets run
 // it against their emulators (emulator_test.go).
 func testBucket(t *testing.T, b Bucket) {
@@ -44,12 +44,7 @@ func testBucket(t *testing.T, b Bucket) {
 	if got, err := b.Get(ctx, "log/1"); err != nil || string(got) != "one" {
 		t.Fatalf("Get = %q, %v: the second Create changed it", got, err)
 	}
-	must(t, b.Put(ctx, "transcripts/r.jsonl.gz", []byte("a")))
-	must(t, b.Put(ctx, "transcripts/r.jsonl.gz", []byte("b")))
-	if got, _ := b.Get(ctx, "transcripts/r.jsonl.gz"); string(got) != "b" {
-		t.Fatalf("Put didn't replace: %q", got)
-	}
-	for _, n := range []string{"log/3", "log/2", "snapshots/9"} {
+	for _, n := range []string{"log/3", "log/2", "snapshots/9", "transcripts/r.jsonl.gz"} {
 		must(t, b.Create(ctx, n, []byte(n)))
 	}
 	var names []string
@@ -134,8 +129,8 @@ func TestFileBucketGuards(t *testing.T) {
 		t.Fatalf("a 0755 dir = %v, want refused with the chmod", err)
 	}
 	for _, name := range []string{"../x", "log/../../x", "/abs", ".tmp/x", "log//x", ""} {
-		if err := b.Put(ctx, name, nil); err == nil {
-			t.Fatalf("Put(%q) was accepted", name)
+		if err := b.Create(ctx, name, nil); err == nil {
+			t.Fatalf("Create(%q) was accepted", name)
 		}
 	}
 }

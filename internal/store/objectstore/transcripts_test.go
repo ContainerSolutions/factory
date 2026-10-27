@@ -26,6 +26,9 @@ func TestTranscriptsAcrossStores(t *testing.T) {
 	}
 	r.clk.Advance(time.Minute)
 	must(t, b.PutTranscript(ctx, "r1", []byte("v2!")))
+	if got := blobRuns(r); !slices.Equal(got, []string{"r1", store.EnvironmentLogBlob("r1")}) {
+		t.Fatalf("blobs after the re-put = %v: the replaced blob should be gone", got)
+	}
 	var rec TranscriptBlob
 	must(t, a.Get(ctx, store.Key{Kind: KindTranscriptBlob, Name: "r1"}, &rec))
 	must(t, a.Sync(ctx))
@@ -50,20 +53,25 @@ func TestTranscriptsAcrossStores(t *testing.T) {
 	}
 }
 
-// TestTranscriptOrphans: the daily scan deletes a blob that has had no record for a day (a
-// crash between the put and the record), and leaves a blob with a record and a young orphan.
+// TestTranscriptOrphans: the daily scan deletes a blob whose id no record names once it is a
+// day old (a crash between the blob and its record, or a replaced blob whose delete failed),
+// and leaves the blob a record names, a young orphan, and names it doesn't recognise.
 func TestTranscriptOrphans(t *testing.T) {
 	r := newRig()
 	s := r.open(t, "A")
 	ctx := t.Context()
 	must(t, s.PutTranscript(ctx, "kept", []byte("k")))
-	r.b.SetObject(transcriptPrefix+"orphan.jsonl.gz", []byte("o")) // its record never written
+	kept := r.b.Names(transcriptPrefix)[0]
+	r.b.SetObject(blobName("orphan", "00000000000000aa"), []byte("o")) // its record never written
+	r.b.SetObject(blobName("kept", "00000000000000bb"), []byte("old")) // a replaced blob left behind
+	r.b.SetObject(transcriptPrefix+"stray.jsonl.gz", []byte("s"))      // not a name the store writes
 	r.clk.Advance(23 * time.Hour)
-	r.b.SetObject(transcriptPrefix+"young.jsonl.gz", []byte("y"))
+	r.b.SetObject(blobName("young", "00000000000000cc"), []byte("y"))
 	r.clk.Advance(time.Hour)
 	_, err := s.Sweep(ctx)
 	must(t, err)
-	want := []string{transcriptPrefix + "kept.jsonl.gz", transcriptPrefix + "young.jsonl.gz"}
+	want := []string{kept, blobName("young", "00000000000000cc"), transcriptPrefix + "stray.jsonl.gz"}
+	slices.Sort(want)
 	if got := r.b.Names(transcriptPrefix); !slices.Equal(got, want) {
 		t.Fatalf("blobs after the scan = %v, want %v", got, want)
 	}
@@ -131,8 +139,8 @@ func TestTranscriptDropRacesRePut(t *testing.T) {
 				t.Fatalf("%s reads y = %v, want it evicted in x's place", s.id, err)
 			}
 		}
-		if got := r.b.Names(transcriptPrefix); !slices.Equal(got, []string{transcriptPrefix + "x.jsonl.gz", transcriptPrefix + "z.jsonl.gz"}) {
-			t.Fatalf("blobs = %v", got)
+		if got := blobRuns(r); !slices.Equal(got, []string{"x", "z"}) {
+			t.Fatalf("blobs of %v, want one each of x and z", got)
 		}
 		var recs []TranscriptBlob
 		_, err := a.List(ctx, KindTranscriptBlob, store.ListOptions{}, &recs)
@@ -141,6 +149,7 @@ func TestTranscriptDropRacesRePut(t *testing.T) {
 			t.Fatalf("records = %+v, want x (re-put) and z", recs)
 		}
 	})
+	t.Run("eviction, re-put after the record delete", testRePutAfterRecordDelete)
 	t.Run("sweep", func(t *testing.T) {
 		r := newRig()
 		rc := &racer{}
@@ -166,4 +175,64 @@ func TestTranscriptDropRacesRePut(t *testing.T) {
 			}
 		}
 	})
+}
+
+// blobRuns returns the run of every blob in the bucket, sorted.
+func blobRuns(r *rig) []string {
+	var runs []string
+	for _, n := range r.b.Names(transcriptPrefix) {
+		run, _, ok := blobOf(n)
+		if !ok {
+			run = "?" + n
+		}
+		runs = append(runs, run)
+	}
+	slices.Sort(runs)
+	return runs
+}
+
+// testRePutAfterRecordDelete (TestTranscriptDropRacesRePut; ccf-review on #238): A's eviction of x commits the
+// delete of x's record; before A deletes x's blob, B re-puts x. B's put creates a blob of its
+// own and a new record, so A's blob delete can't touch it: x stays readable on both stores, is
+// counted, and only A's old blob goes.
+func testRePutAfterRecordDelete(t *testing.T) {
+	r := newRig()
+	r.opts.TranscriptMaxBytes, r.opts.TranscriptTotalBytes = 10, 20
+	a, b := r.open(t, "A"), r.open(t, "B")
+	ctx := t.Context()
+	must(t, a.PutTranscript(ctx, "x", bytes.Repeat([]byte("1"), 10)))
+	r.clk.Advance(time.Second)
+	must(t, a.PutTranscript(ctx, "y", bytes.Repeat([]byte("2"), 10)))
+	if _, err := b.GetTranscript(ctx, "x"); err != nil {
+		t.Fatal(err)
+	}
+	r.clk.Advance(time.Second)
+	var rePut error
+	raced := false
+	r.b.SetFaults(func(req FakeRequest) Fault {
+		if req.Op == FakeDelete && strings.HasPrefix(req.Name, transcriptPrefix+"x.") && !raced {
+			raced = true
+			rePut = b.PutTranscript(ctx, "x", bytes.Repeat([]byte("3"), 10))
+		}
+		return Pass
+	})
+	must(t, a.PutTranscript(ctx, "z", bytes.Repeat([]byte("4"), 10))) // evicts x
+	r.b.SetFaults(nil)
+	must(t, rePut)
+	if !raced {
+		t.Fatal("A never deleted x's blob")
+	}
+	for _, s := range []*Store{a, b} {
+		must(t, s.Sync(ctx))
+		if got, err := s.GetTranscript(ctx, "x"); err != nil || string(got) != strings.Repeat("3", 10) {
+			t.Fatalf("%s reads x = %q, %v; want B's re-put", s.id, got, err)
+		}
+		var rec TranscriptBlob
+		if err := s.Get(ctx, store.Key{Kind: KindTranscriptBlob, Name: "x"}, &rec); err != nil || rec.Size != 10 {
+			t.Fatalf("%s: x's record = %+v, %v; want it counted", s.id, rec, err)
+		}
+	}
+	if got := blobRuns(r); slices.Index(got, "x") < 0 {
+		t.Fatalf("blobs of %v: x's re-put blob is gone", got)
+	}
 }

@@ -45,7 +45,6 @@ const (
 //     ErrExists, which the store's nonce check resolves. A 409 ConditionalRequestConflict
 //     (a conditional write to the key in flight) is re-sent up to 3 times after a short wait;
 //     when it persists, the outcome is unknown, as for a timeout.
-//   - Put is an unconditional PutObject.
 //   - Get answers ErrNotExist on NoSuchKey (not on NoSuchBucket).
 //   - List is ListObjectsV2 with StartAfter, in name order.
 //   - Delete is HeadObject, then DeleteObject: S3's delete succeeds whether or not the key
@@ -134,7 +133,7 @@ func (b *S3Bucket) Get(ctx context.Context, name string) ([]byte, error) {
 func (b *S3Bucket) Create(ctx context.Context, name string, data []byte) error {
 	wait := s3ConflictBackoff
 	for attempt := 0; ; attempt++ {
-		err := b.put(ctx, name, data, true)
+		err := b.putIfAbsent(ctx, name, data)
 		if err == nil || attempt == s3ConflictRetries || !isS3Conflict(err) {
 			if err != nil {
 				return b.err(ctx, "create", name, err)
@@ -152,15 +151,8 @@ func (b *S3Bucket) Create(ctx context.Context, name string, data []byte) error {
 	}
 }
 
-// Put implements Bucket: an unconditional PutObject.
-func (b *S3Bucket) Put(ctx context.Context, name string, data []byte) error {
-	if err := b.put(ctx, name, data, false); err != nil {
-		return b.err(ctx, "put", name, err)
-	}
-	return nil
-}
-
-func (b *S3Bucket) put(ctx context.Context, name string, data []byte, ifAbsent bool) error {
+// putIfAbsent sends one PutObject with If-None-Match: *.
+func (b *S3Bucket) putIfAbsent(ctx context.Context, name string, data []byte) error {
 	if name == "" {
 		return errors.New("empty object name")
 	}
@@ -170,9 +162,7 @@ func (b *S3Bucket) put(ctx context.Context, name string, data []byte, ifAbsent b
 		Body:          bytes.NewReader(data),
 		ContentLength: aws.Int64(int64(len(data))),
 		ContentType:   aws.String("application/octet-stream"),
-	}
-	if ifAbsent {
-		in.IfNoneMatch = aws.String("*")
+		IfNoneMatch:   aws.String("*"),
 	}
 	_, err := b.client.PutObject(ctx, in)
 	return err
