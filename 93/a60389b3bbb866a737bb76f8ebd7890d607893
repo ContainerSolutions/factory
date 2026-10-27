@@ -1,0 +1,6 @@
+lisa-selfreview:
+Pass 1 (lenient, final): approve, no findings. Checked CORE-TEST-001 (TestRunnerEgress, the
+dispatcher route under deny-by-default), GO-NIL-001 (nil environment / nil egress give the
+zero Egress), CORE-DOC-001 (gateway.md, supervise.md, workspace-run.md). The gateway's own
+hosts under deny-by-default with an empty allow list already worked (policy: intercepted
+hosts and the dispatcher skip the host check); no code change needed there.
