@@ -71,8 +71,11 @@ func emulators(t *testing.T) []emulator {
 				t.Cleanup(func() { _ = b.Close() })
 				return b
 			},
+			// One multipart upload: a resumable session (a POST, then a PUT) would count the
+			// same and leave sessions behind.
 			isCreate: func(r *http.Request) bool {
-				return r.Method == http.MethodPost && r.URL.Query().Get("ifGenerationMatch") == "0"
+				q := r.URL.Query()
+				return r.Method == http.MethodPost && q.Get("ifGenerationMatch") == "0" && q.Get("uploadType") == "multipart"
 			},
 		},
 		{

@@ -125,7 +125,7 @@ e2e-objectstore: ## Opt-in, needs docker (E2E_CONTAINER_CLI) and pulls E2E_GCS_I
 		AWS_ACCESS_KEY_ID=$(E2E_MINIO_USER) AWS_SECRET_ACCESS_KEY=$(E2E_MINIO_PASSWORD) AWS_SESSION_TOKEN= AWS_PROFILE= AWS_REGION=us-east-1 \
 		AWS_CONFIG_FILE=/dev/null AWS_SHARED_CREDENTIALS_FILE=/dev/null AWS_EC2_METADATA_DISABLED=true AWS_ENDPOINT_URL= AWS_ENDPOINT_URL_S3= \
 		go test -race -count=1 -run '^TestEmulators$$' -v ./internal/store/objectstore 2>&1; \
-		echo $$? > $(E2E_OBJECTSTORE_LOG).status; } | tee $(E2E_OBJECTSTORE_LOG) | grep -E '^(=== RUN|--- |\s+--- (FAIL|SKIP)|ok|FAIL|PASS|panic)' | grep -v '^=== RUN.*/store/'; \
+		echo $$? > $(E2E_OBJECTSTORE_LOG).status; } | tee $(E2E_OBJECTSTORE_LOG) | grep -E '^(=== RUN|--- |[[:space:]]+--- (FAIL|SKIP)|ok|FAIL|PASS|panic)|_test\.go:[0-9]+:' | grep -v '^=== RUN.*/store/'; \
 	status=$$(cat $(E2E_OBJECTSTORE_LOG).status 2>/dev/null); \
 	case "$$status" in \
 	0) ;; \

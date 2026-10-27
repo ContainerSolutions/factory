@@ -17,6 +17,8 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go"
+
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // S3EndpointEnv names the environment variable that points S3 buckets at an S3-compatible
@@ -53,19 +55,11 @@ const (
 type S3Bucket struct {
 	client *s3.Client
 	loc    cloudLocation
+	// clk times the waits between re-sends of a 409.
+	clk clock.Clock
 }
 
 var _ Bucket = (*S3Bucket)(nil)
-
-// NewS3Bucket opens s3://bucket/prefix with the default credential chain, and
-// FACTORY_S3_ENDPOINT when it is set. prefix is "" or a path without leading or trailing '/'.
-func NewS3Bucket(ctx context.Context, bucket, prefix string) (*S3Bucket, error) {
-	loc, err := parseCloudURL(&url.URL{Scheme: "s3", Host: bucket, Path: "/" + prefix})
-	if err != nil {
-		return nil, err
-	}
-	return newS3Bucket(ctx, loc, nil)
-}
 
 func openS3URL(ctx context.Context, u *url.URL) (Bucket, error) {
 	loc, err := parseCloudURL(u)
@@ -98,7 +92,7 @@ func newS3Bucket(ctx context.Context, loc cloudLocation, hc *http.Client) (*S3Bu
 			o.HTTPClient = hc
 		}
 	})
-	return &S3Bucket{client: client, loc: loc}, nil
+	return &S3Bucket{client: client, loc: loc, clk: clock.Real{}}, nil
 }
 
 // s3Endpoint is FACTORY_S3_ENDPOINT, checked: an http or https URL with a host and nothing
@@ -144,10 +138,12 @@ func (b *S3Bucket) Create(ctx context.Context, name string, data []byte) error {
 			}
 			return nil
 		}
+		t := b.clk.NewTimer(wait)
 		select {
 		case <-ctx.Done():
+			t.Stop()
 			return b.err(ctx, "create", name, err)
-		case <-time.After(wait):
+		case <-t.C():
 		}
 		wait *= 2
 	}

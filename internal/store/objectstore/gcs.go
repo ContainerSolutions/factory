@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/googleapi"
@@ -36,17 +37,6 @@ type GCSBucket struct {
 }
 
 var _ Bucket = (*GCSBucket)(nil)
-
-// NewGCSBucket opens gs://bucket/prefix, finding Application Default Credentials (unless
-// STORAGE_EMULATOR_HOST is set). prefix is "" or a path without leading or trailing '/'.
-func NewGCSBucket(ctx context.Context, bucket, prefix string) (*GCSBucket, error) {
-	u := &url.URL{Scheme: "gs", Host: bucket, Path: "/" + prefix}
-	loc, err := parseCloudURL(u)
-	if err != nil {
-		return nil, err
-	}
-	return newGCSBucket(ctx, loc, nil)
-}
 
 func openGCSURL(ctx context.Context, u *url.URL) (Bucket, error) {
 	loc, err := parseCloudURL(u)
@@ -147,7 +137,10 @@ func (b *GCSBucket) List(ctx context.Context, prefix, startAfter string, fn func
 		if err != nil {
 			return b.err(ctx, "list", prefix, err)
 		}
-		name := attrs.Name[len(b.loc.prefix):]
+		name, ok := strings.CutPrefix(attrs.Name, b.loc.prefix)
+		if !ok {
+			return fmt.Errorf("gs://%s: list %s: object %q is outside the prefix", b.loc.bucket, prefix, attrs.Name)
+		}
 		if name == startAfter {
 			continue
 		}
