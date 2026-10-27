@@ -427,7 +427,10 @@ func (p *ProviderController) intake(ctx context.Context, cat *catalog.Catalog, e
 }
 
 // dropReason says why no rule could fire for ev: no rule takes its type from its provider, or
-// the RuleSets of the rules that do don't scope its object.
+// the RuleSets of the rules that do don't scope its object. It mirrors the per-rule half of
+// rules.candidates (the predicate rules.CouldFire uses): a rule is a candidate when its on has
+// ev.Type and its providers have ev.Source, and its RuleSet is in scope (rules.inScope). Keep
+// the on/providers test here in step with candidates, or a reason would be wrong.
 func dropReason(cat *catalog.Catalog, ev v1alpha1.Event) string {
 	for _, rs := range cat.RuleSets {
 		for _, r := range rs.Rules {

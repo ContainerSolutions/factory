@@ -183,8 +183,9 @@ func (g *runGroup) Go(ctx context.Context, name string, f func(context.Context) 
 
 // runServe runs the dispatcher until ctx is done, then shuts it down gracefully. Startup order
 // (controllers.md §Ordering and startup): store → catalog-sync (wait for the first good catalog)
-// → providers (connect, recover) → listeners (webhooks are stored from now on) → work-item
-// rebuild → rule, debounce, work-item, run controllers and the scheduler → ready.
+// → providers (connect, recover) → listeners (webhooks are stored as Deliveries from now on) →
+// work-item rebuild → provider (normalise), rule, debounce, work-item, run controllers and the
+// scheduler → ready.
 func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logger) error {
 	if d.Getenv == nil {
 		d.Getenv = func(string) string { return "" }
