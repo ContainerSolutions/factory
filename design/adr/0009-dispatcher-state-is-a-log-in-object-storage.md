@@ -44,7 +44,8 @@ transactions, no change feed and no order across objects.
   - only events a rule could fire for (`rules.CouldFire`), or that concern a linked object, are
     stored;
   - agents can poll briefly instead of long-polling, so a dispatcher on Cloud Run or Lambda
-    isn't kept busy between tasks;
+    isn't kept busy between tasks. With CPU only during requests, the leader's loops then
+    advance only during requests (IMPROVEMENTS item 9 closes that);
   - a webhook whose live delivery fails is not recovered automatically (a known limit).
 - No contract changes.
 - Writes are serialised through one log, one PUT each (tens per second at most): enough for the
