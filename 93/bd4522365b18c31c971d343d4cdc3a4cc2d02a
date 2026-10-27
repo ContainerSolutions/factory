@@ -1,0 +1,6 @@
+lisa-selfreview:
+Pass 1 (lenient, final): approve. Checked CORE-SEC-001 (no token in logs or errors; files 0600,
+written via temp+fsync+rename), CORE-TEST-001 (enroll.Files, worker enrolled registration and
+refusals, saves happen before the new agent token is used).
+Deferred should-fix: a registration whose response is lost after the dispatcher rotated the
+refresh token leaves the agent with a spent one; the next start says to enroll again.
