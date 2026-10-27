@@ -180,6 +180,28 @@ For each agent owner, on their machine (rollout.md §Agent onboarding). The disp
 
 The agent is `factory-agent supervise`: it runs each leased task in its own VM workspace behind a gateway that holds every credential, a tart VM on an Apple-silicon Mac ([supervise.md](../../design/workstreams/agent/LLD/supervise.md)) or a Kata microVM on Linux ([workspace-kata.md](../../design/workstreams/agent/LLD/workspace-kata.md)). Run every step from a checkout of this repository, as the owner's own user (not root; the workspaces are that user's).
 
+### The one-line install (from a release)
+
+Without a checkout, `install.sh` (attached to every release, §12) does steps 1 to 4 from the release's binaries:
+
+```bash
+curl -fsSL https://github.com/ContainerSolutions/factory/releases/latest/download/install.sh | bash
+```
+
+It runs as you, on an Apple-silicon Mac (tart) or a Linux x86-64 host (kata), and:
+
+1. downloads `factory-agent-<os>-<arch>` (on a Mac also `factory-agent-linux-arm64`, the VMs' binary) of the latest release, or of `FACTORY_VERSION=vX.Y.Z`, and refuses them unless they match the release's `SHA256SUMS`;
+2. installs them to `~/.local/bin` (`FACTORY_PREFIX`), mode 0755;
+3. writes `~/.config/factory-agent/agent.yaml` (0600) with your dispatcher URL (`FACTORY_DISPATCHER`, or it asks), `pool` (`FACTORY_POOL`, default `local`), `host`, the enrollment token file and both harnesses with `lending: {unlimited: true}`, only when the file doesn't exist (an existing one is left alone; it says what to check). Edit its codex model as step 2 below says;
+4. asks for the enrollment token (not echoed; `FACTORY_ENROLLMENT_TOKEN`) when `~/.config/factory-agent/enrollment-token` is missing, and prints the `factory agent enroll` command, with this host's name, for the admin;
+5. runs `factory-agent host init --driver tart --agent-linux …` or `--driver kata`, which asks for sudo itself;
+6. offers `factory-agent login claude` (paste the `claude setup-token` token) and `factory-agent login codex` (after `codex login`), each skippable;
+7. installs supervise as a launchd user agent (`~/Library/LaunchAgents/com.containersolutions.factory-agent.plist`) or a systemd user service (`~/.config/systemd/user/factory-agent.service`; `loginctl enable-linger` keeps it running while you are logged out), logging to `supervise.log` in the agent's state dir.
+
+Flags go after `bash -s --`: `--dry-run` prints every step and command and changes nothing (it downloads nothing either); `--yes` asks nothing, taking every value from the environment and failing when one is missing (the logins are then left for later); `--no-service` skips step 7. To undo it, it prints the commands at the end: `launchctl bootout gui/$UID/com.containersolutions.factory-agent` and remove the plist (Mac), or `systemctl --user disable --now factory-agent` and remove the unit (Linux); then remove the binaries from `~/.local/bin`, and `~/.config/factory-agent` and the state dir if you want them gone. `factory-agent host init`'s own changes stay ([workspace-host.md](../../design/workstreams/agent/LLD/workspace-host.md)).
+
+From a checkout instead:
+
 1. **The enrollment token.** An admin of the dispatcher mints one for your host, with the CLI token:
 
    ```bash
@@ -291,7 +313,7 @@ Nothing releases on its own: no bot tags, bumps versions or drafts releases. A p
 
 | Workflow | What it adds to the release |
 |---|---|
-| `release-binaries.yml` | the assets `make release-assets VERSION=<tag>` builds into `dist/`: `factory-<os>-<arch>` (the dispatcher and CLI, UI embedded) for linux/amd64, linux/arm64 and darwin/arm64; `factory-agent-<os>-<arch>` for darwin/arm64, linux/amd64 and linux/arm64 (linux/arm64 is also the Mac's VM binary, `host init --agent-linux`); `SHA256SUMS` over them. |
+| `release-binaries.yml` | the assets `make release-assets VERSION=<tag>` builds into `dist/`: `factory-<os>-<arch>` (the dispatcher and CLI, UI embedded) for linux/amd64, linux/arm64 and darwin/arm64; `factory-agent-<os>-<arch>` for darwin/arm64, linux/amd64 and linux/arm64 (linux/arm64 is also the Mac's VM binary, `host init --agent-linux`); `install.sh`, the agent host installer (§8); `SHA256SUMS` over them. |
 | `release-image.yml` | pushes the dispatcher image, the root `Dockerfile` (`factory` with the UI, on Alpine with `git` and the CA roots, as uid 65532), to `ghcr.io/containersolutions/factory:<tag>` and `:latest`, for linux/amd64 and linux/arm64. `make image` builds it locally (`IMAGE`, default `factory:dev`) and never pushes. |
 
 A workflow that fails can be re-run from its Actions page: the upload replaces the release's assets (`--clobber`). `make release-assets VERSION=v0.0.0-test` builds the same `dist/` locally (it needs Node, like `make build-release`); `cd dist && shasum -a 256 -c SHA256SUMS` checks it.

@@ -1,5 +1,5 @@
-# Attaches factory and factory-agent binaries, and SHA256SUMS, to a GitHub release when a person
-# publishes it (deploy/poc/README.md §Releasing). Nothing here creates a release or a tag: a
+# Attaches the factory and factory-agent binaries, deploy/install.sh and SHA256SUMS to a GitHub
+# release when a person publishes it (deploy/poc/README.md §Releasing). Nothing here creates a release or a tag: a
 # person creates the release, with a vX.Y.Z tag, by hand. It is standalone: it calls no other
 # workflow and no other workflow waits on it. `make release-assets` builds the same dist/ locally.
 name: release-binaries
