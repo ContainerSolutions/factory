@@ -38,7 +38,6 @@ const (
 	ghProvider    = "github-public"
 	docsRepo      = "compliance-framework/docs"
 	docsIssue     = "compliance-framework/docs#42"
-	joinSecret    = "join-secret"
 	webhookSecret = "hook-secret"
 	cliToken      = "cli-token-for-tests"
 	workItemID    = "wi_1"
@@ -237,15 +236,8 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secrets := provider.SecretResolverFunc(func(_ context.Context, ref v1alpha1.SecretRef) ([]byte, error) {
-		if ref == (v1alpha1.SecretRef{Name: "local-pool", Key: "join-token"}) {
-			return []byte(joinSecret), nil
-		}
-		return nil, errors.New("no such secret")
-	})
 	sched, err := scheduler.New(scheduler.Deps{
-		Store: st, Catalog: cp, Conns: conns, Runs: runs, Secrets: secrets,
-		Owners: auth.GitHubOwners{Provider: ghProvider, APIBase: github.URL, HTTPClient: github.Client()},
+		Store: st, Catalog: cp, Conns: conns, Runs: runs,
 	}, scheduler.Options{Clock: clk, Logger: discardLogger()})
 	if err != nil {
 		t.Fatal(err)
@@ -369,15 +361,18 @@ func (e *env) login(login string) string {
 }
 
 // register registers login's agent on host through the API and returns its id and token.
+// register enrolls login's agent on host (the CLI token) and registers it with the
+// enrollment token.
 func (e *env) register(login, host string) (string, string) {
 	e.t.Helper()
+	_, tok := e.enroll(login, host, "")
 	res, err := e.c.RegisterAgentWithResponse(e.ctx, apiclient.RegisterAgentRequest{
 		Pool: "local", Host: host, AgentVersion: "0.1.0",
 		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{
 			Name: "codex", Auth: "subscription", Models: []string{"gpt-5-codex"}, ReasoningEffort: []string{"low", "medium", "high"},
 		}}},
 		Lending: &v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 1},
-	}, header(HeaderJoinToken, joinSecret), header(HeaderOwnerToken, "tok-"+login))
+	}, header(HeaderEnrollmentToken, tok))
 	if err != nil || res.JSON201 == nil {
 		e.t.Fatalf("register %s: %v %s %s", login, err, res.Status(), res.Body)
 	}

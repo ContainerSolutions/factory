@@ -44,11 +44,12 @@ func TestRegisterRejects(t *testing.T) {
 		mut  func(e *env, r *RegisterRequest)
 		want error
 	}{
-		{"wrong join token", func(_ *env, r *RegisterRequest) { r.JoinToken = "nope" }, ErrUnauthorized},
-		{"no join token", func(_ *env, r *RegisterRequest) { r.JoinToken = "" }, ErrUnauthorized},
-		{"unknown owner token", func(_ *env, r *RegisterRequest) { r.OwnerToken = "tok-unknown" }, ErrUnauthorized},
-		{"no owner token", func(_ *env, r *RegisterRequest) { r.OwnerToken = "" }, ErrUnauthorized},
-		{"owner not in the group", func(_ *env, r *RegisterRequest) { r.OwnerToken = "tok-eve" }, ErrForbidden},
+		{"no credential", func(_ *env, r *RegisterRequest) { r.EnrollmentToken = "" }, ErrUnauthorized},
+		{"an unknown enrollment token", func(_ *env, r *RegisterRequest) { r.EnrollmentToken = "enr_" + strings.Repeat("x", 43) }, ErrUnauthorized},
+		{"an unknown refresh token", func(_ *env, r *RegisterRequest) {
+			r.EnrollmentToken, r.RefreshToken = "", "arf_"+strings.Repeat("x", 43)
+		}, ErrUnauthorized},
+		{"another host than the enrollment's", func(_ *env, r *RegisterRequest) { r.Host = "mbp2" }, ErrInvalid},
 		{"missing required harness", func(e *env, r *RegisterRequest) {
 			e.cat.Pools[pocPool].Spec.Require = &v1alpha1.PoolRequirements{Harnesses: []string{"claude-code"}}
 			r.Capabilities.Harnesses = []v1alpha1.HarnessOffer{codexOffer}
@@ -65,7 +66,7 @@ func TestRegisterRejects(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newEnv(t)
 			req := RegisterRequest{
-				JoinToken: joinSecret, OwnerToken: "tok-gus", Pool: pocPool, Host: "mbp", AgentVersion: "0.1.0",
+				EnrollmentToken: e.enroll("gus", "mbp"), Pool: pocPool, Host: "mbp", AgentVersion: "0.1.0",
 				Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{codexOffer}},
 			}
 			tt.mut(e, &req)
@@ -78,22 +79,6 @@ func TestRegisterRejects(t *testing.T) {
 				t.Fatalf("agents stored after a rejected registration: %d (%v)", len(agents), err)
 			}
 		})
-	}
-}
-
-// TestGroupMembershipCached: the owners Group is resolved once per 10 minutes.
-func TestGroupMembershipCached(t *testing.T) {
-	e := newEnv(t)
-	e.register("gus", "mbp", nil)
-	e.gh.SetOrgRole("compliance-framework", "admin", "ana") // gus removed
-	e.register("gus", "mbp2", nil)                          // still cached
-	e.clk.Advance(DefaultGroupCacheTTL)
-	_, err := e.s.Register(e.ctx, RegisterRequest{
-		JoinToken: joinSecret, OwnerToken: "tok-gus", Pool: pocPool, Host: "mbp3", AgentVersion: "0.1.0",
-		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{codexOffer}},
-	})
-	if !errors.Is(err, ErrForbidden) {
-		t.Fatalf("after the cache expired: %v, want ErrForbidden", err)
 	}
 }
 

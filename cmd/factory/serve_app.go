@@ -285,7 +285,6 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	if err := pc.Recover(ctx, startedAt); err != nil {
 		log.Warn("recovering deliveries failed; continuing", "err", err)
 	}
-	warnPoolSecrets(ctx, cat, secrets, log)
 
 	// Controllers, scheduler, auth and the API server (constructed; started below).
 	authProvider, apiBase, err := githubAuth(cfg, cat)
@@ -323,8 +322,7 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		return err
 	}
 	sched, err := scheduler.New(scheduler.Deps{
-		Store: st, Catalog: cs, Conns: pc, Runs: runs, Secrets: secrets,
-		Owners: auth.GitHubOwners{Provider: authProvider, APIBase: apiBase, HTTPClient: d.HTTPClient},
+		Store: st, Catalog: cs, Conns: pc, Runs: runs,
 	}, scheduler.Options{Clock: clk, Logger: log, AntiAffinityWait: cfg.AntiAffinityWait})
 	if err != nil {
 		return err
@@ -598,27 +596,4 @@ func skillsProvider(cat *catalog.Catalog, host, preferred string) (string, error
 		return "", fmt.Errorf("no github Provider has the skills base's git host %q", host)
 	}
 	return "", fmt.Errorf("github Providers %v share the skills base's git host %q and none is the auth Provider", names, host)
-}
-
-// warnPoolSecrets warns about registered Pools whose join token isn't set: no agent can join
-// them.
-func warnPoolSecrets(ctx context.Context, cat *catalog.Catalog, secrets provider.SecretResolver, log *slog.Logger) {
-	for _, name := range sortedKeys(cat.Pools) {
-		p := cat.Pools[name]
-		if p.Spec.Admission == nil {
-			continue
-		}
-		if _, err := secrets.Resolve(ctx, p.Spec.Admission.TokenRef); err != nil {
-			log.Warn("pool join token not set: agents can't register", "pool", name, "env", secretEnv(p.Spec.Admission.TokenRef))
-		}
-	}
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	slices.Sort(out)
-	return out
 }

@@ -68,7 +68,7 @@ Fill it in with an editor. Each line of `.env.example` says what goes there:
 
 `run.sh` refuses a `.env` that is missing, not yours, or not mode 600, and names (never prints) any variable that's unset. `cmd/factory/deploykit_test.go` keeps `.env.example` in step with the catalog's secret references.
 
-Share the join token with agent owners out of band, never in a repo or an issue.
+Agents don't use the join token any more: an admin enrolls each agent host (§8). `FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN` stays in `.env` while the catalog's Pool still names it.
 
 ## 4. Catalog
 
@@ -147,7 +147,6 @@ Log lines to look for:
 
 - `catalog swapped in`, then `catalog loaded`;
 - `provider connected … webhook=<public url>/hooks/github-public`;
-- no `pool join token not set`;
 - `provider health` without `degraded`. A degraded provider means a wrong App ID or key.
 
 `catalog rejected; keeping the live catalog` means an invalid catalog: `factory validate --dir` the directory.

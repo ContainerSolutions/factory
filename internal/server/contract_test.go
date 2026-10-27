@@ -196,13 +196,14 @@ func TestContract(t *testing.T) {
 	}
 
 	// agents
+	_, enrollTok := e.enroll("gus", "mac1", "")
 	reg, err := e.c.RegisterAgentWithResponse(ctx, apiclient.RegisterAgentRequest{
 		Pool: "local", Host: "mac1", AgentVersion: "0.1.0",
 		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{
 			Name: "codex", Auth: "subscription", Models: []string{"gpt-5-codex"}, ReasoningEffort: []string{"medium"},
 		}}},
 		Lending: &v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 1},
-	}, header(HeaderJoinToken, joinSecret), header(HeaderOwnerToken, "tok-gus"))
+	}, header(HeaderEnrollmentToken, enrollTok))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,7 +612,7 @@ func TestContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	sh.check("listEnrollments", le.HTTPResponse, le.Body, http.StatusOK)
-	if le.JSON200 == nil || len(le.JSON200.Items) != 1 || strings.Contains(string(le.Body), ce.JSON201.Token[4:]) {
+	if le.JSON200 == nil || len(le.JSON200.Items) != 2 || strings.Contains(string(le.Body), ce.JSON201.Token[4:]) {
 		t.Errorf("listEnrollments: %s", le.Body)
 	}
 	enrolled := apiclient.RegisterAgentRequest{Pool: "local", Host: "mac2", AgentVersion: "1",

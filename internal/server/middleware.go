@@ -25,8 +25,8 @@ type access int
 const (
 	// public: no credential (the OAuth routes, device config).
 	public access = iota
-	// registration: exactly one credential, checked by the scheduler: the join and owner token
-	// headers together, the enrollment token header, or the agent refresh token header.
+	// registration: exactly one credential, checked by the scheduler: the enrollment token
+	// header or the agent refresh token header. The join and owner token headers are refused.
 	registration
 	// agentOnly: an agent token. Lease and task routes also check the lease's holder.
 	agentOnly
@@ -94,8 +94,8 @@ var operations = map[string]access{
 	"getDeviceConfig":      public,
 }
 
-// Registration headers (the joinToken, ownerToken, enrollmentToken and agentRefreshToken
-// security schemes).
+// Registration headers (the enrollmentToken and agentRefreshToken security schemes; the
+// joinToken and ownerToken ones are refused).
 const (
 	HeaderJoinToken         = "X-Factory-Join-Token"
 	HeaderOwnerToken        = "X-Factory-Owner-Token"
@@ -151,23 +151,17 @@ func (s *Server) authenticate(ctx context.Context, r *http.Request, acc access) 
 	case public:
 		return auth.Principal{}, s.sameOrigin(r)
 	case registration:
-		join := r.Header.Get(HeaderJoinToken) != "" || r.Header.Get(HeaderOwnerToken) != ""
-		n := 0
-		for _, set := range []bool{join, r.Header.Get(HeaderEnrollmentToken) != "", r.Header.Get(HeaderAgentRefreshToken) != ""} {
-			if set {
-				n++
-			}
-		}
+		enr, ref := r.Header.Get(HeaderEnrollmentToken) != "", r.Header.Get(HeaderAgentRefreshToken) != ""
 		switch {
-		case n == 0:
+		case r.Header.Get(HeaderJoinToken) != "" || r.Header.Get(HeaderOwnerToken) != "":
 			return auth.Principal{}, problemf(http.StatusUnauthorized, CodeUnauthenticated,
-				"registration needs the %s header, the %s header, or the %s and %s headers",
-				HeaderEnrollmentToken, HeaderAgentRefreshToken, HeaderJoinToken, HeaderOwnerToken)
-		case n > 1:
+				"the join and owner tokens are no longer accepted: enroll the agent (factory agent enroll) and register with the %s header",
+				HeaderEnrollmentToken)
+		case enr && ref:
 			return auth.Principal{}, problemf(http.StatusUnauthorized, CodeUnauthenticated, "registration takes exactly one credential")
-		case join && (r.Header.Get(HeaderJoinToken) == "" || r.Header.Get(HeaderOwnerToken) == ""):
+		case !enr && !ref:
 			return auth.Principal{}, problemf(http.StatusUnauthorized, CodeUnauthenticated,
-				"registration needs the %s and %s headers", HeaderJoinToken, HeaderOwnerToken)
+				"registration needs the %s or the %s header", HeaderEnrollmentToken, HeaderAgentRefreshToken)
 		}
 		return auth.Principal{}, nil
 	case agentOnly:

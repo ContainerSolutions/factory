@@ -53,53 +53,6 @@ func TestSafeReturnTo(t *testing.T) {
 	}
 }
 
-// userAPI is GET /user answering tok-<login> for the given logins, and 500 for tok-broken.
-func userAPI(t *testing.T, logins ...string) *httptest.Server {
-	t.Helper()
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/user" {
-			http.NotFound(w, r)
-			return
-		}
-		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if tok == "tok-broken" {
-			http.Error(w, "oops", http.StatusInternalServerError)
-			return
-		}
-		for _, l := range logins {
-			if tok == "tok-"+l {
-				_, _ = io.WriteString(w, `{"login":"`+l+`","name":"N","avatar_url":"https://a/`+l+`"}`)
-				return
-			}
-		}
-		http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
-	}))
-	t.Cleanup(ts.Close)
-	return ts
-}
-
-func TestGitHubOwners(t *testing.T) {
-	ts := userAPI(t, "gus")
-	o := GitHubOwners{Provider: "github-public", APIBase: ts.URL + "/", HTTPClient: ts.Client()}
-	ctx := context.Background()
-	got, err := o.VerifyOwner(ctx, "tok-gus")
-	if err != nil || got != (scheduler.Owner{Provider: "github-public", Login: "gus"}) {
-		t.Fatalf("VerifyOwner = %+v, %v", got, err)
-	}
-	for _, tok := range []string{"tok-nobody", ""} {
-		if _, err := o.VerifyOwner(ctx, tok); !errors.Is(err, scheduler.ErrUnauthorized) {
-			t.Errorf("token %q: %v, want ErrUnauthorized", tok, err)
-		}
-	}
-	_, err = o.VerifyOwner(ctx, "tok-broken")
-	if errors.Is(err, scheduler.ErrUnauthorized) || !errors.Is(err, ErrOAuth) {
-		t.Errorf("a GitHub failure: %v, want ErrOAuth (not a refusal)", err)
-	}
-	if err != nil && strings.Contains(err.Error(), "tok-broken") {
-		t.Errorf("the token leaked into the error: %v", err)
-	}
-}
-
 type agents map[string]string
 
 func (a agents) Authenticate(_ context.Context, tok string) (string, error) {

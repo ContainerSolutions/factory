@@ -133,8 +133,7 @@ func TestEnrollmentRefused(t *testing.T) {
 	body := []byte(`{"pool":"local","host":"mac5","agentVersion":"1","capabilities":{"harnesses":[{"name":"codex"}]}}`)
 	res, b := e.do(http.MethodPost, BasePath+"/agents", body, func(r *http.Request) {
 		r.Header.Set(HeaderEnrollmentToken, tok)
-		r.Header.Set(HeaderJoinToken, joinSecret)
-		r.Header.Set(HeaderOwnerToken, "tok-gus")
+		r.Header.Set(HeaderAgentRefreshToken, "arf_"+strings.Repeat("x", 43))
 	})
 	wantProblemReply(t, "two credentials", res, b, http.StatusUnauthorized, CodeUnauthenticated)
 	for _, f := range []string{HeaderEnrollmentToken, HeaderAgentRefreshToken} {
