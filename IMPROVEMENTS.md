@@ -18,32 +18,11 @@ record it in IMPROVEMENTS_DONE.md with its PR numbers and delete its section her
 ## 1. Real-host checks (Gustavo)
 
 Shipped work that only fakes have tested. These are runs, not PRs. Record each result in
-IMPROVEMENTS_DONE.md. The Linux workstation's checks and the Mac's T1–T3, M0–M3 are done
+IMPROVEMENTS_DONE.md. The Linux workstation's checks and the Mac's T1–T3, M0–M4 are done
 (IMPROVEMENTS_DONE.md, "Real-host checks on the Mac"). Left, on the Mac (`<state>` is
 `~/Library/Application Support/factory-agent`; stop `supervise` first; a kept workspace is
 stopped: `tart run --no-graphics <ws> &` before `tart exec`, then `tart stop <ws>`):
 
-- **M4, #205, kind images load offline on arm64:**
-  1. In `agent.yaml`, add `kindest/node:v1.35.0` to `workspace.warm.images`. Set
-     `workspace.warm.kindImages: ["busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e"]`.
-  2. `rm "<state>/warmbase.json"`, then `bin/factory-agent host init --driver tart --agent-linux
-     bin/factory-agent-linux-arm64` to rebuild the warm base. (This run also puts pf back on
-     3128 after M3.)
-  3. In a workspace (`--keep-workspace`, then `tart run` as above), run as `admin`
-     (`tart exec ws-tsk_<id> sudo -u admin -H sh -c '…'`):
-     - `ls -l /var/lib/factory/kind-images/` shows each archive `-rw-r--r--`.
-     - `tar -xOf /var/lib/factory/kind-images/<name>.tar index.json` names one manifest, for
-       linux/arm64.
-     - `kind create cluster --image kindest/node:v1.35.0`.
-     - `kind load image-archive /var/lib/factory/kind-images/*.tar` succeeds as `admin`, with no
-       sudo.
-     - `kubectl run bb --image=busybox:1.37.0 --image-pull-policy=Never --restart=Never --
-       sleep 30`.
-     - `kubectl get pod bb` reaches Running, so the image was already present and nothing was
-       pulled.
-     - `kind delete cluster`.
-  4. Afterwards, keep the warm config or revert it: revert `agent.yaml`, `rm
-     "<state>/warmbase.json"`, then run `host init`.
 - **S1, Softnet anti-spoofing** (the gateway's client pin relies on it): keep two workspaces A
   and B (two tasks with `--keep-workspace`), start both with `tart run --no-graphics <ws> &`.
   - In B: `ip -o -4 addr` (its address `B_IP` and interface) and `ip route | awk '/default/{print

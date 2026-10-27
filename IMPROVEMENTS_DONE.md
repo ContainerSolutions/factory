@@ -265,6 +265,11 @@ then implement (codex, the default size).
   - T2 (#172): `yarn install` reached `registry.yarnpkg.com` and `registry.npmjs.org` through
     gateway tunnels, and the agent reported both builds (en, pt-BR) passing. Its Result had no
     `data.checks` (the field is optional in the implement schema).
+  - M4 (#205): with `kindest/node:v1.35.0` warm and `busybox:1.37.0@sha256:…` as a kind image,
+    the archive was `-rw-r--r--`; its index.json held the linux/arm64 manifest plus its
+    attestation manifest (no platform). As `admin`, `kind create cluster`, `kind load
+    image-archive` (no sudo) and a `--image-pull-policy=Never` pod reaching Running all
+    worked. The warm config was reverted afterwards.
   - T3: intercepted requests (chatgpt.com, github.com, api.github.com) carry `injected`, git
     ones `git:<owner>/<repo>`; tunnels carry none; no token values.
 - **Skipped** (Gustavo's call): M1.4, a `limits.memory` above `workspace.size`. The
