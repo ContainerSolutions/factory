@@ -1,0 +1,8 @@
+lisa-selfreview:
+Pass 1 (lenient, final): approve. Checked CORE-SEC-001 (tokens returned once, stored as
+sha256 hashes, never logged), CORE-SEC-002 (enrollment routes admin-only; registration takes
+exactly one credential), CORE-CONC-001 (spend and rotate are CAS updates that re-check the
+hash/used state, so a concurrent second use is a 401), CORE-ID-001 (label lookup + constant-
+time compare), CORE-TEST-001 (TestEnrollment, TestEnrollmentRefused, the contract flow).
+Deferred should-fix: the enrollment is spent before the agent and token are written; a store
+failure in between leaves a spent token with no agent (the admin re-enrolls).
