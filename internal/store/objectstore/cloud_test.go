@@ -1,6 +1,7 @@
 package objectstore
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"google.golang.org/api/googleapi"
 )
 
 // TestParseCloudURL: gs:// and s3:// take a bucket and an optional prefix, and refuse
@@ -81,17 +84,39 @@ func s3TestEnv(t *testing.T, endpoint string) {
 	}
 }
 
-// TestParseURLClouds: ParseURL opens gs:// and s3:// URLs, with no network: the GCS client
-// on an emulator host needs no credentials, and the S3 config is read from the environment.
-// S3 needs a region, and FACTORY_S3_ENDPOINT must be a bare http(s) URL.
+// TestParseURLClouds: ParseURL opens gs:// and s3:// URLs. The GCS bucket lists its prefix
+// once at open against a canned server, so a missing bucket fails there; the client outlives
+// the open's context. The S3 config is read from the environment: S3 needs a region, and
+// FACTORY_S3_ENDPOINT must be https://, or http:// on a loopback host.
 func TestParseURLClouds(t *testing.T) {
-	t.Setenv("STORAGE_EMULATOR_HOST", "127.0.0.1:1")
-	b, err := ParseURL(t.Context(), "gs://bucket/factory/state")
+	bucketMissing := `{"error":{"code":404,"message":"The specified bucket does not exist.","errors":[{"message":"The specified bucket does not exist.","domain":"global","reason":"notFound"}]}}`
+	missing := false
+	srv, c := newCannedServer(t, func(string, int) (int, string) {
+		if missing {
+			return http.StatusNotFound, bucketMissing
+		}
+		return http.StatusOK, `{"kind":"storage#objects"}`
+	})
+	t.Setenv("STORAGE_EMULATOR_HOST", srv.URL)
+	ctx, cancel := context.WithCancel(t.Context())
+	b, err := ParseURL(ctx, "gs://bucket/factory/state")
 	must(t, err)
 	if g, ok := b.(*GCSBucket); !ok || g.String() != "gs://bucket/factory/state/" {
 		t.Fatalf("ParseURL(gs://) = %#v", b)
 	}
+	if n := c.count(http.MethodGet); n != 1 {
+		t.Fatalf("%d GETs at open, want 1 (the list)", n)
+	}
+	cancel() // the open's context ends; the bucket goes on
+	if err := b.List(t.Context(), "log/", "", func(ObjectInfo) error { return nil }); err != nil {
+		t.Fatalf("List after the open's context ended = %v", err)
+	}
 	must(t, b.(*GCSBucket).Close())
+	missing = true
+	_, err = ParseURL(t.Context(), "gs://bucket/factory/state")
+	if err == nil || errors.Is(err, ErrNotExist) || !strings.Contains(err.Error(), "bucket does not exist") {
+		t.Fatalf("ParseURL on a missing bucket = %v, want an error saying so, not ErrNotExist", err)
+	}
 	if _, err := ParseURL(t.Context(), "gs://b/p?project=x"); err == nil {
 		t.Fatal("gs:// with a query was accepted")
 	}
@@ -102,17 +127,34 @@ func TestParseURLClouds(t *testing.T) {
 	if s, ok := b.(*S3Bucket); !ok || s.String() != "s3://bucket/factory/" {
 		t.Fatalf("ParseURL(s3://) = %#v", b)
 	}
-	for _, ep := range []string{"http://127.0.0.1:9000", "https://minio.test/"} {
+	for _, ep := range []string{
+		"https://minio.test", "https://minio.test/", "https://10.0.0.5:9000",
+		"http://127.0.0.1:9000", "http://localhost:9000", "http://LOCALHOST", "http://[::1]:9000",
+	} {
 		t.Setenv(S3EndpointEnv, ep)
 		if _, err := ParseURL(t.Context(), "s3://bucket"); err != nil {
 			t.Fatalf("%s=%s: %v", S3EndpointEnv, ep, err)
 		}
 	}
-	for _, ep := range []string{"minio:9000", "ftp://h", "http://h/path", "http://u:hunter2@h", "http://h?x=1", "http://h:x:y"} {
-		t.Setenv(S3EndpointEnv, ep)
+	for _, tc := range []struct{ ep, why string }{
+		{"http://minio.test:9000", "only for a loopback host"},
+		{"http://10.0.0.5:9000", "only for a loopback host"},
+		{"http://127.0.0.2:9000", "only for a loopback host"},
+		{"http://localhost.example.com", "only for a loopback host"},
+		{"https://u:hunter2@minio.test", "credentials in the URL"},
+		{"http://u:hunter2@localhost", "credentials in the URL"},
+		{"http://u:hunter2@h:x:y", "not a URL"},
+		{"minio:9000", "want https://"},
+		{"ftp://h", "want https://"},
+		{"https://h/path", "want https://"},
+		{"https://h?x=1", "want https://"},
+		{"https://h?", "want https://"},
+		{"https://h#f", "want https://"},
+	} {
+		t.Setenv(S3EndpointEnv, tc.ep)
 		_, err := ParseURL(t.Context(), "s3://bucket")
-		if err == nil || !strings.Contains(err.Error(), S3EndpointEnv) {
-			t.Fatalf("%s=%s = %v, want refused", S3EndpointEnv, ep, err)
+		if err == nil || !strings.Contains(err.Error(), S3EndpointEnv) || !strings.Contains(err.Error(), tc.why) {
+			t.Fatalf("%s=%s = %v, want refused (%s)", S3EndpointEnv, tc.ep, err, tc.why)
 		}
 		if strings.Contains(err.Error(), "hunter2") {
 			t.Fatalf("the error shows the endpoint's password: %v", err)
@@ -176,38 +218,62 @@ func sentinel(err error) string {
 	return "other"
 }
 
-// TestGCSErrorMapping: a 404 on a read or a delete is ErrNotExist, a 412 on a create is
-// ErrExists, and other statuses map to neither. 4xx are not retried, so each case is one
-// request against a canned server.
+// TestGCSErrorMapping: a missing object's 404 on a read or a delete is ErrNotExist, a 412
+// on a create is ErrExists, and a missing bucket's 404 (GCS's real body) and other statuses
+// map to neither. A mapped error keeps the SDK's in its chain. 4xx are not retried, so each
+// case is one request against a canned server.
 func TestGCSErrorMapping(t *testing.T) {
-	gcsError := func(code int) string {
-		return fmt.Sprintf(`{"error":{"code":%d,"message":"canned","errors":[{"reason":"canned"}]}}`, code)
+	gcsError := func(code int, msg string) string {
+		return fmt.Sprintf(`{"error":{"code":%d,"message":%q,"errors":[{"message":%q,"domain":"global","reason":"notFound"}]}}`, code, msg, msg)
 	}
+	const (
+		noObject = "No such object: b/p/log/1"
+		noBucket = "The specified bucket does not exist."
+	)
+	get := func(b Bucket) error { _, err := b.Get(t.Context(), "log/1"); return err }
+	create := func(b Bucket) error { return b.Create(t.Context(), "log/1", []byte("x")) }
+	del := func(b Bucket) error { return b.Delete(t.Context(), "log/1") }
+	list := func(b Bucket) error { return b.List(t.Context(), "log/", "", func(ObjectInfo) error { return nil }) }
 	for _, tc := range []struct {
 		name   string
 		op     func(b Bucket) error
 		status int
+		msg    string
 		want   string
 	}{
-		{"get 404", func(b Bucket) error { _, err := b.Get(t.Context(), "log/1"); return err }, 404, "ErrNotExist"},
-		{"get 403", func(b Bucket) error { _, err := b.Get(t.Context(), "log/1"); return err }, 403, "other"},
-		{"create 412", func(b Bucket) error { return b.Create(t.Context(), "log/1", []byte("x")) }, 412, "ErrExists"},
-		{"create 403", func(b Bucket) error { return b.Create(t.Context(), "log/1", []byte("x")) }, 403, "other"},
-		{"create 404 (no bucket)", func(b Bucket) error { return b.Create(t.Context(), "log/1", []byte("x")) }, 404, "other"},
-		{"delete 404", func(b Bucket) error { return b.Delete(t.Context(), "log/1") }, 404, "ErrNotExist"},
-		{"delete 403", func(b Bucket) error { return b.Delete(t.Context(), "log/1") }, 403, "other"},
-		{"list 404 (no bucket)", func(b Bucket) error {
-			return b.List(t.Context(), "log/", "", func(ObjectInfo) error { return nil })
-		}, 404, "other"},
+		{"get 404", get, 404, noObject, "ErrNotExist"},
+		{"get 404 (no bucket)", get, 404, noBucket, "no bucket"},
+		{"get 403", get, 403, "canned", "other"},
+		{"create 412", create, 412, "conditionNotMet", "ErrExists"},
+		{"create 403", create, 403, "canned", "other"},
+		{"create 404 (no bucket)", create, 404, noBucket, "no bucket"},
+		{"delete 404", del, 404, noObject, "ErrNotExist"},
+		{"delete 404 (no bucket)", del, 404, noBucket, "no bucket"},
+		{"delete 403", del, 403, "canned", "other"},
+		{"list 404 (no bucket)", list, 404, noBucket, "no bucket"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			srv, _ := newCannedServer(t, func(string, int) (int, string) { return tc.status, gcsError(tc.status) })
+			srv, _ := newCannedServer(t, func(string, int) (int, string) { return tc.status, gcsError(tc.status, tc.msg) })
 			t.Setenv("STORAGE_EMULATOR_HOST", srv.URL)
 			b, err := newGCSBucket(t.Context(), cloudLocation{bucket: "b", prefix: "p/"}, nil)
 			must(t, err)
 			defer func() { _ = b.Close() }()
-			if got := sentinel(tc.op(b)); got != tc.want {
-				t.Fatalf("%s = %s, want %s", tc.name, got, tc.want)
+			err = tc.op(b)
+			want := tc.want
+			if want == "no bucket" {
+				want = "other"
+				if err == nil || !strings.Contains(err.Error(), "the bucket does not exist") {
+					t.Errorf("%s = %v, want it to say the bucket does not exist", tc.name, err)
+				}
+			}
+			if got := sentinel(err); got != want {
+				t.Fatalf("%s = %s (%v), want %s", tc.name, got, err, want)
+			}
+			if want != "other" {
+				var gerr *googleapi.Error
+				if !errors.As(err, &gerr) || gerr.Code != tc.status {
+					t.Fatalf("%s = %v: the SDK's error is not in the chain", tc.name, err)
+				}
 			}
 		})
 	}

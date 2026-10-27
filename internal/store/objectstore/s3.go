@@ -23,8 +23,10 @@ import (
 
 // S3EndpointEnv names the environment variable that points S3 buckets at an S3-compatible
 // endpoint (MinIO, for the emulator tests) instead of AWS. When it is set, requests use
-// path-style addressing (http://endpoint/bucket/key), which such servers expect. Credentials
-// and the region still come from the default chain (AWS_ACCESS_KEY_ID and
+// path-style addressing (https://endpoint/bucket/key), which such servers expect. It must be
+// https://, except on a loopback host (localhost, 127.0.0.1, ::1), which may use http://:
+// requests carry SigV4 signatures and the state, and only a local emulator goes without TLS.
+// Credentials and the region still come from the default chain (AWS_ACCESS_KEY_ID and
 // AWS_SECRET_ACCESS_KEY, AWS_REGION).
 const S3EndpointEnv = "FACTORY_S3_ENDPOINT"
 
@@ -94,22 +96,38 @@ func newS3Bucket(ctx context.Context, loc cloudLocation, hc *http.Client) (*S3Bu
 	return &S3Bucket{client: client, loc: loc, clk: clock.Real{}}, nil
 }
 
-// s3Endpoint is FACTORY_S3_ENDPOINT, checked: an http or https URL with a host and nothing
-// after it. A refused value is shown redacted: it may hold a user and password.
+// s3Endpoint is FACTORY_S3_ENDPOINT, checked: https://host[:port], or http:// on a loopback
+// host, with nothing after it. A refused value is shown redacted: it may hold a user and
+// password.
 func s3Endpoint() (string, error) {
 	raw := os.Getenv(S3EndpointEnv)
 	if raw == "" {
 		return "", nil
 	}
+	const want = "want https://host[:port], or http:// on localhost, 127.0.0.1 or [::1]"
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("objectstore: %s is not a URL: want http(s)://host[:port]", S3EndpointEnv)
+		return "", fmt.Errorf("objectstore: %s is not a URL: %s", S3EndpointEnv, want)
 	}
-	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
-		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
-		return "", fmt.Errorf("objectstore: %s=%q: want http(s)://host[:port]", S3EndpointEnv, u.Redacted())
+	switch {
+	case u.User != nil:
+		return "", fmt.Errorf("objectstore: %s=%q: credentials in the URL are refused (they come from the default chain): %s", S3EndpointEnv, u.Redacted(), want)
+	case u.Scheme == "http" && !isLoopbackHost(u.Hostname()):
+		return "", fmt.Errorf("objectstore: %s=%q: http:// is only for a loopback host: %s", S3EndpointEnv, u.Redacted(), want)
+	case (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "":
+		return "", fmt.Errorf("objectstore: %s=%q: %s", S3EndpointEnv, u.Redacted(), want)
 	}
 	return u.Scheme + "://" + u.Host, nil
+}
+
+// isLoopbackHost reports the hosts an http:// endpoint may name.
+func isLoopbackHost(host string) bool {
+	switch strings.ToLower(host) {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return false
 }
 
 // String is the bucket's URL.
