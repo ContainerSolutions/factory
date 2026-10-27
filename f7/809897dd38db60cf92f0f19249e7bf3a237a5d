@@ -1,0 +1,2 @@
+lisa-addressed:
+- Fixed (coordinator, closing phase): api-server.md no longer names auth.GitHubOwners / OwnerVerifier / agent-owner checks; --auth-provider, --github-url, --github-api-url described as the UI login's (auth provider also the enrollment owner's). The self-review's "Dropped" item is now done.
