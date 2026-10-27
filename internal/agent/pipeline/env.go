@@ -65,8 +65,8 @@ func ownerEnv(environ []string) map[string]string {
 }
 
 // reservedEnv are the variables the pipeline sets itself (commonEnv, and buildEnv), which
-// Options.Env may not set; so are the GIT_CONFIG_KEY_<n> and GIT_CONFIG_VALUE_<n> entries and
-// every FACTORY_STACK_* name the stack's Up returns (reservedEnvPrefixes). A collision is New's
+// Options.Env may not set; so are the GIT_CONFIG_KEY_<n> and GIT_CONFIG_VALUE_<n> entries
+// (reservedEnvPrefixes). A collision is New's
 // error, not a silently lost value. GH_TOKEN isn't one: Options.Env may set its placeholder,
 // which a job's real token replaces.
 var reservedEnv = []string{
@@ -76,10 +76,8 @@ var reservedEnv = []string{
 	EnvHeadless, EnvHarness, EnvTaskID, EnvAPI, EnvToken, EnvOut, EnvResult, EnvEffector,
 }
 
-// reservedEnvPrefixes are the reserved name prefixes: the helper's process-scoped git config,
-// and the stack's variables (stack.State.Env: FACTORY_STACK_URL, _API, _PROJECT, _VERSIONS,
-// _DIR), which buildEnv copies over the environment.
-var reservedEnvPrefixes = []string{"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "FACTORY_STACK_"}
+// reservedEnvPrefixes are the reserved name prefixes: the helper's process-scoped git config.
+var reservedEnvPrefixes = []string{"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"}
 
 // Options.Env may not set a variable that can change what git or the shell runs, or which
 // credential helper answers: every GIT_* name but the CA ones the gateway needs
@@ -184,9 +182,6 @@ func (r *run) buildEnv(context.Context) error {
 			env[EnvGHToken] = tok
 		}
 	}
-	for k, v := range r.stackEnv {
-		env[k] = v
-	}
 	for k, v := range r.envVars {
 		env[k] = v
 	}
@@ -220,9 +215,8 @@ func (r *run) pluginBins() []string {
 	return out
 }
 
-// hosts are the git host, the dispatcher's host, when the stack is up the hosts of its UI
-// and API (FACTORY_STACK_URL, FACTORY_STACK_API), and then the Task's spec.hosts, each
-// once and in that order: a sandboxed harness reaches only these.
+// hosts are the git host, the dispatcher's host and then the Task's spec.hosts, each once
+// and in that order: a sandboxed harness reaches only these.
 func (r *run) hosts() []string {
 	var out []string
 	add := func(h string) {
@@ -235,13 +229,6 @@ func (r *run) hosts() []string {
 	}
 	if u, err := url.Parse(r.job.Dispatcher); err == nil {
 		add(u.Hostname())
-	}
-	for _, k := range stackURLVars {
-		if v := r.stackEnv[k]; v != "" {
-			if u, err := url.Parse(v); err == nil {
-				add(u.Hostname())
-			}
-		}
 	}
 	for _, h := range r.taskHosts() {
 		add(h)
@@ -269,9 +256,6 @@ func (r *run) taskHosts() []string {
 	}
 	return out
 }
-
-// stackURLVars are the stack's variables whose hosts the harness must reach (local-stack.md).
-var stackURLVars = []string{"FACTORY_STACK_URL", "FACTORY_STACK_API"}
 
 // envList is env as sorted KEY=value entries.
 func envList(env map[string]string) []string {

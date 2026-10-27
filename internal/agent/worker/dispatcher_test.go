@@ -214,7 +214,7 @@ func TestAgainstRealDispatcher(t *testing.T) {
 
 	plain, _ := cliClient(t, d.URL)
 	logs := &logBuffer{}
-	stub := &runner.Stub{
+	stub := &stubRunner{
 		Progress: []v1alpha1.ProgressEvent{{At: time.Now().UTC(), Kind: "step", Message: "planning the epic"}},
 		Usage:    &runner.UsageDelta{InputTokens: 1200, OutputTokens: 300},
 		Outcome: runner.Outcome{Result: &v1alpha1.Result{

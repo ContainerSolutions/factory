@@ -1,56 +1,47 @@
-package runner
+package worker_test
 
 import (
 	"context"
 	"sync"
 
+	"github.com/compliance-framework/factory/internal/agent/runner"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
-// Stub is a Runner that reports canned progress and usage, optionally waits, and returns a
-// canned Outcome, for worker tests and for development before the run pipeline exists. It is
-// safe for concurrent use.
-type Stub struct {
+// stubRunner is a runner.Runner that reports canned progress and usage, optionally waits,
+// and returns a canned Outcome. It is safe for concurrent use.
+type stubRunner struct {
 	// Outcome is returned for every job; its Result (if any) is copied with Task set to the
 	// job's task. The zero Outcome is done with an empty Result.
-	Outcome Outcome
+	Outcome runner.Outcome
 	// Err, when set, is returned instead of the Outcome.
 	Err error
 	// Progress and Usage are reported to the sink before the run ends.
 	Progress []v1alpha1.ProgressEvent
-	Usage    *UsageDelta
+	Usage    *runner.UsageDelta
 	// Hold, when set, is waited on before returning: the run ends when Hold is closed (with
 	// the Outcome) or ctx is done (with failed{cancelled}).
 	Hold <-chan struct{}
 
-	mu   sync.Mutex
-	jobs []*Job
+	mu sync.Mutex
 	// started is signalled once per started job.
-	started chan *Job
+	started chan *runner.Job
 }
 
 // Started returns a channel that receives each job as its run starts (buffered; jobs beyond
-// its capacity are not signalled, only recorded in Jobs).
-func (s *Stub) Started() <-chan *Job {
+// its capacity are not signalled).
+func (s *stubRunner) Started() <-chan *runner.Job {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started == nil {
-		s.started = make(chan *Job, 64)
+		s.started = make(chan *runner.Job, 64)
 	}
 	return s.started
 }
 
-// Jobs returns the jobs run so far.
-func (s *Stub) Jobs() []*Job {
+// Run implements runner.Runner.
+func (s *stubRunner) Run(ctx context.Context, job *runner.Job, sink runner.Sink) (runner.Outcome, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]*Job(nil), s.jobs...)
-}
-
-// Run implements Runner.
-func (s *Stub) Run(ctx context.Context, job *Job, sink Sink) (Outcome, error) {
-	s.mu.Lock()
-	s.jobs = append(s.jobs, job)
 	if s.started != nil {
 		select {
 		case s.started <- job:
@@ -69,17 +60,17 @@ func (s *Stub) Run(ctx context.Context, job *Job, sink Sink) (Outcome, error) {
 		select {
 		case <-s.Hold:
 		case <-ctx.Done():
-			return Outcome{Status: StatusFailed, Reason: ReasonCancelled}, nil
+			return runner.Outcome{Status: runner.StatusFailed, Reason: runner.ReasonCancelled}, nil
 		}
 	}
 	if s.Err != nil {
-		return Outcome{}, s.Err
+		return runner.Outcome{}, s.Err
 	}
 	out := s.Outcome
 	if out.Status == "" {
-		out.Status = StatusDone
+		out.Status = runner.StatusDone
 	}
-	if out.Result != nil || out.Status != StatusThrottled {
+	if out.Result != nil || out.Status != runner.StatusThrottled {
 		var r v1alpha1.Result
 		if out.Result != nil {
 			r = *out.Result

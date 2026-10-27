@@ -77,7 +77,7 @@ func TestRunEnvironmentOnTheHost(t *testing.T) {
 				t.Fatalf("outcome %+v %v", out, err)
 			}
 			mu.Lock()
-			if want := []string{"workspace", "credentials", "clone", "stack", "environment", "skills", "schema", "prompt", "env", "prepare", "harness", "finish"}; !slices.Equal(steps, want) {
+			if want := []string{"workspace", "credentials", "clone", "environment", "skills", "schema", "prompt", "env", "prepare", "harness", "finish"}; !slices.Equal(steps, want) {
 				t.Errorf("steps %v, want %v", steps, want)
 			}
 			mu.Unlock()
@@ -95,8 +95,8 @@ func TestRunEnvironmentOnTheHost(t *testing.T) {
 	}
 }
 
-// In gateway mode, as the VM workspace runs it, the environment step calls Up after clone and
-// the stack and before skills, with the pipeline's own environment; what Up returns reaches the
+// In gateway mode, as the VM workspace runs it, the environment step calls Up after clone
+// and before skills, with the pipeline's own environment; what Up returns reaches the
 // harness. An Up that fails ends the run failed{environment-error} before the harness, and Down
 // runs anyway, after Finished, with no deadline of its own.
 func TestRunEnvironmentGatewayMode(t *testing.T) {
@@ -110,9 +110,9 @@ func TestRunEnvironmentGatewayMode(t *testing.T) {
 		events []string
 	}{
 		{name: "up", status: runner.StatusDone,
-			events: []string{"step stack", "up", "step environment", "step skills", "step schema", "step prompt", "step env", "step prepare", "step harness", "step finish", "finished", "down"}},
+			events: []string{"up", "step environment", "step skills", "step schema", "step prompt", "step env", "step prepare", "step harness", "step finish", "finished", "down"}},
 		{name: "up fails", upErr: errUp, status: runner.StatusFailed, reason: runner.ReasonEnvironmentError,
-			events: []string{"step stack", "up", "step environment", "step finish", "finished", "down"}},
+			events: []string{"up", "step environment", "step finish", "finished", "down"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()

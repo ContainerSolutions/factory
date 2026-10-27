@@ -22,7 +22,6 @@ func TestHosts(t *testing.T) {
 	base := []string{"github.com", "factory.example.dev"}
 	tests := []struct {
 		name  string
-		stack map[string]string
 		task  []string
 		want  []string
 		warns int
@@ -45,12 +44,6 @@ func TestHosts(t *testing.T) {
 			warns: 5,
 		},
 		{
-			name:  "after the local stack",
-			stack: map[string]string{"FACTORY_STACK_URL": "http://localhost:5173", "FACTORY_STACK_API": "http://127.0.0.2:8080"},
-			task:  []string{"proxy.golang.org"},
-			want:  append(slices.Clone(base), "localhost", "127.0.0.2", "proxy.golang.org"),
-		},
-		{
 			name:  "past the cap ignored",
 			task:  many,
 			want:  append(slices.Clone(base), many[:v1alpha1.MaxWorkspaceHosts]...),
@@ -61,11 +54,10 @@ func TestHosts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var logs bytes.Buffer
 			r := &run{
-				job:      &runner.Job{Dispatcher: "https://factory.example.dev/api"},
-				task:     v1alpha1.Task{Spec: v1alpha1.TaskRunSpec{Hosts: tt.task}},
-				base:     &url.URL{Scheme: "https", Host: "github.com"},
-				stackEnv: tt.stack,
-				log:      slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})),
+				job:  &runner.Job{Dispatcher: "https://factory.example.dev/api"},
+				task: v1alpha1.Task{Spec: v1alpha1.TaskRunSpec{Hosts: tt.task}},
+				base: &url.URL{Scheme: "https", Host: "github.com"},
+				log:  slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})),
 			}
 			if got := r.hosts(); !slices.Equal(got, tt.want) {
 				t.Errorf("hosts %q, want %q", got, tt.want)

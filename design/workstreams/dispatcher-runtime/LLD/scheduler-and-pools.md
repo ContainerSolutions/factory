@@ -38,7 +38,6 @@ Per candidate `(task, agent)` the matcher checks, in order (first failing reason
 | 6 | `requires.labels` ⊆ agent labels | `no-capable-agent` |
 | 7 | harness resolution `patterns.Resolve(TaskSpec.allowed, task.request, agent.offer)` succeeds | `no-capable-agent` |
 | 8 | **anti-affinity**: if TaskSpec identity is `reviewer`, the PR's last author Run's agent == this agent and its harness == the harness this lease resolves (row 7), skip unless it's the only Ready agent in the pool for > `--anti-affinity-wait` (default 10 min; `0` turns the row off) | `anti-affinity` |
-| 9 | `has-local-stack` tasks: agent has no other `has-local-stack` task running | `agent-busy` |
 
 Selection among matching pairs:
 

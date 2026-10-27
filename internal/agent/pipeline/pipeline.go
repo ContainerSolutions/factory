@@ -22,7 +22,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,19 +51,11 @@ const (
 // cleanupTimeout bounds the transcript upload after the run ended.
 const cleanupTimeout = 30 * time.Second
 
-// StackDownTimeout bounds Stack.Down in cleanup: compose down stops a dozen containers and
-// removes their volumes, and the showcase profile also deletes a kind cluster, which takes
-// longer than cleanupTimeout.
+// StackDownTimeout bounds a VM environment's down script (envrun's DownTimeout, vmrun's
+// --down-timeout): local-dev's compose down stops a dozen containers and removes their
+// volumes, and the showcase profile also deletes a kind cluster, which takes longer than
+// cleanupTimeout. The name predates the environment: it was the host stack's budget.
 const StackDownTimeout = 3 * time.Minute
-
-// Stack brings the local CCF stack up for a task that needs one (local-stack.md,
-// AGT-S1-T06). Up returns the variables to add to the harness's environment
-// (FACTORY_STACK_URL, FACTORY_STACK_API); Down is called once in cleanup after a successful
-// Up.
-type Stack interface {
-	Up(ctx context.Context, ws harness.Workspace, t v1alpha1.Task) (map[string]string, error)
-	Down(ctx context.Context) error
-}
 
 // GitAuth is how the run's git authenticates to the git host (workspace-run.md §Gateway mode).
 type GitAuth int
@@ -109,7 +100,7 @@ type Options struct {
 	// (SSL_CERT_FILE, GIT_SSL_CAINFO, NODE_EXTRA_CA_CERTS, …), a GH_TOKEN placeholder,
 	// DOCKER_CONFIG. New refuses a variable the pipeline sets itself (HOME, TMPDIR, the XDG
 	// and PATH ones, the GIT_* and GCM_* ones of the git setup, the credential socket and the
-	// FACTORY_* ones of the harness's environment, every FACTORY_STACK_* one), and one that
+	// FACTORY_* ones of the harness's environment), and one that
 	// could add a credential helper or change what git or the shell runs: every GIT_* name
 	// but GIT_SSL_CAINFO and GIT_SSL_CAPATH, SSH_ASKPASS, LD_*, DYLD_*, BASH_ENV and ENV. On
 	// the host it is usually empty.
@@ -146,8 +137,6 @@ type Options struct {
 	// Transcripts keeps the redacted, gzipped transcript. Default: APITranscripts, the
 	// dispatcher's uploadTranscript through the job's client.
 	Transcripts TranscriptStore
-	// Stack brings the local stack up; nil: tasks that need one fail with stack-error.
-	Stack Stack
 	// Environment brings up a task's spec.environment (the VM workspace's envrun); nil on the
 	// host, where such a task's environment is skipped with a warning.
 	Environment Environment
@@ -169,7 +158,7 @@ type Options struct {
 	// BotName and BotEmail are the commit author set in the writable checkout.
 	BotName, BotEmail string
 	// OnStep, when set, is called after each step that ran with its name, its duration and
-	// its error (nil on success): workspace, credentials, clone, stack, environment (only for
+	// its error (nil on success): workspace, credentials, clone, environment (only for
 	// a task that declares one), skills, schema, prompt, env, prepare, harness, repair (only
 	// after an invalid Result) and finish (its error is the transcript's). The error is redacted with the run's redactor
 	// (its tokens and anything shaped like one): its Error() is the redacted text, and it
@@ -178,7 +167,7 @@ type Options struct {
 	// errors.Unwrap or errors.As returns.
 	OnStep func(name string, d time.Duration, err error)
 	// Finished, when set, is called once with the run's Outcome at the end of finish, after
-	// the transcript is stored and before cleanup (the stack's Down, the credential socket,
+	// the transcript is stored and before cleanup (the environment's Down, the credential socket,
 	// the workspace's removal). It isn't called when Run returns an error.
 	Finished func(runner.Outcome)
 }
@@ -335,10 +324,8 @@ type run struct {
 
 	ws        harness.Workspace
 	creds     *gitcred.Server
-	base      *url.URL // where repos are cloned from
-	protocols string   // GIT_ALLOW_PROTOCOL
-	stackUp   bool
-	stackEnv  map[string]string
+	base      *url.URL          // where repos are cloned from
+	protocols string            // GIT_ALLOW_PROTOCOL
 	envUp     bool              // Environment.Up was called
 	envVars   map[string]string // what it returned
 	adapter   harness.Adapter
@@ -427,7 +414,6 @@ func (r *run) execute(ctx context.Context) stepResult {
 		{"workspace", runner.ReasonHarnessError, r.makeWorkspace},
 		{"credentials", runner.ReasonHarnessError, r.startCredentials},
 		{"clone", runner.ReasonHarnessError, r.cloneRepos},
-		{"stack", runner.ReasonStackError, r.stackUpIfNeeded},
 	}
 	if needsEnvironment(r.task) {
 		steps = append(steps, step{"environment", runner.ReasonEnvironmentError, r.environmentUp})
@@ -544,7 +530,7 @@ func (r *run) finish(parent context.Context, s stepResult) runner.Outcome {
 	// A step that failed because a limit or a rate limit cancelled it (the clone was
 	// cancelled by the wall-clock timer) ended for that reason.
 	if cause := r.mon.stopped(); cause != nil && s.status == runner.StatusFailed &&
-		(s.reason == runner.ReasonHarnessError || s.reason == runner.ReasonStackError ||
+		(s.reason == runner.ReasonHarnessError ||
 			s.reason == runner.ReasonEnvironmentError || s.reason == runner.ReasonCancelled) {
 		s = stepFromCause(cause)
 	}
@@ -603,7 +589,7 @@ func (r *run) harnessInfo(u v1alpha1.Usage) *v1alpha1.ResultHarness {
 	}
 }
 
-// cleanup always runs: the environment and the stack down, the credential socket closed, the
+// cleanup always runs: the environment down, the credential socket closed, the
 // workspace removed (run-pipeline.md §Steps 12), except a Root, which is kept for whoever
 // collects out/.
 func (r *run) cleanup(parent context.Context) {
@@ -613,13 +599,6 @@ func (r *run) cleanup(parent context.Context) {
 		if err := r.p.o.Environment.Down(context.WithoutCancel(parent)); err != nil {
 			r.log.Warn("environment down failed", "err", r.red.String(err.Error()))
 		}
-	}
-	if r.stackUp {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), StackDownTimeout)
-		if err := r.p.o.Stack.Down(ctx); err != nil {
-			r.log.Warn("stack down failed", "err", r.red.String(err.Error()))
-		}
-		cancel()
 	}
 	if r.creds != nil {
 		if err := r.creds.Close(); err != nil {
@@ -788,9 +767,4 @@ func (m *monitor) totals(wall time.Duration) v1alpha1.Usage {
 		u.WallClock = v1alpha1.Duration(wall.Round(time.Second).String())
 	}
 	return u
-}
-
-// containsLabel reports whether the task requires label.
-func containsLabel(t v1alpha1.Task, label string) bool {
-	return t.Spec.Requires != nil && slices.Contains(t.Spec.Requires.Labels, label)
 }

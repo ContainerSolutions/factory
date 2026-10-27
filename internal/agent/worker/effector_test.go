@@ -46,7 +46,7 @@ func TestEffectorAgainstRealDispatcher(t *testing.T) {
 	_ = res.Body.Close()
 	plain, _ := cliClient(t, d.URL)
 	hold := make(chan struct{})
-	stub := &runner.Stub{Hold: hold, Outcome: runner.Outcome{Result: &v1alpha1.Result{
+	stub := &stubRunner{Hold: hold, Outcome: runner.Outcome{Result: &v1alpha1.Result{
 		Status: v1alpha1.ResultDone, Outcome: "single", Summary: "one issue",
 		Harness: &v1alpha1.ResultHarness{Name: "codex", EffectiveConfig: v1alpha1.EffectiveConfig{Model: "gpt-5-codex"}},
 		Data:    map[string]any{"plan": []any{}},

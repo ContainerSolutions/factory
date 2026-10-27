@@ -552,37 +552,3 @@ func copyTree(src, dst string, skip map[string]bool, b *budget) error {
 		return fmt.Errorf("%s: a special file (%s)", p, d.Type())
 	})
 }
-
-// stackUpIfNeeded brings the local stack up when the task needs one (run-pipeline.md §Steps
-// 4): it requires has-local-stack and its inputs name versions (train or verifyAgainst).
-func (r *run) stackUpIfNeeded(ctx context.Context) error {
-	if !containsLabel(r.task, "has-local-stack") {
-		return nil
-	}
-	in := r.task.Spec.Inputs
-	if isEmpty(in["train"]) && isEmpty(in["verifyAgainst"]) {
-		return nil
-	}
-	if r.p.o.Stack == nil {
-		return errors.New("the task needs the local stack, and this agent has none (configure localDev and the has-local-stack label)")
-	}
-	env, err := r.p.o.Stack.Up(ctx, r.ws, r.task)
-	if err != nil {
-		return fmt.Errorf("stack up: %w", err)
-	}
-	r.stackUp = true
-	r.stackEnv = env
-	return nil
-}
-
-func isEmpty(v any) bool {
-	switch x := v.(type) {
-	case nil:
-		return true
-	case string:
-		return x == ""
-	case map[string]any:
-		return len(x) == 0
-	}
-	return false
-}
