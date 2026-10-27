@@ -11,3 +11,8 @@ import (
 func (h *helper) lock(context.Context) (func(), error) {
 	return nil, errors.New("kata-helper needs flock")
 }
+
+// buildLock: without flock, image-build doesn't sweep or build.
+func (h *helper) buildLock() (func(), error) {
+	return nil, errors.New("kata-helper needs flock")
+}

@@ -40,9 +40,15 @@ func run(t *testing.T, r Runner, args ...string) (int, string, string) {
 // runIn runs a verb with o, stdin and fresh stdout and stderr.
 func runIn(t *testing.T, o Options, stdin io.Reader, args ...string) (int, string, string) {
 	t.Helper()
+	return runCtx(t, context.Background(), o, stdin, args...)
+}
+
+// runCtx is runIn with ctx: a signal ends Main's.
+func runCtx(t *testing.T, ctx context.Context, o Options, stdin io.Reader, args ...string) (int, string, string) {
+	t.Helper()
 	var out, errOut bytes.Buffer
 	o.Stdin, o.Stdout, o.Stderr = stdin, &out, &errOut
-	code := Run(context.Background(), o, args)
+	code := Run(ctx, o, args)
 	return code, out.String(), errOut.String()
 }
 

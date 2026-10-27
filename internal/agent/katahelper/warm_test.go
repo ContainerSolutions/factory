@@ -90,6 +90,22 @@ func TestWarmLoadFails(t *testing.T) {
 	})
 }
 
+// TestWarmLoadCancel: a signal mid-pull, or mid-stream (the save hung, the load waiting on
+// it), stops every command warm-load runs.
+func TestWarmLoadCancel(t *testing.T) {
+	for _, hang := range []string{"pull", "save"} {
+		t.Run(hang, func(t *testing.T) {
+			f := created(t)
+			var got strings.Builder
+			f.exec = loadInto(&got, false)
+			f.hang, f.hangs = hang, 1
+			if code, errOut := cancelWhenHung(t, f, nil, "warm-load", ws, "postgres:17.5"); code != 1 || !strings.Contains(errOut, "context canceled") {
+				t.Errorf("code %d, stderr %q", code, errOut)
+			}
+		})
+	}
+}
+
 // TestWarmPromote: a stopped workspace's disk replaces the warm disk, and rm then removes the
 // rest of it; a running one, or one without a disk, is refused and nothing moves.
 func TestWarmPromote(t *testing.T) {

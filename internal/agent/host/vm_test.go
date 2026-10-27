@@ -74,12 +74,15 @@ func (f *fakeTart) stop(vm string) {
 	}
 }
 
-func (r *fakeRunner) RunInput(_ context.Context, in io.Reader, out io.Writer, name string, args ...string) error {
+func (r *fakeRunner) RunInput(ctx context.Context, in io.Reader, out io.Writer, name string, args ...string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	call := strings.Join(append([]string{name}, args...), " ") + " <stdin"
 	r.calls = append(r.calls, call)
 	if isHelper(name, args) {
+		if d, ok := ctx.Deadline(); ok {
+			r.kata.bound = time.Until(d)
+		}
 		return r.kata.run(call, out, in, args[2:])
 	}
 	return r.tart.run(call, out, in, args)
@@ -1284,7 +1287,7 @@ func TestProvisionScript(t *testing.T) {
 }
 
 // TestExecRunnerProcesses runs real, harmless processes: Start's Stop ends a sleep, and
-// RunInput feeds stdin.
+// RunInput feeds stdin (TestExecRunnerCancel: a cancelled call).
 func TestExecRunnerProcesses(t *testing.T) {
 	if _, err := exec.LookPath("sleep"); err != nil {
 		t.Skip("no sleep")
@@ -1307,5 +1310,73 @@ func TestExecRunnerProcesses(t *testing.T) {
 	var out bytes.Buffer
 	if err := (ExecRunner{}).RunInput(context.Background(), strings.NewReader("hello"), &out, "cat"); err != nil || out.String() != "hello" {
 		t.Errorf("RunInput: %v %q", err, out.String())
+	}
+}
+
+// standInSudo is a stand-in for sudo running the kata helper: on SIGTERM it takes a moment to
+// clean up, as the helper does, and says so in <itself>.cleaned. A SIGKILL leaves no file.
+const standInSudo = `#!/bin/sh
+trap 'sleep 0.2; : > "$0.cleaned"; exit 143' TERM
+: > "$0.ready"
+while :; do sleep 0.05; done
+`
+
+// TestExecRunnerCancel: when ctx ends, a sudo -n call (the kata helper's verbs), through Run or
+// RunInput, gets SIGTERM, which sudo relays, and the time to clean up; anything else, the root
+// script's sudo /bin/sh included, is killed.
+func TestExecRunnerCancel(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	for _, tt := range []struct {
+		name, prog string
+		args       []string
+		input      bool
+		cleaned    bool
+	}{
+		{"helper verb", "sudo", []string{"-n", "/usr/local/libexec/factory-agent/kata-helper", "warm-load", "ws-tsk_x", "postgres:17"}, false, true},
+		{"helper verb with stdin", "sudo", []string{"-n", "/usr/local/libexec/factory-agent/kata-helper", "image-build", "factory-agent-base:0.1.0"}, true, true},
+		{"root script", "sudo", []string{"/bin/sh", "root.sh"}, false, false},
+		{"another program", "tart", []string{"-n", "x"}, false, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), tt.prog)
+			if err := os.WriteFile(p, []byte(standInSudo), 0o700); err != nil { //nolint:gosec // the test's own script
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() {
+				var out bytes.Buffer
+				if tt.input {
+					done <- ExecRunner{}.RunInput(ctx, strings.NewReader("context.tar"), &out, p, tt.args...)
+					return
+				}
+				done <- ExecRunner{}.Run(ctx, &out, p, tt.args...)
+			}()
+			for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+				if _, err := os.Stat(p + ".ready"); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("the stand-in didn't start")
+				}
+			}
+			start := time.Now()
+			cancel()
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Error("a cancelled call succeeded")
+				}
+			case <-time.After(helperGrace / 2):
+				t.Fatalf("the call ran on %s after its context ended", helperGrace/2)
+			}
+			_, err := os.Stat(p + ".cleaned")
+			if cleaned := err == nil; cleaned != tt.cleaned {
+				t.Errorf("cleaned up %v, want %v (after %s)", cleaned, tt.cleaned, time.Since(start))
+			}
+		})
 	}
 }

@@ -164,6 +164,53 @@ func TestImageBuildRefused(t *testing.T) {
 	})
 }
 
+// TestImageBuildCancel: a signal mid-build stops nerdctl build and removes the context copy.
+func TestImageBuildCancel(t *testing.T) {
+	f := newHost(t)
+	f.hang, f.hangs = "build", 1
+	if code, errOut := cancelWhenHung(t, f, contextTar(t, goodContext...), "image-build", tag); code != 1 || !strings.HasSuffix(errOut, "context canceled\n") {
+		t.Errorf("code %d, stderr %q", code, errOut)
+	}
+	if left := f.leftContexts(t); len(left) > 0 {
+		t.Errorf("left %q", left)
+	}
+}
+
+// TestImageBuildSweeps: the contexts a killed image-build left go before the next build; while
+// one runs (it holds BuildDir's lock), another builds nothing and sweeps nothing.
+func TestImageBuildSweeps(t *testing.T) {
+	f := newHost(t)
+	stale := f.root + BuildDir + "/context-123"
+	if err := os.MkdirAll(stale, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale+"/Dockerfile", []byte("FROM stale\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := &helper{o: f.opts()}
+	unlock, err := h.buildLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _, errOut := runIn(t, f.opts(), contextTar(t, goodContext...), "image-build", tag)
+	unlock()
+	if code != 1 || errOut != "kata-helper image-build: another image-build is running\n" || len(f.calls) > 0 {
+		t.Errorf("while another runs: code %d, stderr %q, calls %q", code, errOut, f.calls)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Errorf("a running build's context was swept: %v", err)
+	}
+	if code, _, errOut := runIn(t, f.opts(), contextTar(t, goodContext...), "image-build", tag); code != 0 {
+		t.Fatalf("code %d, stderr %q", code, errOut)
+	}
+	if left := f.leftContexts(t); len(left) > 0 {
+		t.Errorf("left %q", left)
+	}
+	if !strings.Contains(fmt.Sprint(f.built), "FROM x") {
+		t.Errorf("built %q", f.built)
+	}
+}
+
 // TestImageFailures: nerdctl build's and rmi's failures (an image a workspace uses) carry
 // nerdctl's last line, after build's output; the context is removed after a failed build.
 func TestImageFailures(t *testing.T) {

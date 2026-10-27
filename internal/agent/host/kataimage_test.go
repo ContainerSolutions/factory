@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/host/provision"
 )
@@ -32,6 +33,8 @@ type fakeKata struct {
 	warm       bool
 	ws         map[string]string
 	dockerDown int
+	// bound is how long the last call fed on stdin (image-build) had until its deadline.
+	bound time.Duration
 }
 
 func (k *fakeKata) run(call string, out io.Writer, in io.Reader, args []string) error {
@@ -227,6 +230,10 @@ func TestKataImageBuild(t *testing.T) {
 	want := []string{"Dockerfile 0644", "base.sh 0755", "factory-docker-storage 0755", "factory-docker-storage.service 0644", "factory-init 0755"}
 	if !slices.Equal(r.kata.built, want) {
 		t.Errorf("the context %q, want %q", r.kata.built, want)
+	}
+	// the build is bounded on this side too, beyond the helper's own 90 minutes.
+	if b := r.kata.bound; b <= kataImageTimeout-time.Minute || b > kataImageTimeout {
+		t.Errorf("image-build's bound %s, want %s", b, kataImageTimeout)
 	}
 	var rec KataBaseRecord
 	if err := json.Unmarshal([]byte(readFile(t, e.KataBaseRecordPath())), &rec); err != nil {

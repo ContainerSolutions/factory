@@ -20,7 +20,8 @@ const ws = "ws-tsk_0123456789abcdef0123"
 // fakeHost answers the helper's commands as the host would and records them: nerdctl keeps
 // containers, ip link add/del makes and removes /sys/class/net/<bridge> under root, cp and
 // truncate make the disk. A call containing fail fails; one containing hang blocks until its
-// context is done, hangs times.
+// context is done, hangs times, and sends its call on hung when that's set. running counts the
+// calls that haven't returned.
 type fakeHost struct {
 	t    *testing.T
 	root string
@@ -30,6 +31,8 @@ type fakeHost struct {
 	containers map[string]bool // name -> running
 	fail, hang string
 	hangs      int
+	hung       chan string
+	running    int
 	// exec is what nerdctl exec does.
 	exec func(stdin io.Reader, stdout, stderr io.Writer) error
 	// images are the images nerdctl has; built is the context nerdctl build got: each file's
@@ -68,14 +71,19 @@ func (f *fakeHost) Run(ctx context.Context, env []string, stdin io.Reader, stdou
 	}
 	f.mu.Lock()
 	f.calls = append(f.calls, call)
+	f.running++
 	hang := f.hang != "" && strings.Contains(call, f.hang) && f.hangs > 0
 	if hang {
 		f.hangs--
 	}
 	fail := f.fail != "" && strings.Contains(call, f.fail)
 	f.mu.Unlock()
+	defer func() { f.mu.Lock(); f.running--; f.mu.Unlock() }()
 	switch {
 	case hang:
+		if f.hung != nil {
+			f.hung <- call
+		}
 		<-ctx.Done()
 		return ctx.Err()
 	case fail:
@@ -430,4 +438,30 @@ func TestExec(t *testing.T) {
 			t.Errorf("code %d, stderr %q", code, errOut.String())
 		}
 	})
+}
+
+// cancelWhenHung runs a verb with a context it cancels once the fake's hang begins, as a
+// signal ends Main's, and checks the verb stopped every command it ran.
+func cancelWhenHung(t *testing.T, f *fakeHost, stdin io.Reader, args ...string) (int, string) {
+	t.Helper()
+	f.hung = make(chan string, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-f.hung:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	code, _, errOut := runCtx(t, ctx, f.opts(), stdin, args...)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.hangs > 0 {
+		t.Fatalf("%q never hung on %q: code %d, stderr %q", args, f.hang, code, errOut)
+	}
+	if f.running > 0 {
+		t.Errorf("%q returned with %d commands still running", args, f.running)
+	}
+	return code, errOut
 }
