@@ -27,6 +27,17 @@ RUN --mount=type=bind,source=base.sh,target=/tmp/base.sh \
     FACTORY_BASE_MODE=image bash /tmp/base.sh
 USER root
 
+# The workspace's hostname resolves without DNS: sudo looks it up on every call. systemd, PID 1,
+# sets the hostname from /etc/hostname with the characters a hostname can't have dropped, so
+# ws-tsk_<id> (nerdctl's --hostname, which its /etc/hosts maps) becomes ws-tsk<id>, which
+# nothing maps. nss-myhostname answers for the hostname, whatever it is; its package puts it
+# after dns, so it goes before. A layer of its own, after base.sh's, keeps that one cached.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libnss-myhostname \
+    && rm -rf /var/lib/apt/lists/* \
+    && sed -i -E 's/^hosts:.*/hosts:          files myhostname dns/' /etc/nsswitch.conf \
+    && grep -qE '^hosts:[[:space:]]+files myhostname dns$' /etc/nsswitch.conf
+
 COPY --chmod=0755 factory-init factory-docker-storage /usr/local/sbin/
 COPY --chmod=0644 factory-docker-storage.service /etc/systemd/system/
 
