@@ -168,11 +168,23 @@ objects, under the in-process `Scheduler.mu` ("checked and charged atomically in
 - the budgets.
 
 Two instances, each up to a sync interval behind, could lease two *different* tasks and break a
-queue's `concurrency: 1`. So once a poll has a candidate, the commit takes the store lock
-`sched`, which syncs the instance. Then it reloads the snapshot, checks the candidate again and
-commits, all under the lock. Every lease commit, on every instance, serialises on that lock: two
-writes per lease granted, not per poll. It is one lock, not one per pool, because lending lets
-a queue's tasks run in other pools.
+queue's `concurrency: 1`. So every lease commit, on every instance, serialises on one store lock,
+`sched`. It is one lock, not one per pool, because lending lets a queue's tasks run in other
+pools. The section is kept short and bounded:
+- **The git credentials are minted before the lock.** Minting is the slow call to GitHub. A
+  credential minted for a candidate that then fails the re-check is left to expire (an hour at
+  most), as today when a commit fails after the mint.
+- **The lock is taken with a 2 s context.** A timeout is `errSkip`: the poll goes on to the next
+  pass, as after a lost CAS. `Scheduler.mu` is held during this wait, so other polls on the
+  instance (and `Refresh`, `Explain`) wait up to 2 s too. That is acceptable for an occasional
+  lease, and the wait is bounded.
+- **The lock's TTL is 30 s, and the section runs under a 15 s deadline (TTL/2).** The section is
+  taking the lock (which syncs), reloading the snapshot, checking the candidate again, and the
+  commit's writes. The lock can't expire under a running section, so a second instance can't
+  take it mid-commit. A section that hits the deadline fails like a commit error today: the
+  task is unleased, or its lease expires.
+- **Cost:** two writes per commit attempt, a candidate that fails the re-check included. That is
+  a few per lease granted, not per poll.
 
 The scheduler's other in-process state stays per instance and only affects preference, never a
 limit:
@@ -250,9 +262,18 @@ Event and both post the same notice. So:
 - **Start-up work runs when an instance becomes leader, not when it starts.** A Cloud Run cold
   start must not redo it each time:
   - **The work-item rebuild from markers** (`wic.Rebuild`) re-lists every bound provider's
-    objects on GitHub. It runs only on a leader that finds the store empty: a fresh bucket, or
-    one whose state was lost. Otherwise the stored items are authoritative, as in the file
-    store, and the leader's work-item resync observes what changed on GitHub meanwhile.
+    objects on GitHub. It runs once per bucket, not once per leader:
+    1. When it succeeds, the leader creates a completion record (internal kind
+       `RebuildDone`). A leader that finds the record skips the rebuild. From then on the
+       stored items are authoritative, as in the file store, and the work-item resync observes
+       what changed on GitHub meanwhile.
+    2. Until the record exists, the leader doesn't start the controllers that read work items
+       (rule, debounce, work-item).
+    3. A failed or partial rebuild is retried with backoff while the instance leads. If it loses
+       the lead, the next leader starts the rebuild again. A rebuild is idempotent: items
+       already stored are `Existing`. Today `serve` exits when the rebuild fails, and the next
+       start retries it.
+    4. A new bucket or prefix has no record, so its first leader rebuilds.
   - **The provider's delivery recovery** (`pc.Recover`) runs on becoming leader, with `since`
     set to that moment. Today `since` is the process start.
 - **The leader** is whoever holds the `leader` lock: TTL 3 minutes, renewed every minute. Every
@@ -264,7 +285,7 @@ Event and both post the same notice. So:
   create. **Provider calls** are guarded differently. `applier.send` calls the provider
   (`conn.Apply`) *before* it records the Effect, so the Effect's deterministic id doesn't stop a
   double post. What stops it is the work-item lock, which every reconcile that applies
-  effects takes (rule, debounce, run) and which is now store-wide, together with the provider's
+  effects takes (rule, debounce) and which is now store-wide, together with the provider's
   own idempotency markers.
 
   The `serve` PR audits every store write **and every provider call** a leader-only loop or the
@@ -362,7 +383,11 @@ is a scheduler change, not a store change. The sync interval trades read freshne
   - lock exclusion and expiry reclaim across stores;
   - a leased task heartbeated through the other store;
   - two schedulers on two stores, polling at once against a queue with `concurrency: 1`:
-    exactly one task leased.
+    exactly one task leased;
+  - a `sched` holder that dies inside the section: the lock expires after its TTL, the next
+    commit proceeds, and no task is leased twice;
+  - a rebuild that fails half-way on one leader is finished by the next, and the rule,
+    debounce and work-item controllers start only after `RebuildDone` exists.
 - **Faults** (fake bucket):
   - lost races at every step;
   - a create that timed out but landed, and one that didn't;
@@ -396,7 +421,7 @@ module path. There are three PRs, each through lisa and ccf-review:
    CI job).
 3. **`serve --state-url`**:
    - the leader lock, and which loops run where;
-   - the rebuild and recovery on becoming leader;
+   - the rebuild (once per bucket, behind `RebuildDone`) and the recovery on becoming leader;
    - the scheduler's `sched` lock around lease commits;
    - the audit of the leader-only loops' store writes and provider calls;
    - `factory state --state-url` (read-only, as `--state-dir` is);
