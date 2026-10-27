@@ -3,3 +3,9 @@ lisa-design:
 - The decline is not persisted (Gustavo's decision): no state-dir file, unlike pf.optout; the next host init asks again. Init returns nil error; the final check reports the skipped steps as they are (not ok), so init and host check exit 1.
 - --yes and --dry-run are unchanged (no prompt, so no decline).
 - The fake runner refuses sudo -n kata-helper calls ("sudo: a password is required", exit 1) unless the helper is installed (fakeRunner.helper set by installPrivileges, or by the fake sudo script when it installs the sudoers rule) and sudoErr is nil, in both Run and RunInput.
+
+lisa-selfreview:
+pass 1 (request_changes):
+- [nit 3b6eadbc8b1a] host.go Init: the rewrapped doc comment leaves one line past the comment's wrap width.
+- out of scope, for the PR body's Deferred: init --only kataimage (or katawarm) on a host whose privileges step isn't ok never asks about privileges, so the step still runs the helper and fails with sudo's error.
+pass 1 thinker: the nit is fixed (strict pass); the --only case stays deferred (the spec covers the declined prompt only).
