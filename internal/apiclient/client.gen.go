@@ -980,7 +980,7 @@ type PoolView struct {
 
 // Problem An RFC 9457 problem detail.
 type Problem struct {
-	// Code A stable machine-readable code: `idempotency-key-required`, `effect-not-allowed`, `lease-expired`, ….
+	// Code A stable machine-readable code: `idempotency-key-required`, `effect-not-allowed`, `lease-expired`, `store-read-only`, ….
 	Code *string `json:"code,omitempty"`
 
 	// Detail This occurrence's explanation.
@@ -4955,6 +4955,7 @@ type RegisterAgentResponse struct {
 	ApplicationproblemJSON400     *BadRequest
 	ApplicationproblemJSON401     *Unauthorized
 	ApplicationproblemJSON403     *Forbidden
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -4988,6 +4989,7 @@ type DeregisterAgentResponse struct {
 	ApplicationproblemJSON401     *Unauthorized
 	ApplicationproblemJSON403     *Forbidden
 	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -5023,6 +5025,7 @@ type UpdateAgentResponse struct {
 	ApplicationproblemJSON401     *Unauthorized
 	ApplicationproblemJSON403     *Forbidden
 	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -5058,6 +5061,7 @@ type LeaseTaskResponse struct {
 	ApplicationproblemJSON401     *Unauthorized
 	ApplicationproblemJSON403     *Forbidden
 	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -5090,6 +5094,7 @@ type AuthCallbackResponse struct {
 	HTTPResponse                  *http.Response
 	ApplicationproblemJSON400     *BadRequest
 	ApplicationproblemJSON403     *Forbidden
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -5181,6 +5186,7 @@ func (r LoginResponse) ContentType() string {
 type LogoutResponse struct {
 	Body                          []byte
 	HTTPResponse                  *http.Response
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -5413,6 +5419,7 @@ type PostCommandResponse struct {
 	ApplicationproblemJSON401     *Unauthorized
 	ApplicationproblemJSON403     *Forbidden
 	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -5481,6 +5488,7 @@ type CreateEnrollmentResponse struct {
 	ApplicationproblemJSON400     *BadRequest
 	ApplicationproblemJSON401     *Unauthorized
 	ApplicationproblemJSON403     *Forbidden
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -5514,6 +5522,7 @@ type DeleteEnrollmentResponse struct {
 	ApplicationproblemJSON401     *Unauthorized
 	ApplicationproblemJSON403     *Forbidden
 	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -5585,6 +5594,7 @@ type AbandonLeaseResponse struct {
 	ApplicationproblemJSON403     *Forbidden
 	ApplicationproblemJSON404     *NotFound
 	ApplicationproblemJSON409     *Conflict
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -5620,6 +5630,7 @@ type CompleteLeaseResponse struct {
 	ApplicationproblemJSON403     *Forbidden
 	ApplicationproblemJSON404     *NotFound
 	ApplicationproblemJSON409     *Conflict
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -5656,6 +5667,7 @@ type HeartbeatLeaseResponse struct {
 	ApplicationproblemJSON403     *Forbidden
 	ApplicationproblemJSON404     *NotFound
 	ApplicationproblemJSON409     *Conflict
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -5856,6 +5868,7 @@ type UploadEnvironmentLogResponse struct {
 	ApplicationproblemJSON403     *Forbidden
 	ApplicationproblemJSON404     *NotFound
 	ApplicationproblemJSON413     *PayloadTooLarge
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -5925,6 +5938,7 @@ type UploadTranscriptResponse struct {
 	ApplicationproblemJSON403     *Forbidden
 	ApplicationproblemJSON404     *NotFound
 	ApplicationproblemJSON413     *PayloadTooLarge
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -6095,6 +6109,7 @@ type CreateEffectResponse struct {
 	ApplicationproblemJSON403     *Forbidden
 	ApplicationproblemJSON404     *NotFound
 	ApplicationproblemJSON429     *TooManyRequests
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -6230,6 +6245,7 @@ type DeleteWorkItemResponse struct {
 	ApplicationproblemJSON403     *Forbidden
 	ApplicationproblemJSON404     *NotFound
 	ApplicationproblemJSON409     *Conflict
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -6298,6 +6314,7 @@ type CloseWorkItemResponse struct {
 	ApplicationproblemJSON401     *Unauthorized
 	ApplicationproblemJSON403     *Forbidden
 	ApplicationproblemJSON404     *NotFound
+	ApplicationproblemJSON503     *ServiceUnavailable
 	ApplicationproblemJSONDefault *Error
 }
 
@@ -6880,6 +6897,13 @@ func ParseRegisterAgentResponse(rsp *http.Response) (*RegisterAgentResponse, err
 		}
 		response.ApplicationproblemJSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -6926,6 +6950,13 @@ func ParseDeregisterAgentResponse(rsp *http.Response) (*DeregisterAgentResponse,
 			return nil, err
 		}
 		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -6988,6 +7019,13 @@ func ParseUpdateAgentResponse(rsp *http.Response) (*UpdateAgentResponse, error) 
 		}
 		response.ApplicationproblemJSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -7049,6 +7087,13 @@ func ParseLeaseTaskResponse(rsp *http.Response) (*LeaseTaskResponse, error) {
 		}
 		response.ApplicationproblemJSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -7088,6 +7133,13 @@ func ParseAuthCallbackResponse(rsp *http.Response) (*AuthCallbackResponse, error
 			return nil, err
 		}
 		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -7174,6 +7226,13 @@ func ParseLogoutResponse(rsp *http.Response) (*LogoutResponse, error) {
 	}
 
 	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -7510,6 +7569,13 @@ func ParsePostCommandResponse(rsp *http.Response) (*PostCommandResponse, error) 
 		}
 		response.ApplicationproblemJSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -7618,6 +7684,13 @@ func ParseCreateEnrollmentResponse(rsp *http.Response) (*CreateEnrollmentRespons
 		}
 		response.ApplicationproblemJSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -7664,6 +7737,13 @@ func ParseDeleteEnrollmentResponse(rsp *http.Response) (*DeleteEnrollmentRespons
 			return nil, err
 		}
 		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -7794,6 +7874,13 @@ func ParseAbandonLeaseResponse(rsp *http.Response) (*AbandonLeaseResponse, error
 		}
 		response.ApplicationproblemJSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -7854,6 +7941,13 @@ func ParseCompleteLeaseResponse(rsp *http.Response) (*CompleteLeaseResponse, err
 			return nil, err
 		}
 		response.ApplicationproblemJSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -7922,6 +8016,13 @@ func ParseHeartbeatLeaseResponse(rsp *http.Response) (*HeartbeatLeaseResponse, e
 			return nil, err
 		}
 		response.ApplicationproblemJSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -8219,6 +8320,13 @@ func ParseUploadEnvironmentLogResponse(rsp *http.Response) (*UploadEnvironmentLo
 		}
 		response.ApplicationproblemJSON413 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -8333,6 +8441,13 @@ func ParseUploadTranscriptResponse(rsp *http.Response) (*UploadTranscriptRespons
 			return nil, err
 		}
 		response.ApplicationproblemJSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -8604,6 +8719,13 @@ func ParseCreateEffectResponse(rsp *http.Response) (*CreateEffectResponse, error
 		}
 		response.ApplicationproblemJSON429 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -8813,6 +8935,13 @@ func ParseDeleteWorkItemResponse(rsp *http.Response) (*DeleteWorkItemResponse, e
 		}
 		response.ApplicationproblemJSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -8920,6 +9049,13 @@ func ParseCloseWorkItemResponse(rsp *http.Response) (*CloseWorkItemResponse, err
 			return nil, err
 		}
 		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ServiceUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
