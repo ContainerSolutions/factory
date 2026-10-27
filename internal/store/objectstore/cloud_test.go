@@ -108,10 +108,14 @@ func TestParseURLClouds(t *testing.T) {
 			t.Fatalf("%s=%s: %v", S3EndpointEnv, ep, err)
 		}
 	}
-	for _, ep := range []string{"minio:9000", "ftp://h", "http://h/path", "http://u:p@h", "http://h?x=1"} {
+	for _, ep := range []string{"minio:9000", "ftp://h", "http://h/path", "http://u:hunter2@h", "http://h?x=1", "http://h:x:y"} {
 		t.Setenv(S3EndpointEnv, ep)
-		if _, err := ParseURL(t.Context(), "s3://bucket"); err == nil || !strings.Contains(err.Error(), S3EndpointEnv) {
+		_, err := ParseURL(t.Context(), "s3://bucket")
+		if err == nil || !strings.Contains(err.Error(), S3EndpointEnv) {
 			t.Fatalf("%s=%s = %v, want refused", S3EndpointEnv, ep, err)
+		}
+		if strings.Contains(err.Error(), "hunter2") {
+			t.Fatalf("the error shows the endpoint's password: %v", err)
 		}
 	}
 	t.Setenv(S3EndpointEnv, "")

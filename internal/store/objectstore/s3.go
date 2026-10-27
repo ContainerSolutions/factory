@@ -96,16 +96,19 @@ func newS3Bucket(ctx context.Context, loc cloudLocation, hc *http.Client) (*S3Bu
 }
 
 // s3Endpoint is FACTORY_S3_ENDPOINT, checked: an http or https URL with a host and nothing
-// after it.
+// after it. A refused value is shown redacted: it may hold a user and password.
 func s3Endpoint() (string, error) {
 	raw := os.Getenv(S3EndpointEnv)
 	if raw == "" {
 		return "", nil
 	}
 	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
+	if err != nil {
+		return "", fmt.Errorf("objectstore: %s is not a URL: want http(s)://host[:port]", S3EndpointEnv)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
 		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
-		return "", fmt.Errorf("objectstore: %s=%q: want http(s)://host[:port]", S3EndpointEnv, raw)
+		return "", fmt.Errorf("objectstore: %s=%q: want http(s)://host[:port]", S3EndpointEnv, u.Redacted())
 	}
 	return u.Scheme + "://" + u.Host, nil
 }
