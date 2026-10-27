@@ -332,3 +332,20 @@ func TestLoadWorkspaceFile(t *testing.T) {
 		t.Fatalf("a worker config without workspace: %+v %v", w, err)
 	}
 }
+
+// GiB parses workspace.size and a task's limits.memory alike: what the contract's
+// LimitsMemoryPattern accepts, and 0 for anything else.
+func TestGiB(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		v    string
+		want int
+	}{
+		{"1Gi", 1}, {"8Gi", 8}, {"64Gi", 64}, {"999999Gi", 999999},
+		{"", 0}, {"0Gi", 0}, {"08Gi", 0}, {"4G", 0}, {"4GiB", 0}, {"4", 0}, {"1000000Gi", 0}, {" 4Gi", 0}, {"-4Gi", 0},
+	} {
+		if got := GiB(tt.v); got != tt.want {
+			t.Errorf("GiB(%q) = %d, want %d", tt.v, got, tt.want)
+		}
+	}
+}

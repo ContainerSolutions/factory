@@ -86,7 +86,8 @@ type RunnerOptions struct {
 	// StateDir is the agent's state dir: runs/<task>/ (the bundle and the VM's out/),
 	// gateway-ca/ and logins/.
 	StateDir string
-	// Spec sizes every workspace (WithDefaults).
+	// Spec is the agent's workspace size (WithDefaults): each workspace's, and the most a
+	// task's limits.cpus and limits.memory get (taskSize).
 	Spec Spec
 	// KeepWorkspace stops each workspace instead of destroying it, and keeps runs/<task>/.
 	KeepWorkspace bool
@@ -196,14 +197,75 @@ func (r *Runner) Run(ctx context.Context, job *runner.Job, sink runner.Sink) (ru
 		}
 		wall = d
 	}
+	spec, capped, err := taskSize(r.o.Spec, job.Lease.Task.Spec.Limits)
+	if err != nil {
+		return runner.Outcome{}, err
+	}
 	start := job.StartedAt
 	if start.IsZero() {
 		start = r.clk.Now()
 	}
-	w := &wsRun{r: r, job: job, sink: sink, id: id, name: name, deadline: start.Add(wall),
+	w := &wsRun{r: r, job: job, sink: sink, id: id, name: name, deadline: start.Add(wall), spec: spec, capped: capped,
 		runDir: filepath.Join(r.o.StateDir, "runs", id), log: r.log.With("task", id, "workspace", name), egress: &egressLog{}}
 	out := w.execute(ctx)
 	return w.finish(ctx, out), nil
+}
+
+// cappedLimit is a task's limit that asked for more than the agent's workspace.size: Requested is
+// the task's value, Granted the agent's, both in limits' form (cpus 12, memory 16Gi).
+type cappedLimit struct {
+	Limit, Requested, Granted string
+}
+
+// taskSize is the workspace's size for a task with limits l (supervise.md, "The workspace
+// runner"): agent (WithDefaults: workspace.size) with each of l.CPUs and l.Memory that is set
+// and smaller in its place. One that is larger is capped at agent's and returned in capped;
+// unset means agent's. l.Memory is parsed as workspace.size.memory is (config.GiB). An invalid
+// l (Limits.Validate) is an error.
+func taskSize(agent Spec, l *v1alpha1.Limits) (spec Spec, capped []cappedLimit, err error) {
+	spec = agent.WithDefaults()
+	if l == nil {
+		return spec, nil, nil
+	}
+	if err := l.Validate(); err != nil {
+		return Spec{}, nil, fmt.Errorf("limits: %w", err)
+	}
+	if l.CPUs > 0 {
+		if l.CPUs <= spec.CPU {
+			spec.CPU = l.CPUs
+		} else {
+			capped = append(capped, cappedLimit{Limit: "cpus", Requested: strconv.Itoa(l.CPUs), Granted: strconv.Itoa(spec.CPU)})
+		}
+	}
+	if l.Memory != "" {
+		if mib := config.GiB(l.Memory) << 10; mib <= spec.MemoryMiB {
+			spec.MemoryMiB = mib
+		} else {
+			capped = append(capped, cappedLimit{Limit: "memory", Requested: l.Memory, Granted: memoryLimit(spec.MemoryMiB)})
+		}
+	}
+	return spec, capped, nil
+}
+
+// memoryLimit is mib in limits.memory's form, or in Mi when it isn't a whole number of GiB
+// (a RunnerOptions.Spec that didn't come from workspace.size).
+func memoryLimit(mib int) string {
+	if mib%1024 == 0 {
+		return strconv.Itoa(mib>>10) + "Gi"
+	}
+	return strconv.Itoa(mib) + "Mi"
+}
+
+// noteCapped warns, in the agent's log and the run's progress, of each limit taskSize capped.
+func (w *wsRun) noteCapped() {
+	for _, c := range w.capped {
+		w.log.Warn("the task's limit is larger than workspace.size: capped", "limit", c.Limit, "requested", c.Requested, "granted", c.Granted)
+		w.sink.Progress(v1alpha1.ProgressEvent{
+			At:      w.r.clk.Now().UTC(),
+			Kind:    harness.KindMessage,
+			Message: fmt.Sprintf("limits.%s %s is larger than the agent's workspace.size: the workspace gets %s", c.Limit, c.Requested, c.Granted),
+		})
+	}
 }
 
 // wsRun is one job's state.
@@ -213,6 +275,8 @@ type wsRun struct {
 	sink     runner.Sink
 	id, name string
 	deadline time.Time
+	spec     Spec          // the workspace's size (taskSize)
+	capped   []cappedLimit // the task's limits taskSize capped: noted at Create
 	runDir   string
 	log      *slog.Logger
 
@@ -269,7 +333,8 @@ func (w *wsRun) execute(ctx context.Context) runner.Outcome {
 
 	d := w.r.o.Driver
 	w.created = true
-	if err := d.Create(ctx, w.name, w.r.o.Spec.WithDefaults()); err != nil {
+	w.noteCapped()
+	if err := d.Create(ctx, w.name, w.spec); err != nil {
 		return w.stepFailed(ctx, "create", err)
 	}
 	netw, err := d.Start(ctx, w.name)
