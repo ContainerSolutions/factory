@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
 // The workspace drivers (P1 §1).
@@ -66,14 +68,18 @@ func (w Workspace) WithDefaults(goos string) Workspace {
 }
 
 // MemoryGiB is size.memory in GiB; 0 when it isn't valid.
-func (s WorkspaceSize) MemoryGiB() int { return gib(s.Memory) }
+func (s WorkspaceSize) MemoryGiB() int { return GiB(s.Memory) }
 
 // DiskGiB is size.disk in GiB; 0 when it isn't valid.
-func (s WorkspaceSize) DiskGiB() int { return gib(s.Disk) }
+func (s WorkspaceSize) DiskGiB() int { return GiB(s.Disk) }
 
-var gibRE = regexp.MustCompile(`^[1-9][0-9]{0,5}Gi$`)
+// gibRE is a size in GiB: the contract's limits.memory pattern, so a task's limits.memory and
+// workspace.size parse alike.
+var gibRE = regexp.MustCompile(v1alpha1.LimitsMemoryPattern)
 
-func gib(v string) int {
+// GiB is v, a whole number of GiB with the Gi suffix (workspace.size.memory and .disk, a task's
+// limits.memory), in GiB; 0 when v isn't one.
+func GiB(v string) int {
 	if !gibRE.MatchString(v) {
 		return 0
 	}
@@ -112,7 +118,7 @@ func (w Workspace) validate() []string {
 		key, v   string
 		min, max int
 	}{{"memory", w.Size.Memory, 2, 64}, {"disk", w.Size.Disk, 20, 500}} {
-		if n := gib(s.v); n < s.min || n > s.max {
+		if n := GiB(s.v); n < s.min || n > s.max {
 			add("size.%s: %q is not from %dGi to %dGi (a whole number of Gi)", s.key, s.v, s.min, s.max)
 		}
 	}

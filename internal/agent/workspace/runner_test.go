@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/netip"
 	"os"
@@ -70,6 +71,7 @@ type fakeDriver struct {
 	mu    sync.Mutex
 	calls []string
 	argv  []string
+	spec  Spec // Create's
 }
 
 func (d *fakeDriver) record(op, name string) error {
@@ -93,9 +95,9 @@ func (d *fakeDriver) Create(_ context.Context, name string, spec Spec) error {
 	if err := d.record("create", name); err != nil {
 		return err
 	}
-	if spec != (Spec{CPU: DefaultCPU, MemoryMiB: DefaultMemoryMiB}) {
-		return fmt.Errorf("spec %+v", spec)
-	}
+	d.mu.Lock()
+	d.spec = spec
+	d.mu.Unlock()
 	return os.MkdirAll(d.vm(name, "/work"), 0o700)
 }
 
@@ -371,6 +373,9 @@ func TestRunnerSuccess(t *testing.T) {
 	if got := r.driver.Calls(); !slices.Equal(got, []string{"create", "start", "put", "exec", "get", "destroy"}) {
 		t.Errorf("driver calls %v", got)
 	}
+	if r.driver.spec != (Spec{CPU: DefaultCPU, MemoryMiB: DefaultMemoryMiB}) {
+		t.Errorf("created with %+v, want the default size", r.driver.spec)
+	}
 	argv := r.driver.argv
 	if want := []string{AgentCommand, "run", "--bundle", BundleDir, "--system-setup", "on", "--proxy", "http://127.0.0.1:3128", "--remaining"}; len(argv) != len(want)+1 || !slices.Equal(argv[:len(want)], want) {
 		t.Fatalf("argv %v", argv)
@@ -527,6 +532,141 @@ func TestRunnerGatewayPort(t *testing.T) {
 			}
 		})
 	}
+}
+
+// taskSize: a task's limits.cpus and limits.memory, each when set, size the workspace up to
+// the agent's size; a larger one is capped at it.
+func TestTaskSize(t *testing.T) {
+	t.Parallel()
+	agent := Spec{CPU: 6, MemoryMiB: 8 << 10}
+	tests := []struct {
+		name       string
+		agent      Spec
+		limits     *v1alpha1.Limits
+		want       Spec
+		wantCapped []cappedLimit
+		wantErr    bool
+	}{
+		{name: "no limits", agent: agent, want: agent},
+		{name: "run limits only", agent: agent, limits: &v1alpha1.Limits{MaxWallClock: "10m"}, want: agent},
+		{name: "agent defaults", limits: &v1alpha1.Limits{}, want: Spec{CPU: DefaultCPU, MemoryMiB: DefaultMemoryMiB}},
+		{name: "smaller", agent: agent, limits: &v1alpha1.Limits{CPUs: 2, Memory: "4Gi"}, want: Spec{CPU: 2, MemoryMiB: 4 << 10}},
+		{name: "equal", agent: agent, limits: &v1alpha1.Limits{CPUs: 6, Memory: "8Gi"}, want: agent},
+		{name: "cpus only", agent: agent, limits: &v1alpha1.Limits{CPUs: 1}, want: Spec{CPU: 1, MemoryMiB: 8 << 10}},
+		{name: "memory only", agent: agent, limits: &v1alpha1.Limits{Memory: "2Gi"}, want: Spec{CPU: 6, MemoryMiB: 2 << 10}},
+		{
+			name: "larger", agent: agent, limits: &v1alpha1.Limits{CPUs: 12, Memory: "16Gi"}, want: agent,
+			wantCapped: []cappedLimit{{"cpus", "12", "6"}, {"memory", "16Gi", "8Gi"}},
+		},
+		{
+			name: "cpus larger, memory smaller", agent: agent, limits: &v1alpha1.Limits{CPUs: 8, Memory: "4Gi"}, want: Spec{CPU: 6, MemoryMiB: 4 << 10},
+			wantCapped: []cappedLimit{{"cpus", "8", "6"}},
+		},
+		{
+			name: "memory larger than a size in Mi", agent: Spec{CPU: 2, MemoryMiB: 1536}, limits: &v1alpha1.Limits{Memory: "2Gi"}, want: Spec{CPU: 2, MemoryMiB: 1536},
+			wantCapped: []cappedLimit{{"memory", "2Gi", "1536Mi"}},
+		},
+		{name: "memory invalid", agent: agent, limits: &v1alpha1.Limits{Memory: "4G"}, wantErr: true},
+		{name: "cpus negative", agent: agent, limits: &v1alpha1.Limits{CPUs: -1}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, capped, err := taskSize(tt.agent, tt.limits)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("taskSize err = %v, want an error %v", err, tt.wantErr)
+			}
+			if got != tt.want || !slices.Equal(capped, tt.wantCapped) {
+				t.Errorf("taskSize = %+v, %+v; want %+v, %+v", got, capped, tt.want, tt.wantCapped)
+			}
+		})
+	}
+}
+
+// The runner creates the workspace at the task's size; a capped limit is a warning in the
+// agent's log and a progress message; invalid limits fail the run before a workspace exists.
+func TestRunnerTaskSize(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		cpus         int
+		memory       string
+		want         Spec
+		wantWarnings []string // the progress messages, and the log's limit=… attributes
+		wantErr      bool
+	}{
+		{name: "unset", want: Spec{CPU: 6, MemoryMiB: 8 << 10}},
+		{name: "smaller", cpus: 2, memory: "4Gi", want: Spec{CPU: 2, MemoryMiB: 4 << 10}},
+		{name: "partly set", memory: "4Gi", want: Spec{CPU: 6, MemoryMiB: 4 << 10}},
+		{
+			name: "larger", cpus: 12, memory: "16Gi", want: Spec{CPU: 6, MemoryMiB: 8 << 10},
+			wantWarnings: []string{"limits.cpus 12 is larger than the agent's workspace.size: the workspace gets 6", "limits.memory 16Gi is larger than the agent's workspace.size: the workspace gets 8Gi"},
+		},
+		{name: "invalid", memory: "16GB", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t, v1alpha1.HarnessResolved{Name: fake.Name, Model: "m"}, func(_ context.Context, r *rig, out string, _ *runbundle.Encoder) error {
+				writeOutcome(r.t, out, runbundle.Outcome{Status: runner.StatusDone, Result: doneResult()})
+				return nil
+			})
+			r.opts.Spec = Spec{CPU: 6, MemoryMiB: 8 << 10}
+			var logs lockedBuffer
+			r.opts.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+			l := *r.job.Lease.Task.Spec.Limits
+			l.CPUs, l.Memory = tt.cpus, tt.memory
+			r.job.Lease.Task.Spec.Limits = &l
+			rn, err := NewRunner(r.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := rn.Run(context.Background(), r.job, r.sink)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "limits") || len(r.driver.Calls()) != 0 {
+					t.Fatalf("Run = %+v, %v (driver calls %v), want a limits error and no workspace", out, err, r.driver.Calls())
+				}
+				return
+			}
+			if err != nil || out.Status != runner.StatusDone {
+				t.Fatalf("Run = %+v, %v", out, err)
+			}
+			if r.driver.spec != tt.want {
+				t.Errorf("created with %+v, want %+v", r.driver.spec, tt.want)
+			}
+			var msgs []string
+			for _, p := range r.sink.progress {
+				msgs = append(msgs, p.Message)
+			}
+			if !slices.Equal(msgs, tt.wantWarnings) {
+				t.Errorf("progress %q, want %q", msgs, tt.wantWarnings)
+			}
+			if got := strings.Count(logs.String(), "level=WARN msg=\"the task's limit is larger than workspace.size: capped\""); got != len(tt.wantWarnings) {
+				t.Errorf("%d capped warnings in the log, want %d:\n%s", got, len(tt.wantWarnings), logs.String())
+			}
+			if len(tt.wantWarnings) > 0 && (!strings.Contains(logs.String(), "limit=cpus requested=12 granted=6") || !strings.Contains(logs.String(), "limit=memory requested=16Gi granted=8Gi")) {
+				t.Errorf("the log doesn't name the requested and granted sizes:\n%s", logs.String())
+			}
+		})
+	}
+}
+
+// lockedBuffer is a bytes.Buffer a logger can share across goroutines.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 func TestRunnerKeepWorkspace(t *testing.T) {
