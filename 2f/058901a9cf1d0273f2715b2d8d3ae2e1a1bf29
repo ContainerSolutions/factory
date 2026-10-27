@@ -1,0 +1,5 @@
+lisa-design:
+- The check is helperRequired(steps, sts, only) in kataprivileges.go, called in Init right after the initial Check and before the platform error, prompts, plan and apply: it only fires with --only (a full init selects privileges, so #204's declined-prompt behaviour is untouched).
+- It fires when a selected helper step (helperStep: kataimage, katawarm) is not ok AND privileges is not ok (missing, outdated or wrong) AND privileges is not in --only. A helper step that is already ok never triggers it; the tart driver has no privileges step, so it never applies there.
+- The error is a typed *HelperRequiredError{Steps, Privileges Status} (validation error per AGENTS.md); its message picks "isn't installed"/"is out of date"/"isn't usable" from the privileges state and includes that status's detail plus the fix (run `factory-agent host init`, or add privileges to --only).
+- Init returns the initial check's statuses with it, so the CLI prints them as it does for any init error; --dry-run and --yes go through the same path (no bypass).
