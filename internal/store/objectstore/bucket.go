@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -64,13 +65,22 @@ func RegisterScheme(scheme string, open Opener) {
 	schemes[strings.ToLower(scheme)] = open
 }
 
+// quoted matches what url's errors quote (a piece of the URL).
+var quoted = regexp.MustCompile(`"[^"]*"`)
+
 // ParseURL opens the bucket a state URL names: file:///abs/dir (FileBucket),
 // gs://bucket/prefix (GCSBucket), s3://bucket/prefix (S3Bucket), and the schemes registered
 // with RegisterScheme. An unknown scheme is an error naming the known ones.
 func ParseURL(ctx context.Context, rawURL string) (Bucket, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("objectstore: state URL %q: %w", rawURL, err)
+		// Neither the URL nor *url.Error (which repeats it) is printed: it may carry a
+		// credential (s3://key:secret@…). The cause alone, with what it quotes masked.
+		cause := err
+		if ue, ok := errors.AsType[*url.Error](err); ok {
+			cause = ue.Err
+		}
+		return nil, fmt.Errorf("objectstore: the state URL doesn't parse: %s", quoted.ReplaceAllString(cause.Error(), `"…"`))
 	}
 	schemesMu.Lock()
 	open := schemes[strings.ToLower(u.Scheme)]
@@ -81,14 +91,14 @@ func ParseURL(ctx context.Context, rawURL string) (Bucket, error) {
 	schemesMu.Unlock()
 	if open == nil {
 		slices.Sort(known)
-		return nil, fmt.Errorf("objectstore: state URL %q: unknown scheme %q (known: %s)", rawURL, u.Scheme, strings.Join(known, ", "))
+		return nil, fmt.Errorf("objectstore: state URL %q: unknown scheme %q (known: %s)", u.Redacted(), u.Scheme, strings.Join(known, ", "))
 	}
 	return open(ctx, u)
 }
 
 // openFileURL opens file:///abs/dir (or file://localhost/abs/dir).
 func openFileURL(_ context.Context, u *url.URL) (Bucket, error) {
-	if u.Opaque != "" || (u.Host != "" && u.Host != "localhost") || u.Path == "" || u.RawQuery != "" || u.Fragment != "" {
+	if u.Opaque != "" || u.User != nil || (u.Host != "" && u.Host != "localhost") || u.Path == "" || u.RawQuery != "" || u.Fragment != "" {
 		return nil, fmt.Errorf("objectstore: state URL %q: want file:///absolute/dir", u.Redacted())
 	}
 	return NewFileBucket(u.Path)

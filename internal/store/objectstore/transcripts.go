@@ -178,11 +178,15 @@ func (s *Store) evictFor(ctx context.Context, run string, size int64) error {
 			break
 		}
 		dropped, err := s.dropTranscript(ctx, r.Metadata.Name)
-		if err != nil {
-			return err
-		}
 		if !dropped {
+			if err != nil {
+				return err // the record is still there, and counts
+			}
 			continue // re-put or dropped elsewhere meanwhile
+		}
+		if err != nil {
+			// The record is gone, so the bytes no longer count; the blob is the orphan scan's.
+			s.log.Warn("store: an evicted transcript's blob stays until the orphan scan", "run", r.Metadata.Name, "err", err)
 		}
 		total -= r.Size
 		s.log.Info("store: transcript evicted", "run", r.Metadata.Name, "bytes", r.Size,
@@ -210,7 +214,9 @@ func (s *Store) GetTranscript(ctx context.Context, run string) ([]byte, error) {
 	rk := store.Key{Kind: KindTranscriptBlob, Name: run}
 	for attempt := range 2 {
 		if attempt > 0 {
-			if err := s.Sync(ctx); err != nil {
+			// A read-only store answers from what it has (store.md: reads go on): it synced
+			// up to the entry it can't read, and reads the record again from there.
+			if err := s.Sync(ctx); err != nil && !errors.Is(err, store.ErrReadOnly) {
 				return nil, store.Errorf("transcript", k, err, "")
 			}
 		}
