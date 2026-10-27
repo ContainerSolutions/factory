@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -64,36 +63,16 @@ func RegisterScheme(scheme string, open Opener) {
 	schemes[strings.ToLower(scheme)] = open
 }
 
-// RedactURL returns u for an error or a log line with its whole userinfo masked: user and
-// password both, since either may be the credential (url.URL.Redacted masks only a password).
-// Every message about a state URL goes through it.
-func RedactURL(u *url.URL) string {
-	if u == nil {
-		return ""
-	}
-	if u.User == nil {
-		return u.String()
-	}
-	c := *u
-	c.User = url.User("xxxxx")
-	return c.String()
-}
-
-// quoted matches what url's errors quote (a piece of the URL).
-var quoted = regexp.MustCompile(`"[^"]*"`)
-
 // ParseURL opens the bucket a state URL names: file:///abs/dir here (FileBucket), and the
 // schemes registered with RegisterScheme. An unknown scheme is an error naming the known ones.
+//
+// A state URL may carry a credential anywhere (s3://key:secret@…, and a secret holding '/',
+// '?', '#' or '"' doesn't even parse as userinfo), so no error about it prints any of it but
+// its scheme: each says which part is wrong instead.
 func ParseURL(rawURL string) (Bucket, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		// Neither the URL nor *url.Error (which repeats it) is printed: it may carry a
-		// credential (s3://key:secret@…). The cause alone, with what it quotes masked.
-		cause := err
-		if ue, ok := errors.AsType[*url.Error](err); ok {
-			cause = ue.Err
-		}
-		return nil, fmt.Errorf("objectstore: the state URL doesn't parse: %s", quoted.ReplaceAllString(cause.Error(), `"…"`))
+		return nil, errors.New("objectstore: the state URL doesn't parse")
 	}
 	schemesMu.Lock()
 	open := schemes[strings.ToLower(u.Scheme)]
@@ -104,15 +83,29 @@ func ParseURL(rawURL string) (Bucket, error) {
 	schemesMu.Unlock()
 	if open == nil {
 		slices.Sort(known)
-		return nil, fmt.Errorf("objectstore: state URL %q: unknown scheme %q (known: %s)", RedactURL(u), u.Scheme, strings.Join(known, ", "))
+		return nil, fmt.Errorf("objectstore: state URL: unknown scheme %q (known: %s)", u.Scheme, strings.Join(known, ", "))
 	}
 	return open(u)
 }
 
-// openFileURL opens file:///abs/dir (or file://localhost/abs/dir).
+// openFileURL opens file:///abs/dir (or file://localhost/abs/dir). Its errors name the part
+// that is wrong, never the URL.
 func openFileURL(u *url.URL) (Bucket, error) {
-	if u.Opaque != "" || u.User != nil || (u.Host != "" && u.Host != "localhost") || u.Path == "" || u.RawQuery != "" || u.Fragment != "" {
-		return nil, fmt.Errorf("objectstore: state URL %q: want file:///absolute/dir", RedactURL(u))
+	var wrong string
+	switch {
+	case u.User != nil:
+		wrong = "the URL has userinfo"
+	case u.Host != "" && u.Host != "localhost":
+		wrong = "the URL has a host"
+	case u.Opaque != "" || !strings.HasPrefix(u.Path, "/"):
+		wrong = "the URL has a relative path"
+	case u.RawQuery != "" || u.ForceQuery:
+		wrong = "the URL has a query"
+	case u.Fragment != "":
+		wrong = "the URL has a fragment"
+	}
+	if wrong != "" {
+		return nil, fmt.Errorf("objectstore: state URL: want file:///absolute/dir: %s", wrong)
 	}
 	return NewFileBucket(u.Path)
 }

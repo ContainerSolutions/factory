@@ -129,49 +129,53 @@ func TestParseURL(t *testing.T) {
 			t.Fatalf("ParseURL(%s) = %#v", u, b)
 		}
 	}
-	for _, u := range []string{"file://host/dir", "file:relative", "file://" + dir + "?x=1", "::"} {
-		if _, err := ParseURL(u); err == nil {
-			t.Fatalf("ParseURL(%q) was accepted", u)
+	// Each refusal names the part that is wrong.
+	for u, want := range map[string]string{
+		"file://host/dir":          "the URL has a host",
+		"file:relative":            "the URL has a relative path",
+		"file://localhost":         "the URL has a relative path",
+		"file://" + dir + "?x=1":   "the URL has a query",
+		"file://" + dir + "#f":     "the URL has a fragment",
+		"file://u@localhost" + dir: "the URL has userinfo",
+		"::":                       "the state URL doesn't parse",
+		"nope://b/p":               `unknown scheme "nope" (known: file://`,
+	} {
+		if _, err := ParseURL(u); err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("ParseURL(%q) = %v, want an error saying %q", u, err, want)
 		}
 	}
-	if _, err := ParseURL("nope://b/p"); err == nil || !strings.Contains(err.Error(), "file://") {
-		t.Fatalf("unknown scheme = %v, want an error naming file://", err)
-	}
-	// A URL may carry a credential: no error repeats it.
+	// A URL may carry a credential anywhere, and one holding '/', '?', '#' or '"' doesn't
+	// parse as userinfo: no error prints any of the URL but its scheme.
 	for _, u := range []string{
 		"s3a://AKIAEXAMPLE:hunter2@bucket/p",     // unknown scheme
+		"s3a://hunter2@bucket/p",                 // the user alone is the secret
+		"s3a://AKIAEXAMPLE:/hunter2XYZ@bucket/p", // the secret starts with '/': host "AKIAEXAMPLE:", secret in the path
+		`s3://AKIA:se"hunter2XYZ/rest@bucket/p`,  // a quote and a '/' in the secret
+		"s3://AKIA:hun#ter2XYZ@bucket/p",         // a '#': the secret's tail is the fragment
+		"s3://AKIA:hunter2?XYZ@bucket/p",         // a '?': the query
 		"s3://AKIAEXAMPLE:hunter2%zz@bucket/p",   // a bad escape in the userinfo
 		"gs://AKIAEXAMPLE:hunter2@bu cket/p",     // a bad host
 		"s3://AKIAEXAMPLE:hunter2@bucket:port/p", // a bad port
 		"s3://AKIAEXAMPLE:hun ter2@bucket/p",     // bad userinfo
+		"file://u:/hunter2XYZ@localhost/abs/dir", // the reviewer's file:// case
 		"file://u:hunter2@localhost" + dir,       // userinfo on file://
-		"file://u:hunter2@host" + dir,            // and on a host file:// refuses
-		"s3a://hunter2@bucket/p",                 // the user alone is the secret: unknown scheme
-		"file://hunter2@localhost" + dir,         // ... on file://
-		"file://hunter2@host" + dir,              // ... on file:// with a host it refuses
+		"file://hunter2@localhost" + dir,         // the user alone, on file://
+		"file://hunter2@host" + dir,              // and with a host file:// refuses
+		"file://localhost/" + dir + "?hunter2",   // in the query
 	} {
 		_, err := ParseURL(u)
 		if err == nil {
 			t.Fatalf("ParseURL(%q) was accepted", u)
 		}
-		if strings.Contains(err.Error(), "hunter2") || strings.Contains(err.Error(), "hun ter2") {
-			t.Fatalf("ParseURL's error repeats the secret: %v", err)
+		for _, secret := range []string{"hunter2XYZ", "hunter2", "hun ter2", "hun#ter2"} {
+			for n := 3; n <= len(secret); n++ {
+				for i := 0; i+n <= len(secret); i++ {
+					if sub := secret[i : i+n]; strings.Contains(err.Error(), sub) {
+						t.Fatalf("ParseURL(%q)'s error holds %q of the secret: %v", u, sub, err)
+					}
+				}
+			}
 		}
-	}
-
-	for _, tc := range []struct{ in, want string }{
-		{"s3://hunter2@b/p", "s3://xxxxx@b/p"},
-		{"s3://AKIAEXAMPLE:hunter2@b/p", "s3://xxxxx@b/p"},
-		{"gs://b/p", "gs://b/p"},
-	} {
-		u, err := url.Parse(tc.in)
-		must(t, err)
-		if got := RedactURL(u); got != tc.want {
-			t.Fatalf("RedactURL(%s) = %s, want %s", tc.in, got, tc.want)
-		}
-	}
-	if RedactURL(nil) != "" {
-		t.Fatal("RedactURL(nil) isn't empty")
 	}
 
 	fake := NewFakeBucket(nil)
