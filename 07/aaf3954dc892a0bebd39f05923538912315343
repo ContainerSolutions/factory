@@ -1,0 +1,8 @@
+lisa-addressed:
+pass 1: f2c379d077f7 ExecRunner.Grace renamed SudoGrace in host, vmexec and vmrun (no clash with the drivers' exec Grace); 8ed93d6df295 workspace-run.md now says a docker info attempt's timeout ends sudo the same way.
+
+lisa-design:
+- The runners' field is SudoGrace, not Grace: the drivers' Config.Grace (45 s) is the remote exec's, a different delay.
+
+lisa-selfreview:
+pass 2 (strict): approve, no findings (both pass-1 should-fixes verified fixed).
