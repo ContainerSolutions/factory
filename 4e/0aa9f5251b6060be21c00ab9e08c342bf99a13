@@ -1,0 +1,8 @@
+lisa-design:
+- Intake order: rules.CouldFire first, the link lookup only when no rule could fire, so the sync-on-empty costs a GET only before a drop (P3: "syncs ... before it drops anything").
+- One lookup, linkedWorkItem (rule.go), shared by workItemFor and the intake filter; its sync-on-empty applies to both (P3 §Reads and freshness names both callers).
+- The sync goes through an unexported storeSyncer interface + syncIfSupported in internal/controllers/storesync.go, because PR 1 (store.Syncer / store.SyncIfSupported) is built in parallel. Switch to store.SyncIfSupported when restacked onto PR 1.
+- Drop reasons: "no-rule" (no rule's on+providers take the type from the provider) and "out-of-scope" (some do, but their RuleSets' scope doesn't hold the object). Computed from the catalog's public fields in controllers, not by changing internal/rules (CAT-owned).
+- Drops are logged/counted only after the delivery's outcome is written (update or delete), so a retried reconcile doesn't double count.
+- factory_events_dropped_total is fed through server.Options.Intake (a DropCounter interface the ProviderController implements), counts since process start, only label sets seen are rendered, like factory_http_requests_total.
+- Unmapped types (no events) are not counted as drops: there is no event to count; the delivery is just deleted.
