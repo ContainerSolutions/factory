@@ -71,8 +71,15 @@ where `v` is memory's next version. Then:
 
 - **Created:** the write is committed. Memory applies it and tells the watchers, as in the file
   store.
-- **Taken (a lost write):** another dispatcher committed version `v` first. The hook fails the
-  write with an internal `errBehind`, leaving memory untouched. The object store then **syncs**:
+- **Taken:** the hook reads `log/<v>` and compares its nonce with this write's. Both SDKs retry a
+  conditional create on their own (GCS treats `ifGenerationMatch=0` as idempotent, and
+  aws-sdk-go-v2's standard retryer retries PutObject), so "taken" can be this write's own
+  earlier attempt landing. **Its own nonce:** the write is committed, as if the create had
+  succeeded. Re-running it would answer `ErrAlreadyExists` or `ErrConflict` for a write that
+  happened, and callers such as `update()` would apply their change twice: `scheduler.charge`
+  would double-charge a BudgetCounter.
+- **Another nonce (a lost write):** another dispatcher committed version `v` first. The hook fails
+  the write with an internal `errBehind`, leaving memory untouched. The object store then **syncs**:
   it reads `log/<v>`, `log/<v+1>`, and so on until one is missing, and applies them to memory.
   Their watch events fire. Then it **re-runs the caller's operation** against the fresh state:
   - A `Create` whose key now exists gets `ErrAlreadyExists`.
@@ -84,10 +91,9 @@ where `v` is memory's next version. Then:
   A successful create of `log/<v>` proves the writer had applied `1…v-1`. So a CAS checked
   against local memory is a CAS against the whole history, and no two writes can both pass the
   check. After 20 lost races in a row the call fails with an error.
-- **Unknown outcome** (a timeout or a 5xx after the request was sent): the hook reads `log/<v>`.
-  If it holds this write's nonce, the write committed. If it holds another nonce, the write was
-  lost. If it is missing, the create is retried, which is safe because it is create-if-absent.
-  Each request has a 5 s deadline.
+- **Unknown outcome** (a timeout or a 5xx after the request was sent): the hook reads `log/<v>`
+  and goes on as for "taken". If it is missing, the create is retried, which is safe because it
+  is create-if-absent. Each request has a 5 s deadline.
 
 The hook holds memory's write lock for one PUT, about 20–60 ms in-region. Reads wait during it,
 as they wait for the file store's fsync. That is fine at a few writes a second. If it shows up in
@@ -114,9 +120,11 @@ missing):
 
 An up-to-date instance's sync is one GET of a missing object (a 404).
 
-**Stale reads are safe.** A read may be up to one sync interval old. Every decision that matters
-is a CAS write, so a stale read costs a retry, not a wrong result. The rest are notices, such as
-"was a cancel requested?" on a heartbeat, which arrive one heartbeat later.
+**Stale reads are safe where a CAS write follows them.** A read may be up to one sync interval
+old. When the decision ends in a CAS on the object read, a stale read costs a retry, not a wrong
+result. Notices, such as "was a cancel requested?" on a heartbeat, arrive one heartbeat later.
+Decisions that read many objects and write a different one are not covered by a CAS. The
+scheduler's lease matching is the one such decision, and it gets a lock (§Locks and leases).
 
 ### Watches
 
@@ -140,15 +148,38 @@ any other object:
 - **Unlock** deletes the record only at the version this holder last wrote. Memory gets a
   conditional delete for this: it is internal to the store packages, and the `Store` interface
   doesn't change. So a holder never removes a lock someone else reclaimed after it expired.
+  `Unlock()` takes no context and returns no error, so it writes under its own 5 s deadline.
+  A failure is logged at warn and the record is left to expire.
+- **Dead records** (a holder that crashed, or an Unlock that failed) are deleted by the leader's
+  sweeper with the same conditional delete, once expired. So expired locks don't pile up in the
+  snapshots.
 
 So the work-item locks (`wi/<id>`, taken by controllers and by the API's work-item admin
 actions) and the leader lease hold across dispatchers. A locked section costs two writes. Lock
 expiry compares instance clocks; the platforms keep them within milliseconds, and the TTLs are
 minutes.
 
-The scheduler's **task leases** (the `Lease` kind) are already CAS writes on the `Task` and the
-`Lease`, so they need nothing new: two dispatchers matching the same task can't both lease it,
-and the loser skips it.
+**Task leases need one more lock.** The commit is a CAS on the `Task` it leases (lease.go), so
+two dispatchers can't lease the same task. But `tryLease` checks against a snapshot of many
+objects, under the in-process `Scheduler.mu` ("checked and charged atomically in this process"):
+- the queue's concurrency;
+- the agent's capacity;
+- lending;
+- the budgets.
+
+Two instances, each up to a sync interval behind, could lease two *different* tasks and break a
+queue's `concurrency: 1`. So once a poll has a candidate, the commit takes the store lock
+`sched`, which syncs the instance. Then it reloads the snapshot, checks the candidate again and
+commits, all under the lock. Every lease commit, on every instance, serialises on that lock: two
+writes per lease granted, not per poll. It is one lock, not one per pool, because lending lets
+a queue's tasks run in other pools.
+
+The scheduler's other in-process state stays per instance and only affects preference, never a
+limit:
+- `waiting`: fairness picks among the polls parked on the same instance;
+- `heldSince`: the anti-affinity wait;
+- `mintBackoff`: a task whose credentials failed to mint may be tried once more by another
+  instance before its delay ends.
 
 ### Transcripts
 
@@ -158,9 +189,12 @@ it, and read with a GET.
 
 The caps and retention need sizes and creation times on the store's clock. Listing can't give
 these (S3's listing has no custom metadata), so each blob gets an index record of an internal kind,
-`TranscriptBlob`, `{size}` plus the usual `createdAt`, written through the log:
-- **The 2 GB total cap and oldest-first eviction** come from these records, read from memory.
-- **Retention** sweeps the records and deletes their blobs.
+`TranscriptBlob`, `{size, putAt}`, written through the log. `putAt` is set on every put, a replace
+included, on the store's clock. `createdAt` can't serve, because an Update keeps it, and memory's
+transcripts count a replaced blob as new (storetest's `TotalCapEvictsOldest`):
+- **The 2 GB total cap and oldest-first eviction** come from these records, read from memory:
+  the oldest `putAt` goes first, and on a tie the lower resourceVersion goes first.
+- **Retention** sweeps the records by `putAt` and deletes their blobs.
 - **A Run's delete** removes its records and blobs, after the Run's own delete commits.
 
 A crash between the blob and its record leaves an orphan blob. Once a day the leader lists
@@ -206,24 +240,35 @@ Event and both post the same notice. So:
 
 - **Every instance** serves the API: webhooks (which store Deliveries), the agents' register,
   lease, heartbeat and complete calls, the UI and the CLI. The scheduler's lease matching runs
-  in the agent's request on any instance. Each instance also loads its own catalog snapshot, and
-  runs the tick that wakes its parked polls.
+  in the agent's request on any instance, its commit under the `sched` lock (§Locks and leases).
+  Each instance also loads its own catalog snapshot, and runs the tick that wakes its parked
+  polls.
 - **The leader only** runs every loop that writes from a watch or a timer: the controllers
   (provider, rule, debounce, work-item, run), the scheduler's lease controller and its
-  `Refresh`, the sweeper, compaction, the transcript orphan scan, and the App installation
-  check.
+  `Refresh`, the sweeper (lock records included), compaction, the transcript orphan scan, and
+  the App installation check.
+- **Start-up work runs when an instance becomes leader, not when it starts.** A Cloud Run cold
+  start must not redo it each time:
+  - **The work-item rebuild from markers** (`wic.Rebuild`) re-lists every bound provider's
+    objects on GitHub. It runs only on a leader that finds the store empty: a fresh bucket, or
+    one whose state was lost. Otherwise the stored items are authoritative, as in the file
+    store, and the leader's work-item resync observes what changed on GitHub meanwhile.
+  - **The provider's delivery recovery** (`pc.Recover`) runs on becoming leader, with `since`
+    set to that moment. Today `since` is the process start.
 - **The leader** is whoever holds the `leader` lock: TTL 3 minutes, renewed every minute. Every
-  instance tries to take it at start and on each tick. The holder checks it still holds the lock
-  before each reconcile, and stops its loops when Renew fails.
+  instance tries to take it at start and on each tick, with a context of a few seconds, because
+  `Lock` waits while another holder has it. The holder checks it still holds the lock before
+  each reconcile, and stops its loops when Renew fails.
 - **When leaders overlap** (an old leader paused past its TTL, for example by Cloud Run
-  throttling its CPU), the result is still correct:
-  - Every write is a CAS.
-  - Effects are created under deterministic ids (`objectID("eff", idempotencyKey)`), so a
-    duplicate is `ErrAlreadyExists`.
-  - Work items are serialised by the store-wide `wi/` locks.
+  throttling its CPU), the stored state stays correct, because every write is a CAS or a
+  create. **Provider calls** are guarded differently. `applier.send` calls the provider
+  (`conn.Apply`) *before* it records the Effect, so the Effect's deterministic id doesn't stop a
+  double post. What stops it is the work-item lock, which every reconcile that applies
+  effects takes (rule, debounce, run) and which is now store-wide, together with the provider's
+  own idempotency markers.
 
-  The `serve` PR checks that every write a leader-only loop makes is one of these, and fixes any
-  that isn't.
+  The `serve` PR audits every store write **and every provider call** a leader-only loop or the
+  start-up work makes. Each must be one of these, and it fixes any that isn't.
 - **Scale to zero.** With no instance running nothing runs, and nothing needs to. A webhook or an
   agent call starts an instance, which takes the leader lock if it is free. Timed work
   (debounces, lease expiry, schedules) needs a request to happen; item 9 adds a tick endpoint for
@@ -272,8 +317,8 @@ minutes each and 300 webhooks a day:
 
 | Item | Count per month | GCS (us-central1) | S3 |
 |---|---|---|---|
-| Writes (log entries, locks, snapshots, blobs): ~260 per run, ~15 per webhook, leader renewals | ~420,000 Class A / PUT | 5,000 free, then $0.005 per 1,000: **~$2.10** | $0.005 per 1,000: **~$2.10** |
-| Syncs (one GET every 2 s while an instance runs), cold starts | ≤ 1,300,000 Class B / GET | 50,000 free, then $0.0004 per 1,000: **≤ $0.50** | $0.0004 per 1,000: **≤ $0.52** |
+| Writes (log entries, locks, snapshots, blobs): ~260 per run, ~15 per webhook, leader renewals; plus the LISTs (cold starts, the daily orphan scan), billed like writes | ~420,000 Class A / PUT and LIST | 5,000 free, then $0.005 per 1,000: **~$2.10** | $0.005 per 1,000: **~$2.10** |
+| Syncs (one GET every 2 s while an instance runs), cold-start GETs | ≤ 1,300,000 Class B / GET | 50,000 free, then $0.0004 per 1,000: **≤ $0.50** | $0.0004 per 1,000: **≤ $0.52** |
 | Storage: snapshots, a week of log, transcripts | < 2 GB | 5 GB-months free | ~$0.05 |
 | Deletes | — | free | free |
 
@@ -315,10 +360,15 @@ is a scheduler change, not a store change. The sync interval trades read freshne
   - concurrent creates of one key: one gets `ErrAlreadyExists`;
   - B's watch sees A's writes in version order;
   - lock exclusion and expiry reclaim across stores;
-  - a leased task heartbeated through the other store.
+  - a leased task heartbeated through the other store;
+  - two schedulers on two stores, polling at once against a queue with `concurrency: 1`:
+    exactly one task leased.
 - **Faults** (fake bucket):
   - lost races at every step;
   - a create that timed out but landed, and one that didn't;
+  - a create the SDK retried after its first attempt landed ("taken" with the write's own
+    nonce): committed once, no `ErrConflict`, a BudgetCounter charged once;
+  - an Unlock whose write fails: logged, the record expires, and the sweeper removes it;
   - GET and LIST errors during sync;
   - a writer paused past `MaxLag` reloads;
   - a stale writer never re-creates a deleted entry (fake clock across `SegmentRetention`).
@@ -346,7 +396,9 @@ module path. There are three PRs, each through lisa and ccf-review:
    CI job).
 3. **`serve --state-url`**:
    - the leader lock, and which loops run where;
-   - the audit of the leader-only loops' writes;
+   - the rebuild and recovery on becoming leader;
+   - the scheduler's `sched` lock around lease commits;
+   - the audit of the leader-only loops' store writes and provider calls;
    - `factory state --state-url` (read-only, as `--state-dir` is);
    - the two-`serve` test, and the docs.
 

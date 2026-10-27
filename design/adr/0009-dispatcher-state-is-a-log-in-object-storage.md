@@ -26,6 +26,8 @@ transactions, no change feed and no order across objects.
   race reads the entries it missed and checks the write again. Creating N proves the writer saw
   everything before N, so CAS holds across dispatchers.
 - **Locks become stored records** written through the log, so they hold across dispatchers.
+  The scheduler's lease commits, which check limits across many objects, serialise on one
+  such lock.
 - **One leader**, chosen with a store lock, runs the loops that write from watches and timers.
   Every instance serves requests.
 - **The only precondition used is "create if absent".** Nothing is updated in place, except
