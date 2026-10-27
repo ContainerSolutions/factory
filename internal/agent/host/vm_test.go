@@ -80,6 +80,9 @@ func (r *fakeRunner) RunInput(ctx context.Context, in io.Reader, out io.Writer, 
 	call := strings.Join(append([]string{name}, args...), " ") + " <stdin"
 	r.calls = append(r.calls, call)
 	if isHelper(name, args) {
+		if err := r.helperRefused(out); err != nil {
+			return err
+		}
 		if d, ok := ctx.Deadline(); ok {
 			r.kata.bound = time.Until(d)
 		}

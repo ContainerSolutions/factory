@@ -87,6 +87,8 @@ type kataImageStep struct{ e *Env }
 
 func (kataImageStep) Name() string { return kataImageName }
 
+func (kataImageStep) throughHelper() string { return "the image is built" }
+
 func (s kataImageStep) Check(ctx context.Context) (Status, error) {
 	e, p := s.e, s.e.KataBaseRecordPath()
 	var got KataBaseRecord

@@ -343,9 +343,11 @@ other listening services. `+"`factory-agent host init --remove-pf`"+` undoes it.
 // Apply or the sudo script fails. A failed platform check stops it before anything changes.
 // A pf step skipped (--no-pf, or the prompt declined) is recorded as an opt-out in the state
 // dir; one that's installed removes it. The kata driver's privileges step is asked about the
-// same way (unless o.Yes); declined, it's left out. With o.Only, the statedir step is applied
-// too when it isn't ok, since the applies need the dir. The applies hold <statedir>/host.lock:
-// a second Init fails while one runs.
+// same way (unless o.Yes); declined, it's left out, and so are the steps that run the helper it
+// installs (helperStep), each with a warning. Nothing records that decline: the next Init asks
+// again, and the final check reports those steps as they are. With o.Only, the statedir step is
+// applied too when it isn't ok, since the applies need the dir. The applies hold
+// <statedir>/host.lock: a second Init fails while one runs.
 func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	// the kata driver stages its downloads (about 1.3 GB) in <statedir>/stage, not in $TMPDIR,
 	// which may be a tmpfs: it's made once the host lock is held (the dir exists by then) and
@@ -376,6 +378,7 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	var todo []Step
 	var optOut string // the pf opt-out's reason, when the step is skipped
 	pfTodo := false
+	declined := false // the owner declined the privileges step: the helper's steps can't run
 	for i, s := range steps {
 		switch {
 		case sts[i].State == StateOK:
@@ -384,6 +387,9 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 			continue
 		case s.Name() == platformName:
 			return sts, fmt.Errorf("platform: %s", sts[i].Detail)
+		case declined && usesHelper(s):
+			fmt.Fprintf(e.Out, "warning: %s skipped: privileges were declined, and %s through the kata helper\n", s.Name(), s.(helperStep).throughHelper())
+			continue
 		case s.Name() == pfName && o.NoPF:
 			fmt.Fprintln(e.Out, "warning: --no-pf: workspaces can reach every listening service on this Mac's bridge address")
 			optOut = "--no-pf"
@@ -407,6 +413,7 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 			}
 			if !yes {
 				fmt.Fprintln(e.Out, "warning: privileges skipped: supervise --driver kata can't run a workspace without the helper")
+				declined = true
 				continue
 			}
 		}

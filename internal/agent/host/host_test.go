@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
+	"github.com/compliance-framework/factory/internal/agent/katahelper"
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
@@ -51,8 +52,23 @@ type fakeRunner struct {
 	// kata-helper protocol's output, and sudo -n -k -l's error (nil: it lists the helper)
 	helper  string
 	sudoErr error
-	// kata answers sudo -n kata-helper's verbs (kataimage_test.go)
+	// kata answers sudo -n kata-helper's verbs (kataimage_test.go) once the helper is installed
+	// (helper set, as installPrivileges or the sudo script that installs the sudoers rule does)
 	kata fakeKata
+}
+
+// helperRefused is sudo -n's answer to a kata-helper call when the host has no helper and
+// sudoers rule (helper unset), or the rule doesn't cover the call (sudoErr); nil when sudo runs
+// the helper.
+func (r *fakeRunner) helperRefused(out io.Writer) error {
+	if r.helper != "" && r.sudoErr == nil {
+		return nil
+	}
+	_, _ = io.WriteString(out, "sudo: a password is required\n")
+	if r.sudoErr != nil {
+		return r.sudoErr
+	}
+	return errors.New("exit status 1")
 }
 
 // isHelper reports whether a command is sudo -n kata-helper <verb>.
@@ -101,6 +117,9 @@ func (r *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...
 			return errors.New("exit status 1")
 		}
 	case isHelper(name, args):
+		if err := r.helperRefused(out); err != nil {
+			return err
+		}
 		return r.kata.run(call, out, nil, args[2:])
 	case path.Base(name) == "kata-helper" && len(args) == 1 && args[0] == "protocol":
 		if r.helper == "" {
@@ -116,6 +135,9 @@ func (r *fakeRunner) Run(_ context.Context, out io.Writer, name string, args ...
 	case name == "sudo":
 		b, err := os.ReadFile(args[1])
 		r.script = string(b)
+		if err == nil && strings.Contains(r.script, SudoersPath) && r.helper == "" {
+			r.helper = fmt.Sprint(katahelper.Protocol) // the script installed the helper
+		}
 		return err
 	default:
 		return fmt.Errorf("unexpected command %s", name)
