@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/compliance-framework/factory/internal/agent/katahelper"
 )
@@ -44,7 +46,8 @@ names, sizes and slot numbers. Anything that runs as you can run it too.
 
 // helperStep is a step whose Apply runs the helper with sudo -n: without the privileges step,
 // which installs the helper and its sudoers rule, it can't. Init skips it when the owner
-// declines that step.
+// declines that step, and fails up front when --only selects it but not that step while the
+// helper isn't usable (helperRequired).
 type helperStep interface {
 	Step
 	// throughHelper is what the step does through the helper, for Init's warning ("the image
@@ -56,6 +59,55 @@ type helperStep interface {
 func usesHelper(s Step) bool {
 	_, ok := s.(helperStep)
 	return ok
+}
+
+// HelperRequiredError is Init's error when --only selects steps that run the helper while the
+// privileges step, which installs it, isn't ok and isn't selected: their sudo -n calls could
+// only fail, so Init changes nothing.
+type HelperRequiredError struct {
+	// Steps are the selected helper steps that aren't ok, in order.
+	Steps []string
+	// Privileges is the privileges step's status.
+	Privileges Status
+}
+
+func (e *HelperRequiredError) Error() string {
+	why := "isn't usable"
+	switch e.Privileges.State {
+	case StateMissing:
+		why = "isn't installed"
+	case StateOutdated:
+		why = "is out of date"
+	}
+	verb := "needs"
+	if len(e.Steps) > 1 {
+		verb = "need"
+	}
+	return fmt.Sprintf("%s %s the kata helper, which %s (%s %s: %s): run `factory-agent host init`, or add %s to --only",
+		strings.Join(e.Steps, " and "), verb, why, privilegesName, e.Privileges.State, e.Privileges.Detail, privilegesName)
+}
+
+// helperRequired is a *HelperRequiredError when only (--only's set; nil applies every step)
+// selects a helper step that isn't ok while leaving out a privileges step that isn't ok; nil
+// otherwise, and for the tart driver, which has no privileges step.
+func helperRequired(steps []Step, sts []Status, only map[string]bool) error {
+	if only == nil || only[privilegesName] {
+		return nil
+	}
+	i := slices.IndexFunc(steps, func(s Step) bool { return s.Name() == privilegesName })
+	if i < 0 || sts[i].State == StateOK {
+		return nil
+	}
+	var need []string
+	for j, s := range steps {
+		if usesHelper(s) && only[s.Name()] && sts[j].State != StateOK {
+			need = append(need, s.Name())
+		}
+	}
+	if len(need) == 0 {
+		return nil
+	}
+	return &HelperRequiredError{Steps: need, Privileges: sts[i]}
 }
 
 // privilegesStep installs the helper, root-owned, and the sudoers rule for the owner.

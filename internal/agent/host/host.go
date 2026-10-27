@@ -345,8 +345,10 @@ other listening services. `+"`factory-agent host init --remove-pf`"+` undoes it.
 // dir; one that's installed removes it. The kata driver's privileges step is asked about the
 // same way (unless o.Yes); declined, it's left out, and so are the steps that run the helper it
 // installs (helperStep), each with a warning. Nothing records that decline: the next Init asks
-// again, and the final check reports those steps as they are. With o.Only, the statedir step is
-// applied too when it isn't ok, since the applies need the dir. The applies hold
+// again, and the final check reports those steps as they are. An o.Only that selects a helper
+// step that isn't ok but leaves out a privileges step that isn't ok fails at once, before any
+// prompt, plan or apply (a *HelperRequiredError; with DryRun too). With o.Only, the statedir
+// step is applied too when it isn't ok, since the applies need the dir. The applies hold
 // <statedir>/host.lock: a second Init fails while one runs.
 func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	// the kata driver stages its downloads (about 1.3 GB) in <statedir>/stage, not in $TMPDIR,
@@ -375,6 +377,9 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 		return nil, err
 	}
 	sts := Check(ctx, steps)
+	if err := helperRequired(steps, sts, only); err != nil {
+		return sts, err
+	}
 	var todo []Step
 	var optOut string // the pf opt-out's reason, when the step is skipped
 	pfTodo := false

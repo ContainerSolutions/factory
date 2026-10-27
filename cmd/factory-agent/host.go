@@ -53,7 +53,9 @@ func hostUsage(w io.Writer) {
         --no-pf asks again).
         --only basevm,warmbase (kata: kataimage,katawarm) applies only those steps; all are
         still checked and printed, but the exit code judges only those steps, platform and
-        statedir.
+        statedir. kata: --only kataimage or katawarm fails at once, changing nothing, when
+        privileges isn't ok and isn't listed (the kata helper isn't installed or is out of
+        date): run host init, or add privileges to --only.
         --keep-failed keeps a failed VM build's <name>.building VM (kata: the warm disk's
         build workspace), for debugging.
         --remove-pf removes the pf anchor, its LaunchDaemon and its pf.conf line.
