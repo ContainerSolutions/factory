@@ -6,3 +6,10 @@ lisa-design:
 - Drops are logged/counted only after the delivery's outcome is written (update or delete), so a retried reconcile doesn't double count.
 - factory_events_dropped_total is fed through server.Options.Intake (a DropCounter interface the ProviderController implements), counts since process start, only label sets seen are rendered, like factory_http_requests_total.
 - Unmapped types (no events) are not counted as drops: there is no event to count; the delivery is just deleted.
+
+lisa-design:
+- worker.Options.Poll is a value struct (Wait, Interval) with no default: its zero Wait means zero, and the zero Poll is refused by New as a hot loop. worker.DefaultPoll() is the long poll. Rejected: a *Poll with nil meaning the default, which would put the "zero means unset" ambiguity back one level up.
+- The 30s default lives in the config only (poll.wait absent -> "30s"); the config keeps the strings as written (Poll.Wait/Interval) and exposes WaitDuration/IntervalDuration, like WorkspaceSize.MemoryGiB.
+- The config and the worker both check the poll (whole-second wait 0s-60s, non-negative interval, wait 0s needs interval >= 1s): config for the owner's message, worker.New so no caller can hot-loop. config does not import worker (it stays a leaf).
+- Only a 204 sleeps the interval, with the slot released and on loopCtx (drain and abort end it). A lease, a failure (backoff) and a throttle keep their own paths.
+- poll.interval has no upper bound and no whole-second rule (P3 sets neither); a long poll may carry an interval.
