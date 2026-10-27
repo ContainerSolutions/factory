@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
 )
 
 // RunFunc runs prog (a path) with args until it exits or ctx ends, as the runner under test
@@ -48,9 +50,9 @@ func Check(t *testing.T, grace time.Duration, run RunFunc) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			p := filepath.Join(t.TempDir(), tt.prog)
-			if err := os.WriteFile(p, []byte(standIn), 0o700); err != nil { //nolint:gosec // the test's own script
-				t.Fatal(err)
-			}
+			// through exectest: a parallel test's fork could otherwise hold the file open for
+			// writing when run execs it ("text file busy").
+			exectest.Write(t, p, standIn, 0o700)
 			if tt.stubborn {
 				if err := os.WriteFile(p+".stubborn", nil, 0o600); err != nil {
 					t.Fatal(err)
@@ -60,9 +62,14 @@ func Check(t *testing.T, grace time.Duration, run RunFunc) {
 			defer cancel()
 			done := make(chan error, 1)
 			go func() { done <- run(ctx, p, tt.args...) }()
-			for deadline := time.Now().Add(10 * time.Second); !exists(p + ".ready"); time.Sleep(10 * time.Millisecond) {
-				if time.Now().After(deadline) {
+			deadline := time.After(10 * time.Second)
+			for !exists(p + ".ready") {
+				select {
+				case err := <-done:
+					t.Fatalf("the call ended before the stand-in started: %v", err)
+				case <-deadline:
 					t.Fatal("the stand-in didn't start")
+				case <-time.After(10 * time.Millisecond):
 				}
 			}
 			start := time.Now()

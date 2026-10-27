@@ -1,6 +1,7 @@
 package vmexec
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -50,11 +51,7 @@ func (c Cmd) apply(cmd *exec.Cmd) {
 func (r ExecRunner) Run(ctx context.Context, c Cmd) error {
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
 	c.apply(cmd)
-	g := r.SudoGrace
-	if g == 0 {
-		g = sudocancel.HelperGrace
-	}
-	sudocancel.Apply(cmd, g)
+	sudocancel.Apply(cmd, cmp.Or(r.SudoGrace, sudocancel.HelperGrace))
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w", c.Name, err)
 	}

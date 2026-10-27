@@ -1,6 +1,7 @@
 package host
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -39,11 +40,7 @@ const stopGrace = 30 * time.Second
 // helper's verbs (sudo -n) and the root script (sudo /bin/sh) alike, gets SIGTERM, which sudo
 // relays, and SIGKILL only after the runner's SudoGrace; anything else gets SIGKILL.
 func (r ExecRunner) onCancel(cmd *exec.Cmd) {
-	g := r.SudoGrace
-	if g == 0 {
-		g = sudocancel.HelperGrace
-	}
-	sudocancel.Apply(cmd, g)
+	sudocancel.Apply(cmd, cmp.Or(r.SudoGrace, sudocancel.HelperGrace))
 }
 
 // RunInput implements Spawner.
