@@ -36,8 +36,9 @@ const repoRoot = "../.."
 // store.MetaObject accessor, anywhere under internal/) is registered with serve's file store,
 // and nothing else is. A new kind that isn't fails here, rather than at the first write of a
 // dispatcher started with --state-dir (the file store refuses kinds it can't load back). Add
-// it to internalKinds, and to the file store's kind audit (internal/store/filestore
-// fixtures_test.go and store.md §File store).
+// it to internalKinds, and to the stores' secrets audit (internal/store/storeaudit, with a
+// fixture, and store.md §File store); TestStoredSchema then asks for a store.ReadableSchema
+// bump.
 func TestServeStoreKinds(t *testing.T) {
 	mod := modulePath(t)
 	found := map[string]string{} // pkgpath.Type → file
@@ -93,7 +94,7 @@ func TestServeStoreKinds(t *testing.T) {
 	}
 	for typ, file := range found {
 		if _, ok := registered[typ]; !ok {
-			t.Errorf("%s (%s) is a stored kind that factory serve's file store doesn't register: add it to internalKinds (cmd/factory/serve_store.go) and to the file store's kind audit", typ, file)
+			t.Errorf("%s (%s) is a stored kind that factory serve's stores don't register: add it to internalKinds (cmd/factory/serve_store.go) and to the stores' secrets audit (internal/store/storeaudit)", typ, file)
 		}
 	}
 	for typ, kind := range registered {

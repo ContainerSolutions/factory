@@ -2,35 +2,28 @@ package filestore
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 	"github.com/ContainerSolutions/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store/journal"
 	"github.com/ContainerSolutions/factory/internal/store/memory"
 )
 
-// journalLine is one line of journal.jsonl: one committed change.
-type journalLine struct {
-	V    string          `json:"v"`
-	At   time.Time       `json:"at"`
-	Op   memory.Op       `json:"op"`
-	Kind string          `json:"kind"`
-	Name string          `json:"name"`
-	Obj  json.RawMessage `json:"obj,omitzero"`
-}
+// journalLine is one line of journal.jsonl: one committed change (P2's format, without the
+// object store's writer and schema).
+type journalLine = journal.Line
 
 // journalChange is the memory store's commit hook: it appends c to the journal and fsyncs it,
 // so the write is applied (and seen by readers and watchers) only once it is on disk. It runs
 // under the memory store's write lock, so lines are in version order.
-func (s *Store) journalChange(c memory.Change) error {
-	line, err := json.Marshal(journalLine{
-		V: store.FormatVersion(c.Version), At: c.At, Op: c.Op, Kind: c.Key.Kind, Name: c.Key.Name, Obj: c.Data,
-	})
+func (s *Store) journalChange(_ context.Context, c memory.Change) error {
+	line, err := json.Marshal(journal.LineOf(c))
 	if err != nil {
 		return fmt.Errorf("journal: encode: %w", err)
 	}
@@ -91,13 +84,6 @@ func (s *Store) append(line []byte, v uint64) error {
 	return nil
 }
 
-// entry is one object while loading.
-type entry struct {
-	v                uint64
-	created, updated time.Time
-	data             []byte
-}
-
 // load reads the snapshot and replays the journal into the memory store, truncates a torn
 // last line, opens the journal for appending and indexes the transcripts.
 func (s *Store) load() error {
@@ -107,7 +93,7 @@ func (s *Store) load() error {
 			return fmt.Errorf("filestore: remove %s: %w", f, err)
 		}
 	}
-	state := map[store.Key]*entry{}
+	state := journal.State{}
 	snapV, err := s.readSnapshot(state)
 	if err != nil {
 		return err
@@ -117,12 +103,8 @@ func (s *Store) load() error {
 		return err
 	}
 
-	recs := make([]memory.Record, 0, len(state))
-	s.loaded.Version, s.loaded.Snapshot, s.loaded.Objects = version, s.haveSnapshot, map[string]int{}
-	for k, e := range state {
-		recs = append(recs, memory.Record{Key: k, Type: s.types[k.Kind], Data: e.data, Version: e.v, Created: e.created, Updated: e.updated})
-		s.loaded.Objects[k.Kind]++
-	}
+	recs, counts := state.Records(s.types)
+	s.loaded.Version, s.loaded.Snapshot, s.loaded.Objects = version, s.haveSnapshot, counts
 	if err := s.mem.Restore(recs, version); err != nil {
 		return fmt.Errorf("filestore: %w: %w", ErrCorrupt, err)
 	}
@@ -162,7 +144,7 @@ func (s *Store) load() error {
 // replay applies the journal lines above snapV to state. It returns the store version and the
 // length of the journal's good prefix (shorter than the file when the last line is torn), and
 // sets s.marks.
-func (s *Store) replay(state map[store.Key]*entry, snapV uint64) (version uint64, good int64, err error) {
+func (s *Store) replay(state journal.State, snapV uint64) (version uint64, good int64, err error) {
 	data, err := os.ReadFile(filepath.Join(s.dir, journalFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return snapV, 0, nil
@@ -175,7 +157,7 @@ func (s *Store) replay(state map[store.Key]*entry, snapV uint64) (version uint64
 
 // replayData is replay on the journal's bytes. visit, when not nil, is called with each line
 // it applies (those above snapV), in order.
-func (s *Store) replayData(state map[store.Key]*entry, snapV uint64, data []byte, visit func(journalLine, uint64)) (version uint64, good int64, err error) {
+func (s *Store) replayData(state journal.State, snapV uint64, data []byte, visit func(journalLine, uint64)) (version uint64, good int64, err error) {
 	version = snapV
 	off := 0
 	for n := 1; off < len(data); n++ {
@@ -184,7 +166,7 @@ func (s *Store) replayData(state map[store.Key]*entry, snapV uint64, data []byte
 		if i := bytes.IndexByte(line, '\n'); i >= 0 {
 			end, complete, line = off+i+1, true, line[:i]
 		}
-		jl, v, perr := decodeLine(line)
+		jl, v, perr := journal.DecodeLine(line)
 		if !complete && perr == nil {
 			perr = errors.New("no trailing newline")
 		}
@@ -205,7 +187,7 @@ func (s *Store) replayData(state map[store.Key]*entry, snapV uint64, data []byte
 		if v != version+1 {
 			return 0, 0, fmt.Errorf("filestore: %w: %s line %d: version %d, want %d (a change is missing)", ErrCorrupt, journalFile, n, v, version+1)
 		}
-		if err := s.apply(state, jl, v); err != nil {
+		if err := state.Apply(s.types, jl, v); err != nil {
 			return 0, 0, fmt.Errorf("filestore: %w: %s line %d: %w", ErrCorrupt, journalFile, n, err)
 		}
 		version = v
@@ -215,60 +197,4 @@ func (s *Store) replayData(state map[store.Key]*entry, snapV uint64, data []byte
 		}
 	}
 	return version, int64(off), nil
-}
-
-// decodeLine parses and checks one journal line.
-func decodeLine(line []byte) (journalLine, uint64, error) {
-	var jl journalLine
-	if err := json.Unmarshal(line, &jl); err != nil {
-		return jl, 0, fmt.Errorf("invalid JSON: %w", err)
-	}
-	v, err := store.ParseVersion("load", store.Key{}, jl.V)
-	if err != nil || v == 0 {
-		return jl, 0, fmt.Errorf("bad version %q", jl.V)
-	}
-	if jl.Kind == "" || jl.Name == "" {
-		return jl, 0, errors.New("missing kind or name")
-	}
-	switch jl.Op {
-	case memory.OpCreate, memory.OpUpdate:
-		if len(jl.Obj) == 0 {
-			return jl, 0, fmt.Errorf("%s without obj", jl.Op)
-		}
-	case memory.OpDelete:
-	default:
-		return jl, 0, fmt.Errorf("unknown op %q", jl.Op)
-	}
-	return jl, v, nil
-}
-
-// apply replays one change.
-func (s *Store) apply(state map[store.Key]*entry, jl journalLine, v uint64) error {
-	k := store.Key{Kind: jl.Kind, Name: jl.Name}
-	if s.types[k.Kind] == nil {
-		return unknownKind(k.Kind)
-	}
-	old := state[k]
-	switch jl.Op {
-	case memory.OpCreate:
-		if old != nil {
-			return fmt.Errorf("create %s: it exists", k)
-		}
-		state[k] = &entry{v: v, created: jl.At, updated: jl.At, data: jl.Obj}
-	case memory.OpUpdate:
-		if old == nil {
-			return fmt.Errorf("update %s: it doesn't exist", k)
-		}
-		state[k] = &entry{v: v, created: old.created, updated: jl.At, data: jl.Obj}
-	case memory.OpDelete:
-		if old == nil {
-			return fmt.Errorf("delete %s: it doesn't exist", k)
-		}
-		delete(state, k)
-	}
-	return nil
-}
-
-func unknownKind(kind string) error {
-	return fmt.Errorf("kind %q has no Go type registered (filestore.WithKind)", kind)
 }
