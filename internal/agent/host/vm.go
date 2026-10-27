@@ -700,6 +700,18 @@ func (e *Env) buildVM(ctx context.Context, src, final string, set []string, prov
 		return err
 	}
 	defer func() {
+		// stopping a running VM waits up to stopGrace: after an interrupt, say why init waits,
+		// or, with no VM running, that the .building VM goes (a quick tart delete).
+		interrupted := err != nil && !b.renamed && ctx.Err() != nil
+		running := b.proc != nil && !chanClosed(b.proc.Exited())
+		switch {
+		case interrupted && !e.KeepFailed && running:
+			fmt.Fprintf(b.out, "interrupted: stopping and deleting %s (up to %s to stop it; Ctrl-C again leaves it, and the next host init deletes it)\n", b.vm, stopGrace)
+		case interrupted && !e.KeepFailed:
+			fmt.Fprintf(b.out, "interrupted: deleting %s\n", b.vm)
+		case interrupted && running:
+			fmt.Fprintf(b.out, "interrupted: stopping %s (up to %s; --keep-failed keeps it)\n", b.vm, stopGrace)
+		}
 		if b.proc != nil {
 			b.proc.Stop()
 		}
@@ -713,7 +725,9 @@ func (e *Env) buildVM(ctx context.Context, src, final string, set []string, prov
 		// cleanup runs after an interrupt too, so it gets its own context.
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 		defer cancel()
-		fmt.Fprintf(b.out, "the build failed: deleting %s (--keep-failed keeps it)\n", b.vm)
+		if !interrupted {
+			fmt.Fprintf(b.out, "the build failed: deleting %s (--keep-failed keeps it)\n", b.vm)
+		}
 		if derr := b.tart(cctx, "delete", b.vm); derr != nil {
 			err = errors.Join(err, fmt.Errorf("deleting %s: %w", b.vm, derr))
 		}
@@ -785,6 +799,16 @@ func (b *vmBuild) replace(ctx context.Context, final string) error {
 		}
 	}
 	return nil
+}
+
+// chanClosed reports whether c is closed (a process's Exited: it exited).
+func chanClosed(c <-chan struct{}) bool {
+	select {
+	case <-c:
+		return true
+	default:
+		return false
+	}
 }
 
 // tart runs tart with args, its output to the build's.

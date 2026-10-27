@@ -32,11 +32,20 @@ func hostCommand() command {
 		name:    "host",
 		summary: "check or set up this machine as a VM workspace host (tart on a Mac, kata on Linux)",
 		run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-			ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+			ctx, stop := hostSignalContext(ctx)
 			defer stop()
 			return runHost(ctx, args, stdout, stderr, hostDeps{})
 		},
 	}
+}
+
+// hostSignalContext is ctx cancelled by the first SIGINT or SIGTERM: init then stops its
+// applies (a sudo call gets SIGTERM and its grace) and prints a final check. The signals'
+// default handling comes back at once, so a second one ends the process without waiting.
+func hostSignalContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	context.AfterFunc(ctx, stop)
+	return ctx, stop
 }
 
 func hostUsage(w io.Writer) {
@@ -194,6 +203,10 @@ func runHost(ctx context.Context, args []string, stdout, stderr io.Writer, d hos
 			return fail(err)
 		}
 		sts = host.Check(ctx, steps)
+		// interrupted: the statuses are the interrupt's failures, not the host's.
+		if ctx.Err() != nil {
+			return fail(host.Interrupted(ctx, nil))
+		}
 	}
 	if err := printStatuses(stdout, sts, *asJSON); err != nil {
 		return fail(err)

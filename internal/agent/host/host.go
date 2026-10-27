@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
+	"github.com/compliance-framework/factory/internal/agent/sudocancel"
 	"github.com/compliance-framework/factory/internal/clock"
 	"github.com/compliance-framework/factory/internal/version"
 )
@@ -333,6 +334,35 @@ type InitOptions struct {
 	Only []string
 }
 
+// InterruptedError is an operation's error after an interrupt ended its context. Its text says
+// so once ("interrupted", or "interrupted: " and Err's), and it wraps the context's cause as
+// well as Err, so errors.Is(err, context.Canceled) holds.
+type InterruptedError struct {
+	Err, Cause error
+}
+
+func (e *InterruptedError) Error() string {
+	if e.Err == nil {
+		return "interrupted"
+	}
+	return "interrupted: " + e.Err.Error()
+}
+
+func (e *InterruptedError) Unwrap() []error {
+	if e.Err == nil {
+		return []error{e.Cause}
+	}
+	return []error{e.Err, e.Cause}
+}
+
+// Interrupted is err (nil: none) after ctx ended: an *InterruptedError with ctx's cause.
+func Interrupted(ctx context.Context, err error) error {
+	return &InterruptedError{Err: err, Cause: context.Cause(ctx)}
+}
+
+// finalCheckTimeout bounds Init's final check after an interrupt (see Init).
+const finalCheckTimeout = 30 * time.Second
+
 // pfNotice is what Init says before asking about the pf step.
 func pfNotice() string {
 	return fmt.Sprintf(`The pf step lets VMs on %[1]s reach only the gateway port on this Mac.
@@ -356,7 +386,10 @@ other listening services. `+"`factory-agent host init --remove-pf`"+` undoes it.
 // prompt, plan or apply (a *HelperRequiredError; with DryRun too), unless the platform check
 // failed, which comes first. With o.Only, the statedir step is applied too when it isn't ok,
 // since the applies need the dir. The applies hold <statedir>/host.lock: a second Init fails
-// while one runs.
+// while one runs. When ctx ends during the first check (an interrupt), Init returns no
+// statuses and an *InterruptedError at once, before any prompt, plan or apply. When it ends
+// during the applies, the final check runs on a context of its own, bounded by
+// finalCheckTimeout, so it reports the host as it is, and the error is an *InterruptedError.
 func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	// the kata driver stages its downloads (about 1.3 GB) in <statedir>/stage, not in $TMPDIR,
 	// which may be a tmpfs: it's made once the host lock is held (the dir exists by then) and
@@ -384,6 +417,10 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 		return nil, err
 	}
 	sts := Check(ctx, steps)
+	// interrupted during the check: its statuses are the interrupt's failures, not the host's.
+	if ctx.Err() != nil {
+		return nil, Interrupted(ctx, nil)
+	}
 	// a failed platform check comes first, with or without --only: nothing else can be fixed
 	// on that host.
 	if i := slices.IndexFunc(steps, func(s Step) bool { return s.Name() == platformName }); i >= 0 && sts[i].State != StateOK {
@@ -478,6 +515,21 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	// <statedir>/host.lock: a second host init would delete this one's .building VMs.
 	release := func() {}
 	defer func() { release() }()
+	// final is Init's return once the applies start: the final check, and err. After an
+	// interrupt, ctx is done, and a check on it would fail every command it runs (each such
+	// step reported wrong, "context canceled"): the checks are read-only and quick, so they get
+	// a fresh context, bounded, and err says the run was interrupted.
+	final := func(err error) ([]Status, error) {
+		if ctx.Err() == nil {
+			return Check(ctx, steps), err
+		}
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finalCheckTimeout)
+		defer cancel()
+		if err != nil {
+			err = Interrupted(ctx, err)
+		}
+		return Check(cctx, steps), err
+	}
 	locked := false
 	lock := func() error {
 		if locked {
@@ -503,47 +555,47 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	}
 	if optOut != "" && !slices.ContainsFunc(todo, func(s Step) bool { return s.Name() == stateDirName }) {
 		if err := lock(); err != nil {
-			return Check(ctx, steps), err
+			return final(err)
 		}
 		if err := writePFOptOut(e, optOut); err != nil {
-			return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
+			return final(fmt.Errorf("%s: %w", pfName, err))
 		}
 		optOut = ""
 	}
 	for i, s := range todo {
 		if s.Name() != stateDirName {
 			if err := lock(); err != nil {
-				return Check(ctx, steps), err
+				return final(err)
 			}
 		}
 		e.Log.DebugContext(ctx, "host init: apply", "step", s.Name())
 		if err := s.Apply(ctx); err != nil {
-			return Check(ctx, steps), fmt.Errorf("%s: %w", s.Name(), err)
+			return final(fmt.Errorf("%s: %w", s.Name(), err))
 		}
 		// the statedir step, just applied, made the dir the opt-out goes in.
 		if s.Name() == stateDirName && optOut != "" {
 			if err := lock(); err != nil {
-				return Check(ctx, steps), err
+				return final(err)
 			}
 			if err := writePFOptOut(e, optOut); err != nil {
-				return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
+				return final(fmt.Errorf("%s: %w", pfName, err))
 			}
 			optOut = ""
 		}
 		if i == lastRoot {
 			if err := runRoot(ctx, e, script); err != nil {
-				return Check(ctx, steps), err
+				return final(err)
 			}
 			// pf's root lines are in the script, so it's installed now: before the VM builds,
 			// which may fail.
 			if pfTodo {
 				if err := removePFOptOut(e); err != nil {
-					return Check(ctx, steps), fmt.Errorf("%s: %w", pfName, err)
+					return final(fmt.Errorf("%s: %w", pfName, err))
 				}
 			}
 		}
 	}
-	return Check(ctx, steps), nil
+	return final(nil)
 }
 
 // onlySet is --only's step names as a set; nil when there are none. An unknown name is an
@@ -584,10 +636,39 @@ func runRoot(ctx context.Context, e *Env, script string) error {
 	}
 	defer func() { _ = os.Remove(p) }()
 	fmt.Fprintln(e.Out, "running the root actions with sudo (it may ask for your password)")
-	if err := e.Runner.Run(ctx, e.Out, "sudo", "/bin/sh", p); err != nil {
+	out, stop := e.watchSudo(ctx, "the sudo script")
+	err := e.Runner.Run(ctx, out, "sudo", "/bin/sh", p)
+	stop()
+	if err != nil {
 		return fmt.Errorf("the sudo script: %w", err)
 	}
 	return nil
+}
+
+// watchSudo watches ctx for the length of a sudo call (what): when an interrupt cancels ctx
+// while the call runs, ExecRunner gives sudo SIGTERM and up to sudocancel.HelperGrace before
+// SIGKILL, so it prints one line saying why init waits. A ctx already done, or one that only
+// times out, prints nothing. It returns e.Out behind a lock, for the call's output when that
+// goes to e.Out (the line comes from another goroutine, and exec copies output to a writer
+// that isn't a file from one of its own), and stop, to call when the call returns: it ends the
+// watch, or waits for a line being written, so the line comes before what follows the call.
+func (e *Env) watchSudo(ctx context.Context, what string) (io.Writer, func()) {
+	out := &LockedWriter{W: e.Out}
+	if ctx.Err() != nil {
+		return out, func() {}
+	}
+	done := make(chan struct{})
+	unwatch := context.AfterFunc(ctx, func() {
+		defer close(done)
+		if errors.Is(ctx.Err(), context.Canceled) {
+			fmt.Fprintf(out, "interrupted: waiting for %s to stop (up to %s; Ctrl-C again exits now)\n", what, sudocancel.HelperGrace)
+		}
+	})
+	return out, func() {
+		if !unwatch() {
+			<-done
+		}
+	}
 }
 
 var shellSafeRE = regexp.MustCompile(`^[A-Za-z0-9_./:=@%+,-]+$`)

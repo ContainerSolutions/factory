@@ -695,6 +695,216 @@ func TestInitApplyFails(t *testing.T) {
 	}
 }
 
+// interruptRunner is an interrupt as host init's commands see one: the command whose call
+// contains at cancels the run's context (a Ctrl-C while it runs) and fails as sudo then does;
+// every command after that on the cancelled context fails as ExecRunner's would. A command on
+// a live context goes to the fake; after the interrupt, it's counted with its context's bound.
+type interruptRunner struct {
+	*fakeRunner
+	at     string
+	cancel context.CancelFunc
+	mu     sync.Mutex
+	fired  bool
+	// late counts the commands run on a live context after the interrupt; maxBound is their
+	// longest bound, and unbounded is set when one had none.
+	late      int
+	maxBound  time.Duration
+	unbounded bool
+}
+
+func (r *interruptRunner) intercept(ctx context.Context, name string, args []string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch {
+	case !r.fired && strings.Contains(strings.Join(append([]string{name}, args...), " "), r.at):
+		r.fired = true
+		r.cancel()
+		return true, fmt.Errorf("%s: exit status 1", name)
+	case ctx.Err() != nil:
+		return true, fmt.Errorf("%s: %w", name, ctx.Err())
+	case r.fired:
+		r.late++
+		d, ok := ctx.Deadline()
+		r.unbounded = r.unbounded || !ok
+		r.maxBound = max(r.maxBound, time.Until(d))
+	}
+	return false, nil
+}
+
+func (r *interruptRunner) Run(ctx context.Context, out io.Writer, name string, args ...string) error {
+	if done, err := r.intercept(ctx, name, args); done {
+		return err
+	}
+	return r.fakeRunner.Run(ctx, out, name, args...)
+}
+
+func (r *interruptRunner) RunInput(ctx context.Context, in io.Reader, out io.Writer, name string, args ...string) error {
+	if done, err := r.intercept(ctx, name, args); done {
+		return err
+	}
+	return r.fakeRunner.RunInput(ctx, in, out, name, args...)
+}
+
+// TestInitInterrupted: an interrupted sudo script or Apply (the run's context cancelled) stops
+// init, and its final check runs on a live, bounded context, so the steps that were ok are
+// still ok; the error names the interruption.
+func TestInitInterrupted(t *testing.T) {
+	soft := tgz(t, entry{name: "softnet", body: "softnet binary"})
+	tests := []struct {
+		name    string
+		set     func(*testing.T) (*Env, *fakeRunner) // the host
+		o       InitOptions
+		at      string // the interrupted call
+		wantErr string
+		wait    string   // the interrupted call, as the line saying init waits for it names it
+		ok      []string // the final check's ok steps
+		notOK   string   // and the step the interrupt left as it was
+	}{
+		{
+			name: "tart: the sudo script",
+			set: func(t *testing.T) (*Env, *fakeRunner) {
+				e, r := testEnv(t)
+				e.Pins.SoftnetSHA256, e.Pins.SoftnetBinarySHA256 = sum(soft), sum([]byte("softnet binary"))
+				e.LookPath = func(string) (string, error) { return "/opt/homebrew/bin/tart", nil }
+				r.versions["/opt/homebrew/bin/tart"] = TartVersion
+				e.Fetcher = newReleases(t, map[string][]byte{"softnet.tar.gz": soft})
+				return e, r
+			},
+			o: InitOptions{Yes: true}, at: "sudo /bin/sh",
+			wantErr: "interrupted: the sudo script: sudo: exit status 1", wait: "the sudo script",
+			ok: []string{platformName, stateDirName, "tart"}, notOK: "softnet",
+		},
+		{
+			name: "kata: --only kataimage's build",
+			set: func(t *testing.T) (*Env, *fakeRunner) {
+				e, r := kataEnv(t)
+				installKata(t, e, r)
+				writeTestRecord(t, e.KataBaseRecordPath(), KataBaseRecord{Image: "factory-agent-base:0.0.9", ContextSHA256: "old", BuiltAt: "2026-10-01T00:00:00Z"})
+				return e, r
+			},
+			o: InitOptions{Only: []string{"kataimage"}}, at: " image-build ",
+			wantErr: "interrupted: kataimage: kata-helper image-build: sudo: exit status 1", wait: "kata-helper image-build",
+			ok:    []string{platformName, stateDirName, "nerdctl", "kata", "kataconfig", "containerd", "network", privilegesName},
+			notOK: "kataimage",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, fr := tt.set(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			r := &interruptRunner{fakeRunner: fr, at: tt.at, cancel: cancel}
+			e.Runner, e.Spawner = r, r
+			var out bytes.Buffer
+			e.Out = &out
+			sts, err := Init(ctx, e, tt.o)
+			// the interrupted call's line, once; every later call ran on a done or a live context.
+			line := "interrupted: waiting for " + tt.wait + " to stop (up to 30s; Ctrl-C again exits now)\n"
+			if n := strings.Count(out.String(), "interrupted: waiting for "); n != 1 || !strings.Contains(out.String(), line) {
+				t.Errorf("%d waiting lines, want one %q; output:\n%s", n, line, out.String())
+			}
+			if err == nil || err.Error() != tt.wantErr || !errors.Is(err, context.Canceled) {
+				t.Fatalf("err = %v, want %q (a context.Canceled)", err, tt.wantErr)
+			}
+			if !r.fired || r.late == 0 || r.unbounded || r.maxBound > finalCheckTimeout {
+				t.Errorf("interrupted %v; after it %d commands, unbounded %v, bound up to %s (want at most %s)",
+					r.fired, r.late, r.unbounded, r.maxBound, finalCheckTimeout)
+			}
+			got := map[string]Status{}
+			for _, st := range sts {
+				got[st.Step] = st
+			}
+			for _, n := range tt.ok {
+				if got[n].State != StateOK {
+					t.Errorf("%s: %+v, want ok", n, got[n])
+				}
+			}
+			if st := got[tt.notOK]; st.State == StateOK || st.State == "" || strings.Contains(st.Detail, "context canceled") {
+				t.Errorf("%s: %+v, want it as the interrupt left it", tt.notOK, st)
+			}
+		})
+	}
+}
+
+// TestInitInterruptedCheck: an interrupt during Init's first check returns no statuses and
+// the interrupted error at once: no prompt, plan, apply or sudo, and no output.
+func TestInitInterruptedCheck(t *testing.T) {
+	for _, driver := range []string{config.DriverTart, config.DriverKata} {
+		t.Run(driver, func(t *testing.T) {
+			var e *Env
+			var fr *fakeRunner
+			if driver == config.DriverKata {
+				e, fr = kataEnv(t)
+			} else {
+				e, fr = testEnv(t)
+			}
+			var out bytes.Buffer
+			e.Out = &out
+			e.Prompt = func(q string) (bool, error) { t.Errorf("prompted %q", q); return false, nil }
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			// the platform step's first command: the check goes on, every later command failing.
+			r := &interruptRunner{fakeRunner: fr, at: map[string]string{config.DriverTart: "sw_vers", config.DriverKata: "df"}[driver], cancel: cancel}
+			e.Runner, e.Spawner = r, r
+			sts, err := Init(ctx, e, InitOptions{})
+			if err == nil || err.Error() != "interrupted" || !errors.Is(err, context.Canceled) || sts != nil {
+				t.Fatalf("statuses %+v, err %v; want none and \"interrupted\" (a context.Canceled)", sts, err)
+			}
+			if !r.fired || out.Len() > 0 || fr.ran("sudo") > 0 {
+				t.Errorf("interrupted %v, sudo calls %d, output %q", r.fired, fr.ran("sudo"), out.String())
+			}
+			if _, err := os.Stat(e.StateDir()); err == nil {
+				t.Error("an interrupted init made the state dir")
+			}
+		})
+	}
+}
+
+// TestWatchSudo: an interrupt while a sudo call runs prints one line before the call's return
+// is handled; a call that ends first, a context already done, or a timeout prints nothing.
+func TestWatchSudo(t *testing.T) {
+	const line = "interrupted: waiting for kata-helper rm to stop (up to 30s; Ctrl-C again exits now)\n"
+	tests := []struct {
+		name string
+		// call runs between watchSudo and its stop; after runs once stop returned
+		ctx         func() (context.Context, context.CancelFunc)
+		call, after func(cancel context.CancelFunc)
+		want        string
+	}{
+		{"interrupted in flight", func() (context.Context, context.CancelFunc) { return context.WithCancel(context.Background()) },
+			func(cancel context.CancelFunc) { cancel() }, func(context.CancelFunc) {}, line},
+		{"an ordinary call", func() (context.Context, context.CancelFunc) { return context.WithCancel(context.Background()) },
+			func(context.CancelFunc) {}, func(cancel context.CancelFunc) { cancel() }, ""},
+		{"already interrupted", func() (context.Context, context.CancelFunc) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			return ctx, cancel
+		}, func(context.CancelFunc) {}, func(context.CancelFunc) {}, ""},
+		{"a timeout", func() (context.Context, context.CancelFunc) {
+			return context.WithTimeout(context.Background(), time.Millisecond)
+		},
+			func(context.CancelFunc) { time.Sleep(20 * time.Millisecond) }, func(context.CancelFunc) {}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			e := &Env{Out: &buf}
+			ctx, cancel := tt.ctx()
+			defer cancel()
+			out, stop := e.watchSudo(ctx, "kata-helper rm")
+			fmt.Fprintln(out, "sudo's output")
+			tt.call(cancel)
+			stop()
+			fmt.Fprintln(e.Out, "after the call")
+			tt.after(cancel)
+			time.Sleep(5 * time.Millisecond) // a line printed late would land here
+			if got, want := buf.String(), "sudo's output\n"+tt.want+"after the call\n"; got != want {
+				t.Errorf("output %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestRemovePF(t *testing.T) {
 	e, r := testEnv(t)
 	var out bytes.Buffer

@@ -439,6 +439,9 @@ func TestBaseVMApplyFails(t *testing.T) {
 			if _, err := os.Stat(baseVMStep{e}.record()); err == nil {
 				t.Error("a failed build wrote basevm.json")
 			}
+			if strings.Contains(out.String(), "interrupted:") {
+				t.Errorf("an ordinary failure says it was interrupted:\n%s", out.String())
+			}
 		})
 	}
 }
@@ -641,23 +644,47 @@ func TestBaseVMPreviousVersion(t *testing.T) {
 	}
 }
 
-// TestBaseVMInterrupted: an interrupt during provisioning still stops and deletes the VM.
+// TestBaseVMInterrupted: an interrupt still stops and deletes the .building VM (keeps it,
+// stopped, with --keep-failed), and first says what init waits for, by case: a running VM's
+// stop, or the delete alone before tart run or after it exited.
 func TestBaseVMInterrupted(t *testing.T) {
-	e, r := testEnv(t)
-	mkStateDir(t, e)
-	ctx, cancel := context.WithCancel(context.Background())
-	r.tart.bootFails = 1 << 30
-	go func() {
-		for r.ran("tart exec factory-agent-base-0.1.0.building true") == 0 {
-			time.Sleep(time.Millisecond)
-		}
-		cancel()
-	}()
-	if err := (baseVMStep{e}).Apply(ctx); !errors.Is(err, context.Canceled) {
-		t.Fatalf("err = %v", err)
+	const b = "factory-agent-base-0.1.0.building"
+	tests := []struct {
+		name, at string // the interrupted call
+		keep     bool
+		want     string // the interrupted line ("": none)
+		state    string // the .building VM's after
+	}{
+		{"a running VM", "tart exec " + b + " true", false,
+			"interrupted: stopping and deleting " + b + " (up to 30s to stop it; Ctrl-C again leaves it, and the next host init deletes it)\n", ""},
+		{"a running VM, --keep-failed", "tart exec " + b + " true", true,
+			"interrupted: stopping " + b + " (up to 30s; --keep-failed keeps it)\n", "stopped"},
+		{"before tart run", "tart set " + b, false, "interrupted: deleting " + b + "\n", ""},
+		{"before tart run, --keep-failed", "tart set " + b, true, "", "stopped"},
+		// after the shutdown tart run has exited: only the quick delete remains.
+		{"after tart run exited", "tart rename " + b, false, "interrupted: deleting " + b + "\n", ""},
 	}
-	if st := r.vmState("factory-agent-base-0.1.0.building"); st != "" {
-		t.Errorf("the .building VM is left %q", st)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, fr := testEnv(t)
+			mkStateDir(t, e)
+			var out bytes.Buffer
+			e.Out, e.KeepFailed = &out, tt.keep
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			r := &interruptRunner{fakeRunner: fr, at: tt.at, cancel: cancel}
+			e.Runner, e.Spawner = r, r
+			if err := (baseVMStep{e}).Apply(ctx); err == nil || !r.fired {
+				t.Fatalf("err = %v, interrupted %v", err, r.fired)
+			}
+			if st := fr.vmState(b); st != tt.state {
+				t.Errorf("the .building VM is %q, want %q", st, tt.state)
+			}
+			got := out.String()
+			if n := strings.Count(got, "interrupted:"); n != min(len(tt.want), 1) || !strings.Contains(got, tt.want) || strings.Contains(got, "the build failed") {
+				t.Errorf("output %q, want %q once and no \"the build failed\"", got, tt.want)
+			}
+		})
 	}
 }
 

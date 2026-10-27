@@ -7,13 +7,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/host"
@@ -401,5 +406,78 @@ func TestHostKataTartFlags(t *testing.T) {
 				t.Error("a usage error made the state dir")
 			}
 		})
+	}
+}
+
+// interruptingRunner is a Ctrl-C during host's first command: it cancels the context and
+// fails as a cancelled command does, and so does every command after it.
+type interruptingRunner struct {
+	host.Runner
+	cancel context.CancelFunc
+}
+
+func (r interruptingRunner) Run(ctx context.Context, _ io.Writer, name string, _ ...string) error {
+	r.cancel()
+	return fmt.Errorf("%s: %w", name, ctx.Err())
+}
+
+// TestHostInterrupted: interrupted during its check, check and init print "interrupted" and
+// exit 1, with no statuses (each step would be wrong, "context canceled"), prompt or sudo.
+func TestHostInterrupted(t *testing.T) {
+	for _, op := range []string{"check", "init"} {
+		t.Run(op, func(t *testing.T) {
+			d, r := hostTestDeps(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			d.Env.Runner = interruptingRunner{Runner: r, cancel: cancel}
+			var out, errOut bytes.Buffer
+			code := runHost(ctx, []string{op}, &out, &errOut, d)
+			if want := "factory-agent host " + op + ": interrupted\n"; code != 1 || out.Len() > 0 || errOut.String() != want {
+				t.Errorf("code %d, stdout %q, stderr %q; want 1, nothing, %q", code, out.String(), errOut.String(), want)
+			}
+			if _, err := os.Stat(filepath.Join(d.Env.Home, "Library", "Application Support", "factory-agent")); err == nil {
+				t.Error("the state dir was made")
+			}
+		})
+	}
+}
+
+// TestHostSecondSignal: after the first SIGINT cancels host's context, a second one ends the
+// process (the default handling is back), however long init's final check or a sudo call's
+// grace would take. The test binary runs itself as the child that signals itself.
+func TestHostSecondSignal(t *testing.T) {
+	if os.Getenv("FACTORY_AGENT_TEST_SECOND_SIGNAL") == "1" {
+		if signal.Ignored(os.Interrupt) {
+			os.Exit(3) // started with SIGINT ignored: stop restores that, so nothing to test
+		}
+		ctx, stop := hostSignalContext(context.Background())
+		defer stop()
+		p, err := os.FindProcess(os.Getpid())
+		if err != nil {
+			os.Exit(4)
+		}
+		_ = p.Signal(os.Interrupt)
+		<-ctx.Done()
+		for range 100 {
+			_ = p.Signal(os.Interrupt)
+			time.Sleep(50 * time.Millisecond)
+		}
+		os.Exit(0) // still running: the signals after the first were swallowed
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("no SIGINT to send on windows")
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHostSecondSignal$")
+	cmd.Env = append(os.Environ(), "FACTORY_AGENT_TEST_SECOND_SIGNAL=1")
+	out, err := cmd.CombinedOutput()
+	if cmd.ProcessState == nil {
+		t.Fatalf("the child didn't run: %v", err)
+	}
+	if cmd.ProcessState.ExitCode() == 3 {
+		t.Skip("SIGINT is ignored in this test's process")
+	}
+	ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok || !ws.Signaled() || ws.Signal() != syscall.SIGINT {
+		t.Fatalf("the child ended with %v (want killed by SIGINT)\n%s", err, out)
 	}
 }
