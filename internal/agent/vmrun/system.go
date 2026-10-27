@@ -27,6 +27,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
+	"github.com/compliance-framework/factory/internal/agent/sudocancel"
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
@@ -131,13 +132,29 @@ type Runner interface {
 }
 
 // ExecRunner runs real programs, found on PATH.
-type ExecRunner struct{}
+type ExecRunner struct {
+	// Grace is how long a cancelled sudo call gets after SIGTERM before SIGKILL. Default:
+	// DefaultSudoGrace.
+	Grace time.Duration
+}
 
-// Run implements Runner.
-func (ExecRunner) Run(ctx context.Context, stdout, stderr io.Writer, name string, args ...string) error {
+// DefaultSudoGrace is ExecRunner's Grace: setup's sudo -n commands (install, cat, mv,
+// update-ca-certificates, systemctl, docker) end at once on the SIGTERM sudo relays, and
+// SIGKILL after 10 s keeps a cancelled run well inside the supervisor's 45 s Grace, so it
+// still writes its outcome.
+const DefaultSudoGrace = 10 * time.Second
+
+// Run implements Runner. When ctx ends, a sudo call gets SIGTERM, which sudo relays to its
+// command (root, out of the run's reach), and SIGKILL only after Grace; anything else gets
+// SIGKILL (sudocancel.Apply).
+func (r ExecRunner) Run(ctx context.Context, stdout, stderr io.Writer, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
-	cmd.WaitDelay = 10 * time.Second
+	g := r.Grace
+	if g == 0 {
+		g = DefaultSudoGrace
+	}
+	sudocancel.Apply(cmd, g)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}

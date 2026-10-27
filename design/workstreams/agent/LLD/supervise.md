@@ -17,7 +17,7 @@ Phase 5 is the PoC's end-to-end run on the owner's Mac: a lease becomes a fresh 
 
 ## The tart driver: `internal/agent/workspace/tart` (PR 1)
 
-`tart.New(Config{Bin, WarmBase, Path, Runner, Log, Boot, Poll, Grace, MaxGet})`. `Bin` is `host.Env.TartBin` (the tart `host check` accepts: the state dir's pin, else `PATH`'s); `WarmBase` defaults to `factory-agent-warm`. Every call goes through the injected `Runner` (`Run(ctx, Cmd)`, `Start(Cmd) (host.Process, error)`, with `Cmd{Name, Args, Env, Stdin, Stdout, Stderr}`); `ExecRunner` runs real programs, its `Start` through `host.StartCmd` (own process group; `Stop` is SIGTERM, then SIGKILL after 30 s). Tests use a fake that records argv; nothing runs the real tart.
+`tart.New(Config{Bin, WarmBase, Path, Runner, Log, Boot, Poll, Grace, MaxGet})`. `Bin` is `host.Env.TartBin` (the tart `host check` accepts: the state dir's pin, else `PATH`'s); `WarmBase` defaults to `factory-agent-warm`. Every call goes through the injected `Runner` (`Run(ctx, Cmd)`, `Start(Cmd) (host.Process, error)`, with `Cmd{Name, Args, Env, Stdin, Stdout, Stderr}`); `ExecRunner` runs real programs, its `Start` through `host.StartCmd` (own process group; `Stop` is SIGTERM, then SIGKILL after 30 s), its `Run` with `sudocancel.Apply` (a cancelled `tart` gets SIGKILL; the kata driver's `sudo -n kata-helper` calls get SIGTERM, then SIGKILL after 30 s: [workspace-kata.md](workspace-kata.md)). Tests use a fake that records argv; nothing runs the real tart.
 
 | Call | tart |
 |---|---|

@@ -258,6 +258,8 @@ Both system files are replaced atomically: `install -m <mode>` to `.<name>.facto
 
 `off` does none of these: a plain container has no systemd or dockerd, and tests run unprivileged. Any failure in `on` mode fails the run `environment-error`.
 
+A cancel (the run's first SIGTERM) gives a running `sudo -n` command SIGTERM, which sudo relays, and SIGKILL 10 s later (`vmrun.DefaultSudoGrace`, through `internal/agent/sudocancel`, as host init and the kata driver do with their own sudo calls): these commands end at once on SIGTERM, and 10 s keeps the run well inside the supervisor's 45 s `Grace`, so it still writes its outcome. A command run without sudo gets SIGKILL.
+
 ## Harnesses under `IsolationVM`
 
 `harness.Isolation` is a new adapter option (`claudecode.Options.Isolation`, `codex.Options.Isolation`): `IsolationSandbox` (zero, the host: the harness's own OS sandbox, as today) or `IsolationVM` (the VM is the boundary, P1 §2 step 3). `harness.Placeholder` is the one placeholder credential value (`factory-placeholder-not-a-credential`): it matches none of the redactor's token patterns, and the gateway replaces whatever value it finds, so it never has to recognise it.

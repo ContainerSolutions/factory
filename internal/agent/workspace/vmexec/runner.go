@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/host"
+	"github.com/compliance-framework/factory/internal/agent/sudocancel"
 )
 
 // Cmd is one invocation of a driver's command (tart, or sudo and the kata helper).
@@ -24,14 +25,18 @@ type Cmd struct {
 
 // Runner runs a driver's commands. Tests use a fake; nothing in them runs the real ones.
 type Runner interface {
-	// Run runs c to completion; ctx being done kills it.
+	// Run runs c to completion; ctx being done kills it (a sudo call gets SIGTERM first).
 	Run(ctx context.Context, c Cmd) error
 	// Start starts c in its own process group, not tied to a context: its owner stops it.
 	Start(c Cmd) (host.Process, error)
 }
 
 // ExecRunner runs real programs.
-type ExecRunner struct{}
+type ExecRunner struct {
+	// Grace is how long a cancelled sudo call (the kata helper's verbs) gets after SIGTERM
+	// before SIGKILL. Default: sudocancel.HelperGrace.
+	Grace time.Duration
+}
 
 func (c Cmd) apply(cmd *exec.Cmd) {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = c.Stdin, c.Stdout, c.Stderr
@@ -40,11 +45,16 @@ func (c Cmd) apply(cmd *exec.Cmd) {
 	}
 }
 
-// Run implements Runner.
-func (ExecRunner) Run(ctx context.Context, c Cmd) error {
+// Run implements Runner. When ctx ends, a sudo call gets SIGTERM, which sudo relays to the kata
+// helper, and SIGKILL only after Grace; anything else (tart) gets SIGKILL (sudocancel.Apply).
+func (r ExecRunner) Run(ctx context.Context, c Cmd) error {
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
 	c.apply(cmd)
-	cmd.WaitDelay = 10 * time.Second
+	g := r.Grace
+	if g == 0 {
+		g = sudocancel.HelperGrace
+	}
+	sudocancel.Apply(cmd, g)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w", c.Name, err)
 	}

@@ -26,6 +26,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/harness/fake"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
+	"github.com/compliance-framework/factory/internal/agent/sudocancel/sudocanceltest"
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
@@ -689,6 +690,16 @@ func TestExecRunner(t *testing.T) {
 	if err == nil || !strings.HasPrefix(err.Error(), "/bin/sh: exit status 3") {
 		t.Errorf("Run = %v, want /bin/sh's exit status", err)
 	}
+}
+
+// TestExecRunnerCancel: when ctx ends, a sudo call (setup's sudo -n commands) gets SIGTERM,
+// which sudo relays, and SIGKILL only after Grace; anything else is killed.
+func TestExecRunnerCancel(t *testing.T) {
+	t.Parallel()
+	r := ExecRunner{Grace: 2 * time.Second}
+	sudocanceltest.Check(t, r.Grace, func(ctx context.Context, prog string, args ...string) error {
+		return r.Run(ctx, io.Discard, io.Discard, prog, args...)
+	})
 }
 
 // TestTail keeps only the last maxOutputTail bytes.
