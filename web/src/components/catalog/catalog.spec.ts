@@ -288,6 +288,20 @@ describe('TaskSpec text', () => {
       '40 turns, 15m, $1.50',
     ],
     [{ maxWallClock: '1h' }, '1h'],
+    [{ cpus: 4 }, '4 CPUs'],
+    [{ cpus: 1 }, '1 CPU'],
+    [{ memory: '8Gi' }, '8Gi memory'],
+    [{ cpus: 2, memory: '4Gi' }, '2 CPUs, 4Gi memory'],
+    [
+      {
+        maxTurns: 40,
+        maxWallClock: '15m',
+        maxCostUSD: 1.5,
+        cpus: 4,
+        memory: '8Gi',
+      },
+      '40 turns, 15m, $1.50, 4 CPUs, 8Gi memory',
+    ],
   ])('limitsText(%j) is %s', (l, want) => {
     expect(limitsText(l)).toBe(want);
   });

@@ -304,13 +304,18 @@ export function skillText(s: Schemas['SkillRef']): string {
   return s.use?.length ? `${at}: ${s.use.join(', ')}` : at;
 }
 
-/** A run's limits: `40 turns, 15m, $1.50`; empty when it has none. */
+/**
+ * A run's limits: `40 turns, 15m, $1.50, 4 CPUs, 8Gi memory`; empty when it
+ * has none.
+ */
 export function limitsText(l: Schemas['Limits'] | undefined): string {
   if (!l) return '';
   return [
     l.maxTurns !== undefined ? `${l.maxTurns} turns` : '',
     l.maxWallClock ? `${l.maxWallClock}` : '',
     l.maxCostUSD !== undefined ? `$${l.maxCostUSD.toFixed(2)}` : '',
+    l.cpus !== undefined ? `${l.cpus} ${l.cpus === 1 ? 'CPU' : 'CPUs'}` : '',
+    l.memory ? `${l.memory} memory` : '',
   ]
     .filter(Boolean)
     .join(', ');
