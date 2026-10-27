@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 3: CORE-STYLE-001: TestKataInitHelperRequired checks errors.As before reading err.Error().
