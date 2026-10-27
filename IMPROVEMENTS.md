@@ -17,20 +17,17 @@ record it in IMPROVEMENTS_DONE.md with its PR numbers and delete its section her
 
 ## 1. Close P1 phase 10 (the Mac session)
 
-Stacks 1 (#192–#195, merged) and 2 removed the host runtime. **Stack 2 is approved, waiting to
-merge:** #198 → #201 → #203 → #209 (gh stack #210). Then one last stack on top of it, with no
-deferrals:
-- **PR A, catalog and code:** the catalog's docs TaskSpecs and `compile.go` stop setting
-  `workspace.hosts`; drop `config.Harness.home`/`configDir` (and fix `agent.yaml.example`; the
-  owner's `agent.yaml` files lose the keys before restarting supervise); the `harness.Isolation`
-  type; the dead `clirun` helpers; the credentials step in gateway mode; the stale
-  `RepoWritable` comment; `runStackPush`'s always-true assertion; and the doc leftovers
-  (run-pipeline.md's old Tests paragraph and its duplicate "Environment" row, harness-adapters'
-  historical decision text, `has-local-stack` examples in the design docs); `implement.md.tmpl`'s
-  dead "use the factory's local stack" opening (the throwaway-environment steps stay).
-- **PR B, contract:** remove `workspace.hosts` and `Task.spec.hosts` (v1alpha1, schemas,
-  openapi, the web regen, v1alpha1's `FACTORY_STACK_*` reserved names, 07-security's allow-list
-  text). Check first that the file store tolerates stored Tasks that still have `hosts`.
+Stacks 1 (#192–#195) and 2 (#198, #201, #203, #209) are merged. **The last stack is approved,
+waiting to merge:** #218 → #219 (gh stack #220), CI green, no deferrals.
+- **#218 `refactor(agent)!`:** the catalog and `compile.go` stop setting `workspace.hosts`;
+  `config.Harness.home`/`configDir`, `harness.Isolation`, dead `clirun` helpers and the doc
+  leftovers go; the implement prompt's dead local-stack opening goes (the #88 steps stay).
+  **Breaking:** every `agent.yaml` must drop `harnesses.codex.home` and
+  `harnesses.claude-code.configDir` before supervise restarts on it.
+- **#219 `refactor(apis)!`:** removes `workspace.hosts` and `Task.spec.hosts` (web client
+  regenerated). Stored Tasks with `hosts` still load: the stores decode leniently.
+
+When both merge: move phase 10 to IMPROVEMENTS_DONE.md and delete this section.
 
 ## 2. Real-host checks (Gustavo)
 
