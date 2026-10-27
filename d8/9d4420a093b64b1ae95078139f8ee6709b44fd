@@ -1,0 +1,4 @@
+lisa-addressed:
+pass 1 fixes:
+- CORE-DUP-001 (9da724271d50): the upload names E2E_LOG in a comment and keeps if-no-files-found at warn, so a drift shows.
+- CORE-STYLE-001 (97faa5f71d38): AGENTS.md says opt-in again, plus CI advisory.
