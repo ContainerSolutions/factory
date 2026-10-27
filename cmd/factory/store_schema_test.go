@@ -35,6 +35,9 @@ func TestStoredSchema(t *testing.T) {
 	goldenSchema, want := parseSchemaGolden(t, string(raw))
 	same := slices.Equal(got, want)
 	write, msg := schemaVerdict(same, goldenSchema, store.ReadableSchema, store.SchemaVersion, *updateGolden)
+	if goldenSchema == 0 && len(raw) > 0 && strings.HasPrefix(msg, "there is no ") {
+		msg = schemaGolden + " has no readableSchema line: run go test ./cmd/factory -run TestStoredSchema -update"
+	}
 	if !write && msg == "" && string(raw) != renderSchemaGolden(got) {
 		// Same fields and version, other text (the header): rewrite it, or say to.
 		write, msg = *updateGolden, "the text of "+schemaGolden+" is out of date: run go test ./cmd/factory -run TestStoredSchema -update"
@@ -76,7 +79,7 @@ ReadableSchema must be SchemaVersion or SchemaVersion+1, and never goes below th
 	case update && goldenSchema == 0:
 		return true, "" // no golden yet
 	case goldenSchema == 0:
-		return false, "there is no " + schemaGolden + ": run go test ./cmd/factory -run TestStoredSchema -update"
+		return false, "there is no " + schemaGolden + " (or it has no readableSchema line): run go test ./cmd/factory -run TestStoredSchema -update"
 	case !same && schemaVersion > goldenSchema:
 		return false, fmt.Sprintf(`the stored types changed, and store.SchemaVersion (%d) moved past the golden's %d: a release
 would write a schema no deployed release reads. Expand first: bump ReadableSchema alone and
