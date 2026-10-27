@@ -56,7 +56,7 @@ type Config struct {
     Clients       []netip.Addr     // the VM's exact addresses (IPv4-mapped unmapped); any other peer is closed. Required
     CA            *ca.CA           // required
     Git           *runner.Credentials // the job's; nil: none. Read on every request, so heartbeats' Set/SetReads apply at once
-    DispatcherToken func() string  // read on every request; required. PoC: the worker's agent token; the lease's runToken (#101) when it lands
+    DispatcherToken func() string  // read on every request; required. The lease's runToken; the agent token for a lease without one (an older dispatcher)
     Dispatcher    *url.URL         // the supervisor's dispatcher base URL (http or https), required; its own transport
     Anthropic     *AnthropicAuth   // nil: none. Only for a claude task
     ChatGPT       ChatGPTSource    // nil: none. Only for a codex task (*chatgpt.Refresher)
@@ -88,7 +88,7 @@ func (g *Gateway) Close() error                     // idempotent; see [Close](#
 ```
 
 - **The supervisor (phase 5)**, per lease: loads the CA (`ca.Load`, so a rotated CA applies to the next workspace without a restart), builds the `Config` from the job (`Egress.Mode` and `Egress.AllowHosts` from the Task's `spec.environment.egress`, which the compiler copies from the TaskSpec's `workspace.environment.egress`; a Task without one gets the zero `Egress`, `default`), `net.Listen("tcp", <gateway address>:<workspace.gatewayPort>)` after the driver's `Start`, runs `Serve` in a goroutine, and closes the gateway after `Destroy`. It gives a gateway only its task's model credential: a claude task's gateway has no ChatGPT login, and a codex task's has no Claude token.
-- **Lease refresh needs no new call.** The worker's heartbeat already swaps refreshed git tokens into `job.Git` (`Set`, `SetReads`), and the gateway reads it on every request, as `gitcred` does. `DispatcherToken` is read on every request too, so a re-registered agent token applies at once; the run token (#101), when it replaces it, lives exactly as long as the lease.
+- **Lease refresh needs no new call.** The worker's heartbeat already swaps refreshed git tokens into `job.Git` (`Set`, `SetReads`), and the gateway reads it on every request, as `gitcred` does. `DispatcherToken` is the lease's run token (#101), which lives exactly as long as the lease and isn't refreshed. A lease without one (a dispatcher from before run tokens) gets the agent token instead, logged at debug; it is read on every request, so a re-registered agent token applies at once.
 - **The git host is `github.com`** (`policy.GitHost`), not a knob: the CA's name constraints list it ([the CA](#the-ca)), so another host (GitHub Enterprise) would need a new CA and a contract for it. Credentials whose `host` isn't `github.com` are never used.
 - `New` refuses: an empty `TaskID`, `RunID`, `Clients` or `Sink`; a nil `DispatcherToken`; an invalid `Clients` address (unspecified, with a zone); an `AllowHosts` entry `v1alpha1.ValidateHost` refuses; a `Dispatcher` that isn't an absolute http(s) URL without user info, query or fragment; an `AnthropicAuth` with neither or both fields. Errors are `*ConfigError{Field}` and never carry a value.
 
