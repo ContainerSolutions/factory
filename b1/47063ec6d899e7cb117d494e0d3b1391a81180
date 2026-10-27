@@ -3,3 +3,8 @@ lisa-design:
 - The pipeline test fixture is the VM's pipeline (fakegateway, Root, token-free vmJob); its dispatcher sources are viaAPI wrappers (the API sources with the fixture's client), so the API-shaped tests keep their assertions; f.host() is the bundle-only pipeline.
 - The skills cache's per-entry lock is per Pipeline: the concurrency test now runs concurrent PrepareBundle calls on one host pipeline (the production sharing).
 - Effector: FACTORY_RUNTIME must be workspace; no Authorization header; stack ops git only, --git a no-op; Options.GH/Runtime removed.
+
+lisa-selfreview:
+pass 1/1 (lenient, ccf-review core+go): one must-fix (CORE-TEST-001: Run's new VM-only refusal had no test), fixed in this commit with TestRunNeedsAVMWorkspace; nothing else blocking.
+- deferred (in the PR body): the credentials step still runs in gateway mode (git runner only), run-pipeline.md's AGT-S1-T02 Tests paragraph, has-local-stack examples in 03/10/catalog-poc, v1alpha1's FACTORY_STACK_* reserved names.
+- verify: go build (darwin, linux), go vet ./..., gofmt, lint 0 issues, catalog 66/66, openapi-lint 100; make test fails only on host/provision TestBaseScriptRuns (pre-existing on macOS).
