@@ -1,0 +1,8 @@
+lisa-selfreview:
+pass 1:
+- [blocker] CORE-SIZE-001: ~1,400 counted lines; needs a size-exception label (as on #238) or a split. Human call: listed in the PR body, not fixed.
+- [must-fix] GO-NIL-001 gcs.go GCSBucket.List slices names by the prefix length unchecked -> fix (CutPrefix + error).
+- [should-fix] FACTORY-CLOCK-001 s3.go S3Bucket.Create waits with time.After -> fix (clock.Clock on the bucket).
+- [should-fix] emulator_test.go GCS isCreate doesn't require uploadType=multipart -> fix.
+- [nit] Makefile e2e-objectstore filter uses \s and hides failing assertions -> fix.
+- [nit] NewGCSBucket/NewS3Bucket exported but unused -> fix (remove).
