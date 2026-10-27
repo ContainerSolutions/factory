@@ -3945,9 +3945,9 @@ components:
           description: |-
             Memory is the workspace VM's memory for this task: a whole number of GiB in the form of
             the agent's workspace.size.memory (e.g. "4Gi"), at least 2Gi on every driver (the minimum
-            workspace.size.memory has, WorkspaceMinMemoryGiB), and hard-capped at the agent's
-            workspace.size.memory as cpus is: a larger request gets workspace.size.memory, and the run
-            says so. A value in between is taken as given. Unset means the agent's size.
+            workspace.size.memory has too), and hard-capped at the agent's workspace.size.memory as
+            cpus is: a larger request gets workspace.size.memory, and the run says so. A value in
+            between is taken as given. Unset means the agent's size.
           type: string
           pattern: ^([2-9]|[1-9][0-9]{1,5})Gi$
       additionalProperties: false
