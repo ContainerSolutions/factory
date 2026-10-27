@@ -1,9 +1,10 @@
 // Package worker is factory-agent's worker loop (supervise.md §The worker loop): it registers
-// with the dispatcher (join token + the owner's device-flow token, sent once), long-polls for
+// with the dispatcher (its refresh token, else the one-time enrollment token), long-polls for
 // leases, runs each leased task through a runner.Runner while heartbeating, reports the
 // Outcome (complete, abandon, throttle), and drains on SIGTERM.
 //
-// The agent token lives in memory only: a restart registers again. Tokens are never logged.
+// The agent token lives in memory only: a restart registers again with the refresh token, which
+// rotates on each registration. Tokens are never logged.
 package worker
 
 import (
@@ -16,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ContainerSolutions/factory/internal/agent/owner"
 	"github.com/ContainerSolutions/factory/internal/agent/runner"
 	"github.com/ContainerSolutions/factory/internal/apiclient"
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
@@ -53,8 +53,8 @@ type Enrollment interface {
 	Forget() error
 }
 
-// Options configure a Worker. Pool, Host, AgentVersion, Capabilities and Runner are required,
-// and either Enrollment or both JoinToken and Owner.
+// Options configure a Worker. Pool, Host, AgentVersion, Capabilities, Enrollment and Runner
+// are required.
 type Options struct {
 	// Dispatcher is the dispatcher's base URL (the API is under BasePath).
 	Dispatcher   string
@@ -64,13 +64,9 @@ type Options struct {
 	Capabilities v1alpha1.AgentCapabilities
 	Lending      v1alpha1.Lending
 
-	// Enrollment, when set, registers with the refresh token (else the enrollment token) and
-	// saves each rotated one; JoinToken and Owner are then unused.
+	// Enrollment registers with the refresh token (else the enrollment token) and saves each
+	// rotated one.
 	Enrollment Enrollment
-	// JoinToken reads the pool's join token (from its 0600 file) at each registration.
-	JoinToken func() (string, error)
-	// Owner gets a fresh owner token at each registration (the device flow).
-	Owner owner.TokenSource
 	// Runner executes leased tasks.
 	Runner runner.Runner
 
@@ -120,8 +116,7 @@ func New(o Options) (*Worker, error) {
 	}{
 		{"Dispatcher", o.Dispatcher != ""}, {"Pool", o.Pool != ""}, {"Host", o.Host != ""},
 		{"AgentVersion", o.AgentVersion != ""}, {"Capabilities.Harnesses", len(o.Capabilities.Harnesses) > 0},
-		{"JoinToken", o.Enrollment != nil || o.JoinToken != nil}, {"Owner", o.Enrollment != nil || o.Owner != nil},
-		{"Runner", o.Runner != nil},
+		{"Enrollment", o.Enrollment != nil}, {"Runner", o.Runner != nil},
 	} {
 		if !f.ok {
 			missing = append(missing, f.name)
@@ -358,39 +353,9 @@ func (w *Worker) sleepUntil(ctx context.Context, at time.Time) bool {
 	}
 }
 
-// register registers (or registers again): enrolled, with the refresh token (else the
-// enrollment token); otherwise it reads the join token, gets a fresh owner token and posts
-// both once. It retries transient failures with backoff. The owner token is dropped once the
-// dispatcher answered.
-func (w *Worker) register(ctx context.Context) error {
-	if w.o.Enrollment != nil {
-		return w.registerEnrolled(ctx)
-	}
-	join, err := w.o.JoinToken()
-	if err != nil {
-		return &permanentError{fmt.Errorf("join token: %w", err)}
-	}
-	ownerToken, err := w.o.Owner.OwnerToken(ctx)
-	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return &permanentError{fmt.Errorf("owner login: %w", err)}
-	}
-	w.mu.Lock()
-	lending := w.lending
-	w.mu.Unlock()
-	body := apiclient.RegisterAgentRequest{
-		Pool: w.o.Pool, Host: w.o.Host, AgentVersion: w.o.AgentVersion,
-		Capabilities: w.o.Capabilities, Lending: &lending,
-	}
-	reg, err := w.post(ctx, body, map[string]string{HeaderJoinToken: join, HeaderOwnerToken: ownerToken})
-	if err != nil {
-		return err
-	}
-	w.registered(reg)
-	return nil
-}
+// register registers (or registers again) with the enrollment credential, retrying transient
+// failures with backoff.
+func (w *Worker) register(ctx context.Context) error { return w.registerEnrolled(ctx) }
 
 // registerEnrolled registers with the enrollment credential. The response's refresh token is
 // saved before the new agent token is used: the presented one is spent. A refused refresh

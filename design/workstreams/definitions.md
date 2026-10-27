@@ -405,7 +405,7 @@ Use the `fake` provider from contracts.md in tests.
 
 - **Repo:** factory · **Branch:** `fx/agt-s1-t01-worker` · **Base:** `main` · **Stack:** `agt` · **Depends:** FND-S1-T02
 
-**Spec.** Per [supervise.md §The worker loop](agent/LLD/supervise.md#the-worker-loop-internalagentworker-internalagentconfig-internalagentowner) (first written as worker.md; phase 10 folded it into supervise.md and removed the `worker` command):
+**Spec.** Per [supervise.md §The worker loop](agent/LLD/supervise.md#the-worker-loop-internalagentworker-internalagentconfig-internalagentenroll) (first written as worker.md; phase 10 folded it into supervise.md and removed the `worker` command):
 
 - the local config file (dispatcher URL, pool, join token, `lending`, labels, harness config dirs);
 - `factory-agent worker` registration (owner identity from `gh auth token`), the long-poll lease loop, heartbeats, throttle reporting, and drain on SIGTERM;

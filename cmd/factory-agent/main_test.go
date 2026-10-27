@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	joinSecret  = "join-secret-cmd-0123456789"
-	ownerSecret = "tok-gus"
+	enrollSecret  = "enr_enroll-secret-cmd-0123456789"
+	refreshSecret = "arf_refresh-secret-cmd-0123456789"
 )
 
 func TestRunVersionAndUsage(t *testing.T) {
@@ -39,15 +39,15 @@ func TestRunVersionAndUsage(t *testing.T) {
 	}
 }
 
-// writeConfig writes an agent config (0600) and its join token (0600) under dir.
+// writeConfig writes an agent config (0600) and its enrollment token (0600) under dir.
 func writeConfig(t *testing.T, dir, dispatcher string, extra string) string {
 	t.Helper()
-	tok := filepath.Join(dir, "join-token")
-	if err := os.WriteFile(tok, []byte(joinSecret+"\n"), 0o600); err != nil {
+	tok := filepath.Join(dir, "enrollment-token")
+	if err := os.WriteFile(tok, []byte(enrollSecret+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	p := filepath.Join(dir, "agent.yaml")
-	cfg := "dispatcher: " + dispatcher + "\npool: local\njoinTokenFile: " + tok + "\nhost: cmd-test\n" +
+	cfg := "dispatcher: " + dispatcher + "\npool: local\nenrollmentTokenFile: " + tok + "\nhost: cmd-test\n" +
 		"labels: [fast-disk, gpu]\n" +
 		"harnesses:\n  codex:\n    models: [gpt-5-codex]\n    efforts: [low, high]\n    default: gpt-5-codex\n" +
 		"lending:\n  queues: [poc]\n" + extra

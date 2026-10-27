@@ -14,8 +14,6 @@ import (
 
 	"github.com/ContainerSolutions/factory/internal/agent/effector"
 	agentharness "github.com/ContainerSolutions/factory/internal/agent/harness"
-	"github.com/ContainerSolutions/factory/internal/agent/internal/fakegh"
-	"github.com/ContainerSolutions/factory/internal/agent/owner"
 	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
 	"github.com/ContainerSolutions/factory/internal/agent/runner"
 	"github.com/ContainerSolutions/factory/internal/agent/worker"
@@ -32,9 +30,7 @@ func TestEffectorAgainstRealDispatcher(t *testing.T) {
 		t.Skip("builds and runs factory serve")
 	}
 	ctx := context.Background()
-	gh := fakegh.New(t, "gus", 0)
-	gh.SetInterval(1)
-	d := startServe(t, gh.URL)
+	d := startServe(t, noGitHub(t))
 	body, err := os.ReadFile(filepath.Join("testdata", "issue-opened.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +40,7 @@ func TestEffectorAgainstRealDispatcher(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = res.Body.Close()
-	plain, _ := cliClient(t, d.URL)
+	enr, _ := enrolled(t, d.URL, "eff")
 	hold := make(chan struct{})
 	stub := &stubRunner{Hold: hold, Outcome: runner.Outcome{Result: &v1alpha1.Result{
 		Status: v1alpha1.ResultDone, Outcome: "single", Summary: "one issue",
@@ -57,12 +53,11 @@ func TestEffectorAgainstRealDispatcher(t *testing.T) {
 		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{
 			Name: "codex", Auth: "subscription", Models: []string{"gpt-5-codex"}, ReasoningEffort: []string{"high"},
 		}}},
-		Lending:   v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 1},
-		JoinToken: func() (string, error) { return joinSecret, nil },
-		Owner:     &owner.DeviceFlow{API: plain, GitHubURL: gh.URL},
-		Runner:    stub,
-		LeaseWait: 5 * time.Second,
-		Logger:    slog.New(slog.NewJSONHandler(&logBuffer{}, nil)),
+		Lending:    v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 1},
+		Enrollment: enr,
+		Runner:     stub,
+		LeaseWait:  5 * time.Second,
+		Logger:     slog.New(slog.NewJSONHandler(&logBuffer{}, nil)),
 	})
 	if err != nil {
 		t.Fatal(err)

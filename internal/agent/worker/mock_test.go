@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -13,11 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ContainerSolutions/factory/internal/agent/internal/fakegh"
-	"github.com/ContainerSolutions/factory/internal/agent/owner"
+	"github.com/ContainerSolutions/factory/internal/agent/enroll"
 	"github.com/ContainerSolutions/factory/internal/agent/runner"
 	"github.com/ContainerSolutions/factory/internal/agent/worker"
-	"github.com/ContainerSolutions/factory/internal/apiclient"
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
@@ -106,21 +105,22 @@ func startFactoryMock(t *testing.T) string {
 	}
 }
 
+// exampleRefreshToken is api/examples/registerAgent.json's refresh token.
+const exampleRefreshToken = "arf_EXAMPLE-refresh-token-not-real-000000000000"
+
 // TestAgainstFactoryMock is AGT-S1-T01's done criterion: against factory-mock (the contract's
-// examples), the worker registers (device-flow owner login, device-config from the mock),
-// leases the canned task, heartbeats and completes it.
+// examples), the worker registers (an enrollment token from its file; the example's refresh
+// token saved in the state dir), leases the canned task, heartbeats and completes it.
 func TestAgainstFactoryMock(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs factory-mock")
 	}
 	base := startFactoryMock(t)
-	gh := fakegh.New(t, "gusfcarvalho", 0)
-	gh.SetInterval(1)
-
-	plain, err := apiclient.NewClientWithResponses(worker.APIBase(base))
-	if err != nil {
+	tokFile := filepath.Join(t.TempDir(), "enrollment-token")
+	if err := os.WriteFile(tokFile, []byte(enrollSecret+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	enr := enroll.Files{StateDir: t.TempDir(), TokenFile: tokFile}
 	rec := &recorder{}
 	logs := &logBuffer{}
 	stub := &stubRunner{
@@ -132,8 +132,7 @@ func TestAgainstFactoryMock(t *testing.T) {
 		Dispatcher: base, Pool: "maintainer-agents", Host: "mbp-01", AgentVersion: "test",
 		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex", Auth: "subscription", Models: []string{"gpt-5-codex"}}}},
 		Lending:      v1alpha1.Lending{Unlimited: true},
-		JoinToken:    func() (string, error) { return joinSecret, nil },
-		Owner:        &owner.DeviceFlow{API: plain, GitHubURL: gh.URL},
+		Enrollment:   enr,
 		Runner:       stub,
 		HTTPClient:   rec,
 		Logger:       slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
@@ -188,10 +187,10 @@ func TestAgainstFactoryMock(t *testing.T) {
 		job.Git.Get().Token != "EXAMPLE-git-token-not-real" || job.Lease.Lease.HeartbeatEvery != "30s" {
 		t.Errorf("job: task %s, lease %+v", job.TaskID(), job.Lease.Lease)
 	}
-	if gh.Codes() != 1 {
-		t.Errorf("%d device logins, want 1", gh.Codes())
+	if tok, refresh, err := enr.Token(); err != nil || !refresh || tok != exampleRefreshToken {
+		t.Errorf("the saved refresh token: %v %v", refresh, err)
 	}
-	for _, s := range []string{joinSecret, gh.Token(), "EXAMPLE-agent-token-not-real", "EXAMPLE-git-token-not-real"} {
+	for _, s := range []string{enrollSecret, exampleRefreshToken, "EXAMPLE-agent-token-not-real", "EXAMPLE-git-token-not-real"} {
 		if strings.Contains(logs.String(), s) {
 			t.Errorf("a secret is in the logs: %q", s)
 		}

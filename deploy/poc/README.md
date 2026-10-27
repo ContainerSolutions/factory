@@ -39,7 +39,7 @@ An org owner creates two Apps: Organization settings → Developer settings → 
 | Organization permissions | Members R (resolves the `maintainers` and `readers` Groups) | none |
 | Events | Issues, Issue comment, Pull request, Pull request review, Pull request review comment, Pull request review thread, Release, Deployment status, Check suite, Sub issues | none |
 | Install on | `docs`, `mock-docs`, `workflows`, `mock-*`, `ccf-skills`, `local-dev` | `docs`, `mock-docs`, `ccf-skills` |
-| Enable Device Flow | **yes**: agents register with the owner's device-flow login | no |
+| Enable Device Flow | no: agents are enrolled (§8) | no |
 | Callback URL (UI login) | `https://<tunnel-host>/api/v1/auth/callback`. "Request user authorization (OAuth) during installation": **no**. | none |
 
 - **Never** give either App a ruleset bypass.
@@ -62,7 +62,7 @@ cp deploy/poc/.env.example deploy/poc/.env && chmod 600 deploy/poc/.env
 Fill it in with an editor. Each line of `.env.example` says what goes there:
 
 - **`FACTORY_SESSION_KEY`, `FACTORY_CLI_TOKEN`, `FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN`**: `openssl rand -hex 32` each. `FACTORY_SECRET_GITHUB_PUBLIC_WEBHOOK_SECRET` is the value you set on ccf-factory's webhook (also `openssl rand -hex 32`).
-- **`FACTORY_OAUTH_CLIENT_ID` / `_SECRET`**: ccf-factory's client ID and client secret. The client ID also serves the agents' device flow.
+- **`FACTORY_OAUTH_CLIENT_ID` / `_SECRET`**: ccf-factory's client ID and client secret.
 - **The two `…_PRIVATE_KEY`s**: the PEM files. `run.sh` sources `.env` with bash, so either paste the PEM inside double quotes or read it from a file outside the repo: `FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY="$(cat /path/to/ccf-factory.pem)"`.
 - **`FACTORY_PUBLIC_URL`**: the tunnel URL, `https://<name>.ngrok-free.dev`. It isn't a secret, but it's kept out of the public repo.
 
@@ -177,7 +177,7 @@ Expect `"status": "ok"`. Then:
 
 ## 8. Agent onboarding
 
-For each agent owner, on their machine (rollout.md §Agent onboarding). The owner must be a `compliance-framework` org admin: the Pool's owners are the `maintainers` Group.
+For each agent owner, on their machine (rollout.md §Agent onboarding). The dispatcher's admin enrolls the host for its owner, who needs no GitHub login on it.
 
 The agent is `factory-agent supervise`: it runs each leased task in its own VM workspace behind a gateway that holds every credential, a tart VM on an Apple-silicon Mac ([supervise.md](../../design/workstreams/agent/LLD/supervise.md)) or a Kata microVM on Linux ([workspace-kata.md](../../design/workstreams/agent/LLD/workspace-kata.md)). Run every step from a checkout of this repository, as the owner's own user (not root; the workspaces are that user's).
 
@@ -281,4 +281,4 @@ The commands below go to `POST /api/v1/commands` with the CLI token. The UI show
 3. Stop the dispatcher with Ctrl-C in the `make poc-up` terminal. It shuts down gracefully (`--shutdown-timeout`, 30 s by default), and the log ends with `shutdown complete`.
 4. Stop ngrok.
 
-A dispatcher restart keeps its state (§6, State): agents stay registered and running tasks carry on. Started with an empty state dir, it keeps nothing but what GitHub holds: work items come back from their markers, and agents must register again with a new device login.
+A dispatcher restart keeps its state (§6, State): agents stay registered and running tasks carry on. Started with an empty state dir, it keeps nothing but what GitHub holds: work items come back from their markers, and agents must be enrolled again: their refresh tokens are refused (supervise then drops its own and says so), so put a new token from `bin/factory agent enroll` in `enrollment-token` and restart.
