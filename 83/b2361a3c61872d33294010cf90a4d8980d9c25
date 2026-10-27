@@ -1,2 +1,5 @@
 lisa-addressed:
 pass 3: CORE-STYLE-001: TestKataInitHelperRequired checks errors.As before reading err.Error().
+
+lisa-selfreview:
+pass 4 (lenient): approve, no findings. Open question for reviewers: the helper check runs before the platform error (spec: "right after the initial Check"), so a host failing both reports the helper first.
