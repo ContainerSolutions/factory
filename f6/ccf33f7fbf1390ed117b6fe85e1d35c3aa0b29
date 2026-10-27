@@ -1,0 +1,7 @@
+lisa-selfreview:
+Pass 1 (final, lenient): approve. No blocker or must-fix.
+- Checked: stored records decode leniently (memory store json.Unmarshal; filestore keeps raw bytes; run bundles json.Unmarshal), so a stored Task with spec.hosts still loads and loses the field on its next write. Only catalog files and agent.yaml decode strictly, and the catalog has no hosts since PR A.
+
+lisa-design:
+- validateHostList, extendHostListSchema, MaxWorkspaceHosts, ValidateHost and the ErrHost* sentinels stay for environment.egress.allow; the hosts schema-vs-Go test moves to egress.allow.
+- web: besides npm run gen:api, TaskSpecCard's hosts line, its spec assertion and the catalog mock's hosts entry go, since vue-tsc refuses them once the field is out of the generated types.
