@@ -13,6 +13,10 @@ const (
 	DriverKata = "kata"
 )
 
+// DefaultGatewayPort is workspace.gatewayPort's default: the port host init's firewall opens and
+// the workspace runner's gateway listens on.
+const DefaultGatewayPort = 3128
+
 // Workspace is the VM workspace setup (P1 §7): the driver, the per-workspace size, the gateway
 // port and the warm base's images (used from P1 phase 2b).
 type Workspace struct {
@@ -56,7 +60,7 @@ func (w Workspace) WithDefaults(goos string) Workspace {
 		w.Size.Disk = "60Gi"
 	}
 	if w.GatewayPort == 0 {
-		w.GatewayPort = 3128
+		w.GatewayPort = DefaultGatewayPort
 	}
 	return w
 }

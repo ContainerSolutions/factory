@@ -218,7 +218,7 @@ func newSupervisedTest(t *testing.T, dispatcher string) *supervisedTest {
 			return s.driver
 		},
 		Listen: func(ctx context.Context, a netip.AddrPort) (net.Listener, error) {
-			if a != netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), workspace.GatewayPort) {
+			if a != netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), workspace.DefaultGatewayPort) {
 				return nil, fmt.Errorf("listen on %s", a)
 			}
 			var lc net.ListenConfig
@@ -543,6 +543,68 @@ func TestSuperviseOneLease(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(s.state, "runs", "tsk_sup1")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the run directory is left: %v", err)
+	}
+}
+
+// supervise hands the workspace runner the config's workspace.gatewayPort, default 3128: the
+// gateway listens on the port the host's firewall opens.
+func TestSuperviseGatewayPort(t *testing.T) {
+	tests := []struct {
+		name  string
+		extra string
+		want  netip.AddrPort
+	}{
+		{"default", "", netip.MustParseAddrPort("127.0.0.1:3128")},
+		{"configured", "workspace: {driver: tart, gatewayPort: 4000}\n", netip.MustParseAddrPort("127.0.0.1:4000")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := harnesstest.NewE2E(t, "tsk_port1", "Write the intro.\n")
+			lease := e.Job(v1alpha1.HarnessResolved{Name: "codex", Model: "gpt-5-codex"}, []string{"pr-opened"}).Lease
+			lease.Lease.Agent, lease.Lease.ExpiresAt, lease.Lease.HeartbeatEvery = "agt_gus-cmd-test", time.Now().Add(2*time.Minute), "30s"
+			next, err := url.Parse(e.DispatcherURL())
+			if err != nil {
+				t.Fatal(err)
+			}
+			disp := &leaseDispatcher{leases: []apiclient.Lease{lease}, next: httputil.NewSingleHostReverseProxy(next)}
+			ts := httptest.NewServer(http.HandlerFunc(disp.serve))
+			t.Cleanup(ts.Close)
+
+			s := newSupervisedTest(t, ts.URL)
+			s.cfg = writeConfig(t, s.dir, ts.URL, tt.extra)
+			var lmu sync.Mutex
+			var gateways []netip.AddrPort
+			s.deps.Listen = func(ctx context.Context, a netip.AddrPort) (net.Listener, error) {
+				lmu.Lock()
+				gateways = append(gateways, a)
+				lmu.Unlock()
+				var lc net.ListenConfig
+				return lc.Listen(ctx, "tcp", "127.0.0.1:0")
+			}
+			sigs := make(chan os.Signal, 1)
+			s.deps.Worker.Signals = sigs
+			errOut := &syncBuffer{}
+			code := make(chan int, 1)
+			go func() { code <- runSupervise(context.Background(), s.args(), errOut, s.deps) }()
+			waitUntil(t, "the completion", func() bool { return len(disp.completed()) == 1 })
+			sigs <- syscall.SIGTERM
+			select {
+			case c := <-code:
+				if c != 0 {
+					t.Fatalf("supervise exited %d\n%s", c, errOut.String())
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatalf("supervise didn't drain\n%s", errOut.String())
+			}
+			if c := disp.completed()[0]; c.Result.Status != v1alpha1.ResultDone {
+				t.Errorf("complete %+v", c)
+			}
+			lmu.Lock()
+			defer lmu.Unlock()
+			if want := []netip.AddrPort{tt.want}; !slices.Equal(gateways, want) {
+				t.Errorf("gateways on %v, want %v", gateways, want)
+			}
+		})
 	}
 }
 

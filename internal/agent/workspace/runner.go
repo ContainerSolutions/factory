@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/netip"
 	"net/url"
@@ -41,14 +42,15 @@ const (
 	BundleDir = "/var/lib/factory/run"
 	// VMOutDir is factory-agent run's out/ in the VM (--work /work).
 	VMOutDir = "/work/out"
-	// GatewayPort is the gateway's port on the VM's gateway address: the pf anchor's.
-	GatewayPort = 3128
 	// AgentCommand is factory-agent in the VM (the base image puts it on PATH).
 	AgentCommand = "factory-agent"
 )
 
 // Defaults of RunnerOptions.
 const (
+	// DefaultGatewayPort is the gateway's port on the VM's gateway address when GatewayPort is
+	// zero: workspace.gatewayPort's default, which the host's firewall opens.
+	DefaultGatewayPort = config.DefaultGatewayPort
 	// DefaultOverrun is how long past the task's wall clock the runner lets the VM run before
 	// it cancels it: the VM's own deadline (--remaining) fires first and writes the outcome.
 	DefaultOverrun = 2 * time.Minute
@@ -88,6 +90,10 @@ type RunnerOptions struct {
 	Spec Spec
 	// KeepWorkspace stops each workspace instead of destroying it, and keeps runs/<task>/.
 	KeepWorkspace bool
+	// GatewayPort is the gateway's port on the VM's gateway address: workspace.gatewayPort,
+	// the one the host's firewall (the pf anchor, the kata nft table) opens.
+	// DefaultGatewayPort when zero.
+	GatewayPort int
 	// Listen opens the gateway's listener on addr; default a TCP listener on it (tests listen
 	// elsewhere).
 	Listen func(ctx context.Context, addr netip.AddrPort) (net.Listener, error)
@@ -123,12 +129,17 @@ func NewRunner(o RunnerOptions) (*Runner, error) {
 		return nil, errors.New("workspace runner: no Pipeline")
 	case !filepath.IsAbs(o.StateDir):
 		return nil, fmt.Errorf("workspace runner: StateDir %q must be absolute", o.StateDir)
+	case o.GatewayPort < 0 || o.GatewayPort > math.MaxUint16:
+		return nil, fmt.Errorf("workspace runner: GatewayPort %d is not a port", o.GatewayPort)
 	}
 	if o.Listen == nil {
 		o.Listen = func(ctx context.Context, a netip.AddrPort) (net.Listener, error) {
 			var lc net.ListenConfig
 			return lc.Listen(ctx, "tcp", a.String())
 		}
+	}
+	if o.GatewayPort == 0 {
+		o.GatewayPort = DefaultGatewayPort
 	}
 	if o.Overrun <= 0 {
 		o.Overrun = DefaultOverrun
@@ -391,7 +402,7 @@ func (g *runningGateway) close() {
 	<-g.done
 }
 
-// startGateway serves the workspace's gateway on <Gateway>:GatewayPort, pinned to the VM's
+// startGateway serves the workspace's gateway on <Gateway>:<GatewayPort>, pinned to the VM's
 // address, and returns it and the --proxy URL.
 func (w *wsRun) startGateway(ctx context.Context, netw Network, gwCA *ca.CA, logins modelLogins) (*runningGateway, string, error) {
 	if !netw.VM.IsValid() || !netw.Gateway.IsValid() {
@@ -417,7 +428,7 @@ func (w *wsRun) startGateway(ctx context.Context, netw Network, gwCA *ca.CA, log
 	if err != nil {
 		return nil, "", err
 	}
-	addr := netip.AddrPortFrom(netw.Gateway, GatewayPort)
+	addr := netip.AddrPortFrom(netw.Gateway, uint16(w.r.o.GatewayPort)) //nolint:gosec // NewRunner checked it is a port
 	ln, err := w.r.o.Listen(ctx, addr)
 	if err != nil {
 		_ = g.Close()
