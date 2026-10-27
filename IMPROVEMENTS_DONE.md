@@ -174,8 +174,9 @@ deleted, which is fine while Gustavo is the only user.
 
 When the factory entered its closing phase, the backlog was cut to the next workstreams
 (IMPROVEMENTS.md). Everything below was dropped: none of it stops the PoC working or leaks
-credentials. Kept from this list and moved to IMPROVEMENTS.md: the egress wiring, implement's
-environment (with `from: latest`), phase 6 and the org move. Also dropped: ccf-review's
+credentials. Kept from this list and moved to IMPROVEMENTS.md: the egress wiring, phase 6 and the org move.
+**Implement's environment** was dropped too (Gustavo, 2026-10-27): this catalog is for the PoC,
+and #88's throwaway API/UI environment is fine for its screenshots, so its instructions stay. Also dropped: ccf-review's
 "`npm ci` (ask first)" (never seen to matter), a codex run without the MCP approval key,
 `base.sh` line 135's `worker.md` mention, and the kata LLD's accepted risks (they stay in
 `workspace-kata.md`).

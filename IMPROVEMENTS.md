@@ -26,7 +26,8 @@ deferrals:
   type; the dead `clirun` helpers; the credentials step in gateway mode; the stale
   `RepoWritable` comment; `runStackPush`'s always-true assertion; and the doc leftovers
   (run-pipeline.md's old Tests paragraph and its duplicate "Environment" row, harness-adapters'
-  historical decision text, `has-local-stack` examples in the design docs).
+  historical decision text, `has-local-stack` examples in the design docs); `implement.md.tmpl`'s
+  dead "use the factory's local stack" opening (the throwaway-environment steps stay).
 - **PR B, contract:** remove `workspace.hosts` and `Task.spec.hosts` (v1alpha1, schemas,
   openapi, the web regen, v1alpha1's `FACTORY_STACK_*` reserved names, 07-security's allow-list
   text). Check first that the file store tolerates stored Tasks that still have `hosts`.
@@ -62,7 +63,8 @@ Dropped by decision, with no PR:
 
 ## 3. Real-host checks (Gustavo)
 
-Shipped work that only fakes have tested. These are runs, not PRs; record each result in
+Shipped work that only fakes have tested. These are runs, not PRs; Gustavo runs them after
+phase 10 merges, from a runbook the Mac session hands him. Record each result in
 IMPROVEMENTS_DONE.md.
 
 | # | What | How | Pass when |
@@ -110,23 +112,7 @@ nothing applies a TaskSpec's `environment.egress` yet. Wire the field from the T
 the run bundle into the workspace's gateway policy. This is the network half of P1's hard
 sandbox.
 
-## 5. Give `implement` an environment (replaces the #88 stopgap)
-
-`implement` declares no environment, so a UC2 run that needs screenshots or GIFs follows #88's
-prompt bullets: clone `api` and `ui`, run them on random ports with fake data, take the shots
-with Playwright, and tear everything down. That path is slow and fragile, and isn't local-dev's
-seeded showcase. The prompt's first line (use the local stack when `FACTORY_STACK_URL` is set)
-is dead since phase 10 removed the local stack.
-- `catalog/taskspecs/implement.yaml` gets the environment block `docs-review-verify` has
-  (local-dev's clean slate, local-dev as a read repo), with `versions: { from: latest }`: the
-  compiler resolves nothing for it (`compile.go:569`), so local-dev's own pins apply. Keep the
-  three blocks equal in `catalog_test.go`.
-- `implement.md.tmpl`'s #88 bullets become "the environment is up at its URLs".
-- The author App needs an installation on `compliance-framework/local-dev` (private).
-- Decide: every implement run would then start the stack (minutes), even when it needs no
-  screenshots. Environments can't be conditional today.
-
-## 6. Phase 6: run tokens and enrollment
+## 5. Phase 6: run tokens and enrollment
 
 - the run token (#101's `Lease.runToken`) and the lease credential bundle;
 - enrollment (#102), replacing the join token and the device flow. Decide how an agent's owner
@@ -134,7 +120,7 @@ is dead since phase 10 removed the local stack.
 
 Today the gateway injects the agent token on the dispatcher's effects route.
 
-## 7. The org move to `ContainerSolutions/factory`
+## 6. The org move to `ContainerSolutions/factory`
 
 The Go module path is still `github.com/compliance-framework/factory`, and
 `DefaultCatalogRepo` (`internal/controllers/catalogsource.go`), the POC files and the docs
