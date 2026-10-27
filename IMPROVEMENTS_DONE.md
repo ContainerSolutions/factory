@@ -285,6 +285,27 @@ then implement (codex, the default size).
   them (`model-path`, 403, no credential added). Inference is unaffected, and refusing them
   keeps the owner's ChatGPT plugins out of tasks: log noise only.
 
+## Egress in the gateway and P1 phase 6 (2026-10-27)
+
+gh stack #233, merged:
+- #224: the workspace gateway applies the Task's `environment.egress` (mode and allow list);
+  its own hosts (models, github.com, api.github.com, the dispatcher) are never subject to it.
+- #225: run tokens (`rtk_`, one per lease, stored hashed, constant-time; only its own task and
+  that task's open run; refused once the lease ends or expires). #226: the gateway sends it on
+  the dispatcher route instead of the agent token, and the redactor strips it.
+- #227/#228: enrollments (`enr_`, one-time, single use by a check-and-swap update) and rotating
+  refresh tokens (`arf_`); `factory agent enroll|enrollments`. The enrolled agent's owner is the
+  one the admin named. An admin's deregistration revokes the refresh token.
+- #229: supervise enrolls once (`enrollmentTokenFile`) and re-registers with the refresh token
+  in its state dir (0600, saved before use).
+- #230/#231/#232: the device flow, the join token and the join/owner schemes are gone;
+  `joinTokenFile` and `githubURL` are refused in agent.yaml.
+- Checked: the Mac and the Linux workstation both registered by enrollment.
+- Stays (Gustavo): `Pool.spec.admission` (`tokenRef`, `owners`), unread; the UI shows `owners`.
+- Accepted risks (in the PR bodies): a re-registration whose response is lost after the
+  dispatcher rotated the refresh token leaves the agent needing a new enrollment; a store
+  failure between spending an enrollment and writing the agent spends the token.
+
 ## The org move (2026-10-27)
 
 #222 moved the Go module path to `github.com/ContainerSolutions/factory`, with

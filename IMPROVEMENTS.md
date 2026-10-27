@@ -15,28 +15,9 @@ How to work: read AGENTS.md first. PRs go through lisa as `ccf-lisa[bot]` with
 name's redirect) and are reviewed with ccf-review. Gustavo merges. When a workstream ships,
 record it in IMPROVEMENTS_DONE.md with its PR numbers and delete its section here.
 
-## 2. Apply `environment.egress` in the gateway
-
-**In review (2026-10-27):** #224, the bottom of gh stack #233 (#224–#232), approved.
-
-The gateway already implements deny-by-default, `AllowHosts` and the tunnel SNI check, but
-nothing applies a TaskSpec's `environment.egress` yet. Wire the field from the Task through
-the run bundle into the workspace's gateway policy. This is the network half of P1's hard
-sandbox.
-
-## 3. Phase 6: run tokens and enrollment
-
-**In review (2026-10-27):** #225–#232 in gh stack #233, all approved. `Pool.spec.admission` (`tokenRef`, `owners`) stays in the contract, unread (Gustavo, 2026-10-27): the UI's pool card shows `owners`.
-
-- the run token (#101's `Lease.runToken`) and the lease credential bundle;
-- enrollment (#102), replacing the join token and the device flow. Decide how an agent's owner
-  is attributed when no person logs in. Then remove the device flow and the join-token file.
-
-Today the gateway injects the agent token on the dispatcher's effects route.
-
 ## Then: a shippable factory (Gustavo, 2026-10-27)
 
-The final list. Start it after 2 and 3, in this order. **The goal:** the factory ships as a product,
+The final list. In this order. **The goal:** the factory ships as a product,
 and our own prod instance runs at `factory.container-solutions.com` for compliance-framework,
 from the catalog in its own repo. Several dispatchers must be able to run at once, and the whole
 thing must stay inside a cloud free tier. That's why state moves to object storage.
