@@ -1,0 +1,5 @@
+lisa-design:
+- pipeline.New requires Adapters only with Root: a WorkRoot pipeline only runs PrepareBundle/StoreTranscript/StoreEnvironmentLog; its Run still fails harness-error "no adapter" for an unconfigured harness.
+- probe uses loginProbe (as supervise) unless the caller's probe.Options has Harnesses; it adds --state-dir with supervise's default. Base tooling is git only (the host's skills fetch).
+- config.Harness home/configDir are kept and still validated (required): the decode is strict and existing agent.yaml files set them. Removal is deferred.
+- harnesstest.E2E.Pipeline takes a nil adapter for a bundle-only pipeline rather than adding a second helper; PR 3 ports the adapters' end-to-end tests off the host path.
