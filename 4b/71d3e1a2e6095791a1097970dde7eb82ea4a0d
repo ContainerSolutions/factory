@@ -1,0 +1,2 @@
+lisa-addressed:
+FACTORY-CRED-001: merged #238's 6e73e4a; TestCloudURLSecrets; redactUserinfo masks a user-only credential in parseCloudURL and s3Endpoint. Remaining: #238's u.Redacted() in ParseURL's unknown-scheme and openFileURL errors leaks a user-only credential; thread kept open.
