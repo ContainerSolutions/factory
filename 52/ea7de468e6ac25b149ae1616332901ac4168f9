@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 1: f2c379d077f7 ExecRunner.Grace renamed SudoGrace in host, vmexec and vmrun (no clash with the drivers' exec Grace); 8ed93d6df295 workspace-run.md now says a docker info attempt's timeout ends sudo the same way.
