@@ -1,0 +1,2 @@
+lisa-addressed:
+Bucket.Put removed (base 428d358): GCS/S3 Put, their tests and Put in testBucket deleted; store.md updated.
