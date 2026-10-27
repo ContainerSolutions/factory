@@ -1,0 +1,3 @@
+lisa-design:
+- sizeSpec(config.WorkspaceSize) in supervise.go is the one place workspace.size becomes a workspace.Spec, for tart and kata; it stays in cmd/factory-agent rather than a config method so config doesn't import the workspace package.
+- kata still records s.workspaceGiB separately (the lending cap divides by it); it equals sizeSpec's MemoryMiB >> 10.
