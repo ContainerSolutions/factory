@@ -160,8 +160,10 @@ jobs:
           docker image ls factory-agent-base:ci
           docker run --rm factory-agent-base:ci bash -lc \
             'for t in kind kubectl gh node go vhs gifski chromium codex codex-code-mode-host claude docker; do command -v "$t" || { echo "missing: $t" >&2; exit 1; }; done && cd /tmp && npx --no -- playwright --version'
-      # A hostname no /etc/hosts line maps (systemd's ws-tsk<id> in a workspace) resolves with
-      # no network, so sudo neither warns nor waits on DNS.
+      # nss-myhostname is installed and answers: a hostname no /etc/hosts line maps (systemd's
+      # ws-tsk<id> in a workspace) resolves with no network, and sudo doesn't warn. With no
+      # network dns fails at once, so this doesn't check the order; the Dockerfile's build-time
+      # grep enforces `files myhostname dns`.
       - name: The hostname resolves
         run: |
           docker run --rm --network none --hostname ws-tskci factory-agent-base:ci bash -c \
