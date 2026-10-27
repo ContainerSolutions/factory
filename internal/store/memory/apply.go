@@ -8,7 +8,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/store"
 )
 
-// The methods in this file serve the durable stores built on memory (store/objectstore): they
+// The methods in this file serve the durable stores built on memory (an object store, P3): they
 // are not part of store.Store.
 
 // Version returns the store's version: the last change applied.

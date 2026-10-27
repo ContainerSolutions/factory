@@ -78,14 +78,20 @@ type Header struct {
 }
 
 // ReadHeader parses a snapshot's header: a *FormatError for a format this package doesn't
-// read.
+// read. The format is decoded alone first, so another format's header fields can't fail it.
 func ReadHeader(data []byte) (Header, error) {
+	var f struct {
+		Format int `json:"format"`
+	}
+	if err := json.Unmarshal(data, &f); err != nil {
+		return Header{}, err
+	}
+	if f.Format != Format {
+		return Header{Format: f.Format}, &FormatError{Got: f.Format}
+	}
 	var hdr Header
 	if err := json.Unmarshal(data, &hdr); err != nil {
 		return hdr, err
-	}
-	if hdr.Format != Format {
-		return hdr, &FormatError{Got: hdr.Format}
 	}
 	return hdr, nil
 }

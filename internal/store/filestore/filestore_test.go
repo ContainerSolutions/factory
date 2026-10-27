@@ -664,7 +664,8 @@ func TestTranscriptNames(t *testing.T) {
 }
 
 // TestRefusesObjectStoreDir: a dir an object store uses as its file:// bucket (log/ or
-// snapshots/ in it) is never opened or read as a state dir.
+// snapshots/ in it) is never opened, read or moved aside (factory state reset) as a state
+// dir, and gets no LOCK file.
 func TestRefusesObjectStoreDir(t *testing.T) {
 	for _, sub := range []string{"log", "snapshots"} {
 		t.Run(sub, func(t *testing.T) {
@@ -679,8 +680,18 @@ func TestRefusesObjectStoreDir(t *testing.T) {
 			if _, err := Read(dir, opts); !errors.Is(err, ErrObjectStoreDir) {
 				t.Fatalf("Read = %v, want ErrObjectStoreDir", err)
 			}
+			dst := dir + ".old"
+			if err := MoveAside(dir, dst); !errors.Is(err, ErrObjectStoreDir) {
+				t.Fatalf("MoveAside = %v, want ErrObjectStoreDir", err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, sub)); err != nil {
+				t.Fatalf("MoveAside moved the object store's dir: %v", err)
+			}
+			if _, err := os.Lstat(dst); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("MoveAside created %s: %v", dst, err)
+			}
 			if _, err := os.Stat(LockPath(dir)); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("Open left a LOCK file in the object store's dir: %v", err)
+				t.Fatalf("Open or MoveAside left a LOCK file in the object store's dir: %v", err)
 			}
 		})
 	}
