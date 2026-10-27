@@ -61,16 +61,29 @@ T4 and T5 passed (IMPROVEMENTS_DONE.md).
 
 Real-host checks from stacks 3 and 4 (#197–#217), split by machine.
 
-**Linux workstation (kata):** run from the Linux box session's runbook. Each PR body has the
-details. The checks are:
-- #214: `host init --only kataimage` without the helper fails at once.
-- #204: a declined privileges prompt skips the image steps.
-- #202: Ctrl-C during `kataimage` and `katawarm` leaves nothing running.
-- #217: the workspace hostname resolves.
-- #197: the nft table follows a non-default `workspace.gatewayPort`.
-- #208: a task's `limits` size its VM.
-- #215: Ctrl-C of supervise leaves no `kata-helper`.
-- T6: an agent-only change on kata.
+**Linux workstation (kata), run 2026-10-27 at main 6a3a3f6:**
+- **Passed:**
+  - #214: `--only kataimage` without the helper fails at once.
+  - #204: a declined prompt skips the image steps.
+  - #202: Ctrl-C during the image build and during `warm-load` leaves nothing running, and the
+    build dir is empty.
+  - #217: the hostname resolves, with no "unable to resolve host".
+  - #216, kata path: a task ran normally.
+  - #197: nft follows `gatewayPort: 3129`.
+  - T6: an agent-only rebuild applies nothing, and the workspace runs the new binary.
+- **Skipped** (Gustavo's call): #215's Ctrl-C of supervise. Its tests cover it.
+- **Open:**
+  - #208/#213, task limits: needs the dispatcher rebuilt from main.
+- **Found:**
+  - After a Ctrl-C, `host init`'s final check reported healthy steps as wrong ("context
+    canceled").
+  - The warm build's cleanup ran silently for 30 s or more, so a second Ctrl-C killed it and left
+    the build workspace behind (the next init removes it).
+  - **#221** (`fx/p9c-7-init-interrupt-check`) fixes both. It also prints "interrupted: …"
+    lines, makes a second Ctrl-C exit at once, and makes an interrupted `host check` say
+    `interrupted`. Reviewed clean with ccf-review, waiting for Gustavo's approval.
+  - Real-host check after it merges: Ctrl-C `host init --driver kata --only kataimage` during the
+    build. Expect the waiting line, then the other steps ok.
 
 **Mac (tart):** everything below, on the Mac at `main` (#217 or later). Stop `supervise` first.
 `<state>` is `~/Library/Application Support/factory-agent`. A kept workspace is stopped: start
