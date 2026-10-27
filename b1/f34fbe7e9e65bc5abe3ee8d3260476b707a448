@@ -1,0 +1,3 @@
+lisa-addressed:
+- CORE-DUP-001 (limits.go:18): katahelper's minMemMiB stays its own literal (reinstalling the root helper); new internal/agent/katahelper/sizes_test.go asserts minMemMiB == v1alpha1.WorkspaceMinMemoryGiB << 10, verified to fail when the constant changes.
+- Nit: the Limits.Memory doc comment (and openapi.yaml/schema.d.ts) no longer names the Go constant; it says "at least 2Gi" in plain words.
