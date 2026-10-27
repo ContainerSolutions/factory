@@ -271,7 +271,7 @@ func (s *supervisor) newRunner(ctx context.Context, cfg *config.Config) (runner.
 	}
 	return workspace.NewRunner(workspace.RunnerOptions{
 		Driver: drv, Pipeline: p, StateDir: s.stateDir, Spec: spec, KeepWorkspace: s.keep,
-		Listen: s.d.Listen, Logger: s.log,
+		GatewayPort: w.GatewayPort, Listen: s.d.Listen, Logger: s.log,
 	})
 }
 

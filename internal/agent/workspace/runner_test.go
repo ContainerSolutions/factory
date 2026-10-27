@@ -244,7 +244,11 @@ func newRig(t *testing.T, h v1alpha1.HarnessResolved, script vmScript) *rig {
 	r.opts = RunnerOptions{
 		Driver: r.driver, Pipeline: e.Pipeline(&fake.Adapter{}), StateDir: r.state,
 		Listen: func(ctx context.Context, a netip.AddrPort) (net.Listener, error) {
-			if a != netip.AddrPortFrom(gwAddr, GatewayPort) {
+			port := r.opts.GatewayPort
+			if port == 0 {
+				port = DefaultGatewayPort
+			}
+			if a != netip.AddrPortFrom(gwAddr, uint16(port)) { //nolint:gosec // a test's port
 				return nil, fmt.Errorf("listen on %s", a)
 			}
 			var lc net.ListenConfig
@@ -484,6 +488,42 @@ func TestReadTranscriptHostOnlyTypes(t *testing.T) {
 			}
 			if len(lines) != 1 || (tt.want != "" && lines[0]["type"] != tt.want) {
 				t.Errorf("lines %v, want one of type %q", lines, tt.want)
+			}
+		})
+	}
+}
+
+// The gateway listens on GatewayPort, default DefaultGatewayPort, and the VM's --proxy names it;
+// NewRunner refuses a GatewayPort that isn't a port.
+func TestRunnerGatewayPort(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		port    int
+		proxy   string
+		wantErr bool
+	}{
+		{"default", 0, "http://127.0.0.1:3128", false},
+		{"configured", 4000, "http://127.0.0.1:4000", false},
+		{"negative", -1, "", true},
+		{"too big", 65536, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t, v1alpha1.HarnessResolved{Name: fake.Name, Model: "m"}, finishWith(runbundle.Outcome{Status: runner.StatusDone, Result: doneResult()}))
+			r.opts.GatewayPort = tt.port
+			if tt.wantErr {
+				if _, err := NewRunner(r.opts); err == nil || !strings.Contains(err.Error(), "GatewayPort") {
+					t.Fatalf("NewRunner = %v, want a GatewayPort error", err)
+				}
+				return
+			}
+			if out := r.run(context.Background()); out.Status != runner.StatusDone {
+				t.Fatalf("outcome %+v", out)
+			}
+			if i := slices.Index(r.driver.argv, "--proxy"); i < 0 || i+1 >= len(r.driver.argv) || r.driver.argv[i+1] != tt.proxy {
+				t.Errorf("argv %v, want --proxy %s", r.driver.argv, tt.proxy)
 			}
 		})
 	}
