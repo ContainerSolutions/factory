@@ -489,6 +489,12 @@ stored only when one of these holds:
   not exist yet. An empty view is correct for a provider event: scope reads the item's links
   only for `factory.*` events. Those never pass through the provider controller, since they
   are created in the store directly.
+- **The factory caused it** (`actor.isFactory`), even when unlinked and no rule could fire. When
+  an agent's effect opens a PR, `CreateEffect` calls the provider (`conn.Apply`) before it records
+  the link (`linkCreated`, `internal/server/effects.go`). So the PR's own `pr.opened` can arrive
+  in between. It is stored, and the rule controller handles it as today: it finds the item once
+  the link exists, or logs it at Info (`skipped`). It counts in neither drop reason. Such events
+  are few.
 
 Each dropped event is logged at Info with its type, its object and why it was dropped (no
 provider text), and counted in `factory_events_dropped_total{provider,type,reason}`. A wrong
@@ -721,6 +727,8 @@ which mostly costs the load balancer.
 - **Intake filter** (provider controller, every store):
   - an event `CouldFire` rejects, about an object with no work item, stores no Event or
     EventStatus, and its delivery is deleted at once;
+  - an event the factory caused (`actor.isFactory`), arriving before its link is recorded, is
+    stored, and the rule controller finds the item once the link exists;
   - a delivery of an unmapped type (no events) is deleted at once too;
   - an event about a linked object is stored even when no rule's `on` matches it;
   - an event `CouldFire` accepts is stored even when its `where` would be false, and one outside
@@ -771,7 +779,7 @@ module path. There are seven PRs, each through lisa and ccf-review:
    CI job).
 3. **The intake filter** (RT):
    - the provider controller's drop: the `eventLink` lookup (synced when empty) plus
-     `rules.CouldFire`, as `workItemFor` makes them;
+     `rules.CouldFire`, as `workItemFor` makes them, and the events the factory caused kept;
    - the immediate deletion of a delivery left with no stored event, while failed deliveries
      keep their retention;
    - the Info log and `factory_events_dropped_total`;
