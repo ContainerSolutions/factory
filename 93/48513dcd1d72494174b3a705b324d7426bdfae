@@ -1,0 +1,5 @@
+lisa-addressed:
+Pass 1 fixes: Sweep returns maintenance/compaction errors (and retries maintenance next sweep); dropTranscript returns errors, evictFor fails on them; journal.FileStore*/ObjectStore*/TranscriptDir shared; deletedRuns collector in the write's ctx; lastMaint zero at load (first sweep maintains); noteSync logs once; TestSegmentRetention; Ready after Close; rules_test.go reverted.
+
+lisa-design:
+Decisions (store.md §Object store "Decisions taken"): file:// create links an fsync'd tmp file (not O_EXCL); the commit hook takes ctx; an unknown create outcome is retried once; a write memory refuses (NotFound/AlreadyExists/Conflict) syncs once and runs again; a Get that can't sync returns the sync's error; the orphan scan uses blob age; compaction from Sweep, Close and Compact on any instance; retention and orphan scan at the first sweep then daily; the schema golden compares field paths and JSON kinds.

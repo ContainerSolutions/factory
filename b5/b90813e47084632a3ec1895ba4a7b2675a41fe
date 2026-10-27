@@ -1,0 +1,10 @@
+lisa-selfreview:
+Pass 1 (strict):
+- CORE-ERR-001 Sweep logged and swallowed compaction/maintenance failures; eviction ignored a failed transcript drop (the total cap could be exceeded).
+- CORE-DUP-001 the stores' directory names (snapshot.json, journal.jsonl, LOCK, log, snapshots, transcripts) were written in both stores' guards.
+- CORE-TEST-001 log and snapshot retention, and Ready after Close, had no test.
+- CORE-CONC-001 the queue of deleted Runs was shared by concurrent writes, so one write could return before another drained its Run's transcripts.
+- maintenance (retention, orphan scan) only ran 24 h after start: an instance that scales to zero might never run it.
+- FACTORY-LOG-001 (noise) a read-path sync failure logged at warn on every read during an outage.
+- CORE-SCOPE-001 cmd/factory/rules_test.go (CAT-owned) touched for a flag description: reverted.
+- CORE-SIZE-001 the PR is ~6.3k added lines (3.5k code, 2.2k tests, 0.7k golden+docs): the spec's PR 1 scope; needs a size-exception label from a human. Listed in the PR body, not fixed.
