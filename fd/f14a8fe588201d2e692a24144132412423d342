@@ -1,0 +1,2 @@
+lisa-addressed:
+- triage (accepted by the coordinator): intake keeps unlinked provider events whose actor.isFactory is true (checked after CouldFire, before the link lookup, so no sync); counted in neither reason. Tests: TestIntakeFilter factory cases, TestIntakeKeepsFactoryEventBeforeItsLink (pr.opened before linkCreated is stored; after LinkObject the rule controller finds the item). controllers.md §provider, README §6, state events --help updated.
