@@ -2,9 +2,10 @@
 
 > Status: **proposed**. Workstream: RT (dispatcher runtime). Builds on
 > [P2](P2-dispatcher-state-file.md) (its journal and snapshot formats) and
-> [ADR-0009](../adr/0009-dispatcher-state-is-a-log-in-object-storage.md). One contract change:
-> a new 409 problem code (`Problem.code`) on event replay (§Rollout, PR 3). Touches `internal/store`, `cmd/factory
-> serve`, `factory state` and the API contract.
+> [ADR-0009](../adr/0009-dispatcher-state-is-a-log-in-object-storage.md). Replaces nothing in
+> the contracts. Touches `internal/store`, `cmd/factory serve`, `factory state`, the provider
+> controller's intake, and removes the work-item rebuild from markers.
+> Decisions at the end (Gustavo, 2026-10-27).
 
 ## Why
 
@@ -265,83 +266,10 @@ Event and both post the same notice. So:
   (provider, rule, debounce, work-item, run), the scheduler's lease controller and its
   `Refresh`, the sweeper (lock records included), compaction, the transcript orphan scan, and
   the App installation check.
-- **Start-up work runs when an instance becomes leader, not when it starts.** A Cloud Run cold
-  start must not redo it each time:
-  - **The work-item rebuild from markers** (`wic.Rebuild`) re-lists every bound provider's
-    objects on GitHub. It runs once per **binding**, not once per leader:
-    1. **The binding key** is the provider instance plus the RuleSet's `scope.repos` and
-       `scope.exclude`, each sorted, as written (patterns compared as text). The RuleSet's name
-       and the other scope fields are left out, because they don't change which objects are
-       listed. So a rename, a reordered list or a branch edit re-lists nothing, and a changed
-       repo pattern is a new binding, listed once.
-    2. **The record.** A record of the internal kind `RebuildStatus` lists the keys already
-       rebuilt and, for a key that failed, its last error and when it was tried. The leader
-       rebuilds the catalog's keys that aren't listed as done:
-       - when it becomes leader;
-       - when the catalog syncs (catalog sync is live), so a RuleSet or provider added at
-         runtime is rebuilt alone while everything else keeps running.
-
-       On a new bucket or prefix every key is pending. A done key's stored items are
-       authoritative, as in the file store, and the work-item resync observes what changed on
-       GitHub meanwhile.
-    3. **`Rebuild` gets scoped (PR 4).** Today `wic.Rebuild(ctx)` walks every RuleSet and stops
-       at the first error. It changes to take the keys to rebuild and to return a result per
-       key, so one failing repo doesn't stop the others.
-    4. **The gate is per RuleSet, in one check before `workItemFor`.** Both paths that create
-       work items from events call it:
-       - The rule controller's `Reconcile` **requeues** (with the controller's backoff) an event
-         that any RuleSet with a pending key would evaluate. There is one `EventStatus` per event,
-         so the whole event waits, including the rules of RuleSets already done. Events that
-         no pending RuleSet evaluates go on.
-       - Event replay (`POST /events/{id}/replay`, `RuleController.Replay`), which runs on every
-         instance, **refuses** such an event with a 409 problem with a new code
-         (`Problem.code`), `rebuild-pending`, naming the RuleSet and its pending key. That is a contract change:
-         today `replay-history-gone` is the endpoint's only 409. It gets its own PR (§Rollout,
-         PR 3).
-
-       Without the gate, either path could create a fresh work item, with reset counters, for
-       an object whose marker hasn't been read yet. The debounce and work-item controllers
-       aren't gated: they reconcile stored items, and an item is stored only once it is whole
-       (item 5).
-    5. **Items that span keys.** An item's links may sit in objects of two keys, for example an
-       issue in one repo and its PR in another, and each key's rebuild lists only its own
-       objects. So when a rebuild finds an item's marker, it also observes every link that
-       marker names, inside its key or not, and merges all their projections
-       (`mergeProjections`) before it creates the item. An observe that fails is split as
-       `observeLinks` splits errors (view.go: not found and forbidden count as gone). The
-       rebuild also counts a provider with no connection as gone, as `Rebuild` already skips
-       unconnected providers and objects that are not found:
-       - **Permanent** (not found, forbidden, or no connection for the provider): the link
-         counts as gone. The item is created from the markers that could be read, keeps the
-         link in `spec.links`, and a warning names it. So a repo the App lost access to
-         doesn't hold other keys pending: a failing key holds only its own RuleSets (item 7).
-       - **Transient** (rate limit, 5xx, timeout): the item is not created, and this key stays
-         pending with that error until a retry creates it whole.
-
-       A later key's rebuild then finds the item `Existing`. That includes the key of a link
-       counted as gone, once its access is back: the item keeps what it was built from, and the
-       marker of the regained object is not merged. That is the price of not holding other keys
-       on a lost repo. It only happens to a rebuild during an access loss, and effects on the
-       lost repo fail meanwhile anyway.
-    6. **Retries.** A failed key is retried with backoff (capped at 5 minutes) while the
-       instance leads. If it loses the lead, the next leader picks up from the record. A rebuild
-       is idempotent: items already stored are `Existing`.
-    7. **Making a failure visible.** Today `serve` exits when the rebuild fails, and the next
-       start retries it, which shows as a failing deploy. Under P3 the instances stay up, so a
-       failure must be reported instead:
-       - Each failed attempt is logged at error level, naming the provider, the RuleSet and the
-         error, so a log-based alert can fire on it. This is the channel that works on Cloud Run
-         and Lambda.
-       - `factory state` shows the `RebuildStatus` record with the last error.
-       - `/metrics` has a gauge of pending keys, computed from the stored record, so every
-         instance reports the same. `/metrics` listens on loopback only, so on the cloud it
-         needs a sidecar to be scraped.
-
-       A key that keeps failing (for example a repo the App lost access to) holds only its own
-       RuleSets' events, until someone fixes the access or removes it from the catalog. Today
-       the same failure stops `serve` from starting at all.
-  - **The provider's delivery recovery** (`pc.Recover`) runs on becoming leader, with `since`
-    set to that moment. Today `since` is the process start.
+- **The provider's delivery recovery** (`pc.Recover`) runs when an instance becomes leader, with
+  `since` set to that moment, not on every cold start. Today `since` is the process start. There
+  is no other start-up work: the work-item rebuild from markers is removed (§No rebuild from
+  markers).
 - **The leader** is whoever holds the `leader` lock: TTL 3 minutes, renewed every minute. Every
   instance tries to take it at start and on each tick, with a context of a few seconds, because
   `Lock` waits while another holder has it. The holder checks it still holds the lock before
@@ -355,13 +283,65 @@ Event and both post the same notice. So:
   own idempotency markers.
 
   The `serve` PR audits every store write **and every provider call** a leader-only loop or the
-  start-up work makes. Each must be one of these, and it fixes any that isn't.
+  recovery makes. Each must be one of these, and it fixes any that isn't.
 - **Scale to zero.** With no instance running nothing runs, and nothing needs to. A webhook or an
   agent call starts an instance, which takes the leader lock if it is free. Timed work
   (debounces, lease expiry, schedules) needs a request to happen; IMPROVEMENTS item 9 adds a tick endpoint for
   that (Cloud Scheduler or EventBridge). The store needs nothing from it.
 
 With one dispatcher, as today, that dispatcher is always the leader and nothing changes.
+
+### No rebuild from markers
+
+Today `serve` starts by rebuilding the work items from the markers the factory writes on GitHub
+(`wic.Rebuild`, controllers.md). It lists every bound repo's issues and PRs and recreates the
+items, their counters and state. That existed because the store was in memory and a restart lost
+everything. With durable state (the file store, and now the bucket), the store is the authority,
+and the rebuild only re-lists GitHub on every start to confirm what the store already holds. With
+several instances and scale to zero, it would also need its own coordination: once per bucket,
+per binding, with a gate on the rule controller while it runs.
+
+So the rebuild is **removed**, for every store:
+- `wic.Rebuild`, its call in `serve`, and `/readyz`'s wait for it go.
+- **Projections stay.** The factory still writes its markers on GitHub, for people to read.
+  Nothing reads them back.
+- **The work-item resync stays.** It observes each open link and emits
+  `factory.workitem.resynced` for changes made on GitHub while no dispatcher was watching.
+- **Recovery is replay.** Events are stored (90 days, `--retention`), so an event handled
+  wrongly is replayed (`POST /events/{id}/replay`) rather than reconstructed from markers.
+- **What is lost** is rebuilding from GitHub after the state itself is lost (a deleted bucket or
+  dir). Open items would then start fresh on their next event. Bucket soft delete (GCS's default
+  of 7 days) or S3 versioning covers an accidental delete instead.
+- **Old markers.** The cloud instance starts fresh with a new catalog (Decision 2). A repo that
+  carries markers from the workstation's runs gets a fresh work item on its next event. That
+  item writes its own marker, since markers are one per work item. The old marker comment stays,
+  stale, and nothing reads it.
+
+### Only events that can matter are stored
+
+Today every webhook the GitHub App receives is stored before any rule looks at it: a `Delivery`,
+then an `Event`, its `EventStatus`, and a `WorkItem` for any new object. That is 4–6 writes,
+whether or not a rule could ever match. Most of an App's webhooks (pushes, check runs, workflow
+runs, comments on untracked issues) match nothing. So the provider controller drops those at
+normalisation. An event is stored only when one of these holds:
+- **its object is linked to a stored work item** (the `spec.links` index, read from memory). The
+  rule controller applies every event to its item, even when no rule fires: link state, closing
+  and history.
+- **a rule could match it.** Some RuleSet binds the event's provider and covers its object in
+  scope, and one of its rules has an `on` that matches the event's type. This is the same
+  `on`-and-scope selection the engine makes before any `where` (`rules.candidates`), exported as
+  a pure function. `where` is not evaluated: it needs the work item's state, and the item may
+  not exist yet.
+
+A delivery whose events are all dropped is deleted at once, rather than kept for the delivery
+retention. That costs one write, the Delivery's create, which keeps it durable before the
+webhook is acknowledged; deletes are free. A redelivered duplicate is normalised and dropped
+again, which is harmless. Each dropped event is logged at debug level with its type, its object
+and why it was dropped. That log is where "why didn't my rule fire?" starts for an event that
+isn't stored. The filter reads the catalog when the event arrives, so a rule added later doesn't
+see events dropped before it.
+
+This is a change to the provider controller, not to the store, and it applies to every store.
 
 ### Backends
 
@@ -399,22 +379,29 @@ memory.
 
 ## What it costs
 
-Object storage charges per request. Estimate for our instance, at 30 runs a day of about 20
-minutes each and 300 webhooks a day:
+Object storage charges per request. The cloud instance runs the docs and workflows catalog only.
+The estimate is for at most 20 stored webhooks a day (each about 10 writes: the delivery, the event
+and its status, the work item, its lock, and the task) and 3 runs a day of about 20 minutes (about
+260 writes each, mostly heartbeats). It also allows 200 webhooks a day that match nothing, each
+one write (§Only events that can matter are stored).
 
-| Item | Count per month | GCS (us-central1) | S3 |
-|---|---|---|---|
-| Writes (log entries, locks, snapshots, blobs): ~260 per run, ~15 per webhook, leader renewals; plus the LISTs (cold starts, the daily orphan scan), billed like writes | ~420,000 Class A / PUT and LIST | 5,000 free, then $0.005 per 1,000: **~$2.10** | $0.005 per 1,000: **~$2.10** |
-| Syncs (one GET every 2 s while an instance runs), cold-start GETs | ≤ 1,300,000 Class B / GET | 50,000 free, then $0.0004 per 1,000: **≤ $0.50** | $0.0004 per 1,000: **≤ $0.52** |
-| Storage: snapshots, a week of log, transcripts | < 2 GB | 5 GB-months free | ~$0.05 |
-| Deletes | — | free | free |
+That gives about 1,200 writes a day before the leader lock's renewals. Renewals add 60 an hour
+while an instance runs. Syncs add one GET every 2 s while an instance runs. So the bill depends on
+how long an instance stays up. That in turn depends on how agents poll (IMPROVEMENTS item 9):
 
-So it costs **about $2–3 a month, not $0.** GCS's always-free tier (5,000 Class A operations a
-month) is used up in the first day; AWS gives new accounts credits rather than an S3 free tier.
+| An instance runs… | Writes / month (Class A, PUT, LIST) | GETs / month (Class B) | GCS (us-central1) | S3 |
+|---|---|---|---|---|
+| ~2 h a day (agents poll briefly) | ~39,000 | ~110,000 | 5,000 + 50,000 free: **~$0.20** | **~$0.25** |
+| all day (agents long-poll) | ~79,000 | ~1,300,000 | **~$0.90** | **~$0.95** |
 
-Heartbeats make most of the writes: each one rewrites the task, the lease, the agent and the
-run. If the bill matters, the cheapest lever is to write a heartbeat's fields to one record. That
-is a scheduler change, not a store change. The sync interval trades read freshness for GETs.
+These use the list prices: $0.005 per 1,000 writes and $0.0004 per 1,000 reads, on both clouds.
+Storage stays well under 1 GB, inside GCS's 5 GB free tier, and deletes are free.
+
+So it costs **under $1 a month**, still not $0. GCS's always-free 5,000 writes a month last 2 to
+4 days. A single run's heartbeats (about 260 writes) take more than a day's share (about 165).
+Heartbeats make most of the writes: each one rewrites the task, the lease, the agent and the run.
+If the bill ever matters, the cheapest lever is to write a heartbeat's fields to one record, a
+scheduler change. The sync interval trades read freshness for GETs.
 
 ## Security
 
@@ -454,19 +441,6 @@ is a scheduler change, not a store change. The sync interval trades read freshne
     commit proceeds, and no task is leased twice. Meanwhile each pass waits for the lock at
     most once and mints at most once, and passes started within 2 s of a timeout neither wait
     nor mint;
-  - rebuild keys:
-    - a rebuild that fails half-way on one leader is finished by the next;
-    - while a key is pending, events its RuleSets would evaluate are requeued, other events
-      go on, and a replay of such an event is refused with a 409 and creates no work item;
-    - an item linking objects in two keys is created whole from both keys' markers. If the
-      other key's observe fails transiently, the item isn't created and the key stays pending.
-      An item linking into a forbidden repo, or a provider with no connection, is created
-      from the other markers. It keeps that link in `spec.links`, a warning names it, and its
-      key ends done;
-    - a failing key is logged at error level and counted in the gauge until it succeeds;
-    - a binding added to the catalog at runtime is rebuilt alone, with the controllers
-      running;
-    - a renamed RuleSet, or a reordered `repos` list, re-lists nothing.
 - **Faults** (fake bucket):
   - lost races at every step;
   - a create that timed out but landed, and one that didn't;
@@ -481,6 +455,16 @@ is a scheduler change, not a store change. The sync interval trades read freshne
 - **Secrets:** the file store's two tests, run over the bucket's objects.
 - **Real buckets:** opt-in tests against `fake-gcs-server` and MinIO in Docker
   (`make e2e-objectstore`). CI runs them as a non-required job, like `e2e-run-container`.
+- **Intake filter** (provider controller, every store):
+  - an event no rule's `on` and scope covers, about an object with no work item, stores no
+    Event, EventStatus or WorkItem, and its delivery is deleted;
+  - an event about a linked object is stored even when no rule's `on` matches it;
+  - an event a rule's `on` and scope cover is stored even when its `where` would be false;
+  - the dropped event is logged at debug with its reason;
+  - `factory rules test` fixtures are unchanged.
+- **No rebuild:** `serve` starts without listing GitHub (the fake provider counts no `List`
+  call). An issue with an old marker gets a fresh work item on its next event, which writes its
+  own marker next to the old one.
 - **`serve`:** two `serve` processes on one `file://` bucket. A webhook taken by one leads to a
   task leased and completed through the other, with one leader at a time, and the second takes
   over when the first stops.
@@ -498,33 +482,35 @@ module path. There are four PRs, each through lisa and ccf-review:
    - store.md §Object store.
 2. **GCS and S3 buckets**, with the opt-in emulator tests and their CI job (RT, plus a non-required
    CI job).
-3. **Contract: the replay endpoint's 409 problem code `rebuild-pending` (`Problem.code`)** (AGENTS.md: a contract
-   change goes in its own PR, merged before the code that uses it):
-   - `api/openapi.yaml`'s replay responses;
-   - web's regenerated client (`npm run gen:api`);
-   - `contracts.md` and `api-server.md`.
+3. **The intake filter** (RT):
+   - the exported `on`-and-scope check in `internal/rules` (pure);
+   - the provider controller's drop, and the deletion of a delivery left with no event;
+   - its tests;
+   - controllers.md §provider.
 4. **`serve --state-url`**:
    - the leader lock, and which loops run where;
-   - the rebuild once per key, tracked in `RebuildStatus`. `wic.Rebuild` takes the keys and
-     returns a result per key, observing the links each marker names across keys. The per-RuleSet
-     gate in `Reconcile` and `Replay`, and failures reported;
    - the recovery on becoming leader;
-   - the scheduler's `errSchedBusy` and its busy-until;
-   - the scheduler's `sched` lock around lease commits;
+   - the work-item rebuild removed: `wic.Rebuild`, its call, `/readyz`'s wait;
+   - the scheduler's `sched` lock around lease commits, `errSchedBusy` and its busy-until;
    - the audit of the leader-only loops' store writes and provider calls;
    - `factory state --state-url` (read-only, as `--state-dir` is);
    - the two-`serve` test;
-   - the docs: store.md, controllers.md (Replay's second refusal, the Reconcile gate and the
-     scoped `Rebuild`) and scheduler-and-pools.md (the `sched` lock).
+   - the docs:
+     - store.md §Serving (no rebuild);
+     - controllers.md (the work-item controller without Rebuild);
+     - scheduler-and-pools.md (the `sched` lock);
+     - LOCAL-GUIDE, wherever it mentions the rebuild.
 
 Deploying to Cloud Run or Lambda, the tick endpoint and the bucket policy are IMPROVEMENTS item 9.
 
-## Questions for Gustavo
+## Decisions (Gustavo, 2026-10-27)
 
-1. **Cost.** Object storage costs about $2–3 a month at our load, not $0 (§What it costs).
-   Is that acceptable, or should "inside the free tier" be strict? If it must be strict, the
-   only fit found is Firestore (GCP only), which replaces this design's backends.
-2. **Existing state.** Move the workstation's file-store state into the bucket (a
-   `factory state push` that uploads the snapshot and transcripts), or start the cloud
-   instance fresh? Work items come back from GitHub's markers either way. Starting fresh needs
-   no code.
+1. **Cost:** a small bill is fine. The cloud instance runs the docs and workflows catalog only,
+   with at most 10–20 webhooks a day that matter (§What it costs: under $1 a month).
+2. **A fresh start:** the cloud instance starts with an empty bucket and a new catalog in its own
+   repo (IMPROVEMENTS item 8). Nothing is pushed from the workstation's state dir, so no
+   `factory state push`.
+3. **No rebuild from markers:** with durable state and stored events, the work-item rebuild is
+   removed (§No rebuild from markers).
+4. **Store only the events that can matter:** an event no rule could match, about an object
+   with no work item, is dropped at intake (§Only events that can matter are stored).

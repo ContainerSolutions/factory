@@ -36,17 +36,19 @@ transactions, no change feed and no order across objects.
 
 ## Consequences
 - The `Store` interface and `storetest` don't change.
-- What changes with several dispatchers:
+- What changes around it:
   - the scheduler's lease commits take a store lock;
-  - the work-item rebuild from markers runs once per binding, not once per start, and the rule
-    controller holds the events of a RuleSet whose binding isn't rebuilt yet;
-  - event replay refuses such an event with a new 409 problem code, `rebuild-pending`. This
-    is the only contract change.
+  - the work-item rebuild from markers is removed: the stored state is the authority, and
+    stored events are replayed instead;
+  - only events that a rule's `on` and scope could match, or that concern a linked object, are
+    stored.
+- No contract changes.
 - Writes are serialised through one log, one PUT each (tens per second at most): enough for the
   factory, not for a high-volume service.
 - Each instance holds the whole state in memory, as today. Reads may lag other instances by the
   sync interval; writes never act on stale state.
-- Requests cost money: about $2–3 a month at our load, above GCS's always-free operations.
+- Requests cost money: under $1 a month at our load (docs and workflows), above GCS's
+  always-free operations.
 - Old log entries may be deleted only under a time rule (covered by a snapshot and older than
   7 days, with writers reloading after an hour's lag). Bucket lifecycle rules must not touch
   the log.
