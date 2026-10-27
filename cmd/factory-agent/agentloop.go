@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/enroll"
 	"github.com/ContainerSolutions/factory/internal/agent/owner"
 	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
 	"github.com/ContainerSolutions/factory/internal/agent/probe"
@@ -68,7 +69,9 @@ type agentLoop struct {
 	name string
 	// path is the config file.
 	path string
-	log  *slog.Logger
+	// stateDir is supervise's state dir (absolute): the enrolled agent's refresh token.
+	stateDir string
+	log      *slog.Logger
 	// newRunner builds the Runner once the config is loaded and probed.
 	newRunner func(ctx context.Context, cfg *config.Config) (runner.Runner, error)
 	// lending adjusts the config's lending, at start and on SIGHUP; nil keeps it.
@@ -113,26 +116,31 @@ func runAgentLoop(ctx context.Context, stderr io.Writer, d workerDeps, l agentLo
 		return 1
 	}
 
-	src := d.Owner
-	if src == nil {
+	o := worker.Options{
+		Dispatcher: cfg.Dispatcher, Pool: cfg.Pool, Host: cfg.Host,
+		AgentVersion: version.Version, Capabilities: rep.Capabilities, Lending: l.lending(cfg.Lending),
+		Runner: rn, HTTPClient: d.HTTPClient, Logger: log,
+	}
+	// Enrolled (P1 §6): a refresh token in the state dir, or an enrollment token to exchange.
+	if enr := (enroll.Files{StateDir: l.stateDir, TokenFile: cfg.EnrollmentTokenFile}); cfg.EnrollmentTokenFile != "" || enr.Enrolled() {
+		o.Enrollment = enr
+	} else if o.Owner = d.Owner; o.Owner == nil {
 		plain, err := apiclient.NewClientWithResponses(worker.APIBase(cfg.Dispatcher), apiclient.WithHTTPClient(d.HTTPClient))
 		if err != nil {
 			log.Error("dispatcher client", "err", err)
 			return 1
 		}
-		src = &owner.DeviceFlow{
+		o.Owner = &owner.DeviceFlow{
 			API: plain, GitHubURL: cfg.GitHubURL, HTTPClient: &http.Client{Timeout: 30 * time.Second},
 			Prompt: func(uri, code string, expires time.Duration) {
 				fmt.Fprintf(stderr, "\nTo register this agent, open %s and enter the code %s (it expires in %s).\n\n", uri, code, expires)
 			},
 		}
 	}
-	w, err := worker.New(worker.Options{
-		Dispatcher: cfg.Dispatcher, Pool: cfg.Pool, Host: cfg.Host,
-		AgentVersion: version.Version, Capabilities: rep.Capabilities, Lending: l.lending(cfg.Lending),
-		JoinToken: func() (string, error) { return config.ReadSecretFile(cfg.JoinTokenFile) },
-		Owner:     src, Runner: rn, HTTPClient: d.HTTPClient, Logger: log,
-	})
+	if o.Enrollment == nil {
+		o.JoinToken = func() (string, error) { return config.ReadSecretFile(cfg.JoinTokenFile) }
+	}
+	w, err := worker.New(o)
 	if err != nil {
 		log.Error("worker", "err", err)
 		return 1

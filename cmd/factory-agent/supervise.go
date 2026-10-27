@@ -112,7 +112,7 @@ func runSupervise(ctx context.Context, args []string, stderr io.Writer, d superv
 		warmBase: *warmBase, warmBaseSet: warmBaseSet, keep: *keepWorkspace, unlock: func() {}}
 	defer func() { s.unlock() }()
 	return runAgentLoop(ctx, stderr, d.Worker, agentLoop{
-		name: "supervisor", path: *path, log: log, newRunner: s.newRunner, lending: s.lending, reload: s.reloadMemory,
+		name: "supervisor", path: *path, stateDir: *stateDir, log: log, newRunner: s.newRunner, lending: s.lending, reload: s.reloadMemory,
 	})
 }
 

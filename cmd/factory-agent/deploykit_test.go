@@ -34,8 +34,8 @@ func TestDeployAgentExample(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agent.yaml.example does not load: %v", err)
 	}
-	if cfg.Pool != "local" || cfg.JoinTokenFile != "/home/owner/.config/factory-agent/join-token" || cfg.Host != "mymac" {
-		t.Errorf("pool %q, joinTokenFile %q, host %q", cfg.Pool, cfg.JoinTokenFile, cfg.Host)
+	if cfg.Pool != "local" || cfg.EnrollmentTokenFile != "/home/owner/.config/factory-agent/enrollment-token" || cfg.Host != "mymac" {
+		t.Errorf("pool %q, enrollmentTokenFile %q, host %q", cfg.Pool, cfg.EnrollmentTokenFile, cfg.Host)
 	}
 	for _, h := range config.Harnesses() {
 		if _, ok := cfg.Harnesses[h]; !ok {

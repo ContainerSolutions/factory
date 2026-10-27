@@ -88,8 +88,9 @@ func TestParseInvalid(t *testing.T) {
 		{"empty", "", []string{"empty config"}},
 		{"not a mapping", "- a\n", []string{"must be a mapping"}},
 		{"yaml 1.2 strings", base("lending:\n  unlimited: true\n", "lending:\n  unlimited: yes\n"), []string{"cannot unmarshal string"}},
-		{"missing everything", "lending: {unlimited: true}\nharnesses: {}\n", []string{"dispatcher: required", "pool: required", "joinTokenFile: required", "harnesses: at least one"}},
+		{"missing everything", "lending: {unlimited: true}\nharnesses: {}\n", []string{"dispatcher: required", "pool: required", "enrollmentTokenFile: required", "harnesses: at least one"}},
 		{"relative join token", base("~/.config/factory-agent/join-token", "join-token"), []string{"joinTokenFile: \"join-token\" must be absolute"}},
+		{"relative enrollment token", base("joinTokenFile: ~/.config/factory-agent/join-token", "enrollmentTokenFile: enrollment-token"), []string{"enrollmentTokenFile: \"enrollment-token\" must be absolute"}},
 		{"http on a public host", base("https://factory.example.dev", "http://factory.example.dev"), []string{"plain http is only allowed on a loopback host"}},
 		{"dispatcher with credentials", base("https://factory.example.dev", "https://u:p@factory.example.dev"), []string{"must not carry credentials"}},
 		{"dispatcher with query", base("https://factory.example.dev", "https://factory.example.dev/?x=1"), []string{"must not carry credentials, a query"}},
@@ -341,5 +342,17 @@ func TestGiB(t *testing.T) {
 		if got := GiB(tt.v); got != tt.want {
 			t.Errorf("GiB(%q) = %d, want %d", tt.v, got, tt.want)
 		}
+	}
+}
+
+// An enrollmentTokenFile replaces joinTokenFile; ~/ expands.
+func TestParseEnrollmentTokenFile(t *testing.T) {
+	c, err := Parse([]byte(strings.Replace(validYAML, "joinTokenFile: ~/.config/factory-agent/join-token",
+		"enrollmentTokenFile: ~/.config/factory-agent/enrollment-token", 1)), opts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.EnrollmentTokenFile != "/home/owner/.config/factory-agent/enrollment-token" || c.JoinTokenFile != "" {
+		t.Errorf("config %+v", c)
 	}
 }

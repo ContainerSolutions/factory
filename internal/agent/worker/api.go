@@ -15,9 +15,11 @@ import (
 // The dispatcher's API base path and the registration credential headers (contracts.md §HTTP
 // API).
 const (
-	BasePath         = "/api/v1"
-	HeaderJoinToken  = "X-Factory-Join-Token"
-	HeaderOwnerToken = "X-Factory-Owner-Token"
+	BasePath                = "/api/v1"
+	HeaderJoinToken         = "X-Factory-Join-Token"
+	HeaderOwnerToken        = "X-Factory-Owner-Token"
+	HeaderEnrollmentToken   = "X-Factory-Enrollment-Token"
+	HeaderAgentRefreshToken = "X-Factory-Agent-Refresh-Token"
 )
 
 // APIBase is the API base URL of a dispatcher.
