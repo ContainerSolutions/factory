@@ -97,3 +97,69 @@ The Go module path is still `github.com/compliance-framework/factory`, and
 `DefaultCatalogRepo` (`internal/controllers/catalogsource.go`), the POC files and the docs
 still name the old org; clones work only through GitHub's redirect. ccf-review's default owner
 is still `compliance-framework`, so pass it full `ContainerSolutions/factory#N` refs.
+
+## Then: a shippable factory (Gustavo, 2026-10-27)
+
+The final list. Start it after 1–5, in this order. **The goal:** the factory ships as a product,
+and our own prod instance runs at `factory.container-solutions.com` for compliance-framework,
+from the catalog in its own repo. Several dispatchers must be able to run at once, and the whole
+thing must stay inside a cloud free tier. That's why state moves to object storage.
+
+### 6. State in GCS / S3 instead of local files
+
+Today P2's file store (`internal/store/filestore`, `serve --state-dir`) keeps state in local
+files and assumes a single dispatcher writing them. This probably needs some rearchitecture,
+broken down as:
+- **(a) A new file layout** that suits object storage and more than one writer. Use small
+  objects, one per record (or per append-only segment), each changed by a conditional write:
+  S3's `If-Match`/`If-None-Match`, GCS's generation preconditions. Two dispatchers then can't
+  overwrite each other, and the work-item locks and leases become conditional writes too. Write
+  it up as a short design first: what each object holds, how listing and retention work, and
+  what a second dispatcher does with a lost write.
+- **(b) The upload itself:** an object-store backend behind the store interface
+  (`internal/store/store.go`, with `storetest` as its conformance suite), with GCS and S3
+  implementations. Keep the local-file backend for development.
+
+### 7. Binaries and an install script for `supervise`
+
+One command sets an agent up, for example
+`curl -fsSL https://github.com/ContainerSolutions/factory/releases/latest/download/install.sh | bash`.
+It:
+- downloads the release's `factory-agent` for the OS and architecture and checks its checksum;
+- runs `host init`;
+- walks through the model logins (`factory-agent login claude|codex`);
+- writes `agent.yaml`;
+- installs supervise as a service (launchd on the Mac, systemd on Linux).
+
+This needs a release workflow (darwin-arm64 and linux-amd64 binaries, with checksums). Once
+factory releases, it switches to `release: true` in workflows' `repos.yaml`. That's a
+`workflows` change, so Gustavo approves it.
+
+### 8. Ship the dispatcher
+
+- Ship what `make poc-up` runs (`deploy/poc/run.sh`, which runs `factory serve` with the web UI
+  built in, `make build-release`) as release binaries.
+- Ship a container image of the dispatcher (`factory serve`), for example on ghcr.io, built in
+  the same release workflow.
+
+### 9. The factory catalog in its own repo
+
+Move `catalog/` to a new repo under compliance-framework (for example
+`compliance-framework/factory-catalog`), with its `factory rules test` fixtures run in that
+repo's CI. Point `DefaultCatalogRepo` (`internal/controllers/catalogsource.go`) at it. This repo
+keeps only the test catalogs.
+
+### 10. Run the dispatcher in the cloud, inside the free tier
+
+The cheapest setup that works: compare GCP Cloud Run and AWS Lambda (behind API Gateway or a
+function URL) against the free tiers, with state in 6's bucket. Then deploy it at
+`factory.container-solutions.com`, with the GitHub Apps' webhooks pointed there. Constraints to
+design for:
+- Both scale to zero. The dispatcher's background loops (controllers, debounces, lease expiry,
+  the App installation check) then need a trigger, such as Cloud Scheduler or EventBridge
+  calling a tick endpoint, or they move into request handling.
+- Lambda caps a request at 15 minutes, and agents' lease and heartbeat calls need short
+  requests.
+- More than one instance can run at once, which 6(a) makes safe.
+- The secrets (App keys, the session key) live in the cloud's secret manager, never in the
+  image.
