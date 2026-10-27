@@ -58,6 +58,8 @@ const (
 	agentInVM = "/usr/local/bin/factory-agent"
 	// KindImagesDir is where the warm base saves warm.kindImages, for kind load image-archive.
 	KindImagesDir = "/var/lib/factory/kind-images"
+	// vmPlatform is the base VM's platform, the only one a kind image's archive is saved for.
+	vmPlatform = "linux/arm64"
 )
 
 // BaseVMRecord is <statedir>/basevm.json: what the base VM was built from.
@@ -570,7 +572,7 @@ func (s warmBaseStep) Plan(ctx context.Context) (Plan, error) {
 			if k.tag != k.ref {
 				tag = " and docker tag it " + k.tag
 			}
-			do = append(do, "tart exec "+b+" sudo docker pull "+k.ref+tag+", then docker save -o "+k.archive+" "+k.tag)
+			do = append(do, "tart exec "+b+" sudo docker pull "+k.ref+tag+", then docker save --platform "+vmPlatform+" -o "+k.archive+" "+k.tag+" and chmod 0644 it")
 		}
 		do = append(do, fmt.Sprintf("clear its machine-id and cloud-init state, shut it down (%s)", e.VM.Shutdown))
 	}
@@ -626,7 +628,12 @@ func (s warmBaseStep) Apply(ctx context.Context) error {
 						return err
 					}
 				}
-				if err := b.exec(pctx, "sudo", "docker", "save", "-o", k.archive, k.tag); err != nil {
+				// the pull fetched the VM's platform only, so the archive names only it (kind's
+				// import needs every manifest an index names); up loads it as admin.
+				if err := b.exec(pctx, "sudo", "docker", "save", "--platform", vmPlatform, "-o", k.archive, k.tag); err != nil {
+					return err
+				}
+				if err := b.exec(pctx, "sudo", "chmod", "0644", k.archive); err != nil {
 					return err
 				}
 			}

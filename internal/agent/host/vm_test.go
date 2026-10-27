@@ -754,19 +754,25 @@ func TestWarmBaseCheck(t *testing.T) {
 }
 
 func TestWarmBaseApplyFails(t *testing.T) {
-	t.Run("pull", func(t *testing.T) {
-		e, r := warmEnv(t)
-		r.tart.fail = "docker pull postgres"
-		if err := (warmBaseStep{e}).Apply(context.Background()); err == nil || !strings.Contains(err.Error(), "sudo docker pull postgres:17.5") {
-			t.Fatalf("err = %v", err)
-		}
-		if st := r.vmState(WarmBaseVM + buildingSuffix); st != "" {
-			t.Errorf("the .building VM is left %q", st)
-		}
-		if _, err := os.Stat(warmBaseStep{e}.record()); err == nil {
-			t.Error("a failed build wrote warmbase.json")
-		}
-	})
+	for _, tt := range []struct{ name, fail, wantErr string }{
+		{"pull", "docker pull postgres", "sudo docker pull postgres:17.5"},
+		{"save", "docker save", "sudo docker save --platform linux/arm64 -o /var/lib/factory/kind-images/ghcr.io_x_agent_0.7.1.tar"},
+		{"chmod", "chmod", "sudo chmod 0644 /var/lib/factory/kind-images/ghcr.io_x_agent_0.7.1.tar"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e, r := warmEnv(t)
+			r.tart.fail = tt.fail
+			if err := (warmBaseStep{e}).Apply(context.Background()); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("err = %v, want %q", err, tt.wantErr)
+			}
+			if st := r.vmState(WarmBaseVM + buildingSuffix); st != "" {
+				t.Errorf("the .building VM is left %q", st)
+			}
+			if _, err := os.Stat(warmBaseStep{e}.record()); err == nil {
+				t.Error("a failed build wrote warmbase.json")
+			}
+		})
+	}
 	t.Run("no base", func(t *testing.T) {
 		e, r := testEnv(t)
 		mkStateDir(t, e)

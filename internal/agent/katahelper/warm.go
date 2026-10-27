@@ -21,8 +21,9 @@ import (
 // 1 GB.
 const warmLoadTimeout = 30 * time.Minute
 
-// warmPlatform is the only platform the workspaces run.
-const warmPlatform = "linux/amd64"
+// WarmPlatform is the only platform the workspaces run: warm-load pulls and saves it, and host
+// init's warm disk step saves a kind image's archive for it alone.
+const WarmPlatform = "linux/amd64"
 
 // validRef checks a warm image reference as the config does (config.ValidWarmImage).
 func validRef(ref string) error {
@@ -39,7 +40,7 @@ func (h *helper) warmLoad(ctx context.Context, name, ref string) error {
 	ctx, cancel := context.WithTimeout(ctx, warmLoadTimeout)
 	defer cancel()
 	g := NerdctlGlobal
-	if err := h.stream(ctx, nil, h.o.Stderr, "nerdctl pull", append(append([]string{}, g...), "pull", "--platform", warmPlatform, "--unpack=false", ref)...); err != nil {
+	if err := h.stream(ctx, nil, h.o.Stderr, "nerdctl pull", append(append([]string{}, g...), "pull", "--platform", WarmPlatform, "--unpack=false", ref)...); err != nil {
 		return err
 	}
 	// the save and the load run at once, both writing to stderr.
@@ -50,7 +51,7 @@ func (h *helper) warmLoad(ctx context.Context, name, ref string) error {
 	pr, pw := io.Pipe()
 	saved := make(chan error, 1)
 	go func() {
-		err := hh.stream(sctx, nil, pw, "nerdctl save", append(append([]string{}, g...), "save", "--platform", warmPlatform, ref)...)
+		err := hh.stream(sctx, nil, pw, "nerdctl save", append(append([]string{}, g...), "save", "--platform", WarmPlatform, ref)...)
 		// the result is in saved before the load can see the pipe end.
 		saved <- err
 		_ = pw.CloseWithError(err)
