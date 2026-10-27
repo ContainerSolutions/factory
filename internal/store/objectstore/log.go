@@ -246,7 +246,7 @@ func (s *Store) stopWriting(name string, schema int) error {
 }
 
 // freshen syncs when the store's last sync is older than the sync interval. A failure is
-// logged and the read is served from memory.
+// logged (once while it lasts) and the read is served from memory.
 func (s *Store) freshen(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
@@ -257,8 +257,26 @@ func (s *Store) freshen(ctx context.Context) {
 	if fresh {
 		return
 	}
-	if err := s.syncAfter(ctx, s.gen()); err != nil && ctx.Err() == nil && !errors.Is(err, store.ErrReadOnly) {
-		s.log.Warn("store: sync before a read failed; reading from memory", "err", err)
+	err := s.syncAfter(ctx, s.gen())
+	if ctx.Err() == nil && !errors.Is(err, store.ErrReadOnly) {
+		s.noteSync(err, "a sync before a read failed; reading from memory")
+	}
+}
+
+// noteSync logs a background or read-path sync's outcome without repeating itself: the first
+// failure at warn, the next ones at debug, the recovery at info.
+func (s *Store) noteSync(err error, what string) {
+	s.mu.Lock()
+	wasFailing := s.syncFailing
+	s.syncFailing = err != nil
+	s.mu.Unlock()
+	switch {
+	case err != nil && !wasFailing:
+		s.log.Warn("store: "+what, "err", err, "interval", s.cfg.syncInterval.String())
+	case err != nil:
+		s.log.Debug("store: sync failed again", "err", err)
+	case wasFailing:
+		s.log.Info("store: sync recovered")
 	}
 }
 
@@ -284,17 +302,8 @@ func (s *Store) syncLoop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		s.mu.Lock()
-		wasFailing := s.syncFailing
-		s.syncFailing = err != nil
-		s.mu.Unlock()
-		switch {
-		case err != nil && !wasFailing:
-			s.log.Warn("store: background sync failed; retrying every sync interval", "err", err, "interval", s.cfg.syncInterval.String())
-		case err != nil:
-			s.log.Debug("store: background sync failed again", "err", err)
-		case wasFailing:
-			s.log.Info("store: background sync recovered")
+		if !errors.Is(err, store.ErrReadOnly) {
+			s.noteSync(err, "background sync failed; retrying every sync interval")
 		}
 	}
 }

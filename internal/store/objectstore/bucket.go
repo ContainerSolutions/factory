@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ContainerSolutions/factory/internal/store/journal"
 )
 
 // Bucket is the little the object store needs from object storage. Names are paths with '/'
@@ -94,9 +96,9 @@ func openFileURL(u *url.URL) (Bucket, error) {
 // Object names. Versions are zero-padded to 20 digits, so a listing comes back in version
 // order.
 const (
-	logPrefix        = "log/"
-	snapshotPrefix   = "snapshots/"
-	transcriptPrefix = "transcripts/"
+	logPrefix        = journal.ObjectStoreLog + "/"
+	snapshotPrefix   = journal.ObjectStoreSnapshots + "/"
+	transcriptPrefix = journal.TranscriptDir + "/"
 	logSuffix        = ".json"
 	snapshotSuffix   = ".json.gz"
 )

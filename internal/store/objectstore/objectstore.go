@@ -218,7 +218,7 @@ type Store struct {
 	okGen       uint64    // the last successful sync's number
 	lastOK      time.Time // when the last successful sync started, on the store's clock
 	synced      bool      // a sync (or the load) has succeeded
-	syncFailing bool      // the background sync's last attempt failed (logged once)
+	syncFailing bool      // the last background or read-path sync failed (logged once)
 	readOnly    error     // why the store stopped writing (wraps store.ErrReadOnly), once it has
 	maxSchema   int       // the newest schema among the entries applied
 	snapV       uint64    // the newest snapshot this store knows of
@@ -523,8 +523,13 @@ func (s *Store) dropRunTranscripts(ctx context.Context, dr *deletedRuns) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*s.cfg.requestTimeout)
 	defer cancel()
 	for _, run := range runs {
-		s.dropTranscript(ctx, run)
-		s.dropTranscript(ctx, store.EnvironmentLogBlob(run))
+		for _, blob := range []string{run, store.EnvironmentLogBlob(run)} {
+			// The Run's delete has committed: what is left behind is swept by retention (a
+			// record) or the orphan scan (a blob).
+			if err := s.dropTranscript(ctx, blob); err != nil {
+				s.log.Warn("store: drop a deleted Run's transcript", "run", run, "err", err)
+			}
+		}
 	}
 }
 

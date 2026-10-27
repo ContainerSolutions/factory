@@ -51,8 +51,11 @@ func (s *Store) Sweep(ctx context.Context) (store.SweepResult, error) {
 	if res.Transcripts > 0 {
 		s.log.InfoContext(ctx, "store: swept transcripts", "transcripts", res.Transcripts, "retention", s.opts.Retention.String())
 	}
+	// What follows only saves space: a failure is returned (the next sweep tries again), with
+	// the result of what was swept.
+	var errs []error
 	if err := s.maybeCompact(ctx); err != nil {
-		s.log.Error("store: compaction failed; the next sweep tries again", "err", err)
+		errs = append(errs, fmt.Errorf("compaction: %w", err))
 	}
 	s.mu.Lock()
 	due := now.Sub(s.lastMaint) >= maintenanceEvery
@@ -62,8 +65,14 @@ func (s *Store) Sweep(ctx context.Context) (store.SweepResult, error) {
 	s.mu.Unlock()
 	if due {
 		if err := s.maintain(ctx, now); err != nil {
-			s.log.Error("store: log retention or the orphan scan failed; the next one tries again", "err", err)
+			errs = append(errs, fmt.Errorf("log retention and orphan scan: %w", err))
+			s.mu.Lock()
+			s.lastMaint = time.Time{} // try again at the next sweep
+			s.mu.Unlock()
 		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return res, store.Errorf("sweep", store.Key{}, err, "")
 	}
 	return res, nil
 }

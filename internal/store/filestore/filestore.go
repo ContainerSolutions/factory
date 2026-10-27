@@ -34,10 +34,10 @@ import (
 
 // Files in the state dir.
 const (
-	snapshotFile  = "snapshot.json"
-	journalFile   = "journal.jsonl"
-	lockFile      = "LOCK"
-	transcriptDir = "transcripts"
+	snapshotFile  = journal.FileStoreSnapshot
+	journalFile   = journal.FileStoreJournal
+	lockFile      = journal.FileStoreLock
+	transcriptDir = journal.TranscriptDir
 	tmpSuffix     = ".tmp"
 )
 

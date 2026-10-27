@@ -123,7 +123,9 @@ func (s *Store) evictFor(ctx context.Context, run string, size int64) error {
 		if total+size <= s.opts.TranscriptTotalBytes {
 			break
 		}
-		s.dropTranscript(ctx, r.Metadata.Name)
+		if err := s.dropTranscript(ctx, r.Metadata.Name); err != nil {
+			return err
+		}
 		total -= r.Size
 		s.log.Info("store: transcript evicted", "run", r.Metadata.Name, "bytes", r.Size,
 			"reason", "total cap", "totalCap", s.opts.TranscriptTotalBytes)
@@ -166,12 +168,13 @@ func (s *Store) GetTranscript(ctx context.Context, run string) ([]byte, error) {
 	return data, nil
 }
 
-// dropTranscript deletes run's record (at the version read) and its blob. Failures are logged:
-// a record left behind is swept by retention, a blob by the orphan scan.
-func (s *Store) dropTranscript(ctx context.Context, run string) {
+// dropTranscript deletes run's record (at the version read), then its blob. A record changed
+// or gone meanwhile is fine. When the record's delete fails the blob is kept (still indexed);
+// a blob whose delete fails is left to the orphan scan.
+func (s *Store) dropTranscript(ctx context.Context, run string) error {
 	name := blobName(run)
 	if name == "" {
-		return
+		return nil
 	}
 	var rec TranscriptBlob
 	rk := store.Key{Kind: KindTranscriptBlob, Name: run}
@@ -179,18 +182,17 @@ func (s *Store) dropTranscript(ctx context.Context, run string) {
 	case err == nil:
 		if err := s.deleteAt(ctx, rk, rec.Metadata.ResourceVersion); err != nil &&
 			!errors.Is(err, store.ErrNotFound) && !errors.Is(err, store.ErrConflict) {
-			s.log.Error("store: delete transcript record", "run", run, "err", err)
-			return
+			return fmt.Errorf("delete the transcript record of %s: %w", run, err)
 		}
 	case !errors.Is(err, store.ErrNotFound):
-		s.log.Error("store: read transcript record", "run", run, "err", err)
-		return
+		return fmt.Errorf("read the transcript record of %s: %w", run, err)
 	}
 	rctx, cancel := s.requestCtx(ctx)
 	defer cancel()
 	if err := s.b.Delete(rctx, name); err != nil && !errors.Is(err, ErrNotExist) {
-		s.log.Error("store: delete transcript blob", "run", run, "err", err)
+		return fmt.Errorf("delete %s (the orphan scan retries): %w", name, err)
 	}
+	return nil
 }
 
 // sweepTranscripts drops the blobs whose putAt is past retention, and returns how many.
@@ -200,13 +202,18 @@ func (s *Store) sweepTranscripts(ctx context.Context, now time.Time) (int, error
 		return 0, err
 	}
 	n := 0
+	var errs []error
 	for _, r := range recs {
-		if store.Expired(store.SinceCreated, r.PutAt, r.PutAt, now, s.opts.Retention) {
-			s.dropTranscript(ctx, r.Metadata.Name)
-			n++
+		if !store.Expired(store.SinceCreated, r.PutAt, r.PutAt, now, s.opts.Retention) {
+			continue
 		}
+		if err := s.dropTranscript(ctx, r.Metadata.Name); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		n++
 	}
-	return n, nil
+	return n, errors.Join(errs...)
 }
 
 // scanOrphans deletes the blobs under transcripts/ that have had no record for orphanAge (a

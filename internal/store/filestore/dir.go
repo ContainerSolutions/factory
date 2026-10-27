@@ -6,12 +6,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/ContainerSolutions/factory/internal/store/journal"
 )
 
 // objectStoreDirs are what store/objectstore keeps in a file:// bucket. Its transcripts/ has
 // the file store's naming, so a dir holding both would mix the two stores' transcripts, and
 // neither would see the other's state.
-var objectStoreDirs = []string{"log", "snapshots"}
+var objectStoreDirs = []string{journal.ObjectStoreLog, journal.ObjectStoreSnapshots}
 
 // checkNotObjectStore refuses a dir that holds an object store's log.
 func checkNotObjectStore(dir string) error {

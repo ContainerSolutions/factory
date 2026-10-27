@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/ContainerSolutions/factory/internal/store/journal"
 )
 
 // tmpDir is where FileBucket writes an object before it moves it into place. Object names
@@ -19,7 +21,7 @@ const tmpDir = ".tmp"
 // p2Files are what a P2 state dir (store/filestore) holds. Its transcripts/ has the same
 // naming as the object store's, so the two must never share a directory: the object store
 // would see an empty log, and its orphan scan would delete P2's transcripts a day later.
-var p2Files = []string{"snapshot.json", "journal.jsonl", "LOCK"}
+var p2Files = []string{journal.FileStoreSnapshot, journal.FileStoreJournal, journal.FileStoreLock}
 
 // FileBucket is a Bucket on a local directory, for development and for tests with two
 // dispatchers on one machine. Create writes a tmp file, fsyncs it and links it into place

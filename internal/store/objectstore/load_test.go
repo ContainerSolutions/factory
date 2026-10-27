@@ -239,4 +239,7 @@ func TestBackgroundSync(t *testing.T) {
 		t.Fatalf("write after Close = %v, want ErrClosed", err)
 	}
 	getRun(t, b, "r1") // reads go on
+	if err := b.Ready(); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Ready after Close = %v, want ErrClosed", err)
+	}
 }

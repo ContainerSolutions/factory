@@ -19,6 +19,19 @@ import (
 	"github.com/ContainerSolutions/factory/internal/store/memory"
 )
 
+// The names each durable store keeps at the top of its directory or bucket prefix. Both name
+// transcript blobs TranscriptDir/<TranscriptName>, so neither may open a directory that holds
+// the other's: the file store refuses ObjectStoreLog and ObjectStoreSnapshots, a file://
+// bucket refuses the file store's files.
+const (
+	FileStoreSnapshot    = "snapshot.json"
+	FileStoreJournal     = "journal.jsonl"
+	FileStoreLock        = "LOCK"
+	ObjectStoreLog       = "log"
+	ObjectStoreSnapshots = "snapshots"
+	TranscriptDir        = "transcripts"
+)
+
 // Line is one committed change: a line of the file store's journal, or one object of the
 // object store's log. W and Schema are the object store's; the file store leaves them out.
 type Line struct {
