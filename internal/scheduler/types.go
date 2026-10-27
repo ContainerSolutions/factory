@@ -163,25 +163,34 @@ func (a *AgentToken) GetObjectMeta() *v1alpha1.ObjectMeta { return &a.Metadata }
 
 // ---- API types -------------------------------------------------------------------------------
 
-// RegisterRequest is registerAgent: the two header credentials and the body.
+// RegisterRequest is registerAgent: the header credentials and the body.
 type RegisterRequest struct {
 	// JoinToken is X-Factory-Join-Token, the pool's join token.
 	JoinToken string
 	// OwnerToken is X-Factory-Owner-Token, the owner's GitHub user token from the device
 	// flow. It is exchanged for a login and discarded: never stored or logged.
-	OwnerToken   string
-	Pool         string
-	Host         string
-	AgentVersion string
-	Capabilities v1alpha1.AgentCapabilities
-	Lending      *v1alpha1.Lending
+	OwnerToken string
+	// EnrollmentToken is X-Factory-Enrollment-Token and RefreshToken
+	// X-Factory-Agent-Refresh-Token (P1 §6): each replaces the join and owner pair. Never
+	// stored or logged.
+	EnrollmentToken string
+	RefreshToken    string
+	Pool            string
+	Host            string
+	AgentVersion    string
+	Capabilities    v1alpha1.AgentCapabilities
+	Lending         *v1alpha1.Lending
 }
 
-// Registration is registerAgent's response. AgentToken is returned only here.
+// Registration is registerAgent's response. AgentToken and RefreshToken are returned only
+// here.
 type Registration struct {
 	AgentID    string
 	AgentToken string
 	ExpiresAt  time.Time
+	// RefreshToken is the agent's next refresh token, for an enrollment or refresh
+	// registration; "" for the join and owner pair.
+	RefreshToken string
 }
 
 // AgentUpdate is updateAgent (PATCH /agents/{id}): a phase report and/or a lending update.

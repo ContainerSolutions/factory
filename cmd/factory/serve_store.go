@@ -31,6 +31,8 @@ func internalKinds() map[string]store.Object {
 		auth.KindSession:            &auth.Session{},
 		scheduler.KindLease:         &scheduler.Lease{},
 		scheduler.KindAgentToken:    &scheduler.AgentToken{},
+		scheduler.KindEnrollment:    &scheduler.Enrollment{},
+		scheduler.KindAgentRefresh:  &scheduler.AgentRefresh{},
 		controllers.KindDelivery:    &controllers.Delivery{},
 		controllers.KindEventStatus: &controllers.EventStatus{},
 		controllers.KindDebounce:    &controllers.DebounceRecord{},

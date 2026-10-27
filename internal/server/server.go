@@ -56,6 +56,10 @@ type Scheduler interface {
 	Heartbeat(ctx context.Context, agentID, leaseID string, req scheduler.HeartbeatRequest) (*scheduler.HeartbeatResponse, error)
 	Complete(ctx context.Context, agentID, leaseID string, res v1alpha1.Result) (v1alpha1.TaskPhase, error)
 	Abandon(ctx context.Context, agentID, leaseID string, req scheduler.AbandonRequest) error
+	CreateEnrollment(ctx context.Context, req scheduler.EnrollRequest) (*scheduler.Enrollment, string, error)
+	ListEnrollments(ctx context.Context) ([]*scheduler.Enrollment, error)
+	DeleteEnrollment(ctx context.Context, id string) error
+	RevokeRefresh(ctx context.Context, agentID string) error
 }
 
 // Evaluator is the dry-run: the rule controller's evaluation of an event, with nothing applied

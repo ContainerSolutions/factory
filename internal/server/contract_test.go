@@ -600,25 +600,46 @@ func TestContract(t *testing.T) {
 	wantProblem(t, "deleteWorkItem", dw.HTTPResponse, dw.Body, http.StatusNotFound, CodeNotFound)
 	sh.check("deleteWorkItem", dw.HTTPResponse, dw.Body, http.StatusNotFound)
 
-	// enrollments: stubs until P1 phase 6, so an admin gets a 501 problem.
+	// enrollments: mint, list, register with the token and then the refresh token, delete
 	ce, err := e.c.CreateEnrollmentWithResponse(ctx, apiclient.EnrollmentRequest{Pool: "local", Owner: "gus", Name: "mac2"}, session(gus))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantProblem(t, "createEnrollment", ce.HTTPResponse, ce.Body, http.StatusNotImplemented, CodeNotImplemented)
-	sh.check("createEnrollment", ce.HTTPResponse, ce.Body, http.StatusNotImplemented)
+	sh.check("createEnrollment", ce.HTTPResponse, ce.Body, http.StatusCreated)
 	le, err := e.c.ListEnrollmentsWithResponse(ctx, &apiclient.ListEnrollmentsParams{}, bearer(cliToken))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantProblem(t, "listEnrollments", le.HTTPResponse, le.Body, http.StatusNotImplemented, CodeNotImplemented)
-	sh.check("listEnrollments", le.HTTPResponse, le.Body, http.StatusNotImplemented)
-	de, err := e.c.DeleteEnrollmentWithResponse(ctx, "enl_01jab3q8r9s0t1v2w3x4y5z6a7", session(gus))
+	sh.check("listEnrollments", le.HTTPResponse, le.Body, http.StatusOK)
+	if le.JSON200 == nil || len(le.JSON200.Items) != 1 || strings.Contains(string(le.Body), ce.JSON201.Token[4:]) {
+		t.Errorf("listEnrollments: %s", le.Body)
+	}
+	enrolled := apiclient.RegisterAgentRequest{Pool: "local", Host: "mac2", AgentVersion: "1",
+		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex"}}}}
+	re, err := e.c.RegisterAgentWithResponse(ctx, enrolled, header(HeaderEnrollmentToken, ce.JSON201.Token))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantProblem(t, "deleteEnrollment", de.HTTPResponse, de.Body, http.StatusNotImplemented, CodeNotImplemented)
-	sh.check("deleteEnrollment", de.HTTPResponse, de.Body, http.StatusNotImplemented)
+	sh.check("registerAgent", re.HTTPResponse, re.Body, http.StatusCreated)
+	if re.JSON201 == nil || re.JSON201.RefreshToken == nil {
+		t.Fatalf("register with an enrollment token: %s", re.Body)
+	}
+	rr, err := e.c.RegisterAgentWithResponse(ctx, enrolled, header(HeaderAgentRefreshToken, *re.JSON201.RefreshToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh.check("registerAgent", rr.HTTPResponse, rr.Body, http.StatusCreated)
+	de, err := e.c.DeleteEnrollmentWithResponse(ctx, ce.JSON201.Enrollment.Id, session(gus))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh.check("deleteEnrollment", de.HTTPResponse, de.Body, http.StatusNoContent)
+	de, err = e.c.DeleteEnrollmentWithResponse(ctx, ce.JSON201.Enrollment.Id, session(gus))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, "deleteEnrollment", de.HTTPResponse, de.Body, http.StatusNotFound, CodeNotFound)
+	sh.check("deleteEnrollment", de.HTTPResponse, de.Body, http.StatusNotFound)
 
 	// sign out, deregister
 	lo, err := e.c.LogoutWithResponse(ctx, session(gus))

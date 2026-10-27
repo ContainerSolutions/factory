@@ -22,6 +22,14 @@ Running ──cancel──▶ Cancelling ──ack or lease expiry──▶ Canc
 4. Capabilities ⊇ `Pool.require` (e.g. at least one required harness).
 5. Issue `agentToken` (random 32 bytes, stored hashed, TTL 24 h, renewed by heartbeats) and create/replace the `Agent` object (`agt_<owner>-<host>`, `host` from the body).
 
+**Enrollment** ([P1 §6](../../../proposals/P1-agent-workspaces.md#6-enrollment-replaces-the-device-flow)) replaces steps 1 to 3 with one header, exactly one credential per request (two is a `401`):
+
+- `X-Factory-Enrollment-Token` (`enr_…`): the `Enrollment` record (internal kind, `enl_<ulid>`) is found by its token's SHA-256 (a label; the stored hash compared in constant time) and must be unused and unexpired; the request's `pool` and `host` must be its pool and name (`400`, and the token stays unspent). It is **spent** (CAS on the record, so two concurrent uses register once), the owner is the enrollment's (the admin vouched for it: no Group check), and the response adds `refreshToken`. The agent's `AgentRefreshToken` record (named by the agent id, hashed, with the enrollment's pool, owner and name) is created or replaced.
+- `X-Factory-Agent-Refresh-Token` (`arf_…`): the `AgentRefreshToken` found the same way, its pool and name matching the request; it is **rotated** (CAS: the presented token stops working, a concurrent second use is a `401`) and the response carries the next one.
+- Step 4 and 5 as above. An admin's `deregisterAgent` deletes the `AgentRefreshToken` before deregistering; the agent's own does not, so a restart can still re-register.
+
+`createEnrollment` takes a registered pool with `admission` (the pools enrollments may be minted for), an owner login (`^[A-Za-z0-9-]{1,39}$`, on the dispatcher's sign-in provider), a name (the host pattern) and a `ttl` (default 7 d, at most 30 d); `listEnrollments` never returns tokens or hashes; `deleteEnrollment` removes the record (`404` unknown).
+
 ## Lease matching
 
 `GET /agents/{id}/lease?wait=30s` parks the request; the scheduler tries to match on every Task/Agent change and on a 1 s tick.

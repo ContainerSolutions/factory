@@ -25,8 +25,8 @@ type access int
 const (
 	// public: no credential (the OAuth routes, device config).
 	public access = iota
-	// registration: the join token and the owner token headers (checked by the scheduler). The
-	// enrollment and refresh token headers are refused until P1 phase 6.
+	// registration: exactly one credential, checked by the scheduler: the join and owner token
+	// headers together, the enrollment token header, or the agent refresh token header.
 	registration
 	// agentOnly: an agent token. Lease and task routes also check the lease's holder.
 	agentOnly
@@ -151,12 +151,21 @@ func (s *Server) authenticate(ctx context.Context, r *http.Request, acc access) 
 	case public:
 		return auth.Principal{}, s.sameOrigin(r)
 	case registration:
-		// Enrollment and refresh tokens are issued from P1 phase 6; until then neither can be
-		// checked, so a request with one is refused whatever else it carries.
-		if r.Header.Get(HeaderEnrollmentToken) != "" || r.Header.Get(HeaderAgentRefreshToken) != "" {
-			return auth.Principal{}, problemf(http.StatusUnauthorized, CodeUnauthenticated, "enrollment is not available yet")
+		join := r.Header.Get(HeaderJoinToken) != "" || r.Header.Get(HeaderOwnerToken) != ""
+		n := 0
+		for _, set := range []bool{join, r.Header.Get(HeaderEnrollmentToken) != "", r.Header.Get(HeaderAgentRefreshToken) != ""} {
+			if set {
+				n++
+			}
 		}
-		if r.Header.Get(HeaderJoinToken) == "" || r.Header.Get(HeaderOwnerToken) == "" {
+		switch {
+		case n == 0:
+			return auth.Principal{}, problemf(http.StatusUnauthorized, CodeUnauthenticated,
+				"registration needs the %s header, the %s header, or the %s and %s headers",
+				HeaderEnrollmentToken, HeaderAgentRefreshToken, HeaderJoinToken, HeaderOwnerToken)
+		case n > 1:
+			return auth.Principal{}, problemf(http.StatusUnauthorized, CodeUnauthenticated, "registration takes exactly one credential")
+		case join && (r.Header.Get(HeaderJoinToken) == "" || r.Header.Get(HeaderOwnerToken) == ""):
 			return auth.Principal{}, problemf(http.StatusUnauthorized, CodeUnauthenticated,
 				"registration needs the %s and %s headers", HeaderJoinToken, HeaderOwnerToken)
 		}
