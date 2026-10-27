@@ -360,7 +360,8 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 			cs.Controller(), pc.Controller(), rule.Controller(), dbn.Controller(),
 			wic.Controller(), runs.Controller(), sched.Controller(),
 		},
-		Clock: clk, Logger: log,
+		Intake: pc,
+		Clock:  clk, Logger: log,
 	})
 	if err != nil {
 		return err

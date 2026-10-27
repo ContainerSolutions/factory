@@ -37,9 +37,18 @@ func (c *Controller) Run(ctx context.Context) error
 
 ### provider
 
-Creates one `Conn` per Provider in the catalog (re-created when the Provider object's digest changes). Mounts `Conn.Handler(sink)` at the webhook path, where `sink.Accept` stores a `Delivery` record before the handler acknowledges. Watches `Delivery` (status `received`) → `Conn.Normalise` → `store.Create(Event)` per output (IDs `<delivery>/<n>`) → marks the delivery `normalised`. On startup calls `Conn.Recover`. Also owns the built-in **`factory` provider**: an in-process emitter `EmitFactoryEvent(type, workItem, data)` used by other controllers; it's the only writer of `factory.*` Events.
+Creates one `Conn` per Provider in the catalog (re-created when the Provider object's digest changes). Mounts `Conn.Handler(sink)` at the webhook path, where `sink.Accept` stores a `Delivery` record before the handler acknowledges. Watches `Delivery` (status `received`) → `Conn.Normalise` → the intake filter (below) → `store.Create(Event)` per kept output (IDs `<delivery>/<n>`) → marks the delivery `normalised`, or deletes it when it kept none. On startup calls `Conn.Recover`. Also owns the built-in **`factory` provider**: an in-process emitter `EmitFactoryEvent(type, workItem, data)` used by other controllers; it's the only writer of `factory.*` Events.
 
 Implemented in RT-S2-T04 as `ProviderController` (the built-in `factory` provider is `FactoryProvider`, RT-S2-T01): see [api-server.md §Decisions taken in RT-S2-T04](api-server.md#decisions-taken-in-rt-s2-t04).
+
+**Only events that can matter are stored** ([P3](../../../proposals/P3-dispatcher-state-in-object-storage.md) §Only events that can matter are stored). After `Normalise`, an Event is created only when:
+
+- a rule could fire for it: `rules.CouldFire(catalog, event, empty view)`, the check `workItemFor` makes before a new work item (the RuleSet's providers and scope, each rule's `on` and `providers`; not `where`, which needs the item). The empty view is right for a provider event, since scope reads the item's links only for `factory.*` events, which never pass through here; or
+- a work item links its object (else its repo): `linkedWorkItem`, the `spec.links` lookup `workItemFor` shares. It is asked only when no rule could fire. When it finds nothing on a store that syncs (the object store's `Sync`), it syncs once and asks again before the event is dropped. `workItemFor`'s lookup does the same before it creates an item.
+
+Every other event is dropped. Each drop is logged at Info, `event dropped: no work item links its object and no rule could fire for it`, with the delivery, the event id, the provider, its type, its object's ref and a reason, and no provider text. It is counted in `factory_events_dropped_total{provider,type,reason}` on `/metrics`. The reason is `no-rule` when no rule's `on` and `providers` take the event's type from its provider, and `out-of-scope` when some do but their RuleSets' scope (repos, exclude, branches, channels) doesn't hold its object. A dropped event isn't in `factory state events` and can't be replayed (404).
+
+**A delivery left with no stored event is deleted at once:** all its events dropped, or a type the adapter doesn't map (no events). A delivery with a stored event is marked `normalised` (its `status.events` lists the stored ones) and kept for the delivery retention (24 h), as is one the adapter rejected (`failed`, with its reason), for debugging. So a redelivery of a dropped delivery (GitHub's redeliver button, or `Recover`) is not a duplicate: it is normalised and filtered again against the catalog and links as they are then. That is the one way an event dropped earlier reaches a rule added later.
 
 ### rule (RT-S2-T01)
 
