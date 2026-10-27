@@ -1,0 +1,5 @@
+lisa-design:
+- Pipeline.Run refuses (an error, before any step) a pipeline without Root + GitAuthGateway; New still accepts WorkRoot + GitAuthHelper for PrepareBundle.
+- The pipeline test fixture is the VM's pipeline (fakegateway, Root, token-free vmJob); its dispatcher sources are viaAPI wrappers (the API sources with the fixture's client), so the API-shaped tests keep their assertions; f.host() is the bundle-only pipeline.
+- The skills cache's per-entry lock is per Pipeline: the concurrency test now runs concurrent PrepareBundle calls on one host pipeline (the production sharing).
+- Effector: FACTORY_RUNTIME must be workspace; no Authorization header; stack ops git only, --git a no-op; Options.GH/Runtime removed.
