@@ -6,3 +6,9 @@ hash/used state, so a concurrent second use is a 401), CORE-ID-001 (label lookup
 time compare), CORE-TEST-001 (TestEnrollment, TestEnrollmentRefused, the contract flow).
 Deferred should-fix: the enrollment is spent before the agent and token are written; a store
 failure in between leaves a spent token with no agent (the admin re-enrolls).
+
+lisa-design:
+Enrollment and AgentRefreshToken are internal store kinds (registered in serve's file store
+kinds); no internal/store change. The owner's provider is the dispatcher's sign-in provider
+(auth.Provider()), passed by the handler. Only an admin's deregisterAgent revokes the refresh
+token: the agent's own deregistration on shutdown must not lock it out of its restart.
