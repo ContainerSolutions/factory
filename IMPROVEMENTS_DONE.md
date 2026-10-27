@@ -245,6 +245,35 @@ Stacks 3 and 4, at main 6a3a3f6.
     printed the waiting line and then the cleanup line. The final check showed every other step
     ok, and the error read `interrupted: katawarm: …`.
 
+## Real-host checks on the Mac (tart), 2026-10-27
+
+At main cf9a0d4, with `workspace.gatewayPort: 3129` (M3) for every run. One maintainer issue on
+mock-docs drove plan-epic (codex, `limits: {cpus: 2, memory: 4Gi}` in the local catalog) and
+then implement (codex, the default size).
+- **Passed:**
+  - M0: `make tart-up`, `host check --driver tart` all ok.
+  - M1 (#199, #216, #208 on tart): both runs finished with their results and transcripts.
+    `tart get` showed 2 CPUs / 4096 MB for plan-epic and 6 / 8192 (the default
+    `workspace.size`) for implement.
+  - M2 (#217): `getent hosts "$(hostname)"` answers, `sudo -n true` is silent.
+  - M3 (#197): the pf anchor has the 3129 rule, factory-agent listens on 3129 on the Softnet
+    host address, and the tasks succeeded through it.
+  - T1 (#165): with the access token set to `invalid`, the gateway logged `chatgpt: refreshed
+    the login` with a new `expires`; `lastRefresh` moved, the file stayed 0600, the task
+    succeeded. The token had no readable `exp`, so the refresh ran before the first request
+    (the 8-day rule); the 401-then-refresh path wasn't exercised here (its unit tests cover it).
+  - T2 (#172): `yarn install` reached `registry.yarnpkg.com` and `registry.npmjs.org` through
+    gateway tunnels, and the agent reported both builds (en, pt-BR) passing. Its Result had no
+    `data.checks` (the field is optional in the implement schema).
+  - T3: intercepted requests (chatgpt.com, github.com, api.github.com) carry `injected`, git
+    ones `git:<owner>/<repo>`; tunnels carry none; no token values.
+- **Skipped** (Gustavo's call): M1.4, a `limits.memory` above `workspace.size`. The
+  workstation's run covered the cap.
+- **Dropped:** codex 0.163 asks chatgpt.com for `/backend-api/ps/plugins/installed` and
+  `/backend-api/ps/plugins/suggested/codex` at start-up and retries them; the gateway refuses
+  them (`model-path`, 403, no credential added). Inference is unaffected, and refusing them
+  keeps the owner's ChatGPT plugins out of tasks: log noise only.
+
 ## Dropped at the closing phase (2026-10-27)
 
 When the factory entered its closing phase, the backlog was cut to the next workstreams

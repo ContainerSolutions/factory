@@ -17,85 +17,18 @@ record it in IMPROVEMENTS_DONE.md with its PR numbers and delete its section her
 
 ## 1. Real-host checks (Gustavo)
 
-Shipped work that only fakes have tested. These are runs, not PRs; Gustavo runs them after
-phase 10 merged (2026-10-27), from the order the Mac session gave him. Record each result in
-IMPROVEMENTS_DONE.md.
+Shipped work that only fakes have tested. These are runs, not PRs. Record each result in
+IMPROVEMENTS_DONE.md. The Linux workstation's checks and the Mac's T1–T3, M0–M3 are done
+(IMPROVEMENTS_DONE.md, "Real-host checks on the Mac"). Left, on the Mac (`<state>` is
+`~/Library/Application Support/factory-agent`; stop `supervise` first; a kept workspace is
+stopped: `tart run --no-graphics <ws> &` before `tart exec`, then `tart stop <ws>`):
 
-**Order on the Mac** (main at #219 or later; `S="$HOME/Library/Application Support/factory-agent"`):
-1. **Restart on the new code:** `make build`, restart the dispatcher (`make poc-up`), then M0
-   below (`make tart-up`), then `bin/factory-agent supervise --keep-workspace`. `agent.yaml` no
-   longer has `harnesses.*.home`/`configDir` (#218 refuses them).
-2. **M1** (below). Its run also gives **T3**: on that run's page, filter the transcript for
-   `factory.egress`.
-3. **T2:** `bin/factory dispatch --event deploy/poc/events/mock-train.json --server
-   http://127.0.0.1:8800` (FACTORY_CLI_TOKEN in env; give the event a new `id` if it was
-   dispatched before). The release-docs run and its docs-review both count.
-4. **T1** (codex refresh), step by step:
-   - stop supervise; `cp -p "$S/logins/codex.json" "$S/logins/codex.json.bak"`;
-   - `jq 'keys' "$S/logins/codex.json"` lists the keys, never the values (`accessToken`,
-     `refreshToken`, `lastRefresh`, …);
-   - `jq '.accessToken = "invalid"' "$S/logins/codex.json" > "$S/logins/c.tmp" && install -m
-     600 "$S/logins/c.tmp" "$S/logins/codex.json" && rm "$S/logins/c.tmp"`;
-   - start supervise and dispatch any codex task;
-   - pass: the task succeeds, `jq -r .lastRefresh "$S/logins/codex.json"` shows a new time,
-     `stat -f %Sp` shows `-rw-------`, and the run's egress lines show `chatgpt.com` 401 then 200;
-   - afterwards `codex login` on the Mac (its own refresh token is now spent), and
-     `rm "$S/logins/codex.json.bak"`.
-5. **M2, M3, M4** (below), in that order.
-6. **S1, Softnet anti-spoofing** (the gateway's client pin relies on it): keep two workspaces A
-   and B (two tasks with `--keep-workspace`), start both with `tart run --no-graphics <ws> &`.
-   - In B: `ip -o -4 addr` (its address `B_IP` and interface) and `ip route | awk '/default/{print
-     $3}'` (`B_GW`); `ping -c 2 B_GW` answers (the control).
-   - In A: `sudo ip addr add B_IP/32 dev <A's interface>`, then `ping -c 3 -W 2 -I B_IP B_GW`.
-   - Pass: no reply from A (Softnet drops packets from an address A wasn't leased). Then
-     `tart stop` and `tart delete` both.
-
-| # | What | How | Pass when |
-|---|---|---|---|
-| T1 | **ChatGPT refresh (#165)**, on the Mac or the workstation | **1.** Stop `supervise`, then `cp -p <state>/logins/codex.json{,.bak}`. **2.** Find the key paths without printing values: `jq -r 'paths(scalars)\|map(tostring)\|join(".")' <state>/logins/codex.json`. Set only the access token to an invalid string with `jq` (keep the refresh token), keeping mode 0600. **3.** Start `supervise` and redispatch any codex task. **4.** Afterwards run `codex login` on the host, because the old refresh token in `~/.codex/auth.json` is spent. | The task succeeds with no re-import. The run's egress log shows `chatgpt.com` 401, then the resent 200. `jq .lastRefresh` on the file shows a new time. `stat` shows 0600. The new access token is a JWT with `exp`. |
-| T2 | **`yarn install` and `yarn build` in a VM (#172)** | A release-docs or implement run on mock-docs (phase 10 lifted "never install"). | The run's checks say `build: pass`, not `not-run`. Its transcript (the run page, or `GET /runs/<id>/transcript`) has `factory.egress` lines for `registry.yarnpkg.com` and `registry.npmjs.org`. |
-| T3 | **The egress log records what the gateway forwards** | Any recent run's transcript in the UI, filtered for `factory.egress`. The VM's local copy doesn't have these lines: the host adds them. | The model host (`api.anthropic.com` or `chatgpt.com`), `github.com` and `api.github.com` appear, with the credential column filled and no token values. |
-
-T4 and T5 passed (IMPROVEMENTS_DONE.md).
-
-Real-host checks from stacks 3 and 4 (#197–#217), split by machine.
-
-**Linux workstation (kata):** all done (results in IMPROVEMENTS_DONE.md).
-
-**Mac (tart):** everything below, on the Mac at `main` (#217 or later). Stop `supervise` first.
-`<state>` is `~/Library/Application Support/factory-agent`. A kept workspace is stopped: start
-it with `tart run --no-graphics <ws> &` before `tart exec`, then `tart stop <ws>`.
-
-- **M0, build and init:** `make tart-up`. It builds `bin/factory-agent` and
-  `bin/factory-agent-linux-arm64`, then runs `host init --driver tart`. Expect `host check
-  --driver tart` all ok.
-- **M1, #199 and #216, size and outputs:**
-  1. Start `bin/factory-agent supervise --keep-workspace` and dispatch any task. It finishes with
-     its result and transcript. Those outputs come back through `vmexec.Get`, which unpacks
-     them with `host.Extract`: #216's `execfile` path.
-  2. `tart list` shows the kept `ws-tsk_<id>`. `tart get ws-tsk_<id>` shows the CPU and memory
-     of `workspace.size` in your `agent.yaml`.
-  3. *(#208 on tart)* Dispatch a task whose TaskSpec has `limits: {cpus: 2, memory: 4Gi}`. This
-     needs a local catalog change. `tart get` then shows 2 CPUs and 4096 MB.
-  4. Dispatch a task with a `limits.memory` larger than `workspace.size.memory`. Its log and
-     progress say `capped limit=memory requested=… granted=…`, and `tart get` shows
-     `workspace.size`.
-- **M2, #217, the hostname resolves:** in a workspace, `tart exec ws-tsk_<id> sh -c 'hostname;
-  getent hosts "$(hostname)"; sudo -n true'`. Pass: `getent` answers, and there's no "unable to
-  resolve host" line. If it fails, base.sh needs #217's nsswitch change (`files myhostname
-  dns`).
-- **M3, #197, the pf anchor follows `workspace.gatewayPort`:**
-  1. Set `workspace.gatewayPort: 3129` in `agent.yaml`, then run
-     `bin/factory-agent host init --driver tart --agent-linux bin/factory-agent-linux-arm64`.
-     The pf step is outdated and asks for sudo.
-  2. `sudo pfctl -a com.compliance-framework.factory -sr | grep 3129` shows the rule.
-  3. Start `supervise` and dispatch a task. It succeeds, since the harness reaches its model only
-     through the gateway. While it runs, `lsof -nP -iTCP:3129 -sTCP:LISTEN` shows factory-agent.
-  4. Put the port back to 3128 and rerun `host init`.
 - **M4, #205, kind images load offline on arm64:**
   1. In `agent.yaml`, add `kindest/node:v1.35.0` to `workspace.warm.images`. Set
      `workspace.warm.kindImages: ["busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e"]`.
-  2. `rm "<state>/warmbase.json"`, then run `host init` (as in M3.1) to rebuild the warm base.
+  2. `rm "<state>/warmbase.json"`, then `bin/factory-agent host init --driver tart --agent-linux
+     bin/factory-agent-linux-arm64` to rebuild the warm base. (This run also puts pf back on
+     3128 after M3.)
   3. In a workspace (`--keep-workspace`, then `tart run` as above), run as `admin`
      (`tart exec ws-tsk_<id> sudo -u admin -H sh -c '…'`):
      - `ls -l /var/lib/factory/kind-images/` shows each archive `-rw-r--r--`.
@@ -111,11 +44,13 @@ it with `tart run --no-graphics <ws> &` before `tart exec`, then `tart stop <ws>
      - `kind delete cluster`.
   4. Afterwards, keep the warm config or revert it: revert `agent.yaml`, `rm
      "<state>/warmbase.json"`, then run `host init`.
-
-Not testable without a catalog change: #173 for an implement run under claude, because
-implement allows only codex. The claude side of the `ccfr` lookup, the plugin-dir fallback, is
-exercised by every docs-review run.
-- **Mac, also:** Softnet's per-VM anti-spoofing, which the gateway's client pin relies on.
+- **S1, Softnet anti-spoofing** (the gateway's client pin relies on it): keep two workspaces A
+  and B (two tasks with `--keep-workspace`), start both with `tart run --no-graphics <ws> &`.
+  - In B: `ip -o -4 addr` (its address `B_IP` and interface) and `ip route | awk '/default/{print
+    $3}'` (`B_GW`); `ping -c 2 B_GW` answers (the control).
+  - In A: `sudo ip addr add B_IP/32 dev <A's interface>`, then `ping -c 3 -W 2 -I B_IP B_GW`.
+  - Pass: no reply from A (Softnet drops packets from an address A wasn't leased). Then
+    `tart stop` and `tart delete` both.
 
 ## 2. Apply `environment.egress` in the gateway
 
