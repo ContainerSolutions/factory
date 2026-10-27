@@ -1,0 +1,4 @@
+lisa-design:
+- limitsText shows memory verbatim ("8Gi memory"): the contract fixes the "<n>Gi" form, so no parsing or unit conversion in web.
+- cpus singular only at exactly 1 ("1 CPU"); cpus is checked with !== undefined (like maxTurns), memory by truthiness (like maxWallClock), matching each field's existing type style.
+- TaskSpecCard is the only place that lists limits field by field; it already renders limitsText, so no component change.
