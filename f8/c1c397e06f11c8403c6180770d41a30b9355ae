@@ -1,2 +1,6 @@
 lisa-addressed:
 pass 2: CORE-DOC-001 workspace-host.md's init bullet now says a dry run exits 1 also when --only needs the kata helper and it isn't installed.
+
+lisa-selfreview:
+pass 3 (strict): request_changes
+- [nit] CORE-STYLE-001 internal/agent/host/kataprivileges_test.go TestKataInitHelperRequired: the HelperPath check calls err.Error() before the errors.As check, so an Init that wrongly succeeds panics the test instead of failing it cleanly. Fix: check errors.As (Fatal) first.
