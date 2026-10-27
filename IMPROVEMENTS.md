@@ -59,6 +59,11 @@ broken down as:
   (`internal/store/store.go`, with `storetest` as its conformance suite), with GCS and S3
   implementations. Keep the local-file backend for development.
 
+**Status (2026-10-27):** (a) is ContainerSolutions/factory#223 (proposal P3 + ADR-0009),
+reviewed with ccf-review to no open finding, waiting for Gustavo's approval and his answers to
+P3's two questions (the ~$2–3/month cost; push the workstation state or start fresh). (b) is
+P3's four-PR rollout, which starts once #223 and the org move (item 4) are both merged.
+
 ### 6. Binaries and an install script for `supervise`
 
 One command sets an agent up, for example
