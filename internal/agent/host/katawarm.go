@@ -120,7 +120,7 @@ func (s kataWarmStep) Plan(context.Context) (Plan, error) {
 		if k.tag != k.ref {
 			tag = ", docker tag it " + k.tag
 		}
-		do = append(do, "kata-helper warm-load "+b+" "+k.ref+tag+", then docker save -o "+k.archive+" "+k.tag+" in the workspace")
+		do = append(do, "kata-helper warm-load "+b+" "+k.ref+tag+", then docker save --platform "+katahelper.WarmPlatform+" -o "+k.archive+" "+k.tag+" and chmod 0644 it in the workspace")
 	}
 	if len(w.Images)+len(w.KindImages) == 0 {
 		do = append(do, "no warm images: the warm disk is the build workspace's freshly formatted, empty one")
@@ -186,7 +186,10 @@ func (s kataWarmStep) Apply(ctx context.Context) (err error) {
 		if k.tag != k.ref {
 			cmds = append(cmds, []string{"exec", b, "sudo", "-n", "docker", "tag", k.ref, k.tag})
 		}
-		cmds = append(cmds, []string{"exec", b, "sudo", "-n", "docker", "save", "-o", k.archive, k.tag})
+		// warm-load pulled one platform, so the archive names only it (kind's import needs every
+		// manifest an index names); up loads it as admin, so it's readable.
+		cmds = append(cmds, []string{"exec", b, "sudo", "-n", "docker", "save", "--platform", katahelper.WarmPlatform, "-o", k.archive, k.tag},
+			[]string{"exec", b, "sudo", "-n", "chmod", "0644", k.archive})
 		for _, c := range cmds {
 			if err := e.helper(pctx, e.Out, c...); err != nil {
 				return err

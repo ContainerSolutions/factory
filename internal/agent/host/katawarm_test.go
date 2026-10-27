@@ -134,7 +134,7 @@ func TestKataWarmNoImages(t *testing.T) {
 // TestKataWarmBuildFails: a failure at each stage removes the build workspace and writes no
 // record; --keep-failed keeps it; a stale image is refused before anything runs.
 func TestKataWarmBuildFails(t *testing.T) {
-	for _, stage := range []string{"create", "start", "docker info", "warm-load", "docker tag", "docker save", " stop ", "warm-promote"} {
+	for _, stage := range []string{"create", "start", "docker info", "warm-load", "docker tag", "docker save", "chmod", " stop ", "warm-promote"} {
 		for _, keep := range []bool{false, true} {
 			t.Run(stage+map[bool]string{true: " --keep-failed"}[keep], func(t *testing.T) {
 				e, r, out, err := buildWarm(t, func(e *Env, r *fakeRunner) {
@@ -192,7 +192,7 @@ func TestKataWarmPlan(t *testing.T) {
 	for _, want := range []string{
 		"kata-helper create " + KataWarmBuild + " 5 8192 60 empty factory-agent-base:0.1.0, start it, wait for its dockerd (5s)",
 		"kata-helper warm-load " + KataWarmBuild + " postgres:17.5 (pulled on the host",
-		"kata-helper warm-load " + KataWarmBuild + " ghcr.io/x/agent:0.7.1@sha256:ab, docker tag it ghcr.io/x/agent:0.7.1, then docker save -o /var/lib/factory/kind-images/ghcr.io_x_agent_0.7.1.tar ghcr.io/x/agent:0.7.1 in the workspace",
+		"kata-helper warm-load " + KataWarmBuild + " ghcr.io/x/agent:0.7.1@sha256:ab, docker tag it ghcr.io/x/agent:0.7.1, then docker save --platform linux/amd64 -o /var/lib/factory/kind-images/ghcr.io_x_agent_0.7.1.tar ghcr.io/x/agent:0.7.1 and chmod 0644 it in the workspace",
 		"warm-promote " + KataWarmBuild + " (its disk becomes the warm disk)",
 	} {
 		if !strings.Contains(got, want) {
