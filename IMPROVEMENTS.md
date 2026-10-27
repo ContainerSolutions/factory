@@ -53,16 +53,18 @@ It:
 - writes `agent.yaml`;
 - installs supervise as a service (launchd on the Mac, systemd on Linux).
 
-This needs a release workflow (darwin-arm64 and linux-amd64 binaries, with checksums). Once
-factory releases, it switches to `release: true` in workflows' `repos.yaml`. That's a
-`workflows` change, so Gustavo approves it.
+This needs a release workflow (darwin-arm64 and linux-amd64 binaries, with checksums).
+**Releases (Gustavo, 2026-10-27):** factory left compliance-framework, so it uses none of that
+org's release mechanisms (no reusable release workflow, no `repos.yaml` entry, no ccf-bump) and
+no release-please or other release bot. Each pipeline is its own workflow in this repo, not
+linked to the others, triggered by publishing a GitHub release by hand (`release: published`).
 
 ### 7. Ship the dispatcher
 
 - Ship what `make poc-up` runs (`deploy/poc/run.sh`, which runs `factory serve` with the web UI
   built in, `make build-release`) as release binaries.
-- Ship a container image of the dispatcher (`factory serve`), for example on ghcr.io, built in
-  the same release workflow.
+- Ship a container image of the dispatcher (`factory serve`) on ghcr.io, from its own workflow
+  on the same `release: published` trigger (6's rules).
 
 ### 8. The factory catalog in its own repo
 
