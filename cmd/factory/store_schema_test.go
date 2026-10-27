@@ -67,8 +67,20 @@ func TestStoredSchema(t *testing.T) {
 func schemaVerdict(same bool, goldenSchema, readable, schemaVersion int, update bool) (write bool, msg string) {
 	pending := readable == schemaVersion+1
 	switch {
+	case readable != schemaVersion && !pending, goldenSchema > 0 && readable < goldenSchema:
+		return false, fmt.Sprintf(`store.ReadableSchema is %d and store.SchemaVersion %d (the golden was written at %d):
+ReadableSchema must be SchemaVersion or SchemaVersion+1, and never goes below the golden's
+(internal/store/schema.go).`, readable, schemaVersion, goldenSchema)
 	case same && goldenSchema == readable:
 		return false, ""
+	case update && goldenSchema == 0:
+		return true, "" // no golden yet
+	case goldenSchema == 0:
+		return false, "there is no " + schemaGolden + ": run go test ./cmd/factory -run TestStoredSchema -update"
+	case !same && schemaVersion > goldenSchema:
+		return false, fmt.Sprintf(`the stored types changed, and store.SchemaVersion (%d) moved past the golden's %d: a release
+would write a schema no deployed release reads. Expand first: bump ReadableSchema alone and
+ship it; bump SchemaVersion in a later release (internal/store/schema.go).`, schemaVersion, goldenSchema)
 	case update && (same || pending):
 		return true, ""
 	case same:
@@ -83,7 +95,7 @@ Run go test ./cmd/factory -run TestStoredSchema -update.`, readable, schemaVersi
 	case pending:
 		return false, fmt.Sprintf("store.ReadableSchema is now %d (pending; %s was written at %d): run go test ./cmd/factory -run TestStoredSchema -update",
 			readable, schemaGolden, goldenSchema)
-	case readable == goldenSchema:
+	default: // the types changed, and ReadableSchema == SchemaVersion == the golden's
 		return false, fmt.Sprintf(`the stored types changed, and store.ReadableSchema is still %d.
 A shared log (an object store) is read by two releases during a deploy, so a change to a stored
 kind ships expand-then-write (internal/store/schema.go):
@@ -91,11 +103,6 @@ kind ships expand-then-write (internal/store/schema.go):
      store.SchemaVersion at %d; then go test ./cmd/factory -run TestStoredSchema -update
      (later changes join the pending version until a release that reads it ships);
   2. a later release: bump store.SchemaVersion to %d.`, readable, schemaVersion+1, schemaVersion, schemaVersion+1)
-	default:
-		return false, fmt.Sprintf(`the stored types changed, and store.ReadableSchema (%d) and store.SchemaVersion (%d) both
-moved past the golden's %d: a release would write a schema no deployed release reads.
-Expand first: bump ReadableSchema alone and ship it; bump SchemaVersion in a later release
-(internal/store/schema.go).`, readable, schemaVersion, goldenSchema)
 	}
 }
 
@@ -123,6 +130,13 @@ func TestSchemaVerdict(t *testing.T) {
 		{name: "changed, both bumped", golden: 1, readable: 2, schemaVersion: 2, msg: "Expand first"},
 		{name: "changed, both bumped, -update refused", golden: 1, readable: 2, schemaVersion: 2, update: true, msg: "Expand first"},
 		{name: "unchanged, versions moved, -update", same: true, golden: 1, readable: 2, schemaVersion: 2, update: true, write: true},
+		{name: "no golden", golden: 0, readable: 1, schemaVersion: 1, msg: "there is no"},
+		{name: "no golden, -update", golden: 0, readable: 1, schemaVersion: 1, update: true, write: true},
+		{name: "ReadableSchema two ahead", golden: 1, readable: 3, schemaVersion: 1, msg: "must be SchemaVersion or SchemaVersion+1"},
+		{name: "ReadableSchema two ahead, -update refused", golden: 1, readable: 3, schemaVersion: 1, update: true, msg: "must be SchemaVersion or SchemaVersion+1"},
+		{name: "ReadableSchema behind SchemaVersion", golden: 2, readable: 1, schemaVersion: 2, update: true, msg: "must be SchemaVersion or SchemaVersion+1"},
+		{name: "ReadableSchema below the golden", same: true, golden: 2, readable: 1, schemaVersion: 1, update: true, msg: "never goes below"},
+		{name: "changed, SchemaVersion past the golden while pending", golden: 1, readable: 3, schemaVersion: 2, update: true, msg: "Expand first"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			write, msg := schemaVerdict(tc.same, tc.golden, tc.readable, tc.schemaVersion, tc.update)
