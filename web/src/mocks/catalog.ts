@@ -174,7 +174,6 @@ export const taskSpecs: readonly Schemas['TaskSpec'][] = [
     },
     workspace: {
       repos: [{ ref: "=task.target.repo + '@' + inputs.base", mode: 'rw' }],
-      hosts: ['registry.npmjs.org'],
       environment: {
         setup: 'corepack enable\nyarn install --immutable\n',
         exposes: { FACTORY_STACK_URL: 'http://localhost:8000' },

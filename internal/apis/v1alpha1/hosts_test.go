@@ -1,14 +1,13 @@
 package v1alpha1
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
 )
 
-// hostCases are workspace.hosts entries with the sentinel ValidateHost wraps (nil = valid).
+// hostCases are host list entries with the sentinel ValidateHost wraps (nil = valid).
 var hostCases = []struct {
 	host string
 	want error
@@ -117,58 +116,6 @@ func TestValidateHostLength(t *testing.T) {
 	}
 }
 
-func taskSpecWithHosts(hosts []string) string {
-	var b strings.Builder
-	b.WriteString("kind: TaskSpec\nmetadata: { name: t }\nspec:\n  workspace:\n    hosts:\n")
-	for _, h := range hosts {
-		fmt.Fprintf(&b, "      - %q\n", h)
-	}
-	return b.String()
-}
-
-func TestTaskSpecValidateHosts(t *testing.T) {
-	many := make([]string, MaxWorkspaceHosts+1)
-	for i := range many {
-		many[i] = fmt.Sprintf("h%d.example.com", i)
-	}
-	tests := []struct {
-		name  string
-		hosts []string
-		field string
-		want  error
-	}{
-		{"valid", []string{"registry.npmjs.org", "*.yarnpkg.com:443"}, "", nil},
-		{"at the limit", many[:MaxWorkspaceHosts], "", nil},
-		{"over the limit", many, "spec.workspace.hosts", ErrTooManyHosts},
-		{"scheme", []string{"registry.npmjs.org", "https://x.org"}, "spec.workspace.hosts[1]", ErrHostSyntax},
-		{"wildcard", []string{"a.*.org"}, "spec.workspace.hosts[0]", ErrHostWildcard},
-		{"IP", []string{"127.0.0.1"}, "spec.workspace.hosts[0]", ErrHostIP},
-		{"localhost", []string{"localhost:3000"}, "spec.workspace.hosts[0]", ErrHostLocalhost},
-		{"port", []string{"x.org:99999"}, "spec.workspace.hosts[0]", ErrHostPort},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := Decode([]byte(taskSpecWithHosts(tt.hosts)))
-			if tt.want == nil {
-				if err != nil {
-					t.Fatalf("want valid, got %v", err)
-				}
-				return
-			}
-			var ve *ValidationError
-			if !errors.As(err, &ve) {
-				t.Fatalf("want a *ValidationError, got %v", err)
-			}
-			if ve.Field != tt.field {
-				t.Errorf("field = %q, want %q", ve.Field, tt.field)
-			}
-			if !errors.Is(err, tt.want) {
-				t.Errorf("err = %v, want %v", err, tt.want)
-			}
-		})
-	}
-}
-
 func TestTaskSpecWithoutWorkspaceValidates(t *testing.T) {
 	if _, err := Decode([]byte("kind: TaskSpec\nmetadata: { name: t }\nspec: {}\n")); err != nil {
 		t.Fatal(err)
@@ -176,7 +123,8 @@ func TestTaskSpecWithoutWorkspaceValidates(t *testing.T) {
 }
 
 // TestHostSchemaMatchesGo checks that taskspec.schema.json and ValidateHost agree on every
-// host case, and that the schema caps the list at MaxWorkspaceHosts.
+// host case of a workspace's egress.allow, and that the schema caps the list at
+// MaxWorkspaceHosts.
 func TestHostSchemaMatchesGo(t *testing.T) {
 	sch := compileSchemas(t)["taskspec.schema.json"]
 	doc := func(hosts ...string) any {
@@ -184,8 +132,9 @@ func TestHostSchemaMatchesGo(t *testing.T) {
 		for i, h := range hosts {
 			hs[i] = h
 		}
+		egress := map[string]any{"mode": "deny-by-default", "allow": hs}
 		return schemaInstance(t, map[string]any{"kind": "TaskSpec", "metadata": map[string]any{"name": "t"},
-			"spec": map[string]any{"workspace": map[string]any{"hosts": hs}}})
+			"spec": map[string]any{"workspace": map[string]any{"environment": map[string]any{"egress": egress}}}})
 	}
 	for _, tt := range hostCases {
 		schemaOK := sch.Validate(doc(tt.host)) == nil
@@ -201,87 +150,6 @@ func TestHostSchemaMatchesGo(t *testing.T) {
 		t.Errorf("%d hosts: %v", MaxWorkspaceHosts, err)
 	}
 	if sch.Validate(doc(hosts...)) == nil {
-		t.Errorf("%d hosts: schema accepts", len(hosts))
-	}
-}
-
-func TestTaskValidateHosts(t *testing.T) {
-	many := make([]string, MaxWorkspaceHosts+1)
-	for i := range many {
-		many[i] = fmt.Sprintf("h%d.example.com", i)
-	}
-	tests := []struct {
-		name  string
-		hosts []string
-		field string
-		want  error
-	}{
-		{"none", nil, "", nil},
-		{"valid", []string{"registry.npmjs.org", "*.yarnpkg.com:443"}, "", nil},
-		{"at the limit", many[:MaxWorkspaceHosts], "", nil},
-		{"over the limit", many, "spec.hosts", ErrTooManyHosts},
-		{"single label", []string{"internal"}, "spec.hosts[0]", ErrHostSyntax},
-		{"wildcard over a TLD", []string{"registry.npmjs.org", "*.com"}, "spec.hosts[1]", ErrHostWildcard},
-		{"IP", []string{"127.0.0.1"}, "spec.hosts[0]", ErrHostIP},
-		{"localhost", []string{"localhost:3000"}, "spec.hosts[0]", ErrHostLocalhost},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			b, err := json.Marshal(map[string]any{"kind": KindTask, "metadata": map[string]any{"id": "t1", "workItem": "w"},
-				"spec": map[string]any{"taskSpec": map[string]any{"name": "ts"}, "queue": "q", "hosts": tt.hosts}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = Decode(b)
-			if tt.want == nil {
-				if err != nil {
-					t.Fatalf("want valid, got %v", err)
-				}
-				return
-			}
-			var ve *ValidationError
-			if !errors.As(err, &ve) {
-				t.Fatalf("want a *ValidationError, got %v", err)
-			}
-			if ve.Field != tt.field {
-				t.Errorf("field = %q, want %q", ve.Field, tt.field)
-			}
-			if !errors.Is(err, tt.want) {
-				t.Errorf("err = %v, want %v", err, tt.want)
-			}
-		})
-	}
-}
-
-// TestTaskHostSchemaMatchesGo checks that the Task's schema (the one the OpenAPI components
-// are reflected from) and ValidateHost agree on every host case, and that it caps the list.
-func TestTaskHostSchemaMatchesGo(t *testing.T) {
-	sch := taskSchema(t)
-	inst := func(hosts ...string) any {
-		hs := make([]any, len(hosts))
-		for i, h := range hosts {
-			hs[i] = h
-		}
-		return schemaInstance(t, map[string]any{"kind": KindTask, "metadata": map[string]any{"id": "t1", "workItem": "w"},
-			"spec": map[string]any{"taskSpec": map[string]any{"name": "ts"}, "queue": "q", "hosts": hs}})
-	}
-	if err := sch.Validate(inst()); err != nil {
-		t.Fatalf("task without hosts: %v", err)
-	}
-	for _, tt := range hostCases {
-		schemaOK := sch.Validate(inst(tt.host)) == nil
-		if goOK := ValidateHost(tt.host) == nil; schemaOK != goOK {
-			t.Errorf("%q: schema accepts = %v, ValidateHost accepts = %v", tt.host, schemaOK, goOK)
-		}
-	}
-	hosts := make([]string, MaxWorkspaceHosts+1)
-	for i := range hosts {
-		hosts[i] = fmt.Sprintf("h%d.example.com", i)
-	}
-	if err := sch.Validate(inst(hosts[:MaxWorkspaceHosts]...)); err != nil {
-		t.Errorf("%d hosts: %v", MaxWorkspaceHosts, err)
-	}
-	if sch.Validate(inst(hosts...)) == nil {
 		t.Errorf("%d hosts: schema accepts", len(hosts))
 	}
 }

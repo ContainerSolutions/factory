@@ -1781,8 +1781,10 @@ export interface components {
              */
             mode?: "default" | "deny-by-default";
             /**
-             * @description Allow are hostnames reachable under deny-by-default; same rules as workspace.hosts
-             *     (ValidateHost, at most 20). Only valid with deny-by-default.
+             * @description Allow are hostnames reachable under deny-by-default: each a lowercase hostname of at
+             *     least two labels with an optional port and an optional single leading "*." label
+             *     followed by at least two labels (*.example.com, not *.com); no scheme, path, userinfo,
+             *     IP literal or localhost; at most 20 (ValidateHost). Only valid with deny-by-default.
              */
             allow?: string[];
         };
@@ -2465,13 +2467,6 @@ export interface components {
             effects?: components["schemas"]["EffectsPolicy"];
             limits?: components["schemas"]["Limits"];
             output?: components["schemas"]["OutputSpec"];
-            /**
-             * @description Hosts are copied from the TaskSpec's workspace.hosts when the Task is compiled: the
-             *     extra hostnames the agent adds to the sandbox allow-list, on top of the git host, the
-             *     dispatcher and the local stack. Same rules as workspace.hosts (ValidateHost, at most
-             *     20).
-             */
-            hosts?: string[];
             environment?: components["schemas"]["Environment"];
             /**
              * @description Versions are the environment's component versions, resolved at compile time from
@@ -2640,17 +2635,6 @@ export interface components {
              *     repos are public: they are cloned anonymously and get no read-only token.
              */
             publicReads?: boolean;
-            /**
-             * @description Hosts are the extra hostnames a sandboxed harness may reach, on top of the git host, the
-             *     dispatcher and the local stack, e.g. registry.npmjs.org for a docs task's yarn install.
-             *     Each is a lowercase hostname of at least two labels with an optional port and an
-             *     optional single leading "*." label followed by at least two labels (*.example.com, not
-             *     *.com); no scheme, path, userinfo, IP literal or localhost; at most 20 (ValidateHost).
-             *     The compiler copies them to the Task's spec.hosts.
-             *     Hosts widen what a prompt-injected run could reach, so a catalog change to them needs
-             *     two approvals (FACTORY-CAT-002).
-             */
-            hosts?: string[];
             environment?: components["schemas"]["Environment"];
         };
     };

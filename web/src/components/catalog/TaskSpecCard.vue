@@ -143,10 +143,6 @@ function fileLink(tab: 'prompts' | 'schemas', file: string) {
             <li v-if="spec.workspace.publicReads" class="text-xs">
               public reads
             </li>
-            <li v-if="spec.workspace.hosts?.length" class="text-xs">
-              hosts
-              <code>{{ spec.workspace.hosts.join(', ') }}</code>
-            </li>
           </ul>
           <div v-if="environment" class="mt-2">
             <span class="text-xs text-ccf-600 dark:text-ccf-400"

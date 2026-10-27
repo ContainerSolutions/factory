@@ -306,7 +306,7 @@ func (ReadyCheck) JSONSchemaExtend(s *jsonschema.Schema) {
 	p.Items = &jsonschema.Schema{Type: "string", Pattern: readyURLPattern}
 }
 
-// JSONSchemaExtend constrains allow like workspace.hosts (extendHostListSchema).
+// JSONSchemaExtend constrains allow (extendHostListSchema).
 func (EgressPolicy) JSONSchemaExtend(s *jsonschema.Schema) { extendHostListSchema(s, "allow") }
 
 // extendVersionsSchema constrains a Task's spec.versions the way validateVersions does.

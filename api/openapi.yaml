@@ -3311,8 +3311,10 @@ components:
             - deny-by-default
         allow:
           description: |-
-            Allow are hostnames reachable under deny-by-default; same rules as workspace.hosts
-            (ValidateHost, at most 20). Only valid with deny-by-default.
+            Allow are hostnames reachable under deny-by-default: each a lowercase hostname of at
+            least two labels with an optional port and an optional single leading "*." label
+            followed by at least two labels (*.example.com, not *.com); no scheme, path, userinfo,
+            IP literal or localhost; at most 20 (ValidateHost). Only valid with deny-by-default.
           type: array
           items:
             type: string
@@ -4979,19 +4981,6 @@ components:
           $ref: '#/components/schemas/Limits'
         output:
           $ref: '#/components/schemas/OutputSpec'
-        hosts:
-          description: |-
-            Hosts are copied from the TaskSpec's workspace.hosts when the Task is compiled: the
-            extra hostnames the agent adds to the sandbox allow-list, on top of the git host, the
-            dispatcher and the local stack. Same rules as workspace.hosts (ValidateHost, at most
-            20).
-          type: array
-          items:
-            type: string
-            pattern: ^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?(:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$
-            not:
-              pattern: (^|\.)localhost(:|$)
-          maxItems: 20
         environment:
           $ref: '#/components/schemas/Environment'
         versions:
@@ -5363,23 +5352,6 @@ components:
             PublicReads lets the agent clone public repos anonymously at runtime, and says the ro
             repos are public: they are cloned anonymously and get no read-only token.
           type: boolean
-        hosts:
-          description: |-
-            Hosts are the extra hostnames a sandboxed harness may reach, on top of the git host, the
-            dispatcher and the local stack, e.g. registry.npmjs.org for a docs task's yarn install.
-            Each is a lowercase hostname of at least two labels with an optional port and an
-            optional single leading "*." label followed by at least two labels (*.example.com, not
-            *.com); no scheme, path, userinfo, IP literal or localhost; at most 20 (ValidateHost).
-            The compiler copies them to the Task's spec.hosts.
-            Hosts widen what a prompt-injected run could reach, so a catalog change to them needs
-            two approvals (FACTORY-CAT-002).
-          type: array
-          items:
-            type: string
-            pattern: ^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?(:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$
-            not:
-              pattern: (^|\.)localhost(:|$)
-          maxItems: 20
         environment:
           $ref: '#/components/schemas/Environment'
       additionalProperties: false

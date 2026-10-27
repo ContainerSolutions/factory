@@ -94,8 +94,8 @@ Each Provider resolves tiers through its `trust` list, usually backed by **Group
 |---|---|
 | Someone registers a rogue agent | A join token **plus** owner authentication (GitHub device flow) **plus** membership of the pool's `owners` Group. Agent tokens are short-lived and revocable from the UI. |
 | A compromised or malicious agent fabricates results | Outcomes are schema-validated. Merge gates use provider facts. Author and reviewer agents are separated (beyond the PoC). Effects are allow-listed server-side, whatever the agent claims. |
-| An agent exfiltrates beyond its task | It only ever holds one task's scoped git token, and only ever receives that task's context. Egress allow-list on the worker (`srt` or container): the git host, the dispatcher, the local stack and the TaskSpec's `workspace.hosts` (e.g. the npm and yarn registries for a docs task), nothing else. |
-| Owner's personal data or credentials leak into runs | Dedicated OS user or devcontainer. Dedicated harness config dirs. No personal GitHub credentials are used. Scratch workspaces are deleted after each task ([10](10-poc.md#isolation-on-a-personal-machine)). |
+| An agent exfiltrates beyond its task | It only ever holds one task's scoped git token, and only ever receives that task's context. Each task runs in its own VM workspace, whose only way out is the agent's gateway: open by default except link-local and metadata, private ranges, the agent host and other workspaces; a TaskSpec can narrow it to the git host, the dispatcher and an allow list (`workspace.environment.egress`, [P1 §3](proposals/P1-agent-workspaces.md)). |
+| Owner's personal data or credentials leak into runs | A VM workspace per task, with scratch harness config dirs; the owner's model logins stay with the gateway outside the VM. No personal GitHub credentials are used. Scratch workspaces are deleted after each task ([10](10-poc.md#isolation-on-a-personal-machine)). |
 | Owner loses control of their machine or plan | Consent lists (`lending`: queues, RuleSets, harnesses, concurrency, hours, runs and tokens per day, or unlimited), `factory-agent pause`, and a local kill switch. Throttling is respected automatically. |
 
 ### Repo-side guardrails (GitHub rulesets)
@@ -132,7 +132,7 @@ These are the engine invariants listed in [02](02-architecture.md#safety-rails-t
 ## Governance of the catalog itself
 
 - `catalog/**` changes need a maintainer review. **Two approvals** are needed for changes to:
-  - TaskSpec `permissions`, `effects`, `identity`, `workspace.hosts`, or `workspace.environment.egress`: adding to `allow`, or changing `mode` away from `deny-by-default`. Hosts and egress widen what a prompt-injected run could reach (FACTORY-CAT-002);
+  - TaskSpec `permissions`, `effects`, `identity`, or `workspace.environment.egress`: adding to `allow`, or changing `mode` away from `deny-by-default`. Egress widens what a prompt-injected run could reach (FACTORY-CAT-002);
   - any RuleSet that starts selecting the `merge` pack;
   - Pool `admission`;
   - Providers.
