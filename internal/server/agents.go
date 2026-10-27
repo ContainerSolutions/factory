@@ -29,18 +29,25 @@ func (s *Server) RegisterAgent(ctx context.Context, req gen.RegisterAgentRequest
 	r := requestFrom(ctx)
 	b := req.Body
 	reg, err := s.d.Scheduler.Register(ctx, scheduler.RegisterRequest{
-		JoinToken:    r.Header.Get(HeaderJoinToken),
-		OwnerToken:   r.Header.Get(HeaderOwnerToken),
-		Pool:         b.Pool,
-		Host:         b.Host,
-		AgentVersion: b.AgentVersion,
-		Capabilities: b.Capabilities,
-		Lending:      b.Lending,
+		JoinToken:       r.Header.Get(HeaderJoinToken),
+		OwnerToken:      r.Header.Get(HeaderOwnerToken),
+		EnrollmentToken: r.Header.Get(HeaderEnrollmentToken),
+		RefreshToken:    r.Header.Get(HeaderAgentRefreshToken),
+		Pool:            b.Pool,
+		Host:            b.Host,
+		AgentVersion:    b.AgentVersion,
+		Capabilities:    b.Capabilities,
+		Lending:         b.Lending,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return gen.RegisterAgent201JSONResponse{AgentId: reg.AgentID, AgentToken: reg.AgentToken, ExpiresAt: reg.ExpiresAt}, nil
+	out := gen.RegisterAgent201JSONResponse{AgentId: reg.AgentID, AgentToken: reg.AgentToken, ExpiresAt: reg.ExpiresAt}
+	if reg.RefreshToken != "" {
+		rt := reg.RefreshToken
+		out.RefreshToken = &rt
+	}
+	return out, nil
 }
 
 // ownAgent checks that the calling agent is id: an agent acts only on itself.
@@ -99,10 +106,17 @@ func (s *Server) UpdateAgent(ctx context.Context, req gen.UpdateAgentRequestObje
 
 // DeregisterAgent implements gen.StrictServerInterface. The agent deregisters itself; an
 // admin's delete (a UI admin or the CLI token, agentOrAdmin) also revokes the agent's refresh
-// token, which arrives with P1 phase 6, so until then it is a 501.
+// token, so it can't register again without a new enrollment.
 func (s *Server) DeregisterAgent(ctx context.Context, req gen.DeregisterAgentRequestObject) (gen.DeregisterAgentResponseObject, error) {
 	if k := principal(ctx).Kind; k == auth.KindUser || k == auth.KindCLI {
-		return nil, errEnrollmentNotImplemented("an admin's deregistration")
+		if err := s.d.Scheduler.RevokeRefresh(ctx, req.Id); err != nil {
+			return nil, err
+		}
+		if err := s.d.Scheduler.Deregister(ctx, req.Id); err != nil {
+			return nil, err
+		}
+		s.log.InfoContext(ctx, "agent deregistered by an admin", "agent", req.Id, "actor", principal(ctx).ActorID())
+		return gen.DeregisterAgent204Response{}, nil
 	}
 	id, err := ownAgent(ctx, req.Id)
 	if err != nil {

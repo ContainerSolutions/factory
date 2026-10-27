@@ -376,7 +376,7 @@ Every credential is added by the workspace's gateway, so none enters a VM. Where
   - the **refresh token** is `arf_` followed by 43 base64url characters, one per agent. Each use
     rotates it (the response carries the next one) and an admin's `deregisterAgent` revokes it.
 
-  The server refuses both until the dispatcher issues them (phase 6).
+  The dispatcher issues both from phase 6.
 - **Owner attribution** (who lends the agent, and lending rules) comes from the enrollment's
   `--owner`. The admin vouches for it; no GitHub login happens on the agent side.
 - **What goes away:**
