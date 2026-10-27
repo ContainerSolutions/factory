@@ -268,6 +268,11 @@ two releases:
 So during a deploy, and after a rollback from N+1 to N, every instance can read every entry and
 keep the fields it rewrites.
 
+**Changes accumulate into the pending version** (Gustavo, 2026-10-27). While `ReadableSchema` is
+already N+1 and no release writes it yet, further stored-type changes join N+1. The golden's
+`-update` accepts them. One read-ahead step then covers them all, and the release that bumps
+`SchemaVersion` to N+1 writes them together.
+
 **An entry newer than `ReadableSchema`** can only appear when a deploy skipped the expand step.
 The instance that meets it stops writing:
 - its writes answer `503` with a problem saying why;
