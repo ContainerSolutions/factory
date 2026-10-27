@@ -44,9 +44,6 @@ func codexHome(ws harness.Workspace) string { return filepath.Join(ws.Home, home
 // skill the pipeline materialised in its plugin layout and skills/<plugin>/bin linked to each
 // plugin's bin/ (linkPluginBins).
 func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, t v1alpha1.Task) error {
-	if err := a.checkVM(); err != nil {
-		return err
-	}
 	if h := t.Spec.Harness; h != nil && h.Resolved != nil {
 		switch h.Resolved.Auth {
 		case "", AuthSubscription:
@@ -108,7 +105,7 @@ func writeNew(p string, b []byte) error {
 	return f.Close()
 }
 
-// placeholderAuth is auth.json under IsolationVM, in exactly the shape Phase 0's run used
+// placeholderAuth is auth.json, in exactly the shape Phase 0's run used
 // (Q5; the keys and fixed values are in flags.go): OPENAI_API_KEY null; tokens.id_token an
 // unsigned JWT whose claims are Phase 0's email and far-future exp and the auth claim with
 // the account's identifiers, which codex picks its workspace from (it doesn't verify the

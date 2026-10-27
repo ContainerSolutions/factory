@@ -26,26 +26,6 @@ const (
 	MaxStderr = 64 << 10
 )
 
-// Commands runs the short commands an adapter's Probe needs (`--version`, a login status);
-// tests replace it (or the binary).
-type Commands interface {
-	// Output runs name with args and env and returns its combined output.
-	Output(ctx context.Context, env []string, name string, args ...string) ([]byte, error)
-}
-
-// ExecCommands runs real programs.
-type ExecCommands struct{}
-
-// Output implements Commands.
-func (ExecCommands) Output(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
-	var out bytes.Buffer
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = env
-	cmd.Stdout, cmd.Stderr = &out, &out
-	err := cmd.Run()
-	return out.Bytes(), err
-}
-
 // Process is one harness invocation.
 type Process struct {
 	Binary string

@@ -86,29 +86,16 @@ type Config struct {
 	Path string `json:"-"`
 }
 
-// Harness is one harness's local config: its dedicated config dir and what the owner's plan
-// allows (harnesses don't reliably list it, 10-poc.md §Capabilities).
+// Harness is one harness's local config: what the owner's plan allows (harnesses don't
+// reliably list it, 10-poc.md §Capabilities). Its login is the one `factory-agent login`
+// stored, which the VM workspace's gateway adds.
 type Harness struct {
-	// Home is codex's dedicated CODEX_HOME, signed in once with `codex login --device-auth`.
-	// Unused since phase 10 (the harnesses run in the VM, with the login `factory-agent login`
-	// stored): kept, and still validated, so existing agent.yaml files load.
-	Home string `json:"home,omitzero"`
-	// ConfigDir is claude-code's dedicated CLAUDE_CONFIG_DIR. Unused since phase 10, as Home.
-	ConfigDir string `json:"configDir,omitzero"`
 	// Models the owner's plan allows.
 	Models []string `json:"models"`
 	// Efforts are the normalised reasoning efforts offered.
 	Efforts []string `json:"efforts,omitzero"`
 	// Default is the model used when a task asks for none; one of Models.
 	Default string `json:"default,omitzero"`
-}
-
-// Dir is the harness's dedicated config dir: Home for codex, ConfigDir for claude-code.
-func (h Harness) Dir() string {
-	if h.Home != "" {
-		return h.Home
-	}
-	return h.ConfigDir
 }
 
 // ValidationError lists every problem found in a config, each prefixed with its key.
@@ -284,15 +271,6 @@ func (c *Config) complete(o Options) error {
 			return err
 		}
 	}
-	for name, h := range c.Harnesses {
-		if err := expand(&h.Home); err != nil {
-			return err
-		}
-		if err := expand(&h.ConfigDir); err != nil {
-			return err
-		}
-		c.Harnesses[name] = h
-	}
 	return nil
 }
 
@@ -378,26 +356,8 @@ func (c *Config) validate() []string {
 func (h Harness) validate(name string) []string {
 	var probs []string
 	add := func(format string, args ...any) { probs = append(probs, fmt.Sprintf(format, args...)) }
-	switch name {
-	case HarnessCodex:
-		if h.Home == "" {
-			add("home: required (codex's dedicated CODEX_HOME)")
-		}
-		if h.ConfigDir != "" {
-			add("configDir: not a codex key (use home)")
-		}
-	case HarnessClaudeCode:
-		if h.ConfigDir == "" {
-			add("configDir: required (claude-code's dedicated CLAUDE_CONFIG_DIR)")
-		}
-		if h.Home != "" {
-			add("home: not a claude-code key (use configDir)")
-		}
-	default:
+	if !slices.Contains(Harnesses(), name) {
 		return []string{fmt.Sprintf("unknown harness (known: %s)", strings.Join(Harnesses(), ", "))}
-	}
-	if d := h.Dir(); d != "" && !filepath.IsAbs(d) {
-		add("%s: %q must be absolute or start with ~/", dirKey(name), d)
 	}
 	if len(h.Models) == 0 {
 		add("models: at least one model")
@@ -416,13 +376,6 @@ func (h Harness) validate(name string) []string {
 		add("default: %q is not one of models", h.Default)
 	}
 	return probs
-}
-
-func dirKey(name string) string {
-	if name == HarnessCodex {
-		return "home"
-	}
-	return "configDir"
 }
 
 // validateLending checks the consent block. It must lend something: unlimited, or a list of

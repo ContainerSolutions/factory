@@ -14,28 +14,9 @@ import (
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
-// The owner's login in tests: it must never be read, copied or written by the adapter.
-const ownerLogin = `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-owner-never-copied","refreshToken":"sk-ant-ort01-owner-never-copied"}}`
-
 // tokens that must never reach a file the adapter writes or a command line.
 var testSecrets = []string{"sk-ant-oat01-owner-never-copied", "sk-ant-ort01-owner-never-copied", "ghs_taskTokenNeverOnDisk0123456789",
 	"agent-token-never-on-disk", "sk-ant-api03-worker-key"}
-
-// ownerConfigDir is a signed-in dedicated CLAUDE_CONFIG_DIR (Linux layout: the login in a
-// file), which the adapter must never read: the token scans find its tokens if it does.
-func ownerConfigDir(t *testing.T) string {
-	t.Helper()
-	dir := filepath.Join(t.TempDir(), "claude")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for name, body := range map[string]string{".credentials.json": ownerLogin, ".claude.json": `{"hasCompletedOnboarding":true}`} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return dir
-}
 
 // workspace is what the pipeline hands an adapter: its directories, a checkout, the skills in
 // the plugin layout (two plugins with a "review" skill), the schema, the environment, and a

@@ -38,9 +38,6 @@ type session struct {
 // model and auth, in the workspace's working directory, the write tools disallowed unless the
 // primary checkout is writable.
 func (a *Adapter) Run(ctx context.Context, ws harness.Workspace, t v1alpha1.Task, prompt string, sink harness.EventSink) (harness.Raw, error) {
-	if err := a.checkVM(); err != nil {
-		return harness.Raw{}, err
-	}
 	s := session{Model: a.o.Config.Default, WorkDir: ws.WorkDir, ReadOnly: readOnly(ws)}
 	if h := t.Spec.Harness; h != nil && h.Resolved != nil {
 		if h.Resolved.Model != "" {
@@ -178,9 +175,6 @@ func (a *Adapter) exec(ctx context.Context, ws harness.Workspace, s session, pro
 // and USER isn't set: there is no Keychain to look up. A root run gets envIsSandbox, which
 // claude wants before it bypasses permissions as root.
 func (a *Adapter) runEnv(ws harness.Workspace, s session) ([]string, error) {
-	if err := a.checkVM(); err != nil {
-		return nil, err
-	}
 	env := clirun.WithEnv(ws.Env, envConfigDir, configPath(ws))
 	for _, kv := range runEnv {
 		env = clirun.WithEnv(env, kv[0], kv[1])

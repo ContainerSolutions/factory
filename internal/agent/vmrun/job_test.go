@@ -76,7 +76,7 @@ func TestJobFromBundle(t *testing.T) {
 	}
 }
 
-// taskAdapters builds only the task's harness, under IsolationVM; codex gets the bundle's account.
+// taskAdapters builds only the task's harness; codex gets the bundle's account.
 func TestAdapters(t *testing.T) {
 	t.Parallel()
 	clk := clock.NewFake(time.Date(2026, 10, 22, 9, 0, 0, 0, time.UTC))
@@ -95,7 +95,7 @@ func TestAdapters(t *testing.T) {
 	if err != nil || !ok || len(ads) != 1 {
 		t.Fatalf("codex: %v %v", ads, err)
 	}
-	// Prepare under IsolationVM writes the placeholder login from the account (no binary runs).
+	// Prepare writes the placeholder login from the account (no binary runs).
 	home := t.TempDir()
 	if err := cx.Prepare(context.Background(), harness.Workspace{Root: home, Home: home, WorkDir: home}, b.Task); err != nil {
 		t.Fatalf("codex Prepare: %v", err)

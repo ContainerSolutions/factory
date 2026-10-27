@@ -14,30 +14,6 @@ import (
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
-// Isolation is what bounds a run's commands (workspace-run.md §Harnesses under
-// IsolationVM): an adapter option (claudecode.Options.Isolation, codex.Options.Isolation).
-type Isolation int
-
-const (
-	// IsolationSandbox, the zero value, was the owner's host, where the harness's own OS
-	// sandbox bounded every command. Phase 10 removed the host runtime: the adapters refuse it.
-	IsolationSandbox Isolation = iota
-	// IsolationVM is `factory-agent run` inside a VM workspace: the VM is the boundary, so
-	// the harness runs without its own sandbox, and it holds no credential: the gateway
-	// outside the VM injects every one, and the harness gets Placeholder instead.
-	IsolationVM
-)
-
-func (i Isolation) String() string {
-	switch i {
-	case IsolationSandbox:
-		return "sandbox"
-	case IsolationVM:
-		return "vm"
-	}
-	return fmt.Sprintf("Isolation(%d)", int(i))
-}
-
 // Placeholder is the one placeholder credential a VM workspace carries where a tool refuses
 // to start without one (CLAUDE_CODE_OAUTH_TOKEN, GH_TOKEN, codex's auth.json). It matches
 // none of the transcript redactor's token patterns, and the gateway replaces whatever value
@@ -147,7 +123,8 @@ type Workspace struct {
 	// when the task checks nothing out.
 	Repo string
 	// RepoWritable is whether the harness may write Repo (a rw mount, or a checkout other
-	// than read-only). Adapters pick their sandbox from it.
+	// than read-only). Nothing in the VM enforces it: claude's write tools and PreToolUse hook
+	// follow it, and codex is told in AGENTS.md (the gateway refuses the push either way).
 	RepoWritable bool
 	// Mounts are every checked-out repo, the primary first.
 	Mounts []Mount

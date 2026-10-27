@@ -49,9 +49,6 @@ func readOnly(ws harness.Workspace) bool { return ws.Repo == "" || !ws.RepoWrita
 // permission rules: the VM is the boundary) and the MCP config (the Effector, with the run's
 // variables passed by name).
 func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, t v1alpha1.Task) error {
-	if err := a.checkVM(); err != nil {
-		return err
-	}
 	if ws.Home == "" || ws.Bin == "" {
 		return errors.New("claude-code: the workspace has no scratch HOME or bin/")
 	}

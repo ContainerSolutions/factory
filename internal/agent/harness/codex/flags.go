@@ -19,7 +19,7 @@ import (
 // UNVERIFIED (owner to verify on a VM workspace run)
 const authFile = "auth.json"
 
-// auth.json under IsolationVM (placeholderAuth): the keys codex reads its ChatGPT login from,
+// auth.json (placeholderAuth): the keys codex reads its ChatGPT login from,
 // in exactly the shape of the auth.json Phase 0's run used (P1-phase0-report.md, Q5: codex
 // rust-v0.163.0 answered behind the gateway with it): authKeyAPIKey, authKeyLastRefresh and
 // authKeyTokens at the top level, and tokenID, tokenAccess, tokenRefresh and tokenAccountID
@@ -136,7 +136,7 @@ const (
 // passes the workspace's schema again.
 const useOutputSchema = false
 
-// sandboxDangerFullAccess is the sandbox: none, since the VM is the boundary (workspace-run.md §Harnesses under IsolationVM). codex then needs no bubblewrap
+// sandboxDangerFullAccess is the sandbox: none, since the VM is the boundary (workspace-run.md §Harnesses in the VM). codex then needs no bubblewrap
 // (Phase 0 saw only a warning that it was missing) and asks no approval for MCP tools.
 // UNVERIFIED (owner to verify on a VM workspace run)
 const sandboxDangerFullAccess = "danger-full-access"

@@ -77,12 +77,10 @@ joinTokenFile: ~/.config/factory-agent/join-token          # given by the pool o
 # labels: [fast-disk]                        # advertised as configured
 harnesses:
   codex:
-    home: ~/.factory-agent/codex-home
     models: [gpt-5-codex]                    # what this owner's plan allows
     efforts: [low, medium, high]
     default: gpt-5-codex
   claude-code:
-    configDir: ~/.factory-agent/claude
     models: [claude-sonnet-5-5, claude-opus-5-5]
     efforts: [low, medium, high, max]
     default: claude-sonnet-5-5
@@ -92,7 +90,7 @@ workspace: { driver: tart }                  # supervise's and host's (above; wo
 ```
 
 - **Decoding.** `--config` overrides the path. YAML 1.2, strictly, like v1alpha1 (YAML node → JSON → `DisallowUnknownFields`; v1alpha1's converter is unexported, so the package has its own copy): an unknown or misspelt key is an error. Paths take `~/`. `deploy/poc/agent.yaml.example` mentions every key, and `cmd/factory-agent/deploykit_test.go` loads it.
-- **Validation.** `dispatcher`/`githubURL` absolute http(s) without credentials, query or fragment, plain http only on loopback (the agent token travels on every call); `pool` and an absolute `joinTokenFile` required; `host` reduced to the dispatcher's `^[a-z0-9][a-z0-9-]*$`; labels lower-case words joined by `-`, none twice; harnesses only `codex` (needs `home`) and `claude-code` (needs `configDir`), at least one model, efforts from `minimal, low, medium, high, max`, `default` among the models; `lending` must lend something (`unlimited: true` or `queues`), and `unlimited` with lists or daily caps is refused rather than silently ignored (`maxConcurrent` still applies; default 1). `lending.hours` is left to the dispatcher's validation.
+- **Validation.** `dispatcher`/`githubURL` absolute http(s) without credentials, query or fragment, plain http only on loopback (the agent token travels on every call); `pool` and an absolute `joinTokenFile` required; `host` reduced to the dispatcher's `^[a-z0-9][a-z0-9-]*$`; labels lower-case words joined by `-`, none twice; harnesses only `codex` and `claude-code` (their logins are `factory-agent login`'s, not config), at least one model, efforts from `minimal, low, medium, high, max`, `default` among the models; `lending` must lend something (`unlimited: true` or `queues`), and `unlimited` with lists or daily caps is refused rather than silently ignored (`maxConcurrent` still applies; default 1). `lending.hours` is left to the dispatcher's validation.
 - **Permissions.** The config file must not be writable by group or others (whoever can write it can send the owner's login to another dispatcher; readable is only warned about), and the join-token file must not be accessible to group or others at all (0600 or stricter), checked at each registration. Errors never carry a token.
 
 ### Registration

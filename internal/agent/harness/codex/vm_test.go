@@ -35,9 +35,8 @@ func vmWorkspace(t *testing.T, writable bool) harness.Workspace {
 	return ws
 }
 
-// vmAdapter is the adapter under IsolationVM with vmAccount. Config.Home is a signed-in
-// owner's CODEX_HOME, which the adapter must never read: the token scans find its tokens if it
-// does. An empty binary is one that doesn't exist (noCodex), never the codex on PATH.
+// vmAdapter is the adapter with vmAccount. An empty binary is one that doesn't exist
+// (noCodex), never the codex on PATH.
 func vmAdapter(t *testing.T, binary string) *Adapter {
 	t.Helper()
 	if binary == "" {
@@ -45,8 +44,8 @@ func vmAdapter(t *testing.T, binary string) *Adapter {
 	}
 	acct := vmAccount
 	return New(Options{
-		Isolation: harness.IsolationVM, Account: &acct, Binary: binary, Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond,
-		Config: config.Harness{Home: ownerHome(t), Default: "gpt-5-codex"},
+		Account: &acct, Binary: binary, Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond,
+		Config: config.Harness{Default: "gpt-5-codex"},
 	})
 }
 
@@ -80,7 +79,7 @@ func golden(t *testing.T, ws harness.Workspace, name string, got []byte) {
 	}
 }
 
-// TestVMPrepare pins the scratch CODEX_HOME under IsolationVM: the placeholder auth.json is a
+// TestVMPrepare pins the scratch CODEX_HOME: the placeholder auth.json is a
 // 0600 file of its own (no link to a login), config.toml has no [sandbox_workspace_write]
 // and keeps the MCP server, AGENTS.md is the preamble (plus, for a read-only checkout, that
 // it may not be changed), and the skills are flattened as on the host. No token reaches a
@@ -243,7 +242,7 @@ func mustJSON(t *testing.T, v any) []byte {
 	return b
 }
 
-// TestVMRun runs the fake codex under IsolationVM: danger-full-access from the pipeline's
+// TestVMRun runs the fake codex: danger-full-access from the pipeline's
 // WorkDir (never out/, whichever the checkout's mode), the placeholder login in CODEX_HOME,
 // the pipeline's gateway environment unchanged, and a Repair that resumes with the Run's
 // sandbox and directory.
@@ -328,35 +327,10 @@ func TestVMRun(t *testing.T) {
 	}
 }
 
-// TestVMRefusals: an Isolation other than IsolationVM, the zero one (the host) included, is
-// refused rather than run without a sandbox; a VM run without the account, on an API key or
-// an unknown auth, or over an existing auth.json is refused.
+// TestVMRefusals: a VM run without a work dir, without the account, on an API key or an
+// unknown auth, or over an existing auth.json is refused.
 func TestVMRefusals(t *testing.T) {
 	t.Parallel()
-	// Built with noCodex: were checkVM to stop refusing the value, no method could reach the
-	// codex on PATH.
-	for _, iso := range []harness.Isolation{harness.IsolationSandbox, 7} {
-		other := noCodex(t, Options{Isolation: iso, Account: &vmAccount, Config: config.Harness{Home: ownerHome(t)}})
-		ws := vmWorkspace(t, true)
-		for name, err := range map[string]error{
-			"Prepare": other.Prepare(context.Background(), ws, vmTask("", "", AuthSubscription)),
-			"Run": func() error {
-				_, err := other.Run(context.Background(), ws, vmTask("", "", AuthSubscription), "p", &harnesstest.Recorder{})
-				return err
-			}(),
-			"Repair": func() error {
-				_, err := other.Repair(context.Background(), ws, []string{"x"}, &harnesstest.Recorder{})
-				return err
-			}(),
-		} {
-			if want := "runs only in a VM workspace, not under isolation " + iso.String(); err == nil || !strings.Contains(err.Error(), want) {
-				t.Errorf("%s under %s = %v, want %q", name, iso, err, want)
-			}
-		}
-		if _, err := os.Lstat(filepath.Join(ws.Home, ".codex")); err == nil {
-			t.Errorf("isolation %s made CODEX_HOME", iso)
-		}
-	}
 	noDir := vmWorkspace(t, true)
 	noDir.WorkDir, noDir.Root = "", ""
 	if _, err := vmAdapter(t, "").Run(context.Background(), noDir, vmTask("", "", ""), "p", &harnesstest.Recorder{}); err == nil || !strings.Contains(err.Error(), "neither a work dir nor a root") {

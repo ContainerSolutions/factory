@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/compliance-framework/factory/internal/agent/harness"
@@ -88,49 +86,6 @@ func WithEnv(env []string, key, value string) []string {
 		}
 	}
 	return append(out, key+"="+value)
-}
-
-// LookupEnv is key's value in env ("" when unset).
-func LookupEnv(env []string, key string) string {
-	v := ""
-	for _, kv := range env {
-		if k, val, ok := strings.Cut(kv, "="); ok && k == key {
-			v = val
-		}
-	}
-	return v
-}
-
-var versionRE = regexp.MustCompile(`\b([0-9]+)\.([0-9]+)\.([0-9]+)`)
-
-// ParseVersion finds the first x.y.z in a `--version` output.
-func ParseVersion(out []byte) (string, bool) {
-	m := versionRE.FindSubmatch(out)
-	if m == nil {
-		return "", false
-	}
-	return fmt.Sprintf("%s.%s.%s", m[1], m[2], m[3]), true
-}
-
-// CompareVersions orders x.y.z versions numerically.
-func CompareVersions(a, b string) int {
-	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
-	for i := range max(len(pa), len(pb)) {
-		var x, y int
-		if i < len(pa) {
-			x, _ = strconv.Atoi(pa[i])
-		}
-		if i < len(pb) {
-			y, _ = strconv.Atoi(pb[i])
-		}
-		if x != y {
-			if x < y {
-				return -1
-			}
-			return 1
-		}
-	}
-	return 0
 }
 
 // RepairPrompt asks the harness, in the session it ran, for a corrected Result only.

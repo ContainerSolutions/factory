@@ -109,7 +109,7 @@ func checkToolCall(in hookInput, roots []string) string {
 
 // within reports whether p is one of roots or under one, with symlinks in both resolved as
 // far as they exist (a link in out/ to the checkout doesn't let a write through). A root of
-// / (IsolationVM's writable workspace) holds every path.
+// / (the VM's writable workspace) holds every path.
 func within(p string, roots []string) bool {
 	rp := resolve(p)
 	return slices.ContainsFunc(roots, func(r string) bool {

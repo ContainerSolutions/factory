@@ -33,7 +33,7 @@ func TestPipelineEndToEnd(t *testing.T) {
 		{Stream: "codex-success.jsonl", LastMessage: okResult},
 	}})
 	acct := harnesstest.CodexAccount
-	a := New(Options{Isolation: harness.IsolationVM, Account: &acct, Binary: fc.Binary})
+	a := New(Options{Account: &acct, Binary: fc.Binary})
 	sink := &harnesstest.Sink{}
 	p, job := e.Pipeline(a, e.Job(codexHarness("gpt-5-codex", "high"), []string{"pr-opened"}), "OPENAI_API_KEY=sk-owner-never-passed")
 	out, err := p.Run(context.Background(), job, sink)
@@ -109,7 +109,7 @@ func TestPipelineRateLimited(t *testing.T) {
 	fc := newFakeCodex(t, fakePlan{Runs: []fakeRun{{Stream: "codex-ratelimit.jsonl", Block: true}}})
 	before := time.Now()
 	acct := harnesstest.CodexAccount
-	a := New(Options{Isolation: harness.IsolationVM, Account: &acct, Binary: fc.Binary, KillGrace: 200 * time.Millisecond})
+	a := New(Options{Account: &acct, Binary: fc.Binary, KillGrace: 200 * time.Millisecond})
 	p, job := e.Pipeline(a, e.Job(codexHarness("gpt-5-codex", "low"), []string{"pr-opened"}))
 	out, err := p.Run(context.Background(), job, &harnesstest.Sink{})
 	if err != nil {

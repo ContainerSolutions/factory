@@ -15,12 +15,10 @@ joinTokenFile: ~/.config/factory-agent/join-token
 labels: [fast-disk, arm64]
 harnesses:
   codex:
-    home: ~/.factory-agent/codex-home
     models: [gpt-5-codex]
     efforts: [low, medium, high]
     default: gpt-5-codex
   claude-code:
-    configDir: ~/.factory-agent/claude
     models: [claude-sonnet-5-5, claude-opus-5-5]
     efforts: [low, medium, high, max]
     default: claude-sonnet-5-5
@@ -47,10 +45,10 @@ func TestParseValid(t *testing.T) {
 		c.GitHubURL != DefaultGitHubURL || !c.Lending.Unlimited || c.MaxConcurrent() != 1 {
 		t.Errorf("config %+v", c)
 	}
-	if h := c.Harnesses[HarnessCodex]; h.Home != "/home/owner/.factory-agent/codex-home" || h.Dir() != h.Home || h.Default != "gpt-5-codex" {
+	if h := c.Harnesses[HarnessCodex]; h.Default != "gpt-5-codex" {
 		t.Errorf("codex %+v", h)
 	}
-	if h := c.Harnesses[HarnessClaudeCode]; h.ConfigDir != "/home/owner/.factory-agent/claude" || len(h.Efforts) != 4 {
+	if h := c.Harnesses[HarnessClaudeCode]; len(h.Efforts) != 4 {
 		t.Errorf("claude-code %+v", h)
 	}
 }
@@ -61,7 +59,7 @@ dispatcher: http://127.0.0.1:8081/
 pool: local
 joinTokenFile: /etc/factory/join
 host: e2e
-harnesses: {codex: {home: /var/codex, models: [gpt-5-codex]}}
+harnesses: {codex: {models: [gpt-5-codex]}}
 lending: {queues: [poc], maxConcurrent: 2}
 `), opts())
 	if err != nil {
@@ -101,10 +99,6 @@ func TestParseInvalid(t *testing.T) {
 		{"bad label", base("[fast-disk, arm64]", "[Fast_Disk]"), []string{"labels[0]"}},
 		{"duplicate label", base("[fast-disk, arm64]", "[arm64, arm64]"), []string{"labels[1]: \"arm64\" is listed twice"}},
 		{"unknown harness", base("  claude-code:", "  aider:\n    models: [x]\n  claude-code:"), []string{"harnesses.aider.unknown harness"}},
-		{"codex without home", base("    home: ~/.factory-agent/codex-home\n", ""), []string{"harnesses.codex.home: required"}},
-		{"codex with configDir", base("    home: ~/.factory-agent/codex-home\n", "    home: ~/.factory-agent/codex-home\n    configDir: /x\n"), []string{"harnesses.codex.configDir: not a codex key"}},
-		{"claude without configDir", base("    configDir: ~/.factory-agent/claude\n", ""), []string{"harnesses.claude-code.configDir: required"}},
-		{"relative harness dir", base("~/.factory-agent/claude", "claude"), []string{"harnesses.claude-code.configDir: \"claude\" must be absolute"}},
 		{"no models", base("    models: [gpt-5-codex]\n", "    models: []\n"), []string{"harnesses.codex.models: at least one model", "default: \"gpt-5-codex\" is not one of models"}},
 		{"duplicate model", base("[gpt-5-codex]", "[gpt-5-codex, gpt-5-codex]"), []string{"models[1]"}},
 		{"bad effort", base("[low, medium, high]", "[low, extreme]"), []string{"harnesses.codex.efforts[1]: \"extreme\""}},

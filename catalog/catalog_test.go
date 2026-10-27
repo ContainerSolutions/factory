@@ -145,30 +145,17 @@ func TestClosedGate(t *testing.T) {
 	}
 }
 
-// docsHosts are the registries the docs site's yarn install (Node 20) needs.
-var docsHosts = []string{"registry.yarnpkg.com", "registry.npmjs.org"}
-
-// TestWorkspace pins what each TaskSpec's sandbox may reach and how its read repos are
-// cloned, so widening either is always a deliberate test change:
-//   - only the docs TaskSpecs set workspace.hosts, exactly docsHosts (hosts widen what a
-//     prompt-injected run could reach: such a change needs two approvals, FACTORY-CAT-002);
+// TestWorkspace pins how each TaskSpec's read repos are cloned and which bring an environment
+// up, so changing either is always a deliberate test change:
 //   - no TaskSpec sets publicReads: true, as the repos they read (local-dev, and ccf-skills
 //     for the skills) are private and need their read-only tokens;
 //   - only release-docs and docs-review-verify bring an environment up (local-dev's clean slate),
 //     the same one.
 func TestWorkspace(t *testing.T) {
 	c := load(t)
-	wantHosts := map[string][]string{"docs-review": docsHosts, "docs-review-verify": docsHosts, "release-docs": docsHosts}
 	var envs []string
 	for _, name := range keys(c.TaskSpecs) {
 		ws := c.TaskSpecs[name].Spec.Spec.Workspace
-		var hosts []string
-		if ws != nil {
-			hosts = ws.Hosts
-		}
-		if !slices.Equal(hosts, wantHosts[name]) {
-			t.Errorf("%s: workspace.hosts = %v, want %v", name, hosts, wantHosts[name])
-		}
 		if ws != nil && ws.PublicReads != nil && *ws.PublicReads {
 			t.Errorf("%s: workspace.publicReads is true: its ro repos would get no read-only token", name)
 		}

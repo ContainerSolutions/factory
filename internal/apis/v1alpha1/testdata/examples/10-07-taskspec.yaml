@@ -9,7 +9,7 @@ spec:
   instructions: { template: prompts/release-docs.md.tmpl, headless: true }
   skills:
     - { source: ccf-skills, ref: v0.8.0, use: [docs-release, docs-style, docs-gif, ccf-test, sidebyside] }
-  requires: { labels: [has-local-stack, gif-tooling] }      # matched against agent labels
+  requires: { labels: [] }                                  # matched against agent labels
   harness:
     allowed: [{ name: codex, models: ["gpt-5*"], reasoningEffort: "*" }, { name: claude-code, models: ["claude-*-5-*"], reasoningEffort: "*" }]
     default: { name: codex, config: { model: "gpt-5*", reasoningEffort: high } }

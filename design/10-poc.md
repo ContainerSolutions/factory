@@ -266,7 +266,7 @@ spec:
     harnesses:
       - { name: codex, auth: subscription, models: [gpt-5-codex], reasoningEffort: [low, medium, high] }
       - { name: claude-code, auth: subscription, models: [claude-sonnet-5-5, claude-opus-5-5], reasoningEffort: [low, medium, high, max] }
-    labels: [has-local-stack, gif-tooling]       # docker + local-dev checkout; playwright, gifski, vhs
+    labels: [fast-disk]                          # advertised as configured
   lending:                                       # the owner's consent, set locally
     unlimited: true                              # full throttle: any queue, any hour, no daily cap
     maxConcurrent: 2
@@ -303,7 +303,7 @@ spec:
   instructions: { template: prompts/release-docs.md.tmpl, headless: true }
   skills:
     - { source: ccf-skills, ref: v0.8.0, use: [docs-release, docs-style, docs-gif, ccf-test, sidebyside] }
-  requires: { labels: [has-local-stack, gif-tooling] }      # matched against agent labels
+  requires: { labels: [] }                                  # matched against agent labels
   harness:
     allowed: [{ name: codex, models: ["gpt-5*"], reasoningEffort: "*" }, { name: claude-code, models: ["claude-*-5-*"], reasoningEffort: "*" }]
     default: { name: codex, config: { model: "gpt-5*", reasoningEffort: high } }
@@ -365,7 +365,7 @@ spec:
     checks:        { type: array, default: [style, build] }   # + version-accuracy, versioning, i18n
   instructions: { template: prompts/docs-review.md.tmpl, headless: true }
   skills: [{ source: ccf-skills, ref: v0.8.0, use: ["ccf-review:review", docs-style, docs-verify, ccf-test] }]
-  requires: { labels: [] }                        # has-local-stack added at dispatch when verifyAgainst is set
+  requires: { labels: [] }
   harness: { default: { name: claude-code, config: { model: "claude-{sonnet,opus}-5-*", reasoningEffort: high } } }
   workspace: { checkout: read-only }
   identity: reviewer
@@ -430,7 +430,6 @@ String values starting with `=` are **CEL, evaluated at runtime** (`"=event.obje
     - dispatch:
         taskSpec: docs-review
         queue: poc
-        requires: { labels: [has-local-stack] }
         inputs:
           target: pr
           verifyAgainst: "={'train': item.state.train}"
@@ -708,7 +707,7 @@ sequenceDiagram
     participant D as Dispatcher API
     participant GH as github-public
 
-    O->>H: codex login once (dedicated CODEX_HOME), or set API key for claude
+    O->>W: factory-agent login codex / claude once (the logins the gateway injects)
     O->>W: factory-agent supervise
     W->>D: authenticate owner (GitHub device flow) + join token
     W->>H: probe: versions, auth mode, configured models / efforts
@@ -753,7 +752,7 @@ Delivery is **at-least-once**, so effects carry **idempotency keys** (task id pl
 
 | Concern | Measure |
 |---|---|
-| Owner's personal setup leaking in | A **dedicated harness config dir** per worker (e.g. `CODEX_HOME`, `CLAUDE_CONFIG_DIR`; verify both). Codex is signed in once by the owner; Claude reads its API key from the worker's environment. No personal settings, plugins, MCP servers or memory. Skills are materialised per task. |
+| Owner's personal setup leaking in | A **scratch harness config dir** per run in the VM workspace (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`). The owner's logins are stored once (`factory-agent login`) and stay with the gateway outside the VM. No personal settings, plugins, MCP servers or memory. Skills are materialised per task. |
 | Filesystem | A scratch workspace per task, deleted afterwards. Run the worker as a **dedicated OS user**, or in a container or devcontainer. |
 | Network / commands | Wrap the harness in Anthropic `sandbox-runtime` (`srt`) or a container with an egress allow-list (GitHub, the LLM vendor, package registries) |
 | GitHub access | **Never the owner's GitHub credentials.** Per-task App installation tokens, scoped to one repo and the task spec's permissions. Read-only task specs get read-only tokens. |

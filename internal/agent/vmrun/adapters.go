@@ -24,8 +24,7 @@ type adapterOptions struct {
 }
 
 // taskAdapters builds the adapters for b's task: only its harness (workspace-run.md §Sequence,
-// step 5), with harness.IsolationVM and a config.Harness made from the task's resolved
-// harness (the VM has no owner config dir or home, and no Probe runs). codex gets the bundle's
+// step 5), with a config.Harness made from the task's resolved harness (no Probe runs). codex gets the bundle's
 // codex/account.json as its Account.
 func taskAdapters(b *runbundle.Bundle, o adapterOptions) (map[string]harness.Adapter, error) {
 	h := b.Task.Spec.Harness
@@ -44,13 +43,13 @@ func taskAdapters(b *runbundle.Bundle, o adapterOptions) (map[string]harness.Ada
 	var ad harness.Adapter
 	switch r.Name {
 	case config.HarnessClaudeCode:
-		ad = claudecode.New(claudecode.Options{Config: cfg, Binary: bin, Clock: o.Clock, Isolation: harness.IsolationVM})
+		ad = claudecode.New(claudecode.Options{Config: cfg, Binary: bin, Clock: o.Clock})
 	case config.HarnessCodex:
 		if b.Manifest.Codex == nil {
 			return nil, errors.New("a codex task's bundle has no codex account")
 		}
 		acct := *b.Manifest.Codex
-		ad = codex.New(codex.Options{Config: cfg, Binary: bin, Clock: o.Clock, Isolation: harness.IsolationVM, Account: &acct})
+		ad = codex.New(codex.Options{Config: cfg, Binary: bin, Clock: o.Clock, Account: &acct})
 	default:
 		return nil, fmt.Errorf("no adapter for harness %q", r.Name)
 	}

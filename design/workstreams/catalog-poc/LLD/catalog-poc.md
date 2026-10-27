@@ -134,7 +134,7 @@ drafting ──release-docs run──▶ pr-opened ──docs PR merged (anyone)
 | `train-mixed-prod` (api minor, ui patch, plugin patch) | dispatch `release-docs{train}` to docs; state `release: drafting` |
 | `train-mock-dev` | dispatch to mock-docs via dev RuleSet; prod RuleSet silent |
 | `train-dryrun-prod` | nothing |
-| `release-docs-pr-opened` (factory) | `docs-review` with `verifyAgainst.train`, `requires has-local-stack` |
+| `release-docs-pr-opened` (factory) | `docs-review-verify` with `verifyAgainst.train` (its environment is the stack) |
 | `review-changes-requested-1` / `-3` | `implement address-review` / escalate `needs-human` |
 | `epic-opened-maintainer` / `epic-opened-anyone` | `plan-epic` / nothing (no triage pack in PoC) |
 | `plan-decomposed-5` | state plan + stackNext 0 + dispatch implement #1 base main |

@@ -1,7 +1,6 @@
 // Package claudecode is the Claude Code CLI harness adapter (design/workstreams/agent/LLD/
 // harness-adapters.md §Claude Code). It runs only in a VM workspace (`factory-agent run`,
-// harness.IsolationVM; workspace-run.md §Harnesses under IsolationVM), where the VM is the
-// boundary.
+// workspace-run.md §Harnesses in the VM), where the VM is the boundary.
 //
 // Prepare writes a settings file (no marketplace plugins, the reasoning effort, and a
 // PreToolUse hook that refuses `git push` and gh writes and keeps the file tools' writes in
@@ -19,7 +18,6 @@
 package claudecode
 
 import (
-	"fmt"
 	"maps"
 	"os"
 	"time"
@@ -48,7 +46,7 @@ const DefaultKillGrace = 5 * time.Second
 // (harness-adapters.md: else +15 min).
 const DefaultThrottle = clirun.DefaultThrottle
 
-// Options configure an Adapter. Isolation must be IsolationVM.
+// Options configure an Adapter.
 type Options struct {
 	// Config is the claude-code harness's config: vmrun makes it from the task's resolved
 	// harness (Default is the model when the task names none).
@@ -61,10 +59,6 @@ type Options struct {
 	KillGrace time.Duration
 	// Throttle is the wait on a rate limit without a reset. Default: DefaultThrottle.
 	Throttle time.Duration
-	// Isolation is what bounds the run's commands: IsolationVM, a VM workspace
-	// (workspace-run.md §Harnesses under IsolationVM). Any other value, the zero one (the host,
-	// which phase 10 removed) included, is refused by every method.
-	Isolation harness.Isolation
 	// Getuid is the run's user id: a root run sets IS_SANDBOX. Default: os.Getuid.
 	Getuid func() int
 }
@@ -107,13 +101,4 @@ func (a *Adapter) Capabilities() v1alpha1.AdapterCapabilities {
 		EffortMapping: maps.Clone(effortMapping),
 		Features:      []string{"structured-output", "mcp", "plugin-dir", "pre-tool-use-hook"},
 	}
-}
-
-// checkVM refuses an Isolation other than IsolationVM: claude runs only in a VM workspace,
-// never on the host without its sandbox.
-func (a *Adapter) checkVM() error {
-	if a.o.Isolation != harness.IsolationVM {
-		return fmt.Errorf("claude-code: runs only in a VM workspace, not under isolation %s", a.o.Isolation)
-	}
-	return nil
 }

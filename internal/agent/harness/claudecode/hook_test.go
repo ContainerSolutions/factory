@@ -29,7 +29,7 @@ func TestHookMain(t *testing.T) {
 	}
 	readWrite := []string{"pre-tool-use", "--write", out, "--write", repo}
 	readOnly := []string{"pre-tool-use", "--write", out}
-	vm := []string{"pre-tool-use", "--write", "/"} // IsolationVM's writable workspace
+	vm := []string{"pre-tool-use", "--write", "/"} // the VM's writable workspace
 	tests := []struct {
 		name  string
 		args  []string

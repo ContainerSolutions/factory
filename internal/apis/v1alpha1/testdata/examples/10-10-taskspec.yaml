@@ -9,7 +9,7 @@ spec:
     checks:        { type: array, default: [style, build] }   # + version-accuracy, versioning, i18n
   instructions: { template: prompts/docs-review.md.tmpl, headless: true }
   skills: [{ source: ccf-skills, ref: v0.8.0, use: ["ccf-review:review", docs-style, docs-verify, ccf-test] }]
-  requires: { labels: [] }                        # has-local-stack added at dispatch when verifyAgainst is set
+  requires: { labels: [] }
   harness: { default: { name: claude-code, config: { model: "claude-{sonnet,opus}-5-*", reasoningEffort: high } } }
   workspace: { checkout: read-only }
   identity: reviewer

@@ -1,7 +1,6 @@
 // Package codex is the Codex CLI harness adapter (design/workstreams/agent/LLD/
 // harness-adapters.md §Codex). It runs only in a VM workspace (`factory-agent run`,
-// harness.IsolationVM; workspace-run.md §Harnesses under IsolationVM), where the VM is the
-// boundary.
+// workspace-run.md §Harnesses in the VM), where the VM is the boundary.
 //
 // Prepare lays out a scratch CODEX_HOME in the workspace: a placeholder auth.json
 // (placeholderAuth: the account's identifiers in an unsigned id_token, harness.Placeholder as
@@ -20,7 +19,6 @@
 package codex
 
 import (
-	"fmt"
 	"maps"
 	"time"
 
@@ -49,7 +47,7 @@ const DefaultThrottle = clirun.DefaultThrottle
 // killed.
 const DefaultKillGrace = 5 * time.Second
 
-// Options configure an Adapter. Isolation must be IsolationVM, with Account.
+// Options configure an Adapter. Account is required.
 type Options struct {
 	// Config is the codex harness's config: vmrun makes it from the task's resolved harness
 	// (Default is the model when the task names none).
@@ -62,10 +60,6 @@ type Options struct {
 	KillGrace time.Duration
 	// Throttle is the wait on a rate limit without a reset. Default: DefaultThrottle.
 	Throttle time.Duration
-	// Isolation is what bounds the run's commands: IsolationVM, a VM workspace
-	// (workspace-run.md §Harnesses under IsolationVM). Any other value, the zero one (the host,
-	// which phase 10 removed) included, is refused by every method.
-	Isolation harness.Isolation
 	// Account is the ChatGPT account codex runs as: the run bundle's codex/account.json,
 	// identifiers only (P1 §5). Its id_token claims pick codex's workspace, which fails
 	// without the real ones (Phase 0, Q5). Required.
@@ -108,13 +102,4 @@ func (a *Adapter) Capabilities() v1alpha1.AdapterCapabilities {
 		EffortMapping: maps.Clone(effortMapping),
 		Features:      []string{"structured-output", "mcp", "skills-dir"},
 	}
-}
-
-// checkVM refuses an Isolation other than IsolationVM: codex runs only in a VM workspace,
-// never on the host without its sandbox.
-func (a *Adapter) checkVM() error {
-	if a.o.Isolation != harness.IsolationVM {
-		return fmt.Errorf("codex: runs only in a VM workspace, not under isolation %s", a.o.Isolation)
-	}
-	return nil
 }

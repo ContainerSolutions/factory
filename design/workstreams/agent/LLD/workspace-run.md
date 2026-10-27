@@ -100,7 +100,7 @@ factory-agent run --proxy http://<gateway>:<port> [--bundle /var/lib/factory/run
 2. `runbundle.Read(--bundle)`; a failure is exit 3, with the error on stderr, no events and no outcome. Then send `start {version, runId, taskId}`.
 3. `Setup(ctx, manifest, proxy, mode)` ([system setup](#system-setup-vmrunsystemgo)). A failure is the outcome `failed{environment-error}` (exit 0): the environment can't be reached without it. The pipeline hasn't run, so vmrun writes that outcome itself, creating `<work>/out/`.
 4. `JobFromBundle(b, remaining)` (`job.go`): `Lease` rebuilt from the manifest and `task.json`, with `Git` a `runner.Credentials` holding `GitAccess`'s metadata and empty tokens, `API` nil, `AgentToken` nil, `Dispatcher` the manifest's, and `StartedAt = now + remaining − wall`, where `wall` is the task's `maxWallClock` (else `pipeline.DefaultWallClock`) and `remaining` is capped at `wall`. The pipeline's deadline, `StartedAt + wall`, is then `now + remaining`.
-5. `adapters(b)` (`adapters.go`) builds only the task's harness, with `Isolation: harness.IsolationVM` and a `config.Harness` made from the task's resolved harness (no owner config dir or home: the VM has none).
+5. `adapters(b)` (`adapters.go`) builds only the task's harness, with a `config.Harness` made from the task's resolved harness.
 6. `pipeline.New` with the workspace options ([below](#pipeline-changes-internalagentpipeline)), then `Run(ctx, job, sink)`, where `sink` (`events.go`) writes `progress` and `usage` events.
 7. `Finished` writes `out/outcome.json` and sends `outcome`; the environment's `down` runs after it, in the pipeline's cleanup. When `Run` returns an error instead of an Outcome (it does so before any step, for an invalid `maxWallClock`), `Finished` isn't called and vmrun writes `failed{harness-error}` itself, as in step 3.
 
@@ -260,9 +260,9 @@ Both system files are replaced atomically: `install -m <mode>` to `.<name>.facto
 
 A cancel (the run's first SIGTERM), or the end of a `docker info` attempt's 10 s, gives a running `sudo -n` command SIGTERM, which sudo relays, and SIGKILL 10 s later (`ExecRunner.SudoGrace`, default `vmrun.DefaultSudoGrace`, through `internal/agent/sudocancel`, as host init and the kata driver do with their own sudo calls): these commands end at once on SIGTERM, and 10 s keeps the run well inside the 45 s the workspace driver's `Exec` gives it after SIGTERM (its `Grace`), so it still writes its outcome. A command run without sudo gets SIGKILL.
 
-## Harnesses under `IsolationVM`
+## Harnesses in the VM
 
-`harness.Isolation` is a new adapter option (`claudecode.Options.Isolation`, `codex.Options.Isolation`): `IsolationSandbox` (zero, the host: the harness's own OS sandbox, as today) or `IsolationVM` (the VM is the boundary, P1 §2 step 3). `harness.Placeholder` is the one placeholder credential value (`factory-placeholder-not-a-credential`): it matches none of the redactor's token patterns, and the gateway replaces whatever value it finds, so it never has to recognise it.
+The adapters run only here, where the VM is the boundary (P1 §2 step 3; phase 10 removed the host path and the `harness.Isolation` option that told the two apart). `harness.Placeholder` is the one placeholder credential value (`factory-placeholder-not-a-credential`): it matches none of the redactor's token patterns, and the gateway replaces whatever value it finds, so it never has to recognise it.
 
 ### claude-code
 
