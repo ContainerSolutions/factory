@@ -1,0 +1,5 @@
+lisa-design:
+- Amended per Gustavo (via the coordinator): limits never change the host side, so the kata helper's minMemMiB stays 2048; instead the contract refuses limits.memory below 2Gi (WorkspaceMinMemoryGiB), and the catalog rejects it at load.
+- LimitsMemoryPattern stays the generic GiB form because config.GiB/gibRE parse workspace.size.memory and .disk with it (GiB("1Gi") == 1 is tested). limits.memory uses an unexported limitsMemoryMinPattern (^([2-9]|[1-9][0-9]{1,5})Gi$) in Validate and the schemas, so schema and Go agree; TestLimitsMemoryMinPattern ties it to LimitsMemoryPattern and WorkspaceMinMemoryGiB.
+- The agent config's workspace.size.memory minimum uses v1alpha1.WorkspaceMinMemoryGiB (same value, 2), as the coordinator asked, so the two minimums can't drift. This touches internal/agent in a contract PR (FACTORY-CONTRACT-001's letter); it is a no-behaviour-change refactor plus test cases, called out in the PR body.
+- The runner already refuses an invalid stored limits.memory before any driver call (taskSize -> Limits.Validate, runner.go:200/230); test cases for 1Gi were added to TestTaskSize and TestRunnerTaskSize.
