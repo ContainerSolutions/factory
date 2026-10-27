@@ -147,6 +147,56 @@ func TestColdStartRetries(t *testing.T) {
 			sameRecords(t, s, w)
 		})
 	}
+	t.Run("list/empty tail", testColdStartEmptyTail)
+}
+
+// testColdStartEmptyTail (TestColdStartRetries): a load that lists snapshots/ (newest 6) and
+// then, after a writer reached 15, compacted at 15 and deleted every entry up to it, finds
+// the log after 6 empty,
+// must not settle at 6: it starts again from snapshot 15, and its next write takes 16, never
+// re-creating the deleted log/…07.
+func testColdStartEmptyTail(t *testing.T) {
+	r := newRig()
+	w := r.open(t, "W")
+	for i := range 6 {
+		must(t, w.Create(t.Context(), newRun(fmt.Sprintf("r%d", i))))
+	}
+	must(t, w.Compact(t.Context()))
+	moved := false
+	r.b.SetFaults(func(req FakeRequest) Fault {
+		if req.Op != FakeList || req.Name != logPrefix || moved {
+			return Pass
+		}
+		moved = true
+		r.b.SetFaults(nil)
+		defer r.b.SetFaults(func(FakeRequest) Fault { return Pass })
+		for i := range 9 {
+			must(t, w.Create(t.Context(), newRun(fmt.Sprintf("meanwhile-%d", i))))
+		}
+		must(t, w.Compact(t.Context()))
+		for _, n := range r.b.Names(logPrefix) {
+			if v, _ := versionOf(n, logPrefix, logSuffix); v <= 15 {
+				must(t, r.b.Delete(t.Context(), n))
+			}
+		}
+		return Pass
+	})
+	s := r.open(t, "R")
+	if !moved {
+		t.Fatal("the load never listed the log")
+	}
+	if li := s.Loaded(); li.Version != 15 || li.Snapshot != 15 {
+		t.Fatalf("loaded %+v, want version 15 from snapshot 15 (the writer is at 15)", li)
+	}
+	must(t, s.Create(t.Context(), newRun("next")))
+	if _, ok := r.b.Objects()[logName(7)]; ok {
+		t.Fatal("the load re-created the deleted log/…07")
+	}
+	if _, ok := r.b.Objects()[logName(16)]; !ok {
+		t.Fatal("the next write didn't take version 16")
+	}
+	must(t, w.Sync(t.Context()))
+	sameRecords(t, s, w)
 }
 
 // TestLoadErrors: a log with a gap no snapshot covers, a corrupt entry and a corrupt snapshot

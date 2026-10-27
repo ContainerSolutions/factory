@@ -23,21 +23,18 @@ var schemaGolden = filepath.Join("testdata", "store", "schema.golden")
 
 // TestStoredSchema keeps store.SchemaVersion and store.ReadableSchema honest (P3 §Two releases
 // on one log): the golden holds the JSON fields of every stored kind (the v1alpha1 runtime
-// kinds and internalKinds) and the ReadableSchema they belong to. Changing a stored type
-// without bumping ReadableSchema fails, and -update refuses to rewrite the golden until it is
-// bumped.
+// kinds and internalKinds), as a sorted set, and the ReadableSchema they belong to. Changing a
+// stored type needs ReadableSchema at SchemaVersion+1 (schemaVerdict says when -update may
+// rewrite the golden).
 func TestStoredSchema(t *testing.T) {
 	got := storedShape(t)
 	raw, err := os.ReadFile(schemaGolden)
 	if err != nil && !*updateGolden {
 		t.Fatalf("%v: run go test ./cmd/factory -run TestStoredSchema -update", err)
 	}
-	wantSchema, want := parseSchemaGolden(t, string(raw))
-	same := slices.Equal(got, want)
-	switch {
-	case same && wantSchema == store.ReadableSchema:
-		return
-	case *updateGolden && (same || store.ReadableSchema > wantSchema):
+	goldenSchema, want := parseSchemaGolden(t, string(raw))
+	write, msg := schemaVerdict(slices.Equal(got, want), goldenSchema, store.ReadableSchema, store.SchemaVersion, *updateGolden)
+	if write {
 		if err := os.MkdirAll(filepath.Dir(schemaGolden), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -45,18 +42,73 @@ func TestStoredSchema(t *testing.T) {
 			t.Fatal(err)
 		}
 		return
-	case !same && store.ReadableSchema == wantSchema:
-		t.Fatalf(`the stored types changed, and store.ReadableSchema is still %d.
-A shared log (the object store) is read by two releases during a deploy, so a change to a stored
+	}
+	if msg != "" {
+		t.Fatalf("%s\nChanges:\n%s", msg, shapeDiff(want, got))
+	}
+}
+
+// schemaVerdict decides what TestStoredSchema does: write the golden (with -update), fail
+// with msg, or pass (neither). same says whether the stored types' shape matches the golden,
+// written at goldenSchema.
+//
+// Expand-then-write (internal/store/schema.go): a change to a stored type goes into a pending
+// ReadableSchema of SchemaVersion+1. Once it is pending, further changes accumulate into it
+// (the golden is rewritten at the same ReadableSchema) until a release writes it by bumping
+// SchemaVersion; only then does the next change need a new ReadableSchema.
+func schemaVerdict(same bool, goldenSchema, readable, schemaVersion int, update bool) (write bool, msg string) {
+	pending := readable == schemaVersion+1
+	switch {
+	case same && goldenSchema == readable:
+		return false, ""
+	case update && (same || readable > goldenSchema || pending):
+		return true, ""
+	case !same && readable == goldenSchema && pending:
+		return false, fmt.Sprintf(`the stored types changed. store.ReadableSchema %d is pending (store.SchemaVersion is still %d),
+so this change joins it: the release that bumps store.SchemaVersion to %d writes them all.
+Run go test ./cmd/factory -run TestStoredSchema -update.`, readable, schemaVersion, readable)
+	case !same && readable == goldenSchema:
+		return false, fmt.Sprintf(`the stored types changed, and store.ReadableSchema is still %d.
+A shared log (an object store) is read by two releases during a deploy, so a change to a stored
 kind ships expand-then-write (internal/store/schema.go):
   1. this release: add the kind or optional field, bump store.ReadableSchema to %d and keep
-     store.SchemaVersion at %d; then go test ./cmd/factory -run TestStoredSchema -update;
-  2. the next release: bump store.SchemaVersion to %d.
-Changes:
-%s`, store.ReadableSchema, store.SchemaVersion+1, store.SchemaVersion, store.SchemaVersion+1, shapeDiff(want, got))
+     store.SchemaVersion at %d; then go test ./cmd/factory -run TestStoredSchema -update
+     (later changes before step 2 join the same pending version);
+  2. a later release: bump store.SchemaVersion to %d.`, readable, schemaVersion+1, schemaVersion, schemaVersion+1)
 	default:
-		t.Fatalf("store.ReadableSchema is %d and %s was written at %d: run go test ./cmd/factory -run TestStoredSchema -update\nChanges:\n%s",
-			store.ReadableSchema, schemaGolden, wantSchema, shapeDiff(want, got))
+		return false, fmt.Sprintf("store.ReadableSchema is %d and %s was written at %d: run go test ./cmd/factory -run TestStoredSchema -update",
+			readable, schemaGolden, goldenSchema)
+	}
+}
+
+// TestSchemaVerdict covers the policy: a change needs a pending ReadableSchema, and changes
+// accumulate into it until SchemaVersion catches up.
+func TestSchemaVerdict(t *testing.T) {
+	for _, tc := range []struct {
+		name                            string
+		same                            bool
+		golden, readable, schemaVersion int
+		update                          bool
+		write                           bool
+		msg                             string // a substring; "" for a pass or a write
+	}{
+		{name: "unchanged", same: true, golden: 1, readable: 1, schemaVersion: 1},
+		{name: "changed, no bump", golden: 1, readable: 1, schemaVersion: 1, msg: "bump store.ReadableSchema to 2"},
+		{name: "changed, no bump, -update refused", golden: 1, readable: 1, schemaVersion: 1, update: true, msg: "bump store.ReadableSchema to 2"},
+		{name: "changed, bumped", golden: 1, readable: 2, schemaVersion: 1, msg: "run go test"},
+		{name: "changed, bumped, -update", golden: 1, readable: 2, schemaVersion: 1, update: true, write: true},
+		{name: "another change while pending", golden: 2, readable: 2, schemaVersion: 1, msg: "joins it"},
+		{name: "another change while pending, -update", golden: 2, readable: 2, schemaVersion: 1, update: true, write: true},
+		{name: "written, unchanged", same: true, golden: 2, readable: 2, schemaVersion: 2},
+		{name: "written, changed again", golden: 2, readable: 2, schemaVersion: 2, update: true, msg: "bump store.ReadableSchema to 3"},
+		{name: "bumped with no change, -update", same: true, golden: 1, readable: 2, schemaVersion: 1, update: true, write: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			write, msg := schemaVerdict(tc.same, tc.golden, tc.readable, tc.schemaVersion, tc.update)
+			if write != tc.write || (tc.msg == "") != (msg == "") || !strings.Contains(msg, tc.msg) {
+				t.Fatalf("schemaVerdict = %v, %q; want %v, %q", write, msg, tc.write, tc.msg)
+			}
+		})
 	}
 }
 
@@ -80,7 +132,7 @@ func TestInternalKindsAudited(t *testing.T) {
 	}
 }
 
-// storedShape returns one line per JSON field of every stored kind: "<kind> <path> <type>".
+// storedShape returns one line per JSON field of every stored kind, "<kind> <path> <type>", sorted.
 func storedShape(t *testing.T) []string {
 	t.Helper()
 	kinds := map[string]reflect.Type{}
@@ -104,7 +156,8 @@ func storedShape(t *testing.T) []string {
 	}) {
 		walkShape(k, "", kinds[k], map[reflect.Type]bool{}, &lines)
 	}
-	return lines
+	slices.Sort(lines) // a set: reordering a struct's fields changes no JSON
+	return slices.Compact(lines)
 }
 
 var (
@@ -209,7 +262,8 @@ func parseSchemaGolden(t *testing.T, s string) (int, []string) {
 			lines = append(lines, l)
 		}
 	}
-	return schema, lines
+	slices.Sort(lines)
+	return schema, slices.Compact(lines)
 }
 
 // shapeDiff lists the lines only in want (-) and only in got (+).

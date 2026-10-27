@@ -63,8 +63,8 @@ var (
 	ErrFormat = errors.New("unknown state format")
 	// ErrClosed: a write after Close.
 	ErrClosed = errors.New("store is closed")
-	// ErrObjectStoreDir: the dir holds an object store's log (log/ or snapshots/: a file://
-	// bucket of store/objectstore), which the file store must never share a dir with.
+	// ErrObjectStoreDir: the dir holds an object store's log (log/ or snapshots/: the file://
+	// bucket of an object store, P3), which the file store must never share a dir with.
 	ErrObjectStoreDir = errors.New("dir holds an object store's state")
 	// ErrJournal: an earlier journal fsync (or rollback) failed, so the journal can't be
 	// trusted; every write fails until the store is reopened.
@@ -245,18 +245,7 @@ func registry(extra map[string]store.Object) (map[string]reflect.Type, error) {
 // checkType rejects a write of a kind the store couldn't load back. Writes that are invalid
 // anyway are left to the memory store, so its errors stay the conformant ones.
 func (s *Store) checkType(op string, obj store.Object) error {
-	k, err := store.CheckObject(op, obj)
-	if err != nil {
-		return nil
-	}
-	t := s.types[k.Kind]
-	if t == nil {
-		return store.Errorf(op, k, store.ErrInvalid, "kind %s has no Go type registered with the file store (filestore.WithKind)", k.Kind)
-	}
-	if got := reflect.TypeOf(obj).Elem(); got != t {
-		return store.Errorf(op, k, store.ErrInvalid, "object is %T, the file store holds %s as *%s", obj, k.Kind, t)
-	}
-	return nil
+	return journal.CheckType(s.types, op, obj, "file store")
 }
 
 // Get implements store.Store.

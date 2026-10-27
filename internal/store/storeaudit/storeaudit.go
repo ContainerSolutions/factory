@@ -5,7 +5,7 @@
 // audit line fails them, and so does a token marker anywhere in what they wrote.
 //
 // Design: design/workstreams/dispatcher-runtime/LLD/store.md §File store ("What never
-// reaches the disk") and §Object store.
+// reaches the disk"), and §Object store when present.
 package storeaudit
 
 import (

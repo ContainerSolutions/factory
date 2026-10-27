@@ -520,13 +520,15 @@ func (s *Store) dropRunTranscripts(ctx context.Context, dr *deletedRuns) {
 	if len(runs) == 0 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*s.cfg.requestTimeout)
-	defer cancel()
+	detached := context.WithoutCancel(ctx)
 	for _, run := range runs {
 		for _, blob := range []string{run, store.EnvironmentLogBlob(run)} {
 			// The Run's delete has committed: what is left behind is swept by retention (a
-			// record) or the orphan scan (a blob).
-			if err := s.dropTranscript(ctx, blob); err != nil {
+			// record) or the orphan scan (a blob). Each blob gets its own budget.
+			bctx, cancel := context.WithTimeout(detached, 2*s.cfg.requestTimeout)
+			_, err := s.dropTranscript(bctx, blob)
+			cancel()
+			if err != nil {
 				s.log.Warn("store: drop a deleted Run's transcript", "run", run, "err", err)
 			}
 		}
