@@ -143,9 +143,9 @@ func readOnce(dir string, opts store.Options, cfg config, types map[string]refle
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, false, fmt.Errorf("filestore: read journal: %w", err)
 	}
-	var journal []JournalEntry
+	var entries []JournalEntry
 	version, _, replayErr := s.replayData(state, snapV, data, func(jl journalLine, v uint64) {
-		journal = append(journal, JournalEntry{Version: v, At: jl.At, Op: jl.Op, Kind: jl.Kind, Name: jl.Name, Obj: jl.Obj})
+		entries = append(entries, JournalEntry{Version: v, At: jl.At, Op: jl.Op, Kind: jl.Kind, Name: jl.Name, Obj: jl.Obj})
 	})
 
 	// The journal fits the snapshot read only if no compaction renamed a new snapshot over it
@@ -171,7 +171,7 @@ func readOnce(dir string, opts store.Options, cfg config, types map[string]refle
 	if err := mem.Restore(recs, version); err != nil {
 		return nil, false, fmt.Errorf("filestore: %w: %w", ErrCorrupt, err)
 	}
-	v = &View{dir: dir, mem: mem, journal: journal}
+	v = &View{dir: dir, mem: mem, journal: entries}
 	if s.loaded.TornLine {
 		v.warnings = append(v.warnings, journalFile+": the last line is incomplete (a dispatcher is writing it, or crashed mid-append): read up to the line before it")
 	}
@@ -273,6 +273,9 @@ func MoveAside(dir, dst string) error {
 		return fmt.Errorf("filestore: %s: %w", dst, os.ErrExist)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("filestore: %w", err)
+	}
+	if err := checkNotObjectStore(dir); err != nil {
+		return err
 	}
 	lock, err := lockDir(LockPath(dir))
 	if err != nil {
