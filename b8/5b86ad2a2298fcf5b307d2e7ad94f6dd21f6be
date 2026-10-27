@@ -1,0 +1,9 @@
+lisa-design:
+- Problem code for a store that stopped writing is `store-read-only` (matches the Go sentinel store.ErrReadOnly PR 5 maps to the 503); PR 5 adds the CodeStoreReadOnly constant in internal/server/problem.go with this string.
+- Writing operations = every operation whose handler writes to the store: registerAgent, updateAgent, deregisterAgent, createEnrollment, deleteEnrollment, leaseTask (a GET that commits a lease), heartbeatLease, completeLease, abandonLease, uploadTranscript, uploadEnvironmentLog, createEffect, postCommand, closeWorkItem, deleteWorkItem, authCallback (session create, UsedLoginState), logout (session delete), receiveWebhook (Delivery). replayEvent already had 503.
+- Not included: login (P3 makes the OAuth state self-contained, no store write), dryRunCatalog (no side effects), reads authenticated by an agent token or a session (the token renewal and expired-session delete are best-effort, logged, never fail the read).
+- /readyz keeps the shared ServiceUnavailable $ref; the conditions are in the operation's description. For memory and the file store, which have nothing to sync, "first sync" counts as done once loaded.
+- api-server.md §Startup order keeps the work-item Rebuild step (PR 5 removes the code); only its "(/readyz 200)" tie to Options.Ready goes.
+
+lisa-selfreview:
+pass 1: [nit] api-server.md (Errors bullet) lists the writing operations' groups without enrollments, which now document 503 store-read-only too. Fix: add enrollments.
