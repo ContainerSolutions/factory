@@ -117,6 +117,15 @@ func TestCloudURLSecrets(t *testing.T) {
 			{`KEY:hun"ter2XYZ@bucket/p`, `hun"ter2XYZ`}, // a '"' (doesn't parse)
 			{`KEY:"hunter2XYZ"@bucket/p`, `"hunter2XYZ"`},
 			{"KEY:a/b?c#hunter2XYZ@bucket/p", "a/b?c#hunter2XYZ"}, // all of them
+			// The round-2 review's cases: a port-like prefix before the '/', a secret
+			// after '?' or '#', and a credential in the query or the fragment.
+			{"KEY:/hunter2@bucket/p", "/hunter2"},
+			{"KEY:12/hunter2@bucket/p", "12/hunter2"},
+			{"KEY:?hunter2@bucket/p", "?hunter2"},
+			{"KEY:#hunter2@bucket/p", "#hunter2"},
+			{"bucket/p?AWS_SECRET_ACCESS_KEY=hunter2", "hunter2"},
+			{"bucket/p#hunter2", "hunter2"},
+			{"bucket?CREDENTIALS=hunter2", "hunter2"},
 		} {
 			cases = append(cases, tc{scheme + "://" + c.url, c.secret})
 		}
@@ -235,6 +244,10 @@ func TestParseURLClouds(t *testing.T) {
 		{"https://u:hun/ter2@minio.test", "not a URL"},
 		{"https://u:hun?ter2@minio.test", "not a URL"},
 		{"https://u:hun#ter2@minio.test", "not a URL"},
+		{"https://KEY:/hunter2@minio.example:9000", "has credentials"},
+		{"https://KEY:12/hunter2@minio.test", "has credentials"},
+		{"https://minio.test?AWS_SECRET_ACCESS_KEY=hunter2", "a path, a query or a fragment"},
+		{"https://minio.test#hunter2", "a path, a query or a fragment"},
 		{"minio:9000", "scheme is not http or https"},
 		{"ftp://h", "scheme is not http or https"},
 		{"https://", "no host"},
@@ -252,7 +265,7 @@ func TestParseURLClouds(t *testing.T) {
 		if p := secretPiece(err.Error(), "hunter2"); p != "" {
 			t.Fatalf("the error holds %q of the endpoint's secret: %v", p, err)
 		}
-		for _, part := range []string{"minio.test", "10.0.0.5", "127.0.0.2", "example.com", "somedir", "x=1"} {
+		for _, part := range []string{"minio.test", "minio.example", "10.0.0.5", "127.0.0.2", "example.com", "somedir", "x=1", "AWS_SECRET"} {
 			if strings.Contains(err.Error(), part) {
 				t.Fatalf("the error repeats %q from the endpoint: %v", part, err)
 			}
