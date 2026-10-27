@@ -1007,7 +1007,7 @@ export interface components {
             detail?: string;
             /** @description The request id of this occurrence. */
             instance?: string;
-            /** @description A stable machine-readable code: `idempotency-key-required`, `effect-not-allowed`, `lease-expired`, `store-read-only`, …. */
+            /** @description A stable machine-readable code: `idempotency-key-required`, `effect-not-allowed`, `lease-gone`, `store-read-only`, …. */
             code?: string;
             /** @description Field-level validation errors. */
             errors?: components["schemas"]["FieldError"][];
@@ -2718,6 +2718,14 @@ export interface components {
          */
         ServiceUnavailable: {
             headers: {
+                /**
+                 * @description Seconds to wait before retrying, rounded up to whole seconds. Only the 503s that know
+                 *     when to retry set it: `too-many-subscribers` (the SSE keep-alive interval, 15 s by
+                 *     default), `provider-retryable` (the provider's own delay, when it gave one) and
+                 *     `unavailable` from a redispatch whose skills couldn't be resolved (1 s). The other
+                 *     503s, `store-read-only` included, don't.
+                 */
+                "Retry-After"?: number;
                 [name: string]: unknown;
             };
             content: {
@@ -4002,6 +4010,13 @@ export interface operations {
             };
         };
         responses: {
+            /** @description A duplicate delivery, already stored (redelivered or recovered); nothing more is done. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Verified and persisted. */
             202: {
                 headers: {

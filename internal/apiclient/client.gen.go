@@ -980,7 +980,7 @@ type PoolView struct {
 
 // Problem An RFC 9457 problem detail.
 type Problem struct {
-	// Code A stable machine-readable code: `idempotency-key-required`, `effect-not-allowed`, `lease-expired`, `store-read-only`, ….
+	// Code A stable machine-readable code: `idempotency-key-required`, `effect-not-allowed`, `lease-gone`, `store-read-only`, ….
 	Code *string `json:"code,omitempty"`
 
 	// Detail This occurrence's explanation.

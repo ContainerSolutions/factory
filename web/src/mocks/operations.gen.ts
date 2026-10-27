@@ -165,7 +165,7 @@ export const operations: readonly MockOperation[] = [
     id: 'receiveWebhook',
     method: 'post',
     path: '/hooks/{provider}',
-    status: 202,
+    status: 200,
     contentType: '',
   },
   {
