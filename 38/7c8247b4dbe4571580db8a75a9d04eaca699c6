@@ -1,0 +1,5 @@
+lisa-design:
+- The e2e-container job is advisory: it is in neither required's nor notify's needs, so a failure shows on the PR but doesn't block the merge (ci / required) or open a needs-human card / CI incident. Adding it to either would make it blocking or paging, against Gustavo's choice.
+- It runs on the changes job's go output, like the go job (workflow edits set go=true, so CI changes exercise it).
+- setup-go as the kata job sets it up (go-version-file: go.mod, cache: false); the Makefile target needed no change on ubuntu-latest (docker present, E2E_GOARCH=amd64 from go env).
+- The log upload (actions/upload-artifact v7.0.2, pinned by SHA) runs only on failure, if-no-files-found: ignore, so a build failure before the run doesn't add a second error.
