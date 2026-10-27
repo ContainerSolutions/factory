@@ -26,7 +26,7 @@ sandbox.
 
 ## 3. Phase 6: run tokens and enrollment
 
-**In review (2026-10-27):** #225–#232 in gh stack #233, all approved. Open: `Pool.spec.admission` (`tokenRef`, `owners`) stays in the contract, unread; the UI's pool card shows `owners`. Removing it is a small web + catalog + contract stack, only if Gustavo wants it.
+**In review (2026-10-27):** #225–#232 in gh stack #233, all approved. `Pool.spec.admission` (`tokenRef`, `owners`) stays in the contract, unread (Gustavo, 2026-10-27): the UI's pool card shows `owners`.
 
 - the run token (#101's `Lease.runToken`) and the lease credential bundle;
 - enrollment (#102), replacing the join token and the device flow. Decide how an agent's owner
