@@ -4,3 +4,6 @@ lisa-addressed:
 
 lisa-design:
 - serve starts the provider controller's Run (normalisation) after the work-item rebuild, not before: the intake filter reads links. PR 5 removes the rebuild; the order can stay.
+
+lisa-selfreview:
+- pass 2: no findings (approve).
