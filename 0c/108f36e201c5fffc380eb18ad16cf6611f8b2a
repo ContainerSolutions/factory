@@ -1,0 +1,4 @@
+lisa-selfreview:
+Pass 1 (lenient, final): approve. joinTokenFile/githubURL are now unknown keys (strict decode,
+tested); the real-dispatcher and factory-mock tests register by enrollment; fakegh went with
+its only users.
