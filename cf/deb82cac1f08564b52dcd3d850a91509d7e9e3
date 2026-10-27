@@ -5,3 +5,8 @@ pass 1 fixes:
 - emulator_test: GCS isCreate requires uploadType=multipart.
 - Makefile: [[:space:]] instead of \s; the filter keeps _test.go:N: lines.
 - Removed the unused NewGCSBucket/NewS3Bucket.
+
+lisa-selfreview:
+pass 2:
+- [blocker] FACTORY-CRED-001 s3.go s3Endpoint echoed FACTORY_S3_ENDPOINT verbatim (with any user:password) in its error -> fix (u.Redacted(); a password-bearing case in TestParseURLClouds).
+- CORE-SIZE-001 unchanged (human call).
