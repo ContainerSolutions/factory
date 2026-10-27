@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 2: CORE-DOC-001 workspace-host.md's init bullet now says a dry run exits 1 also when --only needs the kata helper and it isn't installed.
