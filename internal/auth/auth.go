@@ -7,7 +7,6 @@
 //     `Secure`, `SameSite=Lax`, 12 h). Reading needs the readers Group (or the admin Group);
 //     commands need the admin Group (`maintainers`), resolved through Conn.ResolveGroup and
 //     cached;
-//   - agent owners: GitHubOwners, the scheduler's OwnerVerifier (a GitHub user token → login).
 //
 // No token, code or cookie value is ever logged or stored in clear: sessions are stored by the
 // hash of their id, and GitHub user tokens are dropped as soon as the login is known.
@@ -25,9 +24,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/clock"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // Defaults for Config.
@@ -167,10 +167,12 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
-// AgentAuthenticator checks an agent token and returns the agent id (scheduler.Authenticate).
-// Its errors for a bad token wrap scheduler.ErrUnauthorized.
+// AgentAuthenticator checks an agent token and returns the agent id (scheduler.Authenticate),
+// and a run token and returns its lease (scheduler.AuthenticateRun). Its errors for a bad
+// token wrap scheduler.ErrUnauthorized.
 type AgentAuthenticator interface {
 	Authenticate(ctx context.Context, token string) (string, error)
+	AuthenticateRun(ctx context.Context, token string) (scheduler.RunAuth, error)
 }
 
 // Deps are what the Authenticator reads.
@@ -180,7 +182,7 @@ type Deps struct {
 	// Catalog gives the Groups; Conns resolve them.
 	Catalog controllers.CatalogProvider
 	Conns   controllers.ConnSource
-	// Agents checks agent tokens.
+	// Agents checks agent and run tokens.
 	Agents AgentAuthenticator
 }
 

@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
 )
 
 // The kata driver's install steps after the platform and the state dir

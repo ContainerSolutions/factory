@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
 )
 
 // secrets are values a test sends in carriers, queries and headers: no record and no log line

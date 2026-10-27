@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/api"
-	"github.com/compliance-framework/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/api"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
 )
 
 func newTestMock(t *testing.T) (*mock, []api.Operation) {

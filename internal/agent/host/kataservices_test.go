@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
 )
 
 // installServices puts the containerd and network steps' files in place, their units enabled

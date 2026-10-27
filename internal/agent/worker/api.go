@@ -9,15 +9,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
 )
 
 // The dispatcher's API base path and the registration credential headers (contracts.md §HTTP
 // API).
 const (
-	BasePath         = "/api/v1"
-	HeaderJoinToken  = "X-Factory-Join-Token"
-	HeaderOwnerToken = "X-Factory-Owner-Token"
+	BasePath                = "/api/v1"
+	HeaderEnrollmentToken   = "X-Factory-Enrollment-Token"
+	HeaderAgentRefreshToken = "X-Factory-Agent-Refresh-Token"
 )
 
 // APIBase is the API base URL of a dispatcher.
@@ -108,8 +108,7 @@ func isTransient(err error) bool {
 	return s == 0 || s >= 500 || s == http.StatusRequestTimeout || s == http.StatusTooManyRequests
 }
 
-// permanentError is a failure retrying won't fix (no join token, the owner refused the
-// login).
+// permanentError is a failure retrying won't fix (no enrollment token, a refused one).
 type permanentError struct{ err error }
 
 func (e *permanentError) Error() string { return e.err.Error() }

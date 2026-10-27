@@ -15,10 +15,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/runbundle"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
 )
 
 // BundleExtras are what a run bundle holds beyond the job (workspace-run.md
@@ -165,7 +165,7 @@ func (r *run) bundleScratch() (string, error) {
 }
 
 // checkSecrets refuses a bundle that would hold one of the job's real secrets (its git token,
-// its read tokens and its agent token: the redactor's): every byte the bundle will have (the
+// its read tokens, its agent token and the lease's run token: the redactor's): every byte the bundle will have (the
 // manifest, task.json, the prompt, the context items, the schema, the CA, the codex account
 // and each skill file) is searched for an exact match. The error names the file, never the
 // secret. runbundle's shape scan covers the manifest and task.json only; context content is

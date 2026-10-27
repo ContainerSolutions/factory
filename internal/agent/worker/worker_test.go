@@ -10,12 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/owner"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/agent/worker"
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/agent/worker"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 var t0 = time.Date(2026, 10, 19, 9, 0, 0, 0, time.UTC)
@@ -67,19 +66,19 @@ func TestWorkerLifecycle(t *testing.T) {
 	}
 
 	reg := f.find(http.MethodPost, "/agents")[0]
-	if reg.Join != joinSecret || reg.Owner != ownerSecret || reg.Auth != "" {
-		t.Errorf("registration headers: join %q owner %q auth %q", reg.Join, reg.Owner, reg.Auth)
+	if reg.Enroll != enrollSecret || reg.Refresh != "" || reg.Auth != "" {
+		t.Errorf("registration headers: enrollment %q refresh %q auth %q", reg.Enroll, reg.Refresh, reg.Auth)
 	}
 	body := decode[apiclient.RegisterAgentRequest](t, reg.Body)
 	if body.Pool != "local" || body.Host != "e2e" || body.Lending == nil || body.Lending.Queues[0] != "poc" || len(body.Capabilities.Harnesses) != 1 {
 		t.Errorf("registration body %+v", body)
 	}
-	if strings.Contains(string(reg.Body), ownerSecret) || strings.Contains(string(reg.Body), joinSecret) {
+	if strings.Contains(string(reg.Body), enrollSecret) {
 		t.Error("a credential is in the registration body")
 	}
 	for _, c := range f.Calls()[1:] {
-		if c.Join != "" || c.Owner != "" || !strings.HasPrefix(c.Auth, "Bearer "+agentID+".agent-secret-") {
-			t.Errorf("%s: join %q owner %q auth %q", c, c.Join, c.Owner, c.Auth)
+		if c.Enroll != "" || c.Refresh != "" || !strings.HasPrefix(c.Auth, "Bearer "+agentID+".agent-secret-") {
+			t.Errorf("%s: enrollment %q refresh %q auth %q", c, c.Enroll, c.Refresh, c.Auth)
 		}
 	}
 
@@ -112,8 +111,8 @@ func TestWorkerLifecycle(t *testing.T) {
 	if job.TaskID() != "tsk_1" || job.Git.Get().Token != gitSecret || job.AgentToken() != "" || job.Dispatcher != f.URL() {
 		t.Errorf("job: task %s, dispatcher %s, token cleared after deregistration: %v", job.TaskID(), job.Dispatcher, job.AgentToken() == "")
 	}
-	if *h.owners != 1 {
-		t.Errorf("the owner token was asked for %d times, want 1", *h.owners)
+	if h.enr.saves != 1 {
+		t.Errorf("%d refresh tokens saved, want 1", h.enr.saves)
 	}
 	h.assertNoSecretsInLogs(t)
 }
@@ -422,52 +421,46 @@ func TestReregisterOnUnauthorized(t *testing.T) {
 	if err := h.stop(t); err != nil {
 		t.Fatal(err)
 	}
-	if *h.owners != 2 {
-		t.Errorf("owner logins %d, want 2", *h.owners)
+	if regs := f.find(http.MethodPost, "/agents"); regs[1].Refresh != "arf_refresh-secret-1" {
+		t.Errorf("the second registration didn't use the refresh token: %+v", regs[1])
 	}
 }
 
-// A refused registration is permanent: Run returns the error without retrying.
+// A refused registration is permanent: Run returns the error without retrying; a credential
+// that can't be read is refused before any call.
 func TestRegisterRefused(t *testing.T) {
 	f := newFakeDispatcher(t)
-	w, err := worker.New(worker.Options{
+	f.enrollToken = enrollSecret
+	base := worker.Options{
 		Dispatcher: f.URL(), Pool: "local", Host: "e2e", AgentVersion: "test",
 		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex"}}},
-		JoinToken:    func() (string, error) { return "wrong", nil },
-		Owner:        owner.TokenFunc(func(context.Context) (string, error) { return ownerSecret, nil }),
 		Runner:       &stubRunner{},
-	})
+	}
+	o := base
+	o.Enrollment = &memEnrollment{enroll: "enr_wrong", f: f}
+	w, err := worker.New(o)
 	if err != nil {
 		t.Fatal(err)
 	}
 	err = w.Run(context.Background())
 	var ae *worker.APIError
-	if !errors.As(err, &ae) || ae.Status != http.StatusUnauthorized || strings.Contains(err.Error(), "wrong") {
+	if !errors.As(err, &ae) || ae.Status != http.StatusUnauthorized || strings.Contains(err.Error(), "enr_wrong") {
 		t.Fatalf("Run = %v, want a 401 without the token", err)
 	}
 	if n := len(f.Calls()); n != 1 {
 		t.Errorf("%d calls, want 1", n)
 	}
 
-	// No join token, or the owner refused the login: refused before any call.
-	for name, o := range map[string]worker.Options{
-		"join": {JoinToken: func() (string, error) { return "", errors.New("join-token: mode 0644") }, Owner: owner.TokenFunc(func(context.Context) (string, error) { return ownerSecret, nil })},
-		"owner": {JoinToken: func() (string, error) { return joinSecret, nil }, Owner: owner.TokenFunc(func(context.Context) (string, error) {
-			return "", owner.ErrDenied
-		})},
-	} {
-		o.Dispatcher, o.Pool, o.Host, o.AgentVersion, o.Runner = f.URL(), "local", "e2e", "test", &stubRunner{}
-		o.Capabilities = v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex"}}}
-		w, err := worker.New(o)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := w.Run(context.Background()); err == nil {
-			t.Errorf("%s: Run = nil", name)
-		}
+	o = base
+	o.Enrollment = &memEnrollment{f: f} // no token at all
+	if w, err = worker.New(o); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Run(context.Background()); err == nil {
+		t.Error("Run without a credential = nil")
 	}
 	if n := len(f.Calls()); n != 1 {
-		t.Errorf("%d calls after the local refusals, want 1", n)
+		t.Errorf("%d calls after the local refusal, want 1", n)
 	}
 }
 
@@ -484,8 +477,8 @@ func TestRegisterRetries(t *testing.T) {
 	if err := h.stop(t); err != nil {
 		t.Fatal(err)
 	}
-	if *h.owners != 1 {
-		t.Errorf("owner logins %d, want 1 (the token is reused across retries)", *h.owners)
+	if regs := f.find(http.MethodPost, "/agents"); regs[1].Enroll != enrollSecret || h.enr.saves != 1 {
+		t.Errorf("the retry didn't reuse the enrollment token, or %d saves", h.enr.saves)
 	}
 }
 
@@ -571,7 +564,7 @@ func TestNewValidates(t *testing.T) {
 	o := worker.Options{
 		Dispatcher: "http://127.0.0.1:1", Pool: "p", Host: "h", AgentVersion: "v",
 		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex"}}},
-		JoinToken:    func() (string, error) { return "", nil }, Owner: owner.TokenFunc(nil), Runner: &stubRunner{},
+		Enrollment:   &memEnrollment{}, Runner: &stubRunner{},
 		LeaseWait: 90 * time.Second,
 	}
 	if _, err := worker.New(o); err == nil || !strings.Contains(err.Error(), "LeaseWait") {
@@ -581,8 +574,8 @@ func TestNewValidates(t *testing.T) {
 
 func ptr[T any](v T) *T { return &v }
 
-// When registering again is refused (the owner left the pool's owners), the worker stops
-// with that error and doesn't keep registering.
+// When registering again is refused (a 403: the pool now requires another harness), the
+// worker stops with that error and doesn't keep registering.
 func TestReregisterRefused(t *testing.T) {
 	f := newFakeDispatcher(t)
 	h := startWorker(t, f, &stubRunner{})
@@ -600,7 +593,7 @@ func TestReregisterRefused(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run didn't stop")
 	}
-	if n := len(f.find(http.MethodPost, "/agents")); n != 2 || *h.owners != 2 {
-		t.Errorf("%d registrations and %d owner logins, want 2 each", n, *h.owners)
+	if n := len(f.find(http.MethodPost, "/agents")); n != 2 {
+		t.Errorf("%d registrations, want 2", n)
 	}
 }

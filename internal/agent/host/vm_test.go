@@ -18,10 +18,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/sudocancel/sudocanceltest"
-	"github.com/compliance-framework/factory/internal/agent/vmrun"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/sudocancel/sudocanceltest"
+	"github.com/ContainerSolutions/factory/internal/agent/vmrun"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // fakeTart is tart's VMs: clone, set, run (through Start), exec, stop, rename, delete, list.

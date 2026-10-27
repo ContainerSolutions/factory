@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 var now = time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)

@@ -22,7 +22,7 @@ Created by an org owner (RUN-S0-T02). Settings → Developer settings → GitHub
 | Organization permissions | Members R | — |
 | Events | Issues, Issue comment, Pull request, Pull request review, Pull request review comment, Pull request review thread, Release, Deployment status, Check suite, Sub issues | — |
 | Install on | `docs`, `mock-docs`, `workflows`, `mock-*` | `docs`, `mock-docs` |
-| Device flow (agent registration) | **Enable Device Flow: yes** (required by `factory-agent register`) | — |
+| Device flow | not needed: agents are enrolled ([P1 §6](../../../proposals/P1-agent-workspaces.md#6-enrollment-replaces-the-device-flow)) | — |
 | User authorization (UI login) | enable "Request user authorization (OAuth) during installation": **no**; use its OAuth client for UI login (callback `https://<tunnel-host>/api/v1/auth/callback`) | — |
 
 Neither App needs Commit statuses: Observe derives `item.pr.checks` from the head commit's check suites (Checks R), reading the commits with Contents R.
@@ -50,11 +50,11 @@ PoC: Gustavo's machine (or a small VM) running `factory serve` (built with `make
 
 ## Agent onboarding (RUN-S2-T01)
 
-1. `go install github.com/compliance-framework/factory/cmd/factory-agent@<ref>`.
+1. `go install github.com/ContainerSolutions/factory/cmd/factory-agent@<ref>`.
 2. The model logins the VM workspaces' gateway adds: `claude setup-token`, then `factory-agent login claude` (paste the token); `codex login` on this machine, then `factory-agent login codex`.
 3. Host tooling: `git` (the host fetches the skills for each run bundle) and the workspace driver: `factory-agent host init` (tart on a Mac, kata on Linux). The harnesses, Docker and the docs tools ship in the workspace image; no `gh` login is needed.
-4. Run the agent as a **dedicated OS user** (e.g. `factory-agent`) with **no `gh` login and no personal GitHub credentials** in its home. Place the join token file, write `agent.yaml` (from example), set `lending`.
-   `factory-agent register` proves the owner's identity with a GitHub **device flow** (open the URL, enter the code). The short-lived user token is used once for registration and never stored. Tasks only ever get the factory's per-task App tokens.
+4. Run the agent as a **dedicated OS user** (e.g. `factory-agent`) with **no `gh` login and no personal GitHub credentials** in its home. Place the enrollment token file (`factory agent enroll`, run by the dispatcher's admin), write `agent.yaml` (from example), set `lending`.
+   The admin who mints the enrollment names its owner; supervise exchanges the one-time token for a refresh token kept 0600 in its state dir, so no GitHub login happens on the agent. Tasks only ever get the factory's per-task App tokens.
 5. `factory-agent probe` → check the harnesses' logins; `factory-agent supervise` (or a launchd/systemd unit from the kit).
 
 ## Use case 1 runbook
@@ -103,11 +103,11 @@ Enable `poc-docs-human-review` (already in catalog; confirm `docs` App installed
 
 An automated integration test (`make test-credentials`, run in CI against fakes and once on the real PoC setup):
 
-1. Start `factory serve` and one `factory-agent supervise` with **canary values** for every secret: App private keys, webhook secret, OAuth client secret, session key, CLI token, pool join token, a fake Anthropic/OpenAI key in the worker's environment, and the device-flow user token.
+1. Start `factory serve` and one `factory-agent supervise` with **canary values** for every secret: App private keys, webhook secret, OAuth client secret, session key, CLI token, an enrollment token and the refresh token it yields, and a fake Anthropic/OpenAI key in the worker's environment.
 2. Route dispatcher ↔ agent and dispatcher ↔ GitHub (fake) traffic through a recording proxy.
 3. Run a fake task that performs effects and produces a transcript, **and** drive a UI login end to end: `/api/v1/auth/login` → fake GitHub authorize → `/api/v1/auth/callback` → token exchange. The proxy records **full request URLs** (query strings included), not just bodies and headers.
 4. Assert that **no canary appears** in:
-   - recorded URLs, bodies and headers, except each canary's one legitimate channel: the App key never leaves the dispatcher (only signed JWTs do), the join token appears only in `POST /api/v1/agents`, and the OAuth client secret appears **only** in the token-exchange request to GitHub (never in a redirect URL or browser-facing response);
+   - recorded URLs, bodies and headers, except each canary's one legitimate channel: the App key never leaves the dispatcher (only signed JWTs do), the enrollment and refresh tokens appear only in `POST /api/v1/agents` (and the refresh token in its response), and the OAuth client secret appears **only** in the token-exchange request to GitHub (never in a redirect URL or browser-facing response);
    - dispatcher and agent logs;
    - the store dump and uploaded transcripts;
    - the harness process environment (`/proc/<pid>/environ` or `ps eww`);

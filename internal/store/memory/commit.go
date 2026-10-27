@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // Option configures New.

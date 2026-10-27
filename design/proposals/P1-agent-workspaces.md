@@ -367,8 +367,8 @@ Every credential is added by the workspace's gateway, so none enters a VM. Where
   supervisor gets today's 24 h `agt_…` tokens and re-registers after a 401 or a restart with no
   human. Revoking the agent in the UI or CLI kills the refresh secret.
 - **The contract** ([`api/openapi.yaml`](../../api/openapi.yaml), P1 phase 1.3): the
-  `enrollmentToken` and `agentRefreshToken` security schemes on `registerAgent`, next to the join
-  and owner pair until the removal phase; `AgentRegistration.refreshToken`; the admin routes
+  `enrollmentToken` and `agentRefreshToken` security schemes on `registerAgent` (phase 6 removed
+  the join and owner pair); `AgentRegistration.refreshToken`; the admin routes
   `createEnrollment`, `listEnrollments` and `deleteEnrollment` (`/enrollments`, ids `enl_…`); and
   admin access on `deregisterAgent`. Both tokens are 32 random bytes, stored hashed:
   - the **enrollment token** is `enr_` followed by 43 base64url characters. It registers one
@@ -376,13 +376,15 @@ Every credential is added by the workspace's gateway, so none enters a VM. Where
   - the **refresh token** is `arf_` followed by 43 base64url characters, one per agent. Each use
     rotates it (the response carries the next one) and an admin's `deregisterAgent` revokes it.
 
-  The server refuses both until the dispatcher issues them (phase 6).
+  The dispatcher issues both from phase 6.
 - **Owner attribution** (who lends the agent, and lending rules) comes from the enrollment's
   `--owner`. The admin vouches for it; no GitHub login happens on the agent side.
 - **What goes away:**
   - `internal/agent/owner` (the device flow), `X-Factory-Owner-Token` and the `OwnerVerifier`
     exchange;
-  - the join-token file. `Pool.admission.tokenRef` becomes "may mint enrollments for this pool".
+  - the join-token file. `Pool.admission` marks a pool that takes enrollments; phase 6 reads
+    neither of its fields (`tokenRef`, `owners`), which stay in the contract for now (the UI
+    shows `owners`).
   - `GET /auth/device-config` stays only for the UI's sign-in.
 
 ### 7. Setting up the Mac (the `tart` agent host)

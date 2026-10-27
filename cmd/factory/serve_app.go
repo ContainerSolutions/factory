@@ -15,19 +15,19 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/auth"
-	"github.com/compliance-framework/factory/internal/catalog"
-	"github.com/compliance-framework/factory/internal/catalog/gitsource"
-	"github.com/compliance-framework/factory/internal/clock"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/provider/fake"
-	"github.com/compliance-framework/factory/internal/provider/github"
-	"github.com/compliance-framework/factory/internal/scheduler"
-	"github.com/compliance-framework/factory/internal/server"
-	"github.com/compliance-framework/factory/internal/store"
-	"github.com/compliance-framework/factory/internal/webui"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/auth"
+	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/catalog/gitsource"
+	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider/fake"
+	"github.com/ContainerSolutions/factory/internal/provider/github"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/server"
+	"github.com/ContainerSolutions/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/webui"
 )
 
 // githubHTTPTimeout bounds each call to GitHub's OAuth and user endpoints.
@@ -285,7 +285,6 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	if err := pc.Recover(ctx, startedAt); err != nil {
 		log.Warn("recovering deliveries failed; continuing", "err", err)
 	}
-	warnPoolSecrets(ctx, cat, secrets, log)
 
 	// Controllers, scheduler, auth and the API server (constructed; started below).
 	authProvider, apiBase, err := githubAuth(cfg, cat)
@@ -323,8 +322,7 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		return err
 	}
 	sched, err := scheduler.New(scheduler.Deps{
-		Store: st, Catalog: cs, Conns: pc, Runs: runs, Secrets: secrets,
-		Owners: auth.GitHubOwners{Provider: authProvider, APIBase: apiBase, HTTPClient: d.HTTPClient},
+		Store: st, Catalog: cs, Conns: pc, Runs: runs,
 	}, scheduler.Options{Clock: clk, Logger: log, AntiAffinityWait: cfg.AntiAffinityWait})
 	if err != nil {
 		return err
@@ -598,27 +596,4 @@ func skillsProvider(cat *catalog.Catalog, host, preferred string) (string, error
 		return "", fmt.Errorf("no github Provider has the skills base's git host %q", host)
 	}
 	return "", fmt.Errorf("github Providers %v share the skills base's git host %q and none is the auth Provider", names, host)
-}
-
-// warnPoolSecrets warns about registered Pools whose join token isn't set: no agent can join
-// them.
-func warnPoolSecrets(ctx context.Context, cat *catalog.Catalog, secrets provider.SecretResolver, log *slog.Logger) {
-	for _, name := range sortedKeys(cat.Pools) {
-		p := cat.Pools[name]
-		if p.Spec.Admission == nil {
-			continue
-		}
-		if _, err := secrets.Resolve(ctx, p.Spec.Admission.TokenRef); err != nil {
-			log.Warn("pool join token not set: agents can't register", "pool", name, "env", secretEnv(p.Spec.Admission.TokenRef))
-		}
-	}
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	slices.Sort(out)
-	return out
 }

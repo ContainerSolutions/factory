@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/ca"
-	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/ca"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // testCA is a new gateway CA on the real clock: Go's TLS verifies leaves on it.
@@ -115,7 +115,8 @@ func roundTrip(t *testing.T, c net.Conn, br *bufio.Reader, raw string) (int, htt
 	return resp.StatusCode, resp.Header, string(b)
 }
 
-// TestIntercept: every intercepted host's leaf verifies, under deny-by-default too, and each
+// TestIntercept: every intercepted host's leaf verifies, under deny-by-default with an empty
+// allow list too (the models, github.com and api.github.com aren't subject to it), and each
 // request reaches its host's upstream with every carrier stripped and the class's cookie rule.
 func TestIntercept(t *testing.T) {
 	e, got := startIntercept(t, func(w http.ResponseWriter, _ *http.Request) {

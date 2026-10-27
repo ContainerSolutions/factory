@@ -3,7 +3,7 @@ package rules
 import (
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // Evaluation is the result of evaluating one event against one work item: every candidate

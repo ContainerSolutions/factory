@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/host/provision"
+	"github.com/ContainerSolutions/factory/internal/agent/host/provision"
 )
 
 // fakeKata answers sudo -n kata-helper's verbs. A call whose arguments contain fail fails,

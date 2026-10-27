@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
 // Webhook ingress (github-provider.md §Ingress and normalisation).

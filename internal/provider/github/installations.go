@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/provider/tokens"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider/tokens"
 )
 
 var _ provider.InstallationChecker = (*Conn)(nil)

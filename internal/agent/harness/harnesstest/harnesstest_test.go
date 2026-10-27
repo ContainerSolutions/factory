@@ -8,9 +8,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/harness/harnesstest"
-	"github.com/compliance-framework/factory/internal/agent/runbundle"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/harnesstest"
+	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // Bundle writes a bundle runbundle.Read accepts, with the task's skills and its git access,

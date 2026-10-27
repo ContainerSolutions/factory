@@ -11,12 +11,12 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/apiserver/gen"
-	"github.com/compliance-framework/factory/internal/auth"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apiserver/gen"
+	"github.com/ContainerSolutions/factory/internal/auth"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // maxCAS bounds compare-and-swap retries.
@@ -52,11 +52,15 @@ func holds(t *v1alpha1.Task, agent string) bool {
 }
 
 // leasedTask returns the task the calling agent holds the active lease of: another agent's
-// (or no one's) task is 403 not-lease-holder.
+// (or no one's) task, and for a run token another task than its lease's, is 403
+// not-lease-holder.
 func (s *Server) leasedTask(ctx context.Context, id string) (*v1alpha1.Task, error) {
-	agent, err := callingAgent(ctx)
+	agent, task, err := leaseCaller(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if task != "" && task != id {
+		return nil, problemf(http.StatusForbidden, CodeNotLeaseHolder, "the run token is for another task")
 	}
 	t, err := s.getTask(ctx, id)
 	if err != nil {
@@ -110,14 +114,14 @@ const MediaTypeSchemaJSON = "application/schema+json"
 
 // GetTaskOutputSchema implements gen.StrictServerInterface: the output schema the task's
 // Result is validated against on complete (controllers.ResultSpec: the live catalog's), as
-// the catalog holds it. An agent may read only the task it holds the lease of; UI and CLI any
-// task (getTask's rule).
+// the catalog holds it. An agent may read only the task it holds the lease of, and a run token
+// only its lease's task; UI and CLI any task (getTask's rule).
 func (s *Server) GetTaskOutputSchema(ctx context.Context, req gen.GetTaskOutputSchemaRequestObject) (gen.GetTaskOutputSchemaResponseObject, error) {
 	var (
 		t   *v1alpha1.Task
 		err error
 	)
-	if principal(ctx).Kind == auth.KindAgent {
+	if k := principal(ctx).Kind; k == auth.KindAgent || k == auth.KindRun {
 		t, err = s.leasedTask(ctx, req.Id)
 	} else {
 		t, err = s.getTask(ctx, req.Id)
@@ -241,9 +245,10 @@ func (s *Server) runTask(ctx context.Context, runID string) (*v1alpha1.Run, *v1a
 }
 
 // heldRun checks that the calling agent holds the lease of the run's task and that the run is
-// its current one (agent and attempt).
+// its current one (agent and attempt). A run token takes only its own run: the open run of
+// its lease's task.
 func (s *Server) heldRun(ctx context.Context, runID string) (*v1alpha1.Run, error) {
-	agent, err := callingAgent(ctx)
+	agent, task, err := leaseCaller(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -253,6 +258,15 @@ func (s *Server) heldRun(ctx context.Context, runID string) (*v1alpha1.Run, erro
 	}
 	if !holds(t, agent) || run.Spec.Agent != agent {
 		return nil, problemf(http.StatusForbidden, CodeNotLeaseHolder, "the agent doesn't hold the lease of run %s", runID)
+	}
+	if task != "" {
+		open, err := s.openRun(ctx, task)
+		if err != nil {
+			return nil, err
+		}
+		if run.Spec.Task != task || open == nil || open.Metadata.Name != run.Metadata.Name {
+			return nil, problemf(http.StatusForbidden, CodeNotLeaseHolder, "the run token is for another run")
+		}
 	}
 	return run, nil
 }

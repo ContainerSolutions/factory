@@ -197,7 +197,7 @@ type Environment interface {
 const ReasonEnvironmentError = "environment-error" // in internal/agent/runner, beside the other reasons
 ```
 
-- **When:** after `clone` and the host's `stack` step, before `skills`, when `task.Spec.Environment != nil || len(task.Spec.Versions) > 0` (the contract of [#100](https://github.com/compliance-framework/factory/pull/100): `spec.environment` copied from the TaskSpec's `workspace.environment`, and `spec.versions` resolved at compile time).
+- **When:** after `clone` and the host's `stack` step, before `skills`, when `task.Spec.Environment != nil || len(task.Spec.Versions) > 0` (the contract of [#100](https://github.com/ContainerSolutions/factory/pull/100): `spec.environment` copied from the TaskSpec's `workspace.environment`, and `spec.versions` resolved at compile time).
 - **On the host** (`Environment == nil`) the step doesn't run the scripts: it logs a warning and adds a `factory.environment-skipped` line to the transcript, and the run goes on. Scripts written for a VM (root through sudo, Docker, ports) aren't run on the owner's machine.
 - **In the VM** it calls `Up`; an error ends the run `failed{environment-error}` before the harness starts. The returned map (the `exposes` and the `FACTORY_VERSION_*` variables) is merged into the harness's environment by `buildEnv`, as `stackEnv` is today.
 - **`Down`** runs in cleanup whenever `Up` was called, even if it failed part-way (an `up` that failed may have started containers), with `context.WithoutCancel(ctx)` and no deadline of its own: the Environment owns its budget (envrun's `DownTimeout`, which vmrun's `downGuard` shortens after a SIGTERM).
@@ -339,6 +339,7 @@ Specified in [gateway.md](gateway.md); in short:
 - api.github.com: GET only, `Authorization` replaced.
 - Anthropic: the bearer replaced, or `x-api-key` set. chatgpt.com: the bearer and `chatgpt-account-id` replaced.
 - **Always replace, never match placeholders.**
+- Every other host: a tunnel or a forward after the egress check, under the Task's `spec.environment.egress` (`default`, or `deny-by-default` with its `allow` list); the hosts above aren't subject to the mode ([gateway.md](gateway.md#egress)).
 
 ### Phase 5's supervisor
 

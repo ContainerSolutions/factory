@@ -10,8 +10,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/catalog"
-	"github.com/compliance-framework/factory/internal/catalog/gitsource"
+	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/catalog/gitsource"
 )
 
 // CatalogSource is where catalog-sync reads the catalog from.
@@ -30,7 +30,7 @@ type CatalogSource interface {
 
 // Catalog-sync source defaults (the LLD's --catalog-* flags).
 const (
-	DefaultCatalogRepo = "https://github.com/compliance-framework/factory"
+	DefaultCatalogRepo = "https://github.com/ContainerSolutions/factory"
 	DefaultCatalogRef  = "main"
 	DefaultCatalogPath = "catalog"
 )

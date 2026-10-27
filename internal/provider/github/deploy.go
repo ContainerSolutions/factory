@@ -9,7 +9,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
 // DeployLinkPRs is how many of the newest merged PRs a deployment is checked against.

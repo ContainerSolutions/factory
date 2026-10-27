@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 type blob struct {

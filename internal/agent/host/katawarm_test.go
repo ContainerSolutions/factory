@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/workspace"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace"
 )
 
 // installWarm writes katawarm.json for the installed image and workspace.warm, and makes the

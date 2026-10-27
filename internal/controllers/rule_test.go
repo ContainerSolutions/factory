@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/provider/fake"
-	"github.com/compliance-framework/factory/internal/rules"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider/fake"
+	"github.com/ContainerSolutions/factory/internal/rules"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // The PoC catalog has no triage TaskSpec; its intake chain is the docs-epic pack's:

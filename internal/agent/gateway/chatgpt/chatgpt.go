@@ -30,8 +30,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // The refresh endpoint and client id of a login without provenance (codex rust-v0.163.0's

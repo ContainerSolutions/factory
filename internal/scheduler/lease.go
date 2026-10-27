@@ -7,11 +7,11 @@ import (
 	"slices"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/clock"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // maxProgress bounds a run's progress ring buffer (as the run controller does).
@@ -146,6 +146,10 @@ func (s *Scheduler) commit(ctx context.Context, sn *snapshot, t *v1alpha1.Task, 
 	if err != nil {
 		return nil, err
 	}
+	runToken, runHash, err := s.newRunToken()
+	if err != nil {
+		return nil, err
+	}
 
 	st := ensureTaskStatus(t)
 	st.Phase = v1alpha1.TaskLeased
@@ -165,10 +169,12 @@ func (s *Scheduler) commit(ctx context.Context, sn *snapshot, t *v1alpha1.Task, 
 
 	l := &Lease{
 		TypeMeta: v1alpha1.TypeMeta{Kind: KindLease},
-		Metadata: v1alpha1.ObjectMeta{Name: leaseID, Labels: map[string]string{LabelTask: taskID, LabelAgent: agentID}},
+		Metadata: v1alpha1.ObjectMeta{Name: leaseID, Labels: map[string]string{
+			LabelTask: taskID, LabelAgent: agentID, LabelRunToken: runTokenLabel(runHash),
+		}},
 		Spec: LeaseSpec{
 			Task: taskID, Agent: agentID, Pool: a.Spec.Pool, Queue: t.Spec.Queue, RuleSet: ruleSetOf(t),
-			Auth: v.offer.Auth, IssuedAt: now, TTL: ttl, Heartbeat: heartbeat,
+			Auth: v.offer.Auth, IssuedAt: now, TTL: ttl, Heartbeat: heartbeat, RunTokenHash: runHash,
 		},
 		Status: LeaseStatus{ExpiresAt: st.LeaseExpiresAt},
 	}
@@ -197,7 +203,7 @@ func (s *Scheduler) commit(ctx context.Context, sn *snapshot, t *v1alpha1.Task, 
 		"harness", v.resolved.Name, "model", v.resolved.Model)
 	g := &Grant{
 		Lease: LeaseInfo{ID: leaseID, Agent: agentID, Task: taskID, ExpiresAt: st.LeaseExpiresAt, HeartbeatEvery: heartbeat},
-		Task:  t, GitCredential: creds.git, ReadCredentials: creds.read,
+		Task:  t, GitCredential: creds.git, ReadCredentials: creds.read, RunToken: runToken,
 	}
 	if run != nil {
 		g.Lease.Run = run.Metadata.Name

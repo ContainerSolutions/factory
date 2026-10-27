@@ -8,9 +8,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/catalog/gitsource"
-	"github.com/compliance-framework/factory/internal/rules"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/catalog/gitsource"
+	"github.com/ContainerSolutions/factory/internal/rules"
 )
 
 const (

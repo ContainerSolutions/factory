@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // MetaObject is implemented by stored kinds outside v1alpha1 (the internal Lease, Debounce,

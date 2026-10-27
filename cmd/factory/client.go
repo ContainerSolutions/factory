@@ -10,8 +10,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/server"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/server"
 )
 
 // cliClient is the API client of the CLI's admin commands (factory dispatch, events,

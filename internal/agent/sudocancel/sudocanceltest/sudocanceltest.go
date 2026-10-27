@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/exectest"
 )
 
 // RunFunc runs prog (a path) with args until it exits or ctx ends, as the runner under test

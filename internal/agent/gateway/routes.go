@@ -13,8 +13,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
-	"github.com/compliance-framework/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
 )
 
 // The credential classes a record's Injected names.

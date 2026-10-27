@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // blockedFor is how long a Lock that must wait is given before the test calls it blocked.

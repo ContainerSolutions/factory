@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
 )
 
 // Clip cuts s to n bytes on a rune boundary.

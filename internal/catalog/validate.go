@@ -9,9 +9,9 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/cel"
-	"github.com/compliance-framework/factory/internal/patterns"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/cel"
+	"github.com/ContainerSolutions/factory/internal/patterns"
 )
 
 // ruleEntry is a standalone or inline rule.

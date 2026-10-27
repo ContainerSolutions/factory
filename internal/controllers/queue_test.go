@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 func TestBackoffDelay(t *testing.T) {

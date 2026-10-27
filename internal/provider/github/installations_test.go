@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/provider/github/githubtest"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider/github/githubtest"
 )
 
 func TestMissingInstallations(t *testing.T) {

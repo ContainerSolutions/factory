@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // Placeholder is the one placeholder credential a VM workspace carries where a tool refuses

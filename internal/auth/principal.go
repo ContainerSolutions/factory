@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
 )
 
 // Kind is what kind of caller a Principal is.
@@ -20,6 +20,8 @@ const (
 	KindAgent Kind = "agent"
 	KindUser  Kind = "user"
 	KindCLI   Kind = "cli"
+	// KindRun is a run token (P1 §5): its lease's agent, for that lease's task only.
+	KindRun Kind = "run"
 )
 
 // CLIActor is the actor id of commands sent with the CLI token.
@@ -28,8 +30,10 @@ const CLIActor = "factory:cli"
 // Principal is an authenticated caller.
 type Principal struct {
 	Kind Kind
-	// AgentID is set for KindAgent.
+	// AgentID is set for KindAgent, and for KindRun (the lease's agent).
 	AgentID string
+	// Lease and Task are set for KindRun: the run token's lease and its task.
+	Lease, Task string
 	// User is set for KindUser.
 	User *User
 }
@@ -40,7 +44,7 @@ func (p Principal) ActorID() string {
 	switch p.Kind {
 	case KindUser:
 		return p.User.Provider + ":" + p.User.Login
-	case KindAgent:
+	case KindAgent, KindRun:
 		return p.AgentID
 	}
 	return CLIActor
@@ -97,6 +101,23 @@ func (a *Authenticator) Agent(ctx context.Context, r *http.Request) (Principal, 
 		return Principal{}, fmt.Errorf("agent token: %w", err)
 	}
 	return Principal{Kind: KindAgent, AgentID: id}, nil
+}
+
+// Run authenticates the request's run token. A missing, wrong or ended one is
+// ErrUnauthenticated.
+func (a *Authenticator) Run(ctx context.Context, r *http.Request) (Principal, error) {
+	tok := BearerToken(r)
+	if !strings.HasPrefix(tok, scheduler.RunTokenPrefix) {
+		return Principal{}, fmt.Errorf("not a run token: %w", ErrUnauthenticated)
+	}
+	ra, err := a.d.Agents.AuthenticateRun(ctx, tok)
+	switch {
+	case errors.Is(err, scheduler.ErrUnauthorized):
+		return Principal{}, fmt.Errorf("run token: %w: %w", ErrUnauthenticated, err)
+	case err != nil:
+		return Principal{}, fmt.Errorf("run token: %w", err)
+	}
+	return Principal{Kind: KindRun, AgentID: ra.Agent, Lease: ra.Lease, Task: ra.Task}, nil
 }
 
 // CLI authenticates the request's CLI token.

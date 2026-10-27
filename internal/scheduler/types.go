@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // Reasons the scheduler writes on a Pending task's status (the LLD's matching table), plus
@@ -29,7 +29,7 @@ const (
 // Errors of the scheduler API. Every error it returns for a bad request or a missing object
 // wraps one of these, so the API server maps them to HTTP statuses with errors.Is.
 var (
-	// ErrUnauthorized: a wrong join token, owner token or agent token (401).
+	// ErrUnauthorized: a wrong enrollment, refresh, run or agent token (401).
 	ErrUnauthorized = errors.New("unauthorized")
 	// ErrForbidden: authenticated but not allowed: the owner is not in the pool's owners
 	// Group, the capabilities miss Pool.require, or the lease is someone else's (403).
@@ -63,7 +63,7 @@ func invalid(field, format string, args ...any) error {
 // Internal kinds the scheduler keeps in the store (store.MetaObject; no API, no schema).
 const (
 	// KindLease is one lease: which agent holds which task until when, and the usage deltas
-	// its heartbeats reported. It never holds a credential.
+	// its heartbeats reported. It never holds a credential, only its run token's hash.
 	KindLease = "Lease"
 	// KindAgentToken is an agent's bearer token, hashed (SHA-256), named by the agent id.
 	KindAgentToken = "AgentToken"
@@ -73,6 +73,9 @@ const (
 const (
 	LabelTask  = "factory.ccf.dev/task"
 	LabelAgent = "factory.ccf.dev/agent"
+	// LabelRunToken is the hex SHA-256 of the lease's run token: what AuthenticateRun looks
+	// the lease up by.
+	LabelRunToken = "factory.ccf.dev/run-token"
 )
 
 // Lease ends (LeaseStatus.End).
@@ -115,6 +118,9 @@ type LeaseSpec struct {
 	TTL      time.Duration `json:"ttl"`
 	// Heartbeat is the pool's heartbeat interval, returned to the agent.
 	Heartbeat time.Duration `json:"heartbeat"`
+	// RunTokenHash is "sha256:<hex>" of the lease's run token (the token itself is returned
+	// once, in the grant, and never stored).
+	RunTokenHash string `json:"runTokenHash,omitzero"`
 }
 
 // LeaseStatus is the lease's state.
@@ -157,25 +163,27 @@ func (a *AgentToken) GetObjectMeta() *v1alpha1.ObjectMeta { return &a.Metadata }
 
 // ---- API types -------------------------------------------------------------------------------
 
-// RegisterRequest is registerAgent: the two header credentials and the body.
+// RegisterRequest is registerAgent: the header credential and the body.
 type RegisterRequest struct {
-	// JoinToken is X-Factory-Join-Token, the pool's join token.
-	JoinToken string
-	// OwnerToken is X-Factory-Owner-Token, the owner's GitHub user token from the device
-	// flow. It is exchanged for a login and discarded: never stored or logged.
-	OwnerToken   string
-	Pool         string
-	Host         string
-	AgentVersion string
-	Capabilities v1alpha1.AgentCapabilities
-	Lending      *v1alpha1.Lending
+	// EnrollmentToken is X-Factory-Enrollment-Token and RefreshToken
+	// X-Factory-Agent-Refresh-Token (P1 §6): exactly one is set. Never stored or logged.
+	EnrollmentToken string
+	RefreshToken    string
+	Pool            string
+	Host            string
+	AgentVersion    string
+	Capabilities    v1alpha1.AgentCapabilities
+	Lending         *v1alpha1.Lending
 }
 
-// Registration is registerAgent's response. AgentToken is returned only here.
+// Registration is registerAgent's response. AgentToken and RefreshToken are returned only
+// here.
 type Registration struct {
 	AgentID    string
 	AgentToken string
 	ExpiresAt  time.Time
+	// RefreshToken is the agent's next refresh token.
+	RefreshToken string
 }
 
 // AgentUpdate is updateAgent (PATCH /agents/{id}): a phase report and/or a lending update.
@@ -197,6 +205,14 @@ type Grant struct {
 	// ReadCredentials are the read-only tokens (contents: read), one per private read repo;
 	// none for public reads. Minted for this lease and never stored.
 	ReadCredentials []provider.Credential
+	// RunToken is the lease's run token (P1 §5): minted for this lease, returned only here,
+	// stored only as its hash. Never log it.
+	RunToken string
+}
+
+// RunAuth is what a run token authenticates: its lease, the lease's task and agent.
+type RunAuth struct {
+	Lease, Task, Agent string
 }
 
 // LeaseInfo is the API's LeaseInfo.

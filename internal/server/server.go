@@ -21,15 +21,15 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/apiserver/gen"
-	"github.com/compliance-framework/factory/internal/auth"
-	"github.com/compliance-framework/factory/internal/clock"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/rules"
-	"github.com/compliance-framework/factory/internal/scheduler"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apiserver/gen"
+	"github.com/ContainerSolutions/factory/internal/auth"
+	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/rules"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // BasePath is where the generated API is mounted.
@@ -56,6 +56,10 @@ type Scheduler interface {
 	Heartbeat(ctx context.Context, agentID, leaseID string, req scheduler.HeartbeatRequest) (*scheduler.HeartbeatResponse, error)
 	Complete(ctx context.Context, agentID, leaseID string, res v1alpha1.Result) (v1alpha1.TaskPhase, error)
 	Abandon(ctx context.Context, agentID, leaseID string, req scheduler.AbandonRequest) error
+	CreateEnrollment(ctx context.Context, req scheduler.EnrollRequest) (*scheduler.Enrollment, string, error)
+	ListEnrollments(ctx context.Context) ([]*scheduler.Enrollment, error)
+	DeleteEnrollment(ctx context.Context, id string) error
+	RevokeRefresh(ctx context.Context, agentID string) error
 }
 
 // Evaluator is the dry-run: the rule controller's evaluation of an event, with nothing applied

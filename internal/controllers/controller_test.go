@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/clock"
-	"github.com/compliance-framework/factory/internal/store"
-	"github.com/compliance-framework/factory/internal/store/memory"
+	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store/memory"
 )
 
 // noJitter is a backoff with the default delays and no randomness.

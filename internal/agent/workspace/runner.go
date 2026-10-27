@@ -22,17 +22,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/gateway"
-	"github.com/compliance-framework/factory/internal/agent/gateway/ca"
-	"github.com/compliance-framework/factory/internal/agent/gateway/chatgpt"
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/login"
-	"github.com/compliance-framework/factory/internal/agent/pipeline"
-	"github.com/compliance-framework/factory/internal/agent/runbundle"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/ca"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/chatgpt"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/login"
+	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
+	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // The workspace runner's fixed places (supervise.md, "The workspace runner").
@@ -114,6 +115,8 @@ type Runner struct {
 	chatgpt *chatgpt.Refresher
 	clk     clock.Clock
 	log     *slog.Logger
+	// newGateway is gateway.New; tests see the Config through it.
+	newGateway func(gateway.Config) (*gateway.Gateway, error)
 
 	caMu sync.Mutex
 	ca   *ca.CA
@@ -159,7 +162,7 @@ func NewRunner(o RunnerOptions) (*Runner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("workspace runner: %w", err)
 	}
-	return &Runner{o: o, logins: logins, chatgpt: ref, clk: o.Clock, log: o.Logger}, nil
+	return &Runner{o: o, logins: logins, chatgpt: ref, clk: o.Clock, log: o.Logger, newGateway: gateway.New}, nil
 }
 
 // gatewayCA is the agent host's gateway CA, <statedir>/gateway-ca, loaded or made at first use.
@@ -477,18 +480,20 @@ func (w *wsRun) startGateway(ctx context.Context, netw Network, gwCA *ca.CA, log
 	if err != nil {
 		return nil, "", fmt.Errorf("the dispatcher URL: %w", err)
 	}
-	if w.job.AgentToken == nil {
-		return nil, "", errors.New("the job has no agent token for the dispatcher route")
+	dispToken, err := w.dispatcherToken()
+	if err != nil {
+		return nil, "", err
 	}
 	var runID string
 	if w.job.Lease.Lease.Run != nil {
 		runID = *w.job.Lease.Lease.Run
 	}
-	g, err := gateway.New(gateway.Config{
+	g, err := w.r.newGateway(gateway.Config{
 		TaskID: w.id, RunID: runID, Clients: []netip.Addr{netw.VM}, CA: gwCA, Git: w.job.Git,
-		Dispatcher: disp, DispatcherToken: w.job.AgentToken,
+		Dispatcher: disp, DispatcherToken: dispToken,
 		Anthropic: logins.anthropic, ChatGPT: logins.chatgpt, ChatGPTUnauthorized: logins.chatgptUnauthorized,
-		Sink: w.egress, Clock: w.r.clk, Logger: w.log,
+		Egress: taskEgress(w.job.Lease.Task.Spec.Environment),
+		Sink:   w.egress, Clock: w.r.clk, Logger: w.log,
 	})
 	if err != nil {
 		return nil, "", err
@@ -508,6 +513,32 @@ func (w *wsRun) startGateway(ctx context.Context, netw Network, gwCA *ca.CA, log
 	}()
 	w.gatewayOn = true
 	return rg, "http://" + addr.String(), nil
+}
+
+// dispatcherToken is the gateway's DispatcherToken: the lease's run token, which lives exactly
+// as long as the lease. A lease without one (a dispatcher from before run tokens) gets the
+// agent token, read on every request, so a mixed rollout works.
+func (w *wsRun) dispatcherToken() (func() string, error) {
+	if rt := w.job.Lease.RunToken; rt != nil && *rt != "" {
+		tok := *rt
+		return func() string { return tok }, nil
+	}
+	if w.job.AgentToken == nil {
+		return nil, errors.New("the job has no run or agent token for the dispatcher route")
+	}
+	w.log.Debug("the lease has no run token: the gateway sends the agent token to the dispatcher")
+	return w.job.AgentToken, nil
+}
+
+// taskEgress is the gateway's egress policy from the Task's spec.environment.egress (the
+// compiler's copy of the TaskSpec's workspace.environment.egress): no environment or no egress
+// is the zero Egress, ModeDefault. The gateway's own hosts (the models, github.com and
+// api.github.com, the dispatcher) are never subject to the mode.
+func taskEgress(env *v1alpha1.Environment) policy.Egress {
+	if env == nil || env.Egress == nil {
+		return policy.Egress{}
+	}
+	return policy.Egress{Mode: env.Egress.Mode, AllowHosts: env.Egress.Allow}
 }
 
 // exec runs factory-agent run in the VM and relays its events until it exits. It stops the run

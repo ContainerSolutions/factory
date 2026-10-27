@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/provider/github"
-	"github.com/compliance-framework/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/provider/github"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
 )
 
 // Environment variables `factory serve` reads (api-server.md §factory serve). Secrets come from

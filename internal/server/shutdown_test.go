@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/controllers"
 )
 
 // Shutdown stops accepting leases: a parked long poll answers 204 at once, and so does a later

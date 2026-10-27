@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
 )
 
 // The kata driver's warm step (workspace-kata.md, step 10): the warm disk, a workspace disk

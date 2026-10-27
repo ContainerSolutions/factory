@@ -13,12 +13,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/clock"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/provider/github/githubtest"
-	"github.com/compliance-framework/factory/internal/server"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider/github/githubtest"
 )
 
 const e2eWebhookSecret = "e2e-webhook-secret-0123456789"
@@ -148,11 +147,7 @@ func TestServeGitHubEndToEnd(t *testing.T) {
 			Name: "codex", Auth: "subscription", Models: []string{"gpt-5-codex"}, ReasoningEffort: []string{"high"},
 		}}},
 		Lending: &v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 1},
-	}, func(_ context.Context, r *http.Request) error {
-		r.Header.Set(server.HeaderJoinToken, testJoinToken)
-		r.Header.Set(server.HeaderOwnerToken, "tok-gus")
-		return nil
-	})
+	}, enrolled(t, ctx, c, "e2e"))
 	if err != nil || reg.JSON201 == nil {
 		t.Fatalf("register: %v %s %s", err, reg.Status(), reg.Body)
 	}

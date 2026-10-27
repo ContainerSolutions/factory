@@ -20,12 +20,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/catalog"
-	"github.com/compliance-framework/factory/internal/clock"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // Defaults for Options and for pools without a lease policy.
@@ -33,7 +32,6 @@ const (
 	DefaultTick             = time.Second
 	DefaultTokenTTL         = 24 * time.Hour
 	DefaultTokenRenewEvery  = 10 * time.Minute
-	DefaultGroupCacheTTL    = 10 * time.Minute
 	DefaultAntiAffinityWait = 10 * time.Minute
 	DefaultMaxWait          = 60 * time.Second
 	DefaultLeaseRetention   = time.Hour
@@ -71,8 +69,6 @@ type Options struct {
 	TokenTTL time.Duration
 	// TokenRenewEvery bounds how often a token's expiry is written. Default 10 min.
 	TokenRenewEvery time.Duration
-	// GroupCacheTTL caches the owners Group's resolution. Default 10 min.
-	GroupCacheTTL time.Duration
 	// AntiAffinityWait is how long a reviewer task waits for another agent before its
 	// author's agent may take it on the author's harness (soft anti-affinity). Default
 	// 10 min; AntiAffinityOff (any negative value) turns anti-affinity off.
@@ -105,7 +101,6 @@ func (o Options) withDefaults() Options {
 	def(&o.Tick, DefaultTick)
 	def(&o.TokenTTL, DefaultTokenTTL)
 	def(&o.TokenRenewEvery, DefaultTokenRenewEvery)
-	def(&o.GroupCacheTTL, DefaultGroupCacheTTL)
 	if o.AntiAffinityWait == 0 {
 		o.AntiAffinityWait = DefaultAntiAffinityWait // negative is AntiAffinityOff, kept
 	}
@@ -119,24 +114,19 @@ func (o Options) withDefaults() Options {
 type Deps struct {
 	Store   store.Store
 	Catalog controllers.CatalogProvider
-	// Conns resolves owners Groups and mints git credentials.
+	// Conns mints git credentials.
 	Conns controllers.ConnSource
 	// Runs is the run controller: lease issued, complete, abandon, cancel.
 	Runs controllers.RunAPI
-	// Secrets resolves Pool.admission.tokenRef (the join token).
-	Secrets provider.SecretResolver
-	// Owners verifies owner tokens.
-	Owners OwnerVerifier
 }
 
 // Scheduler is the registered-pool scheduler. It is safe for concurrent use.
 type Scheduler struct {
-	d      Deps
-	opts   Options
-	clk    clock.Clock
-	log    *slog.Logger
-	groups *groupCache
-	ctrl   *controllers.Controller
+	d    Deps
+	opts Options
+	clk  clock.Clock
+	log  *slog.Logger
+	ctrl *controllers.Controller
 
 	// mu serialises matching and lease commits (so queue concurrency, budgets and lending
 	// are checked and charged atomically in this process) and guards the in-memory state.
@@ -172,10 +162,6 @@ func New(d Deps, opts Options) (*Scheduler, error) {
 		return nil, errors.New("scheduler: no provider connections")
 	case d.Runs == nil:
 		return nil, errors.New("scheduler: no run API")
-	case d.Secrets == nil:
-		return nil, errors.New("scheduler: no secret resolver")
-	case d.Owners == nil:
-		return nil, errors.New("scheduler: no owner verifier")
 	}
 	opts = opts.withDefaults()
 	s := &Scheduler{
@@ -183,7 +169,6 @@ func New(d Deps, opts Options) (*Scheduler, error) {
 		opts:        opts,
 		clk:         opts.Clock,
 		log:         opts.Logger.With("component", "scheduler"),
-		groups:      newGroupCache(d.Conns, opts.Clock, opts.GroupCacheTTL),
 		waiting:     map[string]int{},
 		lastLeased:  map[string]time.Time{},
 		heldSince:   map[string]time.Time{},

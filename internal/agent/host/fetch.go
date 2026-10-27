@@ -15,7 +15,7 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/execfile"
 )
 
 // MaxArchive bounds what Extract extracts.

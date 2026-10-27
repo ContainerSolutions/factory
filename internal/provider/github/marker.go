@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
 // The projection marker (github-provider.md §Observe, list and projection): one hidden comment

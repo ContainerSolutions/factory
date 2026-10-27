@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
 // AppInfo is what GET /app says about an identity's App.

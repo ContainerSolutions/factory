@@ -14,26 +14,24 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/owner"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/agent/worker"
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/agent/worker"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // Secrets the tests use; none may appear in a log line.
 const (
-	joinSecret  = "join-secret-0123456789"
-	ownerSecret = "tok-gus"
-	gitSecret   = "ghs_git-secret-0123456789"
-	agentID     = "agt_gus-e2e"
+	enrollSecret = "enr_enroll-secret-0123456789"
+	gitSecret    = "ghs_git-secret-0123456789"
+	agentID      = "agt_gus-e2e"
 )
 
 // call is one request the fake dispatcher saw.
 type call struct {
-	Method, Path, Auth, Join, Owner string
-	Body                            []byte
+	Method, Path, Auth, Enroll, Refresh string
+	Body                                []byte
 }
 
 func (c call) String() string { return c.Method + " " + c.Path }
@@ -53,6 +51,9 @@ type fakeDispatcher struct {
 	heartbeat func(n int) (int, any)
 	beats     int
 	changed   chan struct{}
+	// enrollToken registers once; refresh is the current refresh token (P1 §6).
+	enrollToken, refresh string
+	refreshes            int
 }
 
 func newFakeDispatcher(t *testing.T) *fakeDispatcher {
@@ -159,7 +160,7 @@ func (f *fakeDispatcher) serve(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	path := strings.TrimPrefix(r.URL.Path, worker.BasePath)
 	c := call{Method: r.Method, Path: path, Auth: r.Header.Get("Authorization"),
-		Join: r.Header.Get(worker.HeaderJoinToken), Owner: r.Header.Get(worker.HeaderOwnerToken), Body: body}
+		Enroll: r.Header.Get(worker.HeaderEnrollmentToken), Refresh: r.Header.Get(worker.HeaderAgentRefreshToken), Body: body}
 	f.record(c) // at arrival: a parked poll counts while it waits
 
 	seg := strings.Split(strings.Trim(path, "/"), "/")
@@ -169,10 +170,18 @@ func (f *fakeDispatcher) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodPost && path == "/agents" {
-		if c.Join != joinSecret || c.Owner != ownerSecret {
+		f.mu.Lock()
+		var next string
+		if (c.Enroll == "" || c.Enroll != f.enrollToken) && (c.Refresh == "" || c.Refresh != f.refresh) {
+			f.mu.Unlock()
 			problem(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}
+		f.enrollToken = "" // spent
+		f.refreshes++
+		f.refresh = fmt.Sprintf("arf_refresh-secret-%d", f.refreshes)
+		next = f.refresh
+		f.mu.Unlock()
 		var req apiclient.RegisterAgentRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			problem(w, http.StatusBadRequest, "invalid")
@@ -183,7 +192,7 @@ func (f *fakeDispatcher) serve(w http.ResponseWriter, r *http.Request) {
 		f.token = fmt.Sprintf("%s.agent-secret-%d", agentID, f.tokens)
 		tok := f.token
 		f.mu.Unlock()
-		writeJSON(w, http.StatusCreated, apiclient.AgentRegistration{AgentId: agentID, AgentToken: tok, ExpiresAt: time.Now().Add(24 * time.Hour)})
+		writeJSON(w, http.StatusCreated, apiclient.AgentRegistration{AgentId: agentID, AgentToken: tok, ExpiresAt: time.Now().Add(24 * time.Hour), RefreshToken: &next})
 		return
 	}
 	f.mu.Lock()
@@ -266,7 +275,7 @@ type harness struct {
 	w      *worker.Worker
 	clk    clock.Clock
 	logs   *logBuffer
-	owners *int
+	enr    *memEnrollment
 	done   chan error
 	cancel context.CancelFunc
 }
@@ -279,21 +288,20 @@ func withLending(l v1alpha1.Lending) harnessOpt { return func(o *worker.Options)
 
 func startWorker(t *testing.T, f *fakeDispatcher, r runner.Runner, opts ...harnessOpt) *harness {
 	t.Helper()
-	h := &harness{f: f, logs: &logBuffer{}, owners: new(int), done: make(chan error, 1)}
-	var mu sync.Mutex
+	h := &harness{f: f, logs: &logBuffer{}, done: make(chan error, 1)}
+	f.mu.Lock()
+	if f.enrollToken == "" && f.refresh == "" {
+		f.enrollToken = enrollSecret
+	}
+	f.mu.Unlock()
+	h.enr = &memEnrollment{enroll: enrollSecret, f: f}
 	o := worker.Options{
 		Dispatcher: f.URL(), Pool: "local", Host: "e2e", AgentVersion: "test",
 		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex", Models: []string{"gpt-5-codex"}}}},
 		Lending:      v1alpha1.Lending{Queues: []string{"poc"}},
-		JoinToken:    func() (string, error) { return joinSecret, nil },
-		Owner: owner.TokenFunc(func(context.Context) (string, error) {
-			mu.Lock()
-			*h.owners++
-			mu.Unlock()
-			return ownerSecret, nil
-		}),
-		Runner: r,
-		Logger: slog.New(slog.NewJSONHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Enrollment:   h.enr,
+		Runner:       r,
+		Logger:       slog.New(slog.NewJSONHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}
 	for _, opt := range opts {
 		opt(&o)
@@ -335,7 +343,7 @@ func (h *harness) stop(t *testing.T) error {
 func (h *harness) assertNoSecretsInLogs(t *testing.T, extra ...string) {
 	t.Helper()
 	logs := h.logs.String()
-	for _, s := range append([]string{joinSecret, ownerSecret, gitSecret, "agent-secret-"}, extra...) {
+	for _, s := range append([]string{enrollSecret, "refresh-secret-", gitSecret, "agent-secret-"}, extra...) {
 		if strings.Contains(logs, s) {
 			t.Errorf("a secret is in the logs: %q\n%s", s, logs)
 		}

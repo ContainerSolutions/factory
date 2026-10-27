@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
 )
 
 // The warm verbs (workspace-kata.md#the-warm-disk): host init's warm step loads images into a

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/harness/clirun"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/clirun"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // parser turns `codex exec --json` lines into the EventSink's progress, usage and rate

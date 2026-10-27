@@ -39,7 +39,7 @@ An org owner creates two Apps: Organization settings → Developer settings → 
 | Organization permissions | Members R (resolves the `maintainers` and `readers` Groups) | none |
 | Events | Issues, Issue comment, Pull request, Pull request review, Pull request review comment, Pull request review thread, Release, Deployment status, Check suite, Sub issues | none |
 | Install on | `docs`, `mock-docs`, `workflows`, `mock-*`, `ccf-skills`, `local-dev` | `docs`, `mock-docs`, `ccf-skills` |
-| Enable Device Flow | **yes**: agents register with the owner's device-flow login | no |
+| Enable Device Flow | no: agents are enrolled (§8) | no |
 | Callback URL (UI login) | `https://<tunnel-host>/api/v1/auth/callback`. "Request user authorization (OAuth) during installation": **no**. | none |
 
 - **Never** give either App a ruleset bypass.
@@ -62,17 +62,17 @@ cp deploy/poc/.env.example deploy/poc/.env && chmod 600 deploy/poc/.env
 Fill it in with an editor. Each line of `.env.example` says what goes there:
 
 - **`FACTORY_SESSION_KEY`, `FACTORY_CLI_TOKEN`, `FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN`**: `openssl rand -hex 32` each. `FACTORY_SECRET_GITHUB_PUBLIC_WEBHOOK_SECRET` is the value you set on ccf-factory's webhook (also `openssl rand -hex 32`).
-- **`FACTORY_OAUTH_CLIENT_ID` / `_SECRET`**: ccf-factory's client ID and client secret. The client ID also serves the agents' device flow.
+- **`FACTORY_OAUTH_CLIENT_ID` / `_SECRET`**: ccf-factory's client ID and client secret.
 - **The two `…_PRIVATE_KEY`s**: the PEM files. `run.sh` sources `.env` with bash, so either paste the PEM inside double quotes or read it from a file outside the repo: `FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY="$(cat /path/to/ccf-factory.pem)"`.
 - **`FACTORY_PUBLIC_URL`**: the tunnel URL, `https://<name>.ngrok-free.dev`. It isn't a secret, but it's kept out of the public repo.
 
 `run.sh` refuses a `.env` that is missing, not yours, or not mode 600, and names (never prints) any variable that's unset. `cmd/factory/deploykit_test.go` keeps `.env.example` in step with the catalog's secret references.
 
-Share the join token with agent owners out of band, never in a repo or an issue.
+Agents don't use the join token any more: an admin enrolls each agent host (§8). `FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN` stays in `.env` while the catalog's Pool still names it.
 
 ## 4. Catalog
 
-`factory serve` reads the catalog from git by default: `catalog/` of `https://github.com/compliance-framework/factory` at `main`, polled every minute. `run.sh` passes that (`--catalog-repo … --catalog-ref "${FACTORY_CATALOG_REF:-main}" --catalog-path catalog`), or `--catalog-dir "$FACTORY_CATALOG_DIR"` when that is set in `.env`.
+`factory serve` reads the catalog from git by default: `catalog/` of `https://github.com/ContainerSolutions/factory` at `main`, polled every minute. `run.sh` passes that (`--catalog-repo … --catalog-ref "${FACTORY_CATALOG_REF:-main}" --catalog-path catalog`), or `--catalog-dir "$FACTORY_CATALOG_DIR"` when that is set in `.env`.
 
 `main` works as is once the real App IDs are merged into `catalog/providers/github-public.yaml` and `ccf-skills` has the tag the TaskSpecs pin (`ref: v0.8.0`). A Provider change needs two approvals. Until both are true, run from a local copy:
 
@@ -147,7 +147,6 @@ Log lines to look for:
 
 - `catalog swapped in`, then `catalog loaded`;
 - `provider connected … webhook=<public url>/hooks/github-public`;
-- no `pool join token not set`;
 - `provider health` without `degraded`. A degraded provider means a wrong App ID or key.
 
 `catalog rejected; keeping the live catalog` means an invalid catalog: `factory validate --dir` the directory.
@@ -177,17 +176,23 @@ Expect `"status": "ok"`. Then:
 
 ## 8. Agent onboarding
 
-For each agent owner, on their machine (rollout.md §Agent onboarding). The owner must be a `compliance-framework` org admin: the Pool's owners are the `maintainers` Group.
+For each agent owner, on their machine (rollout.md §Agent onboarding). The dispatcher's admin enrolls the host for its owner, who needs no GitHub login on it.
 
 The agent is `factory-agent supervise`: it runs each leased task in its own VM workspace behind a gateway that holds every credential, a tart VM on an Apple-silicon Mac ([supervise.md](../../design/workstreams/agent/LLD/supervise.md)) or a Kata microVM on Linux ([workspace-kata.md](../../design/workstreams/agent/LLD/workspace-kata.md)). Run every step from a checkout of this repository, as the owner's own user (not root; the workspaces are that user's).
 
-1. **The join token**, from the dispatcher operator, in a file only you can read:
+1. **The enrollment token.** An admin of the dispatcher mints one for your host, with the CLI token:
 
    ```bash
-   mkdir -p ~/.config/factory-agent && (umask 077 && cat > ~/.config/factory-agent/join-token)
+   bin/factory agent enroll --pool local --owner <your GitHub login> --name <host> --server "$FACTORY_PUBLIC_URL"
    ```
 
-   Paste the token, press Enter, then Ctrl-D.
+   It prints the token once (`--ttl`, default 7d, at most 30d; `bin/factory agent enrollments [list|delete <id>]` lists and revokes them). Put it in a file only you can read:
+
+   ```bash
+   mkdir -p ~/.config/factory-agent && (umask 077 && cat > ~/.config/factory-agent/enrollment-token)
+   ```
+
+   Paste the token, press Enter, then Ctrl-D. `<host>` must be the agent's `host` (default: the machine's short host name, lower-cased).
 2. **The config.** Copy `deploy/poc/agent.yaml.example` to `~/.config/factory-agent/agent.yaml`, then `chmod 600` it. Edit:
    - `dispatcher`: `$FACTORY_PUBLIC_URL`, or `http://127.0.0.1:8800` on the dispatcher's own machine;
    - the harnesses and models your plans allow. The codex model in the example (`gpt-6.1-sol`) is a placeholder: put `<a gpt-5* or gpt-6* model your codex sign-in offers>` (see `/model` in codex) in `models` and `default`. A configured harness is offered when its login is stored (step 3);
@@ -204,9 +209,9 @@ The agent is `factory-agent supervise`: it runs each leased task in its own VM w
    bin/factory-agent supervise
    ```
 
-   It refuses to start while `host check` fails, and destroys the VMs a killed supervise left. `--keep-workspace` keeps each stopped VM and its run directory for a look. There is no separate `register` command. On first start it prints `To register this agent, open https://github.com/login/device and enter the code XXXX-XXXX`. Approve it as the owner. The agent then registers as `agt_<login>-<host>` and shows on the UI's Pools page (or `GET /api/v1/agents`).
+   It refuses to start while `host check` fails, and destroys the VMs a killed supervise left. `--keep-workspace` keeps each stopped VM and its run directory for a look. There is no separate `register` command. On first start it exchanges the enrollment token (spending it) and registers as `agt_<owner>-<host>`, the owner the admin named; it shows on the UI's Pools page (or `GET /api/v1/agents`).
 
-   The user token is used once and never stored, and the agent token lives in memory. **Every restart means a new device login**; a dispatcher restart doesn't, since it keeps the agent's (hashed) token in its state dir (§6, State), unless it starts on an empty one.
+   The agent token lives in memory; the refresh token it got is kept 0600 in the state dir, and every restart (or a refused agent token) re-registers with it, rotating it, with no login. An admin's deregistration (`DELETE /api/v1/agents/<id>`) revokes it: the agent then stops and says to enroll again. If supervise says its refresh or enrollment token was refused, mint a new enrollment, put it in `enrollment-token` and restart.
 
    It logs to stderr, as text by default (`--log-format json`, `--log-level debug`). It writes no log file, so redirect it yourself, for example `bin/factory-agent supervise 2>&1 | tee -a ~/factory-agent.log`.
 
@@ -275,4 +280,4 @@ The commands below go to `POST /api/v1/commands` with the CLI token. The UI show
 3. Stop the dispatcher with Ctrl-C in the `make poc-up` terminal. It shuts down gracefully (`--shutdown-timeout`, 30 s by default), and the log ends with `shutdown complete`.
 4. Stop ngrok.
 
-A dispatcher restart keeps its state (§6, State): agents stay registered and running tasks carry on. Started with an empty state dir, it keeps nothing but what GitHub holds: work items come back from their markers, and agents must register again with a new device login.
+A dispatcher restart keeps its state (§6, State): agents stay registered and running tasks carry on. Started with an empty state dir, it keeps nothing but what GitHub holds: work items come back from their markers, and agents must be enrolled again: their refresh tokens are refused (supervise then drops its own and says so), so put a new token from `bin/factory agent enroll` in `enrollment-token` and restart.

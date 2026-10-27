@@ -10,17 +10,15 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/owner"
-	"github.com/compliance-framework/factory/internal/agent/pipeline"
-	"github.com/compliance-framework/factory/internal/agent/probe"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/agent/worker"
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/version"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/enroll"
+	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
+	"github.com/ContainerSolutions/factory/internal/agent/probe"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/agent/worker"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/version"
 )
 
 // workerDeps are the worker loop's injectable dependencies (runAgentLoop); the zero value is
@@ -31,9 +29,7 @@ type workerDeps struct {
 	// Signals delivers SIGTERM/SIGINT (drain, then abort) and SIGHUP (reload lending).
 	// Default: the process's signals.
 	Signals <-chan os.Signal
-	// Owner replaces the device-flow owner login (tests).
-	Owner owner.TokenSource
-	// HTTPClient calls the dispatcher and GitHub.
+	// HTTPClient calls the dispatcher.
 	HTTPClient *http.Client
 }
 
@@ -68,7 +64,9 @@ type agentLoop struct {
 	name string
 	// path is the config file.
 	path string
-	log  *slog.Logger
+	// stateDir is supervise's state dir (absolute): the enrolled agent's refresh token.
+	stateDir string
+	log      *slog.Logger
 	// newRunner builds the Runner once the config is loaded and probed.
 	newRunner func(ctx context.Context, cfg *config.Config) (runner.Runner, error)
 	// lending adjusts the config's lending, at start and on SIGHUP; nil keeps it.
@@ -113,26 +111,15 @@ func runAgentLoop(ctx context.Context, stderr io.Writer, d workerDeps, l agentLo
 		return 1
 	}
 
-	src := d.Owner
-	if src == nil {
-		plain, err := apiclient.NewClientWithResponses(worker.APIBase(cfg.Dispatcher), apiclient.WithHTTPClient(d.HTTPClient))
-		if err != nil {
-			log.Error("dispatcher client", "err", err)
-			return 1
-		}
-		src = &owner.DeviceFlow{
-			API: plain, GitHubURL: cfg.GitHubURL, HTTPClient: &http.Client{Timeout: 30 * time.Second},
-			Prompt: func(uri, code string, expires time.Duration) {
-				fmt.Fprintf(stderr, "\nTo register this agent, open %s and enter the code %s (it expires in %s).\n\n", uri, code, expires)
-			},
-		}
-	}
-	w, err := worker.New(worker.Options{
+	o := worker.Options{
 		Dispatcher: cfg.Dispatcher, Pool: cfg.Pool, Host: cfg.Host,
 		AgentVersion: version.Version, Capabilities: rep.Capabilities, Lending: l.lending(cfg.Lending),
-		JoinToken: func() (string, error) { return config.ReadSecretFile(cfg.JoinTokenFile) },
-		Owner:     src, Runner: rn, HTTPClient: d.HTTPClient, Logger: log,
-	})
+		Runner: rn, HTTPClient: d.HTTPClient, Logger: log,
+	}
+	// Enrolled (P1 §6): the refresh token in the state dir, else the enrollment token to
+	// exchange.
+	o.Enrollment = enroll.Files{StateDir: l.stateDir, TokenFile: cfg.EnrollmentTokenFile}
+	w, err := worker.New(o)
 	if err != nil {
 		log.Error("worker", "err", err)
 		return 1

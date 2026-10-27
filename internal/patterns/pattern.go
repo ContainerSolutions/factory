@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // RegexPrefix opts a pattern into Go RE2 syntax, e.g. `re:^gpt-5(\.\d+)?-codex$`. The regex

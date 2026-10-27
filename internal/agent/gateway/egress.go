@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // hostAddrsMaxAge is how long the agent host's interface addresses are reused before a re-read:

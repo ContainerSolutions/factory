@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
 )
 
 // TestKataHelperArgv0: factory-agent run as kata-helper is the helper, whatever its other

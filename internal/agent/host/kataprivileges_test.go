@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
 )
 
 // installPrivileges puts the helper (speaking this protocol) and the owner's sudoers rule in

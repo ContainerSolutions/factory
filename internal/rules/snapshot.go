@@ -4,7 +4,7 @@ import (
 	"sort"
 	"unicode/utf8"
 
-	"github.com/compliance-framework/factory/internal/cel"
+	"github.com/ContainerSolutions/factory/internal/cel"
 )
 
 // Bounds of the where-inputs snapshot kept on matches and decisions.

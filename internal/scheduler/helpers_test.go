@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -15,21 +14,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/catalog"
-	"github.com/compliance-framework/factory/internal/clock"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/provider/fake"
-	"github.com/compliance-framework/factory/internal/store"
-	"github.com/compliance-framework/factory/internal/store/memory"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/provider/fake"
+	"github.com/ContainerSolutions/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store/memory"
 )
 
 const (
 	pocCatalog = "../catalog/testdata/poc"
 	ghProvider = "github-public"
 	docsRepo   = "compliance-framework/docs"
-	joinSecret = "join-secret"
 	pocQueue   = "poc"
 	pocPool    = "local"
 	pocRuleSet = "poc-docs-epic"
@@ -40,15 +37,6 @@ const (
 
 // t0 is a Friday, 09:00 UTC (10:00 in Lisbon, 10:00 in London).
 var t0 = time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC)
-
-// Owner tokens the fake verifier knows. gus and ana are org admins (the maintainers Group);
-// eve isn't.
-var owners = FakeOwners{
-	"tok-gus": {Provider: ghProvider, Login: "gus"},
-	"tok-ana": {Provider: ghProvider, Login: "ana"},
-	"tok-bob": {Provider: ghProvider, Login: "bob"},
-	"tok-eve": {Provider: ghProvider, Login: "eve"},
-}
 
 var (
 	codexOffer = v1alpha1.HarnessOffer{
@@ -164,15 +152,8 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secrets := provider.SecretResolverFunc(func(_ context.Context, ref v1alpha1.SecretRef) ([]byte, error) {
-		if ref == (v1alpha1.SecretRef{Name: "local-pool", Key: "join-token"}) {
-			return []byte(joinSecret), nil
-		}
-		return nil, errors.New("no such secret")
-	})
 	s, err := New(Deps{
-		Store: st, Catalog: cp, Conns: controllers.StaticConns{ghProvider: gh},
-		Runs: runs, Secrets: secrets, Owners: owners,
+		Store: st, Catalog: cp, Conns: controllers.StaticConns{ghProvider: gh}, Runs: runs,
 	}, Options{Clock: clk, Logger: slog.New(logs)})
 	if err != nil {
 		t.Fatal(err)
@@ -210,11 +191,22 @@ func (e *env) register(login, host string, lending *v1alpha1.Lending, offers ...
 	})
 }
 
-// registerWith registers login's agent on host after mut changes the request.
+// enroll mints an enrollment for login's agent on host and returns its token.
+func (e *env) enroll(login, host string) string {
+	e.t.Helper()
+	_, tok, err := e.s.CreateEnrollment(e.ctx, EnrollRequest{Pool: pocPool, Owner: login, Name: host, OwnerProvider: ghProvider, CreatedBy: "factory:cli"})
+	if err != nil {
+		e.t.Fatalf("enroll %s: %v", login, err)
+	}
+	return tok
+}
+
+// registerWith registers login's agent on host, with a new enrollment, after mut changes the
+// request.
 func (e *env) registerWith(login, host string, mut func(*RegisterRequest)) (string, string) {
 	e.t.Helper()
 	req := RegisterRequest{
-		JoinToken: joinSecret, OwnerToken: "tok-" + login, Pool: pocPool, Host: host, AgentVersion: "0.1.0",
+		EnrollmentToken: e.enroll(login, host), Pool: pocPool, Host: host, AgentVersion: "0.1.0",
 		Capabilities: v1alpha1.AgentCapabilities{
 			Harnesses: []v1alpha1.HarnessOffer{codexOffer, claudeOffer},
 			Labels:    []string{"macos"},

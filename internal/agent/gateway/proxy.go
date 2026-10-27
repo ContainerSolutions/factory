@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
 )
 
 // handle is the proxy's handler: CONNECT, and every other request as plain HTTP.

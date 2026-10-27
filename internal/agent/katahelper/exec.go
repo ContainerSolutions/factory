@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/compliance-framework/factory/internal/agent/workspace"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace"
 )
 
 // ExecFailed is exec's exit status for a failure of its own or nerdctl's, with ExecFailedPrefix

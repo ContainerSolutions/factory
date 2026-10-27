@@ -13,8 +13,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/compliance-framework/factory/internal/agent/effector"
-	"github.com/compliance-framework/factory/internal/agent/pipeline"
+	"github.com/ContainerSolutions/factory/internal/agent/effector"
+	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
 )
 
 // connect serves e over an in-memory transport and returns a connected client session.

@@ -11,9 +11,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/compliance-framework/factory/internal/agent/host"
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
-	"github.com/compliance-framework/factory/internal/agent/workspace/vmexec"
+	"github.com/ContainerSolutions/factory/internal/agent/host"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace/vmexec"
 )
 
 // fakeHelper answers sudo -n kata-helper <verb> as the helper would and records each call;

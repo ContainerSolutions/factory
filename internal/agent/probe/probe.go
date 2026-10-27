@@ -14,8 +14,8 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // Prober probes one harness: harness-adapters.md's Adapter.Probe.

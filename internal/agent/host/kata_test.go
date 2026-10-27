@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
 )
 
 // The /proc and route fixtures of a kata host that passes the platform step.

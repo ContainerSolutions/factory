@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // Backoff defaults (the LLD's 5 ms → 5 min exponential backoff with jitter).

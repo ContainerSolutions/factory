@@ -3,7 +3,7 @@ package memory
 import (
 	"context"
 
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // Sweep implements store.Sweeper: it deletes the objects and transcripts past retention

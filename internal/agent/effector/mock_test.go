@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/effector"
-	"github.com/compliance-framework/factory/internal/agent/pipeline"
+	"github.com/ContainerSolutions/factory/internal/agent/effector"
+	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
 )
 
 // startFactoryMock builds cmd/factory-mock and runs it on an ephemeral port.
@@ -21,7 +21,7 @@ func startFactoryMock(t *testing.T) string {
 		t.Skip("no go toolchain on PATH to build factory-mock")
 	}
 	bin := filepath.Join(t.TempDir(), "factory-mock")
-	if out, err := exec.Command(gobin, "build", "-o", bin, "github.com/compliance-framework/factory/cmd/factory-mock").CombinedOutput(); err != nil {
+	if out, err := exec.Command(gobin, "build", "-o", bin, "github.com/ContainerSolutions/factory/cmd/factory-mock").CombinedOutput(); err != nil {
 		t.Fatalf("build factory-mock: %v\n%s", err, out)
 	}
 	ctx, cancel := context.WithCancel(context.Background())

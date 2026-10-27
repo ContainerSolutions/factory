@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
 )
 
 // TestTunnelSNI runs real TLS clients through tunnels to an httptest TLS server, whose

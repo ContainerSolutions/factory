@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/host/provision"
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/agent/host/provision"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
 )
 
 // The kata driver's image step (workspace-kata.md, step 9): the workspace image, built by the

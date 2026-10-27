@@ -20,17 +20,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/auth"
-	"github.com/compliance-framework/factory/internal/catalog"
-	"github.com/compliance-framework/factory/internal/clock"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/provider/fake"
-	"github.com/compliance-framework/factory/internal/scheduler"
-	"github.com/compliance-framework/factory/internal/store"
-	"github.com/compliance-framework/factory/internal/store/memory"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/auth"
+	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider/fake"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store/memory"
 )
 
 const (
@@ -38,7 +38,6 @@ const (
 	ghProvider    = "github-public"
 	docsRepo      = "compliance-framework/docs"
 	docsIssue     = "compliance-framework/docs#42"
-	joinSecret    = "join-secret"
 	webhookSecret = "hook-secret"
 	cliToken      = "cli-token-for-tests"
 	workItemID    = "wi_1"
@@ -237,15 +236,8 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secrets := provider.SecretResolverFunc(func(_ context.Context, ref v1alpha1.SecretRef) ([]byte, error) {
-		if ref == (v1alpha1.SecretRef{Name: "local-pool", Key: "join-token"}) {
-			return []byte(joinSecret), nil
-		}
-		return nil, errors.New("no such secret")
-	})
 	sched, err := scheduler.New(scheduler.Deps{
-		Store: st, Catalog: cp, Conns: conns, Runs: runs, Secrets: secrets,
-		Owners: auth.GitHubOwners{Provider: ghProvider, APIBase: github.URL, HTTPClient: github.Client()},
+		Store: st, Catalog: cp, Conns: conns, Runs: runs,
 	}, scheduler.Options{Clock: clk, Logger: discardLogger()})
 	if err != nil {
 		t.Fatal(err)
@@ -272,7 +264,7 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 		t.Fatal(err)
 	}
 	status := &statusSource{st: controllers.CatalogStatus{Ready: true, LastGoodSHA: cat.SHA, LoadedAt: t0, LastSuccess: t0}}
-	o := Options{CatalogRepo: "https://github.com/compliance-framework/factory", CatalogRef: "main", Clock: clk, Logger: discardLogger()}
+	o := Options{CatalogRepo: "https://github.com/ContainerSolutions/factory", CatalogRef: "main", Clock: clk, Logger: discardLogger()}
 	for _, f := range opts {
 		f(&o)
 	}
@@ -369,15 +361,18 @@ func (e *env) login(login string) string {
 }
 
 // register registers login's agent on host through the API and returns its id and token.
+// register enrolls login's agent on host (the CLI token) and registers it with the
+// enrollment token.
 func (e *env) register(login, host string) (string, string) {
 	e.t.Helper()
+	_, tok := e.enroll(login, host, "")
 	res, err := e.c.RegisterAgentWithResponse(e.ctx, apiclient.RegisterAgentRequest{
 		Pool: "local", Host: host, AgentVersion: "0.1.0",
 		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{
 			Name: "codex", Auth: "subscription", Models: []string{"gpt-5-codex"}, ReasoningEffort: []string{"low", "medium", "high"},
 		}}},
 		Lending: &v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 1},
-	}, header(HeaderJoinToken, joinSecret), header(HeaderOwnerToken, "tok-"+login))
+	}, header(HeaderEnrollmentToken, tok))
 	if err != nil || res.JSON201 == nil {
 		e.t.Fatalf("register %s: %v %s %s", login, err, res.Status(), res.Body)
 	}
