@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 1: CORE-TEST-001 1688c29de79d: TestKataInitHelperRequired gains "--only kataimage, ok, an out-of-date helper" (no error, nothing applied); it fails when helperRequired drops the not-ok condition (mutation-checked).
