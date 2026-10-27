@@ -111,12 +111,12 @@ func s3Endpoint() (string, error) {
 	}
 	switch {
 	case u.User != nil:
-		return "", fmt.Errorf("objectstore: %s=%q: credentials in the URL are refused (they come from the default chain): %s", S3EndpointEnv, u.Redacted(), want)
+		return "", fmt.Errorf("objectstore: %s=%q: credentials in the URL are refused (they come from the default chain): %s", S3EndpointEnv, redactUserinfo(u), want)
 	case u.Scheme == "http" && !isLoopbackHost(u.Hostname()):
-		return "", fmt.Errorf("objectstore: %s=%q: http:// is only for a loopback host: %s", S3EndpointEnv, u.Redacted(), want)
+		return "", fmt.Errorf("objectstore: %s=%q: http:// is only for a loopback host: %s", S3EndpointEnv, redactUserinfo(u), want)
 	case (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
 		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "":
-		return "", fmt.Errorf("objectstore: %s=%q: %s", S3EndpointEnv, u.Redacted(), want)
+		return "", fmt.Errorf("objectstore: %s=%q: %s", S3EndpointEnv, redactUserinfo(u), want)
 	}
 	return u.Scheme + "://" + u.Host, nil
 }

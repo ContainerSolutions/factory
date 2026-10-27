@@ -62,6 +62,59 @@ func TestParseCloudURL(t *testing.T) {
 	}
 }
 
+// TestCloudURLSecrets: a gs:// or s3:// URL with userinfo is refused, alone or with anything
+// else wrong with it, and neither parseCloudURL's error nor ParseURL's ever repeats the
+// secret. Every case is refused before any network or SDK config is touched.
+func TestCloudURLSecrets(t *testing.T) {
+	const secret = "hunter2"
+	var urls []string
+	for _, scheme := range []string{"gs", "s3"} {
+		for _, rest := range []string{
+			"KEY:hunter2@bucket/p",      // userinfo alone
+			"KEY:hunter2@bucket",        // no prefix
+			"KEY:hunter2@/p",            // no bucket
+			"KEY:hunter2@Bucket/p",      // a bad bucket name
+			"KEY:hunter2@bucket:9000/p", // a port
+			"KEY:hunter2@bucket/p?x=1",  // a query
+			"KEY:hunter2@bucket/p#f",    // a fragment
+			"KEY:hunter2@bucket/a//b",   // an empty segment
+			"KEY:hunter2@bucket/a/../b", // a '..' segment
+			"KEY:hunter2@bucket/a%2Fb",  // an escaped prefix
+			"hunter2@bucket/p",          // the secret as the user
+			"KEY:hunter2%zz@bucket/p",   // a bad escape (doesn't parse)
+			"KEY:hunter2@bucket:port/p", // a bad port (doesn't parse)
+			"KEY:hun%20ter2@bucket/p",   // an escaped space in the secret
+			"KEY:hunter2@bu%20cket/p",   // an escaped host
+		} {
+			urls = append(urls, scheme+"://"+rest)
+		}
+	}
+	leaks := func(err error) bool {
+		msg := err.Error()
+		return strings.Contains(msg, secret) || strings.Contains(msg, "hun%20ter2") || strings.Contains(msg, "hun ter2")
+	}
+	for _, raw := range urls {
+		t.Run(raw, func(t *testing.T) {
+			if u, err := url.Parse(raw); err == nil {
+				loc, err := parseCloudURL(u)
+				if err == nil {
+					t.Fatalf("parseCloudURL(%q) = %+v, want refused", raw, loc)
+				}
+				if leaks(err) {
+					t.Fatalf("parseCloudURL's error repeats the secret: %v", err)
+				}
+			}
+			b, err := ParseURL(t.Context(), raw)
+			if err == nil {
+				t.Fatalf("ParseURL(%q) = %v, want refused", raw, b)
+			}
+			if leaks(err) {
+				t.Fatalf("ParseURL's error repeats the secret: %v", err)
+			}
+		})
+	}
+}
+
 // s3TestEnv points the AWS SDK's default chain at test values only: a fixed key pair and
 // region, no shared config files, no instance metadata, and FACTORY_S3_ENDPOINT = endpoint.
 func s3TestEnv(t *testing.T, endpoint string) {
@@ -144,6 +197,7 @@ func TestParseURLClouds(t *testing.T) {
 		{"https://u:hunter2@minio.test", "credentials in the URL"},
 		{"http://u:hunter2@localhost", "credentials in the URL"},
 		{"http://u:hunter2@h:x:y", "not a URL"},
+		{"https://hunter2@minio.test", "credentials in the URL"},
 		{"minio:9000", "want https://"},
 		{"ftp://h", "want https://"},
 		{"https://h/path", "want https://"},

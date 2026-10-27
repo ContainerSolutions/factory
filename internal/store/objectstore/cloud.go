@@ -20,7 +20,7 @@ type cloudLocation struct {
 // the URL (credentials come from the platform's identity).
 func parseCloudURL(u *url.URL) (cloudLocation, error) {
 	bad := func(why string) (cloudLocation, error) {
-		return cloudLocation{}, fmt.Errorf("objectstore: state URL %q: %s (want %s://bucket/prefix)", u.Redacted(), why, u.Scheme)
+		return cloudLocation{}, fmt.Errorf("objectstore: state URL %q: %s (want %s://bucket/prefix)", redactUserinfo(u), why, u.Scheme)
 	}
 	switch {
 	case u.Opaque != "":
@@ -53,6 +53,18 @@ func parseCloudURL(u *url.URL) (cloudLocation, error) {
 		}
 	}
 	return cloudLocation{bucket: bucket, prefix: prefix + "/"}, nil
+}
+
+// redactUserinfo is u for an error message, with any userinfo replaced by "xxxxx".
+// url.URL.Redacted masks only a password, and a URL's user alone may be a token
+// (https://TOKEN@host).
+func redactUserinfo(u *url.URL) string {
+	if u.User == nil {
+		return u.String()
+	}
+	c := *u
+	c.User = url.User("xxxxx")
+	return c.String()
 }
 
 // withCtxErr makes sure an error from a request whose context ended matches ctx's error
