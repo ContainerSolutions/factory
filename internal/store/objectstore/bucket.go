@@ -48,15 +48,16 @@ var (
 	ErrExists = errors.New("object already exists")
 )
 
-// Opener opens the bucket a parsed state URL names.
-type Opener func(u *url.URL) (Bucket, error)
+// Opener opens the bucket a parsed state URL names. ctx bounds the opening (finding
+// credentials, reading the SDK's config), not the bucket's later requests.
+type Opener func(ctx context.Context, u *url.URL) (Bucket, error)
 
 var (
 	schemesMu sync.Mutex
-	schemes   = map[string]Opener{"file": openFileURL}
+	schemes   = map[string]Opener{"file": openFileURL, "gs": openGCSURL, "s3": openS3URL}
 )
 
-// RegisterScheme makes ParseURL open URLs of scheme with open (gs and s3 register theirs).
+// RegisterScheme makes ParseURL open URLs of scheme with open (tests register their own).
 // Registering a scheme again replaces it.
 func RegisterScheme(scheme string, open Opener) {
 	schemesMu.Lock()
@@ -64,9 +65,10 @@ func RegisterScheme(scheme string, open Opener) {
 	schemes[strings.ToLower(scheme)] = open
 }
 
-// ParseURL opens the bucket a state URL names: file:///abs/dir here (FileBucket), and the
-// schemes registered with RegisterScheme. An unknown scheme is an error naming the known ones.
-func ParseURL(rawURL string) (Bucket, error) {
+// ParseURL opens the bucket a state URL names: file:///abs/dir (FileBucket),
+// gs://bucket/prefix (GCSBucket), s3://bucket/prefix (S3Bucket), and the schemes registered
+// with RegisterScheme. An unknown scheme is an error naming the known ones.
+func ParseURL(ctx context.Context, rawURL string) (Bucket, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("objectstore: state URL %q: %w", rawURL, err)
@@ -82,11 +84,11 @@ func ParseURL(rawURL string) (Bucket, error) {
 		slices.Sort(known)
 		return nil, fmt.Errorf("objectstore: state URL %q: unknown scheme %q (known: %s)", rawURL, u.Scheme, strings.Join(known, ", "))
 	}
-	return open(u)
+	return open(ctx, u)
 }
 
 // openFileURL opens file:///abs/dir (or file://localhost/abs/dir).
-func openFileURL(u *url.URL) (Bucket, error) {
+func openFileURL(_ context.Context, u *url.URL) (Bucket, error) {
 	if u.Opaque != "" || (u.Host != "" && u.Host != "localhost") || u.Path == "" || u.RawQuery != "" || u.Fragment != "" {
 		return nil, fmt.Errorf("objectstore: state URL %q: want file:///absolute/dir", u.Redacted())
 	}
