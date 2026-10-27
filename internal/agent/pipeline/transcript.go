@@ -66,6 +66,9 @@ func (r *redactor) secrets() []string {
 			out = append(out, t)
 		}
 	}
+	if t := r.job.Lease.RunToken; t != nil && len(*t) >= 4 {
+		out = append(out, *t)
+	}
 	return out
 }
 
@@ -73,8 +76,8 @@ func (r *redactor) secrets() []string {
 // (a VM workspace's) does.
 func RedactShapes(s string) string { return newRedactor(nil).String(s) }
 
-// Redact redacts s as the run's redactor does: job's secrets (its git tokens and its agent
-// token, read now), extra (secrets the job doesn't hold, such as the supervisor's model
+// Redact redacts s as the run's redactor does: job's secrets (its git tokens, its agent token,
+// read now, and the lease's run token), extra (secrets the job doesn't hold, such as the supervisor's model
 // logins) and every token shape. The supervisor redacts what a VM workspace reports with it.
 func Redact(job *runner.Job, s string, extra ...string) string {
 	return (&redactor{job: job, extra: extra}).String(s)

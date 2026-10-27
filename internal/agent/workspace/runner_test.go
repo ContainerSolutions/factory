@@ -577,6 +577,45 @@ func TestRunnerEgress(t *testing.T) {
 	}
 }
 
+// The gateway sends the lease's run token to the dispatcher, and the transcript is redacted
+// with it; a lease without one (an older dispatcher) keeps the agent token.
+func TestRunnerDispatcherToken(t *testing.T) {
+	t.Parallel()
+	const runTok = "rtk_runnerTestRunTokenNeverInTheTranscript0123456"
+	tests := []struct {
+		name     string
+		runToken *string
+		want     string
+	}{
+		{"the run token", ptrTo(runTok), runTok},
+		{"no run token", nil, harnesstest.AgentToken},
+		{"an empty run token", ptrTo(""), harnesstest.AgentToken},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			o := runbundle.Outcome{Status: runner.StatusDone, Result: doneResult()}
+			r := newRig(t, v1alpha1.HarnessResolved{Name: fake.Name, Model: "m"}, finishWith(o,
+				`{"type":"assistant","text":"the run token is `+runTok+`"}`))
+			r.job.Lease.RunToken = tt.runToken
+			if out := r.run(context.Background()); out.Status != runner.StatusDone {
+				t.Fatalf("outcome %+v", out)
+			}
+			r.mu.Lock()
+			tok := r.gwCfg.DispatcherToken
+			r.mu.Unlock()
+			if tok == nil || tok() != tt.want {
+				t.Errorf("the gateway's DispatcherToken isn't %s", tt.name)
+			}
+			if text, _ := r.uploaded(); tt.runToken != nil && *tt.runToken != "" && strings.Contains(text, runTok) {
+				t.Errorf("the transcript holds the run token: %s", text)
+			}
+		})
+	}
+}
+
+func ptrTo[T any](v T) *T { return &v }
+
 // taskSize: a task's limits.cpus and limits.memory, each when set, size the workspace up to
 // the agent's size; a larger one is capped at it.
 func TestTaskSize(t *testing.T) {

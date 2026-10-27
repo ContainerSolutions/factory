@@ -480,8 +480,9 @@ func (w *wsRun) startGateway(ctx context.Context, netw Network, gwCA *ca.CA, log
 	if err != nil {
 		return nil, "", fmt.Errorf("the dispatcher URL: %w", err)
 	}
-	if w.job.AgentToken == nil {
-		return nil, "", errors.New("the job has no agent token for the dispatcher route")
+	dispToken, err := w.dispatcherToken()
+	if err != nil {
+		return nil, "", err
 	}
 	var runID string
 	if w.job.Lease.Lease.Run != nil {
@@ -489,7 +490,7 @@ func (w *wsRun) startGateway(ctx context.Context, netw Network, gwCA *ca.CA, log
 	}
 	g, err := w.r.newGateway(gateway.Config{
 		TaskID: w.id, RunID: runID, Clients: []netip.Addr{netw.VM}, CA: gwCA, Git: w.job.Git,
-		Dispatcher: disp, DispatcherToken: w.job.AgentToken,
+		Dispatcher: disp, DispatcherToken: dispToken,
 		Anthropic: logins.anthropic, ChatGPT: logins.chatgpt, ChatGPTUnauthorized: logins.chatgptUnauthorized,
 		Egress: taskEgress(w.job.Lease.Task.Spec.Environment),
 		Sink:   w.egress, Clock: w.r.clk, Logger: w.log,
@@ -512,6 +513,21 @@ func (w *wsRun) startGateway(ctx context.Context, netw Network, gwCA *ca.CA, log
 	}()
 	w.gatewayOn = true
 	return rg, "http://" + addr.String(), nil
+}
+
+// dispatcherToken is the gateway's DispatcherToken: the lease's run token, which lives exactly
+// as long as the lease. A lease without one (a dispatcher from before run tokens) gets the
+// agent token, read on every request, so a mixed rollout works.
+func (w *wsRun) dispatcherToken() (func() string, error) {
+	if rt := w.job.Lease.RunToken; rt != nil && *rt != "" {
+		tok := *rt
+		return func() string { return tok }, nil
+	}
+	if w.job.AgentToken == nil {
+		return nil, errors.New("the job has no run or agent token for the dispatcher route")
+	}
+	w.log.Debug("the lease has no run token: the gateway sends the agent token to the dispatcher")
+	return w.job.AgentToken, nil
 }
 
 // taskEgress is the gateway's egress policy from the Task's spec.environment.egress (the
