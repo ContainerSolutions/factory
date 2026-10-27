@@ -1,0 +1,5 @@
+lisa-selfreview:
+- [should-fix] CORE-DOC-001 design/workstreams/dispatcher-runtime/LLD/api-server.md:159 api-server.md still says every Event is created and handled deliveries live 24 h, and its metrics list lacks factory_events_dropped_total
+- [nit] CORE-STYLE-001 internal/controllers/provider.go:361 New errors.New("no catalog loaded yet") instead of the existing ErrNoCatalog sentinel
+- [nit] CORE-STYLE-001 internal/controllers/provider.go:405 The comment on the empty view is unclear
+- [nit] CORE-STYLE-001 internal/controllers/provider_intake_test.go:110 newIntakeEnv sets e.gh from an adapter the controller doesn't use when adapters are passed
