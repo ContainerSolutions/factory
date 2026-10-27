@@ -357,7 +357,7 @@ The layers:
 2. **envrun:** a table over setup, up, ready and down: `-eo pipefail` failures, a timeout on the fake clock, a 3xx being ready, the proxy not used for ready, the log's redaction and cap, the 8 KiB tail, `FACTORY_VERSION_*` names, `down` after a failed `up`, cancel killing the process group.
 3. **The adapters' `IsolationVM` goldens:** claude's settings, MCP config and environment; codex's `config.toml`, flags and `auth.json`.
 4. **vmrun end to end, in process (CI):** `PrepareBundle`, then `vmrun.Main` with the fake adapter doing `factory push` and `factory comment` through the fakegateway, and the no-credential check: the harness's environment dump and a walk of `work/`, `state/` and the bundle for the real tokens and `ghs_`, `rtk_` and `sk-` shapes. Cases: success, repair, invalid twice, throttled, `--remaining 1s`, SIGTERM (once, and twice during `down`), a bad bundle (exit 3), and an events golden (`-update`).
-5. **A plain container** (opt-in: `FACTORY_E2E_CONTAINER=1`, `make e2e-run-container`): the linux binary and the fakegateway in a Debian container, `--system-setup off`, the environment's scripts run for real.
+5. **A plain container** (opt-in: `FACTORY_E2E_CONTAINER=1`, `make e2e-run-container`; CI runs it as the advisory `e2e container` job, outside `ci / required`): the linux binary and the fakegateway in a Debian container, `--system-setup off`, the environment's scripts run for real.
 
 ## Delivery
 
