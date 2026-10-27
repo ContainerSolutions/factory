@@ -47,7 +47,11 @@ transactions, no change feed and no order across objects.
     isn't kept busy between tasks. With CPU only during requests, the leader's loops then
     advance only during requests (IMPROVEMENTS item 9 closes that);
   - a webhook whose live delivery fails is not recovered automatically (a known limit).
-- No contract changes.
+- One contract change: `/readyz` no longer waits for a rebuild (the store is loaded and synced).
+- Every log entry carries a schema version, so two releases can share the log during a deploy:
+  an instance that meets a newer one stops writing.
+- Per-process state that a client's next request may miss moves to the store or into signed
+  tokens: the OAuth state, `/stream`'s resume and the resync's baselines.
 - Writes are serialised through one log, one PUT each (tens per second at most): enough for the
   factory, not for a high-volume service.
 - Each instance holds the whole state in memory, as today. Reads may lag other instances by the

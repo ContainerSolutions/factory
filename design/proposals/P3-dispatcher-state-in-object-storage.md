@@ -2,10 +2,10 @@
 
 > Status: **proposed**. Workstream: RT (dispatcher runtime). Builds on
 > [P2](P2-dispatcher-state-file.md) (its journal and snapshot formats) and
-> [ADR-0009](../adr/0009-dispatcher-state-is-a-log-in-object-storage.md). Replaces nothing in
-> the contracts. Touches `internal/store`, `cmd/factory serve`, `factory state`, the provider
-> controller's intake and `factory-agent supervise`'s polling, and removes the work-item rebuild
-> from markers.
+> [ADR-0009](../adr/0009-dispatcher-state-is-a-log-in-object-storage.md). One contract change:
+> `/readyz`'s description (§Rollout, PR 4). Touches `internal/store`, `cmd/factory serve`,
+> `factory state`, `internal/auth`'s OAuth state, the provider controller's intake and
+> `factory-agent supervise`'s polling, and removes the work-item rebuild from markers.
 > Decisions at the end (Gustavo, 2026-10-27).
 
 ## Why
@@ -126,8 +126,17 @@ An up-to-date instance's sync is one GET of a missing object (a 404).
 **Stale reads are safe where a CAS write follows them.** A read may be up to one sync interval
 old. When the decision ends in a CAS on the object read, a stale read costs a retry, not a wrong
 result. Notices, such as "was a cancel requested?" on a heartbeat, arrive one heartbeat later.
-Decisions that read many objects and write a different one are not covered by a CAS. The
-scheduler's lease matching is the one such decision, and it gets a lock (§Locks and leases).
+Decisions that read many objects and write a different one are not covered by a CAS. Two kinds
+need more:
+- **The scheduler's lease matching** gets a lock (§Locks and leases).
+- **Lookups whose empty answer leads to a create or a drop.** The link index answers "which
+  work item links this object?". A stale "none" would make the intake filter drop a linked
+  event (§Only events that can matter are stored), or make `workItemFor` create a second work
+  item for an object another instance just linked. For example, an agent's effect opens a PR
+  and `linkCreated` records the link on the instance that served it, while GitHub's
+  `pull_request` webhook follows within a second. So a lookup that finds nothing syncs once and
+  asks again before it acts, like a `Get` that finds nothing. When the instance is current, that
+  costs one GET of a missing log entry.
 
 ### Watches
 
@@ -139,14 +148,16 @@ cold start the ring begins at the loaded version, and an older `SinceVersion` is
 
 ### Locks and leases
 
-`Lock` is the only part of the `Store` interface that memory keeps per process today. In the
+`Lock` is the only part of the `Store` interface that memory keeps per process today (other
+per-process state outside the store is in §Several dispatchers). In the
 object store a lock is a stored record of an internal kind, `StoreLock`, named after the lock.
 It holds `{holder, token, expiresAt}` on the store's clock and is written through the log like
 any other object:
 
 - **Lock** creates the record. If the record exists and has expired, Lock takes it with a CAS
-  update. While another holder has it, Lock waits, syncing every second until the lock is free
-  or expired, or until `ctx` ends.
+  update. While another holder has it, Lock waits until the lock is free or expired, or until
+  `ctx` ends. It wakes on a local `Unlock`, on the store's clock reaching the expiry (so
+  storetest's fake clock drives it), and on a sync every second for other instances' releases.
 - **Renew** is a CAS update of the record, with `ErrLockLost` if the record changed or expired.
 - **Unlock** deletes the record only at the version this holder last wrote. Memory gets a
   conditional delete for this: it is internal to the store packages, and the `Store` interface
@@ -220,6 +231,24 @@ transcripts count a replaced blob as new (storetest's `TotalCapEvictsOldest`):
 A crash between the blob and its record leaves an orphan blob. Once a day the leader lists
 `transcripts/` and deletes blobs that have had no record for a day.
 
+### Two releases on one log
+
+During a deploy, old and new revisions run at once on the same log, and P3 must not lose writes
+then either. Two things would:
+- **An unknown kind.** The file store's decoder treats a kind it doesn't know as corruption
+  (journal.go, snapshot.go). An old revision that meets a new kind's entry couldn't sync, so it
+  couldn't commit anything.
+- **An unknown field.** An old revision decodes an object without the fields its Go type lacks.
+  When it CAS-updates that object, the new fields are silently dropped.
+
+So every log entry and snapshot carries the writer's **schema version**: one number for all
+stored types, bumped by any change to a stored kind or its fields. An instance that meets an
+entry with a newer schema version stops writing and reports not-ready, so the platform drains
+it. It still serves reads from what it has, and the new revision takes over. An older version is
+read as today. Stored-type changes stay additive (new kinds and new optional fields), so a new
+revision reads old entries. A test bumps the version on one store and checks the other store
+stops writing with a clear error rather than corrupting or dropping data.
+
 ### Snapshots, cold start and log retention
 
 - **Compaction** runs on the leader when the log is 1,000 entries past the last snapshot, and
@@ -263,18 +292,37 @@ Event and both post the same notice. So:
   in the agent's request on any instance, its commit under the `sched` lock (§Locks and leases).
   Each instance also loads its own catalog snapshot, and runs the tick that wakes its parked
   polls.
+- **Per-process state outside the store** must not break when a client's next request lands on
+  another instance:
+  - **UI logins.** Pending OAuth logins live in a process map (`internal/auth`), so a callback
+    on another instance fails with `ErrStateMismatch`. The OAuth `state` becomes
+    self-contained: signed with the session key, carrying its expiry and return URL. No map,
+    no store write.
+  - **`/stream` resume.** A `Last-Event-ID` from a fresher instance is "ahead of the store" on
+    a lagging one: `ErrInvalid`, which the stream doesn't fall back from. The stream syncs and
+    retries once. If the version is still ahead, it starts from now, as it does for an
+    expired version.
+  - **The work-item resync's baselines** (the per-link observation digests) are in process.
+    The first resync after a restart or a leader change records a baseline and emits nothing,
+    so on a scale-to-zero instance `factory.workitem.resynced` would rarely fire. The digests
+    move to the store, in a record per work item of an internal kind, `LinkObservations`. It
+    is written only when a digest changes, so a new leader compares with the last one seen.
+  - **Caches that only save work** stay per process, for example the work-item controller's
+    last-projection digests and the observation cache: a cold one costs a provider call, never
+    a wrong result. So does the scheduler's preference state (§Locks and leases).
 - **The leader only** runs every loop that writes from a watch or a timer: the controllers
   (provider, rule, debounce, work-item, run), the scheduler's lease controller and its
   `Refresh`, the sweeper (lock records included), compaction, the transcript orphan scan, and
   the App installation check.
-- **The provider's delivery recovery** (`pc.Recover`) runs when an instance becomes leader, with
-  `since` set to that moment, not on every cold start. Today `since` is the process start. There
-  is no other start-up work: the work-item rebuild from markers is removed (§No rebuild from
-  markers).
+- **The provider's delivery recovery** (`pc.Recover`) runs as today on every instance, at its
+  start and before its listeners open, with `since` its process start. It covers what GitHub
+  sent while the instance was loading. Recovering is the same intake as a webhook (a create of
+  each Delivery, deduplicated by id), so any instance may do it. There is no other start-up work:
+  the work-item rebuild from markers is removed (§No rebuild from markers).
 
   **Known limit (Decision 5):** a webhook is safe once its Delivery is stored and GitHub has its
-  2xx. GitHub doesn't retry a failed delivery, though, and `Recover` covers only the window from
-  becoming leader. So a live delivery that fails is lost unless someone redelivers it from the
+  2xx. GitHub doesn't retry a failed delivery, though, and `Recover` covers only each instance's
+  own start-up. So a live delivery that fails is lost unless someone redelivers it from the
   App's delivery log, which GitHub keeps for about 3 days. It can fail through a cold start past
   GitHub's 10 s timeout, a 503 during a deploy, or a bucket error. Running the dispatcher on a
   VM behind a load balancer, with no cold starts, makes this rarer.
@@ -329,7 +377,9 @@ So the rebuild is **removed**:
   the sentence about it in `provider.go` go, since `mergeProjections` in the rebuild is their
   only reader (the resync's digest leaves them out).
 - **The work-item resync stays.** It observes each open link and emits
-  `factory.workitem.resynced` for changes made on GitHub while no dispatcher was watching.
+  `factory.workitem.resynced` for changes made on GitHub while no dispatcher was watching. Its
+  baselines move to the store, so that holds across restarts and leaders (§Several
+  dispatchers).
 - **Recovery is replay.** Events that matter are stored (90 days, `--retention`), so an event
   handled wrongly is replayed (`POST /events/{id}/replay`) rather than reconstructed from
   markers.
@@ -349,6 +399,11 @@ So the rebuild is **removed**:
     by hand if they get in the way.
   - **Another App** (a new GitHub App for the cloud instance): its markers are ignored, as
     forged-looking markers are today. The fresh item writes its own marker and labels.
+  - **The cutover:** stop the workstation's dispatcher, or remove the shared repos from its
+    catalog, before the cloud instance's webhook goes live. Two dispatchers on the same App and
+    repos would project the same work-item ids onto the same objects, flipping markers and
+    labels between them. In the same-App case, the cloud item's first projection removes labels
+    the old marker owned and restarts its counters (see the reset note).
 
 ### Only events that can matter are stored
 
@@ -378,13 +433,17 @@ stored only when one of these holds:
   only for `factory.*` events. Those never pass through the provider controller, since they
   are created in the store directly.
 
-Each dropped event is logged with its type, its object and why it was dropped. A dropped event
-caused by the factory itself (`actor.isFactory`) is logged at Info, as `RuleController.skipped`
-logs it today. Every other is logged at debug. That log is where "why didn't my rule fire?" starts
-for an event that isn't stored.
+Each dropped event is logged at Info with its type, its object and why it was dropped (no
+provider text), and counted in `factory_events_dropped_total{provider,type,reason}`. A wrong
+RuleSet scope, the most common misconfiguration, then leaves a trace at the run kit's log level.
+That log is where "why didn't my rule fire?" starts for an event that isn't stored. A dropped
+event is not in `factory state events` and can't be replayed (404). README §6 and §7 and
+`factory state events --help` say so, and say the way back is redelivery from the App's delivery
+log.
 
 **A delivery left with no stored event is deleted at once,** whether its events were dropped or
-it had none (an unmapped type). It isn't kept for the delivery retention. The create keeps it
+it had none (an unmapped type). A delivery the adapter rejected (`DeliveryFailed`, with its
+reason) keeps the delivery retention, for debugging. It isn't kept for the delivery retention. The create keeps it
 durable until the webhook is acknowledged, and the delete is a log entry like any store write.
 So such a delivery costs 2 writes, where today it costs 3 to 7. The bucket's own deletes, of log
 entries and blobs, are free; the store's deletes are not.
@@ -413,6 +472,10 @@ poll:
 
 - **The defaults keep today's long poll** (`wait: 30s`, `interval: 0s`), for a dispatcher on a
   laptop or a VM. A cloud dispatcher's agents set `wait: 0s` and an interval such as `30s`.
+- **`wait: 0s` needs an interval of at least `1s`**, or the agent would poll in a hot loop;
+  `agent.yaml` rejects it.
+- **Older agents reject the `poll` key,** because `agent.yaml` is decoded strictly. Rolling an
+  agent back means removing the block, so `agent.yaml.example` shows it commented out.
 - **A poll that gets a task polls again at once**, so free slots fill without waiting. Only a 204
   sleeps the interval. Throttling and failure backoff are unchanged.
 - **The dispatcher needs no change.** `LeaseTask` already takes any `wait` from `0s` to `60s`, and
@@ -484,8 +547,14 @@ their PR. Signing S3 requests (SigV4) and finding credentials on each platform a
 writing ourselves. Credentials always come from the platform's identity, never from a key in the
 config or the image.
 
-`serve` takes `--state-url` or `--state-dir` (not both). Without either, the store stays in
-memory.
+`serve` takes `--state-url` or `--state-dir` (not both). Without either it refuses to start,
+unless it is given `--dev-fake-providers` or `--state-memory` (§No rebuild from markers).
+
+**A `file://` bucket and a P2 state dir never share a directory.** Both name transcript blobs
+`transcripts/<run>.jsonl.gz`. On a P2 dir the object store would see an empty log, start empty,
+and its orphan scan would delete P2's transcripts a day later, with no flock between them. So
+the object store refuses a `file://` directory that holds `snapshot.json`, `journal.jsonl` or
+`LOCK`, and the file store refuses one that holds `log/` or `snapshots/`.
 
 ## What it costs
 
@@ -571,6 +640,9 @@ which mostly costs the load balancer.
     commit proceeds, and no task is leased twice. Meanwhile each pass waits for the lock at
     most once and mints at most once, and passes started within 2 s of a timeout neither wait
     nor mint;
+  - an object linked on A just before B looks it up: B's intake filter keeps the event, and
+    `workItemFor` finds the item rather than creating a second one;
+  - a newer schema version written by A: B stops writing, reports not-ready and loses nothing.
 - **Faults** (fake bucket):
   - lost races at every step;
   - a create that timed out but landed, and one that didn't;
@@ -608,58 +680,90 @@ which mostly costs the load balancer.
     `--state-memory`;
   - the three old-marker cases: the same id takes over the marker, a different id writes
     beside it and leaves the old marker's labels, and another App's marker is ignored.
-- **`serve`:** two `serve` processes on one `file://` bucket. A webhook taken by one leads to a
-  task leased and completed through the other, with one leader at a time, and the second takes
-  over when the first stops.
+- **`serve`:** two `serve` processes on one `file://` bucket:
+  - a webhook taken by one leads to a task leased and completed through the other;
+  - one leader at a time, and the second takes over when the first stops;
+  - a UI login started on one completes on the other (signed OAuth state);
+  - a `/stream` resumed on the lagging one with the other's `Last-Event-ID` resumes;
+  - a change made on GitHub while the first was leader is reported by the second's first
+    resync (stored baselines);
+  - `--state-url file://` on a P2 dir, and `--state-dir` on an object-store dir, are refused.
 
 ## Rollout
 
 These start after the org move (IMPROVEMENTS item 4) is merged, since every file imports the
-module path. There are six PRs, each through lisa and ccf-review:
+module path. There are seven PRs, each through lisa and ccf-review:
 
 1. **`internal/store/objectstore`**:
-   - the log store, sync, locks, transcripts, compaction and load;
-   - the `Bucket` interface with the fake and `file://` buckets;
+   - the log store, sync (including the sync-on-empty lookup), schema versions, locks,
+     transcripts, compaction and load;
+   - the `Bucket` interface with the fake and `file://` buckets, and the guard against a P2 dir
+     (and the file store's guard against an object-store dir);
    - memory's apply-from-log and conditional delete;
    - the conformance, two-store, fault and secrets tests;
+   - `StoreLock` and `TranscriptBlob` added to `internalKinds()` in `cmd/factory/serve_store.go`,
+     or `TestServeStoreKinds` fails, which also registers them with the file store's kind audit;
    - store.md §Object store.
 2. **GCS and S3 buckets**, with the opt-in emulator tests and their CI job (RT, plus a non-required
    CI job).
 3. **The intake filter** (RT):
-   - the provider controller's drop: the `eventLink` lookup plus `rules.CouldFire`, as
-     `workItemFor` makes them;
-   - the immediate deletion of a delivery left with no stored event;
+   - the provider controller's drop: the `eventLink` lookup (synced when empty) plus
+     `rules.CouldFire`, as `workItemFor` makes them;
+   - the immediate deletion of a delivery left with no stored event, while failed deliveries
+     keep their retention;
+   - the Info log and `factory_events_dropped_total`;
    - its tests;
-   - controllers.md §provider.
-4. **`serve --state-url`**:
+   - controllers.md §provider, README §6 and §7, and `factory state events --help`.
+4. **Contract: `/readyz`** (FND; AGENTS.md: a contract change goes in its own PR, merged first).
+   `api/openapi.yaml` says "The catalog is loaded and the startup rebuild is done". It becomes
+   "the catalog is loaded and the store is loaded and synced", on every instance, leader or
+   not. `factory_ready` follows. Web's regenerated client (`npm run gen:api`) and
+   api-server.md come with it.
+5. **`serve --state-url`** (RT):
    - the leader lock, and which loops run where;
-   - the recovery on becoming leader;
+   - the recovery at each instance's start, as today;
+   - per-process state: the signed OAuth state, `/stream`'s resume, the resync's stored
+     baselines (`LinkObservations`);
    - the work-item rebuild removed: `wic.Rebuild`, its call, and `/readyz`'s wait;
-   - a durable store required, unless `--dev-fake-providers` or `--state-memory`. The serve
-     tests that rely on the memory default get `--state-memory`: `TestServeGitHubEndToEnd`,
-     `TestServeGitHubProviderNeedsSecrets` (its expected error must still be the one it
-     reports, not the refusal) and the "defaults" config case in serve_test.go;
+   - a durable store required, unless `--dev-fake-providers` or `--state-memory`;
    - the scheduler's `sched` lock around lease commits, `errSchedBusy` and its busy-until;
    - the audit of the leader-only loops' store writes and provider calls;
    - `factory state --state-url` (read-only, as `--state-dir` is);
    - the two-`serve` test;
+   - **tests it changes:**
+     - `TestRestartRebuildsFromProjections` goes;
+     - `TestServeStateDirRestart` loses its "work items rebuilt" assertion;
+     - `TestServeMemoryStore` asserts the new message;
+     - every `TestParseServeConfig` case that checks a config with no state flag gets
+       `--state-memory`, not only "defaults". So do `TestServeGitHubEndToEnd` and
+       `TestServeGitHubProviderNeedsSecrets`, whose expected error must still be the one it
+       reports, not the refusal;
+     - the RT and cmd tests that read `Observation.Projections` (`rule_test.go`,
+       `serve_store_test.go`) move to the fake's projection log (`gh.Projections()`), so that
+       PR 6 compiles without touching RT's files;
    - the docs:
      - store.md §Serving (no rebuild), controllers.md (the work-item controller without
-       Rebuild), scheduler-and-pools.md (the `sched` lock), api-server.md;
-     - 01-context-and-goals.md and 02-architecture.md, where they describe the rebuild;
+       Rebuild), scheduler-and-pools.md (the `sched` lock);
+     - 01-context-and-goals.md, 02-architecture.md, 04-flows.md, 08-roadmap.md,
+       workstreams/definitions.md, and ADR-0001's body, where they describe the rebuild;
      - deploy/poc/README.md.
-5. **The provider side of the rebuild's removal** (FND for the `provider.Conn` interface and the
-   fake, GH for the GitHub adapter), after PR 4:
-   - `Conn.List` (interface, `github/list.go`, fakes) and its tests;
+6. **The provider side of the rebuild's removal** (FND for the `provider.Conn` interface and the
+   fake, GH for the GitHub adapter), after PR 5:
+   - `Conn.List` (interface, `github/list.go`, fakes);
    - `Observe`'s marker parsing (`Observation.Projections`, `projectionsIn`, and the sentence
      about it in `provider.go`);
-   - github-provider.md.
-6. **Brief polling in `supervise`** (AGT), independent of PRs 1–5:
-   - `agent.yaml`'s `poll` block;
-   - the worker's sleep after a 204, its poll settings (a zero wait stays zero; the 30 s default
-     only when `poll.wait` is absent), and the relaxed wait check;
-   - `deploy/poc/agent.yaml.example`, and the poll type added to the deploykit test's list of
-     walked types;
+   - the fake keeps its projections in its own accessor (`fake/effects.go`, `fake/observe.go`);
+   - the tests: `fake_test.go`, `github/observe_test.go`, and `github/project_test.go`, which
+     checks Project's output through Observe's projections and moves to the marker parser;
+   - github-provider.md and foundation's contracts.md (`List`, the projection round-trip, the
+     fake's records).
+7. **Brief polling in `supervise`** (AGT), independent of PRs 1–6:
+   - `agent.yaml`'s `poll` block, with its checks (whole seconds, no hot loop);
+   - the worker's sleep after a 204, its poll settings (a zero wait stays zero, and the 30 s
+     default applies only when `poll.wait` is absent), the relaxed wait check, and the worker
+     tests that change with it;
+   - `deploy/poc/agent.yaml.example` with the block commented out, and the poll type added to
+     the deploykit test's list of walked types;
    - supervise.md.
 
 Deploying to Cloud Run or Lambda, the tick endpoint and the bucket policy are IMPROVEMENTS item 9.
