@@ -1,0 +1,12 @@
+lisa-design:
+- The policy lives in a new tiny package, internal/agent/sudocancel (Apply(cmd, grace), IsSudo, HelperGrace, OutputDelay), not exported from host: importing host into vmrun (the in-VM runtime) would pull host's whole tree (gateway, login, workspace) into a package that only needs exec.Cmd settings.
+- sudo is matched by the program's base name (cmd.Path), with or without -n: the root script (sudo /bin/sh) now gets SIGTERM too, per Gustavo's "use the same approach everywhere".
+- Graces: host 30 s (HelperGrace) for the helper's verbs and the root script alike (its lines are local; sudo at its password prompt ends at once on SIGTERM); vmexec 30 s (the kata driver's helper calls); vmrun 10 s (DefaultSudoGrace: setup's commands end at once, and it keeps a cancelled run inside the supervisor's 45 s exec Grace so it still writes its outcome).
+- Each ExecRunner gains a Grace field (zero = its default) so tests can use a short grace; ExecRunner{} literals keep working.
+- Process groups unchanged (#202's choice): sudo stays in factory-agent's group; the non-sudo path keeps SIGKILL + 10 s WaitDelay.
+- Tests share one table in internal/agent/sudocancel/sudocanceltest (a sh stand-in named sudo that traps TERM; a .stubborn marker makes it ignore TERM so only the grace's SIGKILL ends it); each runner calls sudocanceltest.Check.
+
+lisa-selfreview:
+pass 1 (strict): request_changes
+- [should-fix] CORE-NAME-001 f2c379d077f7 vmexec/runner.go ExecRunner.Grace clashes with vmexec.Config.Grace (remote exec grace): rename SudoGrace on all three runners.
+- [should-fix] CORE-DOC-001 8ed93d6df295 workspace-run.md: docker info's 10 s attempt timeout also ends sudo -n docker info the sudocancel way; the LLD names only the cancel.

@@ -1,0 +1,2 @@
+lisa-addressed:
+review 1: fdcd6af20ab7 (blocker, ETXTBSY) sudocanceltest writes the stand-in with exectest.Write (#216's ForkLock helper) and its readiness loop selects on done, so a failed start reports its error; branch rebased onto fx/p9c-4-harness-etxtbsy (#216). 3ad78fa9039b (nit) DefaultSudoGrace's comment rewrapped. Untracked taste note: the three runners' default is now cmp.Or(r.SudoGrace, <default>), one line each.
