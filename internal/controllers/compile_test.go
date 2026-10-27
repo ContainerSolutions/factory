@@ -66,6 +66,49 @@ func TestCompileHosts(t *testing.T) {
 	}
 }
 
+// withLimits is the PoC catalog with docs-review's limits replaced (copied like withHosts).
+func withLimits(c *catalog.Catalog, l *v1alpha1.Limits) *catalog.Catalog {
+	ts := *c.TaskSpecs["docs-review"]
+	spec := *ts.Spec
+	spec.Spec.Limits = l
+	ts.Spec = &spec
+	out := *c
+	out.TaskSpecs = maps.Clone(c.TaskSpecs)
+	out.TaskSpecs["docs-review"] = &ts
+	return &out
+}
+
+// TestCompileLimits checks that every limit, the workspace size included, reaches the task as
+// a copy.
+func TestCompileLimits(t *testing.T) {
+	e := newEnv(t)
+	wi, _ := e.startPlan()
+	for _, tc := range []struct {
+		name   string
+		limits *v1alpha1.Limits
+	}{
+		{name: "none"},
+		{name: "size", limits: &v1alpha1.Limits{CPUs: 2, Memory: "4Gi"}},
+		{name: "all", limits: &v1alpha1.Limits{MaxTurns: 40, MaxWallClock: "15m", MaxCostUSD: 1.5, CPUs: 4, Memory: "8Gi"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			task, _, err := compileTask(e.ctx, compileInput{
+				cat: withLimits(e.cat, tc.limits), wi: wi, ev: v1alpha1.Event{ID: "ev"}, taskID: "tsk_l", now: e.clk.Now(),
+				d: &rules.Dispatch{TaskSpec: "docs-review", Queue: "poc"},
+			}, KeepSkills{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(task.Spec.Limits, tc.limits) {
+				t.Fatalf("limits = %+v, want %+v", task.Spec.Limits, tc.limits)
+			}
+			if tc.limits != nil && task.Spec.Limits == tc.limits {
+				t.Error("the task's limits alias the TaskSpec's")
+			}
+		})
+	}
+}
+
 func TestCompileTicketContext(t *testing.T) {
 	const (
 		sub   = docsRepo + "#43"

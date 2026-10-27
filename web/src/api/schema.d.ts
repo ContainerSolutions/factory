@@ -2024,6 +2024,18 @@ export interface components {
             maxTurns?: number;
             maxWallClock?: components["schemas"]["Duration"];
             maxCostUSD?: number;
+            /**
+             * @description CPUs is the workspace VM's vCPUs for this task: at least 1, and at most the agent's
+             *     workspace.size.cpus (the agent caps a larger request and says so in the run log).
+             *     Unset means the agent's size.
+             */
+            cpus?: number;
+            /**
+             * @description Memory is the workspace VM's memory for this task: a whole number of GiB in the form of
+             *     the agent's workspace.size.memory (e.g. "4Gi"), and at most that size (the agent caps a
+             *     larger request and says so in the run log). Unset means the agent's size.
+             */
+            memory?: string;
         };
         /** @description Link is a provider object that belongs to the work item. */
         Link: {

@@ -251,6 +251,14 @@
         },
         "maxCostUSD": {
           "type": "number"
+        },
+        "cpus": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "memory": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,5}Gi$"
         }
       },
       "additionalProperties": false,

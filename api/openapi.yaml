@@ -3929,6 +3929,20 @@ components:
           $ref: '#/components/schemas/Duration'
         maxCostUSD:
           type: number
+        cpus:
+          description: |-
+            CPUs is the workspace VM's vCPUs for this task: at least 1, and at most the agent's
+            workspace.size.cpus (the agent caps a larger request and says so in the run log).
+            Unset means the agent's size.
+          type: integer
+          minimum: 1
+        memory:
+          description: |-
+            Memory is the workspace VM's memory for this task: a whole number of GiB in the form of
+            the agent's workspace.size.memory (e.g. "4Gi"), and at most that size (the agent caps a
+            larger request and says so in the run log). Unset means the agent's size.
+          type: string
+          pattern: ^[1-9][0-9]{0,5}Gi$
       additionalProperties: false
     Link:
       x-go-type: v1alpha1.Link

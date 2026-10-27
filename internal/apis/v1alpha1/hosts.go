@@ -183,8 +183,8 @@ func (w *Workspace) Validate() error {
 // JSONSchemaExtend constrains hosts (extendHostsSchema).
 func (Workspace) JSONSchemaExtend(s *jsonschema.Schema) { extendHostsSchema(s) }
 
-// Validate checks the task's hosts (validateHosts), environment (Environment.Validate) and
-// versions (validateVersions).
+// Validate checks the task's hosts (validateHosts), environment (Environment.Validate),
+// versions (validateVersions) and limits (Limits.Validate).
 func (t *Task) Validate() error {
 	if err := validateHosts(t.Spec.Hosts); err != nil {
 		return prefixField("spec", err)
@@ -196,6 +196,9 @@ func (t *Task) Validate() error {
 	}
 	if err := validateVersions(t.Spec.Versions); err != nil {
 		return prefixField("spec", err)
+	}
+	if err := t.Spec.Limits.Validate(); err != nil {
+		return prefixField("spec.limits", err)
 	}
 	return nil
 }
