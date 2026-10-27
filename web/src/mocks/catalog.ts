@@ -183,7 +183,7 @@ export const taskSpecs: readonly Schemas['TaskSpec'][] = [
     identity: 'author',
     permissions: { contents: 'write', pull_requests: 'write' },
     effects: { allow: ['push-branch', 'pr.comment'] },
-    limits: { maxTurns: 120, maxWallClock: '1h' },
+    limits: { maxTurns: 120, maxWallClock: '1h', cpus: 4, memory: '8Gi' },
     output: {
       schema: 'schemas/results/implement.json',
       outcomes: ['pr-opened', 'pr-updated', 'blocked'],
