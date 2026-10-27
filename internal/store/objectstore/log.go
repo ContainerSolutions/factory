@@ -392,6 +392,17 @@ func (s *Store) readImage(ctx context.Context) (*image, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(entries) == 0 {
+		// An empty tail can also mean a compaction and retention deleted the entries after
+		// snapV since snapshots/ was listed: settling at snapV would re-create them.
+		newest, err := s.newestSnapshot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if newest > snapV {
+			return nil, fmt.Errorf("%w: snapshot %d appeared while the log after %d was empty", errMoved, newest, snapV)
+		}
+	}
 	img.version, img.snapV = snapV, snapV
 	for _, e := range entries {
 		if e.v != img.version+1 {

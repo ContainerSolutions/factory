@@ -123,10 +123,13 @@ func (s *Store) evictFor(ctx context.Context, run string, size int64) error {
 		if total+size <= s.opts.TranscriptTotalBytes {
 			break
 		}
-		if err := s.dropTranscript(ctx, r.Metadata.Name); err != nil {
+		dropped, err := s.dropTranscript(ctx, r.Metadata.Name)
+		if err != nil {
 			return err
 		}
-		total -= r.Size
+		if dropped {
+			total -= r.Size
+		}
 		s.log.Info("store: transcript evicted", "run", r.Metadata.Name, "bytes", r.Size,
 			"reason", "total cap", "totalCap", s.opts.TranscriptTotalBytes)
 	}
@@ -168,31 +171,36 @@ func (s *Store) GetTranscript(ctx context.Context, run string) ([]byte, error) {
 	return data, nil
 }
 
-// dropTranscript deletes run's record (at the version read), then its blob. A record changed
-// or gone meanwhile is fine. When the record's delete fails the blob is kept (still indexed);
-// a blob whose delete fails is left to the orphan scan.
-func (s *Store) dropTranscript(ctx context.Context, run string) error {
+// dropTranscript deletes run's record (at the version read), then its blob, and reports
+// whether it did. A record that changed meanwhile (ErrConflict) means another put replaced the
+// blob: the record now indexes the new blob, so both stay (dropped is false). A record gone
+// meanwhile is fine. When the record's delete fails the blob is kept (still indexed); a blob
+// whose delete fails is left to the orphan scan.
+func (s *Store) dropTranscript(ctx context.Context, run string) (dropped bool, err error) {
 	name := blobName(run)
 	if name == "" {
-		return nil
+		return false, nil
 	}
 	var rec TranscriptBlob
 	rk := store.Key{Kind: KindTranscriptBlob, Name: run}
 	switch err := s.mem.Get(ctx, rk, &rec); {
 	case err == nil:
-		if err := s.deleteAt(ctx, rk, rec.Metadata.ResourceVersion); err != nil &&
-			!errors.Is(err, store.ErrNotFound) && !errors.Is(err, store.ErrConflict) {
-			return fmt.Errorf("delete the transcript record of %s: %w", run, err)
+		err := s.deleteAt(ctx, rk, rec.Metadata.ResourceVersion)
+		switch {
+		case errors.Is(err, store.ErrConflict):
+			return false, nil // re-put meanwhile: the blob is the new one
+		case err != nil && !errors.Is(err, store.ErrNotFound):
+			return false, fmt.Errorf("delete the transcript record of %s: %w", run, err)
 		}
 	case !errors.Is(err, store.ErrNotFound):
-		return fmt.Errorf("read the transcript record of %s: %w", run, err)
+		return false, fmt.Errorf("read the transcript record of %s: %w", run, err)
 	}
 	rctx, cancel := s.requestCtx(ctx)
 	defer cancel()
 	if err := s.b.Delete(rctx, name); err != nil && !errors.Is(err, ErrNotExist) {
-		return fmt.Errorf("delete %s (the orphan scan retries): %w", name, err)
+		return true, fmt.Errorf("delete %s (the orphan scan retries): %w", name, err)
 	}
-	return nil
+	return true, nil
 }
 
 // sweepTranscripts drops the blobs whose putAt is past retention, and returns how many.
@@ -207,11 +215,13 @@ func (s *Store) sweepTranscripts(ctx context.Context, now time.Time) (int, error
 		if !store.Expired(store.SinceCreated, r.PutAt, r.PutAt, now, s.opts.Retention) {
 			continue
 		}
-		if err := s.dropTranscript(ctx, r.Metadata.Name); err != nil {
+		dropped, err := s.dropTranscript(ctx, r.Metadata.Name)
+		if err != nil {
 			errs = append(errs, err)
-			continue
 		}
-		n++
+		if dropped {
+			n++
+		}
 	}
 	return n, errors.Join(errs...)
 }
