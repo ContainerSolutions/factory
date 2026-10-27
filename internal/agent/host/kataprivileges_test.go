@@ -137,7 +137,9 @@ func TestPrivilegesApply(t *testing.T) {
 }
 
 // TestKataInitPrivilegesPrompt: --yes skips the prompt; accepted, the helper's lines are in the
-// sudo script; declined, they're left out; with no terminal, init stops before sudo.
+// sudo script and the image is built through it; declined, they're left out, the steps that run
+// the helper are skipped with a warning (the final check reports them not ok), and the next init
+// asks again; with no terminal, init stops before sudo.
 func TestKataInitPrivilegesPrompt(t *testing.T) {
 	nerdctlTar, kataTar := []byte("nerdctl-full tarball"), []byte("kata static tarball")
 	tests := []struct {
@@ -145,7 +147,7 @@ func TestKataInitPrivilegesPrompt(t *testing.T) {
 		o          InitOptions
 		answer     bool
 		promptErr  error
-		wantHelper bool
+		wantHelper bool // the sudo script installs the helper, and the image build runs it
 		wantOut    string
 		err        string
 	}{
@@ -154,6 +156,10 @@ func TestKataInitPrivilegesPrompt(t *testing.T) {
 		{"prompt declined", InitOptions{}, false, nil, false, "warning: privileges skipped", ""},
 		{"no terminal", InitOptions{}, false, errors.New("no terminal to ask"), false, "", "no terminal to ask"},
 	}
+	skips := []string{
+		"warning: kataimage skipped: privileges were declined, and the image is built through the kata helper\n",
+		"warning: katawarm skipped: privileges were declined, and the warm disk is built through the kata helper\n",
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e, r := kataEnv(t)
@@ -161,8 +167,9 @@ func TestKataInitPrivilegesPrompt(t *testing.T) {
 			e.Out = &out
 			e.Pins.NerdctlSHA256, e.Pins.KataSHA256 = sum(nerdctlTar), sum(kataTar)
 			e.Fetcher = newReleases(t, map[string][]byte{filepath.Base(NerdctlURL): nerdctlTar, filepath.Base(KataURL): kataTar})
-			e.Prompt = func(q string) (bool, error) { fmt.Fprint(&out, q); return tt.answer, tt.promptErr }
-			_, err := Init(context.Background(), e, tt.o)
+			prompts := 0
+			e.Prompt = func(q string) (bool, error) { prompts++; fmt.Fprint(&out, q); return tt.answer, tt.promptErr }
+			sts, err := Init(context.Background(), e, tt.o)
 			if tt.err != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.err) || r.ran("sudo") != 0 {
 					t.Fatalf("err %v, sudo calls %d", err, r.ran("sudo"))
@@ -178,11 +185,41 @@ func TestKataInitPrivilegesPrompt(t *testing.T) {
 			if got := strings.Contains(r.script, SudoersPath); got != tt.wantHelper {
 				t.Errorf("the script has the helper %v, want %v", got, tt.wantHelper)
 			}
+			if got := r.ran("sudo -n "+e.sys(katahelper.HelperPath)+" image-build ") == 1; got != tt.wantHelper {
+				t.Errorf("the image build ran the helper %v, want %v; calls %q", got, tt.wantHelper, r.helperCalls())
+			}
 			if !strings.Contains(out.String(), tt.wantOut) {
 				t.Errorf("output %q, want %q", out.String(), tt.wantOut)
 			}
 			if got := strings.Contains(out.String(), "a root-owned copy of this factory-agent"); got == tt.o.Yes {
 				t.Errorf("the notice printed %v with --yes %v: output %q", got, tt.o.Yes, out.String())
+			}
+			for _, w := range skips {
+				if got := strings.Contains(out.String(), w); got == tt.wantHelper {
+					t.Errorf("output has %q: %v, want %v; output %q", w, got, !tt.wantHelper, out.String())
+				}
+			}
+			if tt.wantHelper {
+				return
+			}
+			// declined: no helper call at all, the final check says the helper's steps aren't ok
+			// (so does host check), and nothing remembers the answer: the next init asks again.
+			if calls := r.ran("sudo -n " + e.sys(katahelper.HelperPath)); calls != 0 {
+				t.Errorf("%d helper calls, want none: %q", calls, r.helperCalls())
+			}
+			for _, st := range sts {
+				switch st.Step {
+				case privilegesName, kataImageName, KataWarmStep:
+					if st.State == StateOK || st.State == StateSkipped {
+						t.Errorf("final check %+v, want not ok", st)
+					}
+				}
+			}
+			if AllOK(sts) {
+				t.Error("AllOK after a declined prompt")
+			}
+			if _, err := Init(context.Background(), e, tt.o); err != nil || prompts != 2 {
+				t.Errorf("the second init: %v, %d prompts, want 2", err, prompts)
 			}
 		})
 	}

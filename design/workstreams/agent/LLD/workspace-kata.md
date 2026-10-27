@@ -137,7 +137,7 @@ The helper is a root-owned copy of the running `factory-agent`; `main` runs `kat
 <owner> ALL=(root) NOPASSWD: /usr/local/libexec/factory-agent/kata-helper
 ```
 
-`<owner>` is the user running `init` (`SUDO_USER` is never trusted: `init` runs unprivileged and renders its own user name, which must match `^[a-z_][a-z0-9_-]{0,31}$` and isn't `root`). The helper is root-equivalent for the owner only in what its verbs do; the owner already holds the subscriptions and, on the workstation, the docker group. `init` explains this and asks `y/N` before the step, unless `--yes`.
+`<owner>` is the user running `init` (`SUDO_USER` is never trusted: `init` runs unprivileged and renders its own user name, which must match `^[a-z_][a-z0-9_-]{0,31}$` and isn't `root`). The helper is root-equivalent for the owner only in what its verbs do; the owner already holds the subscriptions and, on the workstation, the docker group. `init` explains this and asks `y/N` before the step, unless `--yes`. Declined, the step is left out with a warning, and so are the steps that run the helper (`kataimage`, `katawarm`), each with a warning naming why ("kataimage skipped: privileges were declined, and the image is built through the kata helper"): their `sudo -n` calls could only fail. `init` doesn't fail on them; its final check reports them as they are, so `init` and `host check` exit non-zero until the helper is installed. Unlike tart's `pf.optout`, nothing records the answer: the next `init` asks again.
 
 `katahelper.Protocol` is a small integer bumped whenever a verb's arguments or behaviour change; `check` compares it, not the binary's sha256, so a new `factory-agent` build doesn't need sudo unless the helper changed.
 

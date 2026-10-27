@@ -58,6 +58,8 @@ type kataWarmStep struct{ e *Env }
 
 func (kataWarmStep) Name() string { return KataWarmStep }
 
+func (kataWarmStep) throughHelper() string { return "the warm disk is built" }
+
 func (s kataWarmStep) Check(ctx context.Context) (Status, error) {
 	e, p := s.e, s.e.KataWarmRecordPath()
 	var got KataWarmRecord

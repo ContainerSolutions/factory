@@ -42,6 +42,22 @@ names, sizes and slot numbers. Anything that runs as you can run it too.
 `, katahelper.HelperPath, SudoersPath)
 }
 
+// helperStep is a step whose Apply runs the helper with sudo -n: without the privileges step,
+// which installs the helper and its sudoers rule, it can't. Init skips it when the owner
+// declines that step.
+type helperStep interface {
+	Step
+	// throughHelper is what the step does through the helper, for Init's warning ("the image
+	// is built").
+	throughHelper() string
+}
+
+// usesHelper reports whether s runs the helper.
+func usesHelper(s Step) bool {
+	_, ok := s.(helperStep)
+	return ok
+}
+
 // privilegesStep installs the helper, root-owned, and the sudoers rule for the owner.
 type privilegesStep struct{ e *Env }
 

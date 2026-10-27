@@ -251,12 +251,19 @@ func TestKataSteps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var names []string
+	var names, helper []string
 	for _, s := range steps {
 		names = append(names, s.Name())
+		if usesHelper(s) {
+			helper = append(helper, s.Name())
+		}
 	}
 	if !slices.Equal(names, []string{"platform", "statedir", "nerdctl", "kata", "kataconfig", "containerd", "network", "privileges", "kataimage", "katawarm"}) {
 		t.Errorf("kata steps %v", names)
+	}
+	// the steps a declined privileges prompt skips: those that run the helper, after it.
+	if !slices.Equal(helper, []string{"kataimage", "katawarm"}) {
+		t.Errorf("the steps that run the helper %v", helper)
 	}
 	e.Workspace.Driver = "docker"
 	if _, err := Steps(e); err == nil || !strings.Contains(err.Error(), `no host steps for the "docker" driver`) {
