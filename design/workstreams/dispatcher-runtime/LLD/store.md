@@ -210,7 +210,7 @@ The log entry is P2's journal line plus `w` (the writer's instance id and a per-
 ## Decisions taken in the file store (P2 PR 1)
 
 - **Journal before apply, under memory's write lock** (the commit hook), not apply-then-roll-back: a rollback can't retract a watch event already sent, and readers would see a change that may vanish. The cost is that reads wait for a write's fsync; group commit is the seam if that matters.
-- **The hook is the only change to memory:** `WithCommitHook`, `Snapshot` and `Restore`. Without a hook memory behaves as before (`New` takes the options variadically).
+- **The hook is the only change to memory:** `WithCommitHook`, `Snapshot` and `Restore`. Without a hook memory behaves as before (`New` takes the options variadically). (P3 later gave the hook the write's `ctx`, and added `Version`, `Apply`, `DeleteAt` and `Replace` for a shared log; the journal line and snapshot encoding moved to `store/journal`, unchanged on disk.)
 - **Snapshot objects carry `v`, `created` and `at` beside `obj`**, as journal lines carry `v` and `at`: Event has no metadata, and SinceUpdated retention needs the last-write time.
 - **Kinds are registered** (`WithKind`) rather than learned at write time, and an unregistered kind can't be written: a kind that could be stored but not loaded would fail the next start.
 - **A failed fsync stops writes until reopen** (`ErrJournal`); a failed write that was rolled back doesn't.
