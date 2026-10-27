@@ -3,3 +3,8 @@ lisa-design:
 - It runs on the changes job's go output, like the go job (workflow edits set go=true, so CI changes exercise it).
 - setup-go as the kata job sets it up (go-version-file: go.mod, cache: false); the Makefile target needed no change on ubuntu-latest (docker present, E2E_GOARCH=amd64 from go env).
 - The log upload (actions/upload-artifact v7.0.2, pinned by SHA) runs only on failure, if-no-files-found: ignore, so a build failure before the run doesn't add a second error.
+
+lisa-selfreview:
+pass 1:
+- [should-fix] CORE-DUP-001 .github/workflows/ci.yml e2e-container: the log path repeats the Makefile's E2E_LOG, and if-no-files-found: ignore makes a drift a silent no-op (9da724271d50)
+- [nit] CORE-STYLE-001 AGENTS.md:16: dropped 'opt-in' while the Makefile's help still says Opt-in (97faa5f71d38)
