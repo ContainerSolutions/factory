@@ -345,9 +345,12 @@ other listening services. `+"`factory-agent host init --remove-pf`"+` undoes it.
 // dir; one that's installed removes it. The kata driver's privileges step is asked about the
 // same way (unless o.Yes); declined, it's left out, and so are the steps that run the helper it
 // installs (helperStep), each with a warning. Nothing records that decline: the next Init asks
-// again, and the final check reports those steps as they are. With o.Only, the statedir step is
-// applied too when it isn't ok, since the applies need the dir. The applies hold
-// <statedir>/host.lock: a second Init fails while one runs.
+// again, and the final check reports those steps as they are. An o.Only that selects a helper
+// step that isn't ok but leaves out a privileges step that isn't ok fails at once, before any
+// prompt, plan or apply (a *HelperRequiredError; with DryRun too), unless the platform check
+// failed, which comes first. With o.Only, the statedir step is applied too when it isn't ok,
+// since the applies need the dir. The applies hold <statedir>/host.lock: a second Init fails
+// while one runs.
 func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 	// the kata driver stages its downloads (about 1.3 GB) in <statedir>/stage, not in $TMPDIR,
 	// which may be a tmpfs: it's made once the host lock is held (the dir exists by then) and
@@ -375,6 +378,14 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 		return nil, err
 	}
 	sts := Check(ctx, steps)
+	// a failed platform check comes first, with or without --only: nothing else can be fixed
+	// on that host.
+	if i := slices.IndexFunc(steps, func(s Step) bool { return s.Name() == platformName }); i >= 0 && sts[i].State != StateOK {
+		return sts, fmt.Errorf("platform: %s", sts[i].Detail)
+	}
+	if err := helperRequired(steps, sts, only); err != nil {
+		return sts, err
+	}
 	var todo []Step
 	var optOut string // the pf opt-out's reason, when the step is skipped
 	pfTodo := false
@@ -383,10 +394,8 @@ func Init(ctx context.Context, e *Env, o InitOptions) ([]Status, error) {
 		switch {
 		case sts[i].State == StateOK:
 			continue
-		case only != nil && !only[s.Name()] && s.Name() != platformName:
+		case only != nil && !only[s.Name()]:
 			continue
-		case s.Name() == platformName:
-			return sts, fmt.Errorf("platform: %s", sts[i].Detail)
 		case declined && usesHelper(s):
 			fmt.Fprintf(e.Out, "warning: %s skipped: privileges were declined, and %s through the kata helper\n", s.Name(), s.(helperStep).throughHelper())
 			continue

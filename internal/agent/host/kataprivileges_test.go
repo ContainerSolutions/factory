@@ -244,3 +244,102 @@ func TestSudoersRuleVisudo(t *testing.T) {
 		t.Errorf("visudo -cf: %v\n%s", err, b)
 	}
 }
+
+// TestKataInitHelperRequired: an --only that selects a helper step that isn't ok, but not a
+// privileges step that isn't ok, fails before any prompt, plan or apply (--dry-run and --yes
+// too), naming the steps and the privileges status; with the helper ok, or privileges selected,
+// or no helper step selected, or no --only at all, init runs (privileges first). A failed
+// platform check is reported before it.
+func TestKataInitHelperRequired(t *testing.T) {
+	var installed string // the agent version installKata built the image and the warm disk for
+	noHelper := func(t *testing.T, e *Env, r *fakeRunner) { removeRoot(t, e, katahelper.HelperPath); r.helper = "" }
+	outdated := func(_ *testing.T, _ *Env, r *fakeRunner) { r.helper = "0" }
+	noRule := func(_ *testing.T, _ *Env, r *fakeRunner) { r.sudoErr = errors.New("exit status 1") }
+	helperOK := func(*testing.T, *Env, *fakeRunner) {}
+	// the image and the warm disk current (the other cases outdate them), the helper out of date
+	current := func(_ *testing.T, e *Env, r *fakeRunner) { e.AgentVersion = installed; r.helper = "0" }
+	// the platform fails too: its error comes first
+	noKVM := func(t *testing.T, e *Env, r *fakeRunner) { noHelper(t, e, r); removeRoot(t, e, "dev/kvm") }
+	tests := []struct {
+		name    string
+		set     func(*testing.T, *Env, *fakeRunner)
+		o       InitOptions
+		err     string
+		steps   []string // the HelperRequiredError's steps; nil for another error
+		applied []string // the helper verbs init runs, in order (with the sudo script as "script")
+	}{
+		{"--only kataimage, no helper", noHelper, InitOptions{Only: []string{"kataimage"}},
+			"kataimage needs the kata helper, which isn't installed (privileges missing: ", []string{"kataimage"}, nil},
+		{"--only katawarm, no helper", noHelper, InitOptions{Only: []string{"katawarm"}},
+			"katawarm needs the kata helper, which isn't installed", []string{"katawarm"}, nil},
+		{"--only kataimage,katawarm, an out-of-date helper", outdated, InitOptions{Only: []string{"kataimage", "katawarm"}},
+			"kataimage and katawarm need the kata helper, which is out of date (privileges outdated: ",
+			[]string{"kataimage", "katawarm"}, nil},
+		{"--only kataimage, no sudoers rule", noRule, InitOptions{Only: []string{"kataimage"}},
+			"kataimage needs the kata helper, which isn't usable (privileges wrong: the sudoers rule doesn't let you run the helper", []string{"kataimage"}, nil},
+		{"--dry-run", noHelper, InitOptions{DryRun: true, Only: []string{"kataimage"}}, "run host init without --only (or add privileges to --only)", []string{"kataimage"}, nil},
+		{"--yes", noHelper, InitOptions{Yes: true, Only: []string{"katawarm", "kataimage"}}, "kataimage and katawarm need the kata helper", []string{"kataimage", "katawarm"}, nil},
+		{"--only kataimage, no helper, a failed platform", noKVM, InitOptions{Only: []string{"kataimage"}}, "platform: no /dev/kvm", nil, nil},
+		{"--only kataimage, the helper ok", helperOK, InitOptions{Only: []string{"kataimage"}}, "", nil, []string{"image-build"}},
+		{"--only kataimage, ok, an out-of-date helper", current, InitOptions{Only: []string{"kataimage"}}, "", nil, nil},
+		{"--only statedir, no helper", noHelper, InitOptions{Only: []string{"statedir"}}, "", nil, nil},
+		{"--only privileges,kataimage, no helper", noHelper, InitOptions{Only: []string{"privileges", "kataimage"}}, "", nil, []string{"script", "image-build"}},
+		{"no --only, no helper", noHelper, InitOptions{}, "", nil, []string{"script", "image-build", "create"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, r := kataEnv(t)
+			installKata(t, e, r)
+			installed = e.AgentVersion
+			e.AgentVersion = "v0.2.0" // kataimage and katawarm are outdated
+			tt.set(t, e, r)
+			var out bytes.Buffer
+			e.Out = &out
+			prompts := 0
+			e.Prompt = func(string) (bool, error) { prompts++; return true, nil }
+			r.calls = nil
+			sts, err := Init(context.Background(), e, tt.o)
+			var applied []string
+			for _, c := range r.calls {
+				switch {
+				case strings.HasPrefix(c, "sudo /bin/sh "):
+					applied = append(applied, "script")
+				case strings.HasPrefix(c, "sudo -n "+e.sys(katahelper.HelperPath)+" "):
+					if v := strings.Fields(c)[3]; v == "image-build" || v == "create" {
+						applied = append(applied, v)
+					}
+				}
+			}
+			if tt.err == "" {
+				if err != nil {
+					t.Fatalf("%v\n%s", err, out.String())
+				}
+				if strings.Join(applied, " ") != strings.Join(tt.applied, " ") {
+					t.Errorf("applied %q, want %q; calls %q", applied, tt.applied, r.calls)
+				}
+				return
+			}
+			var he *HelperRequiredError
+			switch {
+			case err == nil || !strings.Contains(err.Error(), tt.err):
+				t.Fatalf("err %v, want %q", err, tt.err)
+			case tt.steps == nil && errors.As(err, &he):
+				t.Fatalf("err %v, want another error than a HelperRequiredError", err)
+			case tt.steps != nil && (!errors.As(err, &he) || strings.Join(he.Steps, ",") != strings.Join(tt.steps, ",")):
+				t.Fatalf("err %v, want a HelperRequiredError for %v", err, tt.steps)
+			case tt.steps != nil && !strings.Contains(err.Error(), katahelper.HelperPath):
+				t.Errorf("err %v, want the privileges status's detail", err)
+			}
+			// nothing asked, planned or changed: no prompt, no plan, no sudo, no helper call
+			if prompts != 0 || out.Len() != 0 || r.ran("sudo /bin/sh") != 0 || r.ran("sudo -n "+e.sys(katahelper.HelperPath)) != 0 {
+				t.Errorf("%d prompts, output %q, calls %q", prompts, out.String(), r.calls)
+			}
+			if steps, _ := Steps(e); len(sts) != len(steps) || AllOK(sts) {
+				t.Errorf("statuses %+v, want the initial check", sts)
+			}
+			if _, err := os.Stat(filepath.Join(e.StateDir(), "host.lock")); err == nil {
+				t.Error("init took the host lock")
+			}
+		})
+	}
+}
