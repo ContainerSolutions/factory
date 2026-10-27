@@ -1,0 +1,5 @@
+lisa-design:
+- StackDownTimeout keeps its name (envrun, vmrun --down-timeout and workspace.DefaultDownBudget use it); only its comment changed.
+- runner.Stub moved to worker's unexported stubRunner (worker/stub_test.go), its only users; its Jobs() accessor went since no test read it.
+- TestRunOnStepRedacted was ported from the deleted failing Stack to a failing SkillSource: OnStep's redaction is kept behaviour.
+- FACTORY_STACK_* is no longer a reserved Env prefix: the environment's exposes set FACTORY_STACK_URL/_API after Options.Env in buildEnv, so they win anyway.
