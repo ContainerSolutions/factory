@@ -1,0 +1,4 @@
+lisa-design:
+- Kata's save platform is katahelper.WarmPlatform (exported from the unexported warmPlatform) so the archive's platform and warm-load's pull can't drift; a const rename only, no helper behaviour or protocol change.
+- Tart gets its own vmPlatform = "linux/arm64" in vm.go: the base VM's docker pull has no --platform, so it pulls the VM's native platform, which is what the save names.
+- chmod 0644 is a separate exec step (not sh -c) on both drivers, so a failure names the step: TestKataWarmBuildFails gains a "chmod" stage and TestWarmBaseApplyFails is table-driven over pull, save, chmod.
