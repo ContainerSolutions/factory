@@ -1,0 +1,2 @@
+lisa-design:
+- Interrupted cleanups print one `interrupted: ...` line before they wait: katawarm's build-workspace rm, and buildVM's stop+delete of <name>.building (tart). An ordinary failure keeps its old output (none for kata; "the build failed: deleting" for tart). replace()'s put-back is one quick tart rename that already prints a line: left alone.

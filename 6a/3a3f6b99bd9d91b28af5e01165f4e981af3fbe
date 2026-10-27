@@ -1,0 +1,4 @@
+lisa-design:
+- Init's applies return through one `final(err)` helper: when ctx is done, the final Check runs on context.WithoutCancel(ctx) bounded by finalCheckTimeout (30 s), not on ctx; the initial check and plan are left on ctx (an interrupt there changes nothing).
+- The interrupted error is `interrupted: <err> (<context.Cause(ctx)>)`, wrapping both, so errors.Is(err, context.Canceled) holds and the CLI prints the signal (Go 1.26's NotifyContext cause, "interrupt signal received"); a nil err stays nil (everything applied: the check's statuses decide the exit code).
+- Second Ctrl-C: hostSignalContext runs context.AfterFunc(ctx, stop), restoring the default SIGINT/SIGTERM handling once the first signal lands, rather than relying on the 30 s bound alone; a second signal kills factory-agent while sudo, still in its process group, gets the terminal's SIGINT and relays it to the helper, whose own cleanup runs.

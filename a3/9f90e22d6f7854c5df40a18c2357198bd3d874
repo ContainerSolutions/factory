@@ -1,0 +1,3 @@
+lisa-selfreview:
+- pass 1 (strict): no findings against core/go/repo-factory rules; make reviewable green; mutations of each new condition fail their tests.
+- open question (not fixed): before the cleanup line, an interrupted helper verb or root script still gets sudocancel's 30 s SIGTERM grace with no output; a line there belongs in internal/agent/sudocancel (shared with vmexec/vmrun), so it is left for the reviewers to decide.
