@@ -24,8 +24,6 @@ const (
 	AgentTokenScopes        agentTokenContextKey        = "agentToken.Scopes"
 	CliTokenScopes          cliTokenContextKey          = "cliToken.Scopes"
 	EnrollmentTokenScopes   enrollmentTokenContextKey   = "enrollmentToken.Scopes"
-	JoinTokenScopes         joinTokenContextKey         = "joinToken.Scopes"
-	OwnerTokenScopes        ownerTokenContextKey        = "ownerToken.Scopes"
 	RunTokenScopes          runTokenContextKey          = "runToken.Scopes"
 	UiSessionScopes         uiSessionContextKey         = "uiSession.Scopes"
 )
@@ -339,7 +337,7 @@ type ActionIntentType string
 // Actor Actor is who caused an event.
 type Actor = v1alpha1.Actor
 
-// Admission Admission is how registered agents join.
+// Admission Admission marks a registered pool that takes enrollments (P1 §6): an admin mints them with createEnrollment, naming each agent's owner.
 type Admission = v1alpha1.Admission
 
 // Agent Agent is a registered worker.
@@ -565,7 +563,7 @@ type Decision = v1alpha1.Decision
 // Destination Destination is one recipient of a notification.
 type Destination = v1alpha1.Destination
 
-// DeviceConfig The OAuth client the agent's device flow uses.
+// DeviceConfig The dispatcher's OAuth client, for a device-flow login.
 type DeviceConfig struct {
 	ClientId string   `json:"clientId"`
 	Scopes   []string `json:"scopes"`
@@ -1394,12 +1392,6 @@ type cliTokenContextKey string
 
 // enrollmentTokenContextKey is the context key for enrollmentToken security scheme
 type enrollmentTokenContextKey string
-
-// joinTokenContextKey is the context key for joinToken security scheme
-type joinTokenContextKey string
-
-// ownerTokenContextKey is the context key for ownerToken security scheme
-type ownerTokenContextKey string
 
 // providerSignatureContextKey is the context key for providerSignature security scheme
 type providerSignatureContextKey string

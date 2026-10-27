@@ -19,23 +19,20 @@ export interface paths {
         put?: never;
         /**
          * Register an agent
-         * @description Registers (or re-registers) an agent in a pool, with one of three credentials:
+         * @description Registers (or re-registers) an agent in a pool, with exactly one of two credentials
+         *     (P1 §6; two are a `401`):
          *
-         *     - **Join and owner tokens** (the device flow, until P1's removal phase): the pool's join
-         *       token and a short-lived GitHub user token of the owner; the owner token is exchanged
-         *       for a login and discarded, never stored or logged. The owner must be a member of the
-         *       pool's `admission.owners` Group.
          *     - **An enrollment token** (`createEnrollment`), once: an admin minted it for a pool, an
          *       owner and a name. The response adds the agent's long-lived `refreshToken`, and the
          *       enrollment token is spent.
          *     - **The agent's refresh token**, on every restart or after a `401`: the response carries
          *       a fresh agent token and a new refresh token, which replaces the one presented.
          *
-         *     With an enrollment or refresh token the pool, owner and name come from the enrollment:
-         *     the request's `pool` and `host` must match them, or the response is `400`. In every case
-         *     the capabilities must meet `Pool.spec.require`, and the agent is named
-         *     `agt_<owner>-<host>`; registering again replaces it. Enrollment and refresh tokens are
-         *     issued from P1 phase 6; until then a request with either is a `401`.
+         *     The pool, owner and name come from the enrollment: the request's `pool` and `host` must
+         *     match them, or the response is `400`. The capabilities must meet `Pool.spec.require`,
+         *     and the agent is named `agt_<owner>-<host>`; registering again replaces it. The
+         *     `X-Factory-Join-Token` and `X-Factory-Owner-Token` headers of the removed device flow
+         *     are refused (`401`).
          */
         post: operations["registerAgent"];
         delete?: never;
@@ -61,8 +58,8 @@ export interface paths {
          * Deregister an agent
          * @description Revokes the agent token and marks the agent `Offline`. Running leases are abandoned. The
          *     agent itself, an admin UI session (the `maintainers` Group) or the CLI token may call it.
-         *     An admin's delete also revokes the agent's refresh token. Until P1 phase 6 an admin's
-         *     delete is a `501`.
+         *     An admin's delete also revokes the agent's refresh token; the agent's own doesn't, so it
+         *     can register again with it.
          */
         delete: operations["deregisterAgent"];
         options?: never;
@@ -85,7 +82,7 @@ export interface paths {
         /**
          * List enrollments
          * @description The enrollments, used and unused, without their tokens. Admins only, as for
-         *     `createEnrollment`. Until P1 phase 6 the response is a `501`.
+         *     `createEnrollment`.
          */
         get: operations["listEnrollments"];
         put?: never;
@@ -97,7 +94,7 @@ export interface paths {
          *     only here and stored hashed. The host's supervisor registers once with it
          *     (`registerAgent` with `X-Factory-Enrollment-Token`) before `expiresAt`. A UI session
          *     must belong to the `maintainers` Group; the CLI token is a full admin (`factory agent
-         *     enroll`). Issued from P1 phase 6; until then the response is a `501`.
+         *     enroll`).
          */
         post: operations["createEnrollment"];
         delete?: never;
@@ -124,7 +121,7 @@ export interface paths {
          * @description Revokes an unused enrollment: its token can no longer register an agent. A used
          *     enrollment's token is already spent, so deleting it only removes the record; the agent
          *     it registered stays (revoke that with `deregisterAgent`). Admins only, as for
-         *     `createEnrollment`. Until P1 phase 6 the response is a `501`.
+         *     `createEnrollment`.
          */
         delete: operations["deleteEnrollment"];
         options?: never;
@@ -888,8 +885,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Device-flow configuration for agent owners
-         * @description The OAuth client ID and scopes `factory-agent register` uses for the owner's device-flow login.
+         * The OAuth client's device-flow configuration
+         * @description The dispatcher's OAuth client ID and scopes for a GitHub device-flow login. Agents no
+         *     longer use it (they are enrolled, P1 §6); it stays for the UI's sign-in.
          */
         get: operations["getDeviceConfig"];
         put?: never;
@@ -1521,7 +1519,7 @@ export interface components {
             /** @description Member of the `maintainers` Group; may send commands. */
             isAdmin: boolean;
         };
-        /** @description The OAuth client the agent's device flow uses. */
+        /** @description The dispatcher's OAuth client, for a device-flow login. */
         DeviceConfig: {
             clientId: string;
             scopes: string[];
@@ -1549,10 +1547,13 @@ export interface components {
             /** @description Identity is the factory identity (author, reviewer) when IsFactory. */
             identity?: string;
         };
-        /** @description Admission is how registered agents join. */
+        /** @description Admission marks a registered pool that takes enrollments (P1 §6): an admin mints them with createEnrollment, naming each agent's owner. */
         Admission: {
             tokenRef: components["schemas"]["SecretRef"];
-            /** @description Owners is the Group whose members may register agents here. */
+            /**
+             * @description Owners is the Group of the people expected to lend agents here (informational: the
+             *     admin who mints an enrollment names its owner).
+             */
             owners: string;
         };
         /** @description Agent is a registered worker. */

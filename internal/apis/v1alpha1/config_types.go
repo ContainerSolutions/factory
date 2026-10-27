@@ -907,10 +907,14 @@ type PoolSpec struct {
 	LLMAuth   *LLMAuth          `json:"llmAuth,omitzero"`
 }
 
-// Admission is how registered agents join.
+// Admission marks a registered pool that takes enrollments (P1 §6): an admin mints them with
+// createEnrollment, naming each agent's owner. Since P1 phase 6 the dispatcher reads neither
+// field: TokenRef was the removed join token's secret, and Owners, shown in the UI, is
+// informational (who is expected to lend agents here).
 type Admission struct {
 	TokenRef SecretRef `json:"tokenRef"`
-	// Owners is the Group whose members may register agents here.
+	// Owners is the Group of the people expected to lend agents here (informational: the
+	// admin who mints an enrollment names its owner).
 	Owners string `json:"owners"`
 }
 
