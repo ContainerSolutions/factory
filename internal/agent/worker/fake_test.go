@@ -53,6 +53,9 @@ type fakeDispatcher struct {
 	heartbeat func(n int) (int, any)
 	beats     int
 	changed   chan struct{}
+	// enrollToken registers once; refresh is the current refresh token (P1 §6).
+	enrollToken, refresh string
+	refreshes            int
 }
 
 func newFakeDispatcher(t *testing.T) *fakeDispatcher {
@@ -169,10 +172,20 @@ func (f *fakeDispatcher) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodPost && path == "/agents" {
-		if c.Join != joinSecret || c.Owner != ownerSecret {
+		f.mu.Lock()
+		var next string
+		switch enr, ref := r.Header.Get(worker.HeaderEnrollmentToken), r.Header.Get(worker.HeaderAgentRefreshToken); {
+		case enr != "" && enr == f.enrollToken, ref != "" && ref == f.refresh:
+			f.enrollToken = "" // spent
+			f.refreshes++
+			f.refresh = fmt.Sprintf("arf_refresh-secret-%d", f.refreshes)
+			next = f.refresh
+		case enr != "" || ref != "" || c.Join != joinSecret || c.Owner != ownerSecret:
+			f.mu.Unlock()
 			problem(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}
+		f.mu.Unlock()
 		var req apiclient.RegisterAgentRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			problem(w, http.StatusBadRequest, "invalid")
@@ -183,7 +196,11 @@ func (f *fakeDispatcher) serve(w http.ResponseWriter, r *http.Request) {
 		f.token = fmt.Sprintf("%s.agent-secret-%d", agentID, f.tokens)
 		tok := f.token
 		f.mu.Unlock()
-		writeJSON(w, http.StatusCreated, apiclient.AgentRegistration{AgentId: agentID, AgentToken: tok, ExpiresAt: time.Now().Add(24 * time.Hour)})
+		reg := apiclient.AgentRegistration{AgentId: agentID, AgentToken: tok, ExpiresAt: time.Now().Add(24 * time.Hour)}
+		if next != "" {
+			reg.RefreshToken = &next
+		}
+		writeJSON(w, http.StatusCreated, reg)
 		return
 	}
 	f.mu.Lock()

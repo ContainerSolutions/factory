@@ -11,9 +11,16 @@ dispatcher: https://your-name.ngrok-free.dev
 # The registered Pool to join (catalog/pools/local.yaml).
 pool: local
 
-# A file holding the Pool's join token (one line), given by the dispatcher operator out of
-# band. It must be absolute (or start with ~/) and readable by you only (chmod 600).
-joinTokenFile: ~/.config/factory-agent/join-token
+# A file holding the one-time enrollment token (one line) an admin minted for this host with
+# `factory agent enroll --pool local --owner <your login> --name <host>`. It must be absolute
+# (or start with ~/) and readable by you only (chmod 600). supervise reads it only while its
+# state dir has no refresh token: it exchanges it once, keeps the refresh token (0600) in the
+# state dir and re-registers with that from then on, with no login.
+enrollmentTokenFile: ~/.config/factory-agent/enrollment-token
+
+# Instead of an enrollment (until the next release removes it): the Pool's join token, and a
+# device-flow login of the owner at every start.
+# joinTokenFile: ~/.config/factory-agent/join-token
 
 # Optional: names the agent agt_<owner login>-<host>. Default: this machine's short host name,
 # lower-cased.

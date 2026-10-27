@@ -181,13 +181,19 @@ For each agent owner, on their machine (rollout.md §Agent onboarding). The owne
 
 The agent is `factory-agent supervise`: it runs each leased task in its own VM workspace behind a gateway that holds every credential, a tart VM on an Apple-silicon Mac ([supervise.md](../../design/workstreams/agent/LLD/supervise.md)) or a Kata microVM on Linux ([workspace-kata.md](../../design/workstreams/agent/LLD/workspace-kata.md)). Run every step from a checkout of this repository, as the owner's own user (not root; the workspaces are that user's).
 
-1. **The join token**, from the dispatcher operator, in a file only you can read:
+1. **The enrollment token.** An admin of the dispatcher mints one for your host, with the CLI token:
 
    ```bash
-   mkdir -p ~/.config/factory-agent && (umask 077 && cat > ~/.config/factory-agent/join-token)
+   bin/factory agent enroll --pool local --owner <your GitHub login> --name <host> --server "$FACTORY_PUBLIC_URL"
    ```
 
-   Paste the token, press Enter, then Ctrl-D.
+   It prints the token once (`--ttl`, default 7d, at most 30d; `bin/factory agent enrollments [list|delete <id>]` lists and revokes them). Put it in a file only you can read:
+
+   ```bash
+   mkdir -p ~/.config/factory-agent && (umask 077 && cat > ~/.config/factory-agent/enrollment-token)
+   ```
+
+   Paste the token, press Enter, then Ctrl-D. `<host>` must be the agent's `host` (default: the machine's short host name, lower-cased).
 2. **The config.** Copy `deploy/poc/agent.yaml.example` to `~/.config/factory-agent/agent.yaml`, then `chmod 600` it. Edit:
    - `dispatcher`: `$FACTORY_PUBLIC_URL`, or `http://127.0.0.1:8800` on the dispatcher's own machine;
    - the harnesses and models your plans allow. The codex model in the example (`gpt-6.1-sol`) is a placeholder: put `<a gpt-5* or gpt-6* model your codex sign-in offers>` (see `/model` in codex) in `models` and `default`. A configured harness is offered when its login is stored (step 3);
@@ -204,9 +210,9 @@ The agent is `factory-agent supervise`: it runs each leased task in its own VM w
    bin/factory-agent supervise
    ```
 
-   It refuses to start while `host check` fails, and destroys the VMs a killed supervise left. `--keep-workspace` keeps each stopped VM and its run directory for a look. There is no separate `register` command. On first start it prints `To register this agent, open https://github.com/login/device and enter the code XXXX-XXXX`. Approve it as the owner. The agent then registers as `agt_<login>-<host>` and shows on the UI's Pools page (or `GET /api/v1/agents`).
+   It refuses to start while `host check` fails, and destroys the VMs a killed supervise left. `--keep-workspace` keeps each stopped VM and its run directory for a look. There is no separate `register` command. On first start it exchanges the enrollment token (spending it) and registers as `agt_<owner>-<host>`, the owner the admin named; it shows on the UI's Pools page (or `GET /api/v1/agents`).
 
-   The user token is used once and never stored, and the agent token lives in memory. **Every restart means a new device login**; a dispatcher restart doesn't, since it keeps the agent's (hashed) token in its state dir (§6, State), unless it starts on an empty one.
+   The agent token lives in memory; the refresh token it got is kept 0600 in the state dir, and every restart (or a refused agent token) re-registers with it, rotating it, with no login. An admin's deregistration (`DELETE /api/v1/agents/<id>`) revokes it: the agent then stops and says to enroll again. If supervise says its refresh or enrollment token was refused, mint a new enrollment, put it in `enrollment-token` and restart.
 
    It logs to stderr, as text by default (`--log-format json`, `--log-level debug`). It writes no log file, so redirect it yourself, for example `bin/factory-agent supervise 2>&1 | tee -a ~/factory-agent.log`.
 

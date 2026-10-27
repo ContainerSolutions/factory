@@ -41,8 +41,20 @@ const (
 	DefaultReportAttempts = 5
 )
 
-// Options configure a Worker. Pool, Host, AgentVersion, Capabilities, JoinToken, Owner and
-// Runner are required.
+// Enrollment is an enrolled agent's registration credential (P1 §6; enroll.Files).
+type Enrollment interface {
+	// Token is the refresh token when one is saved (refresh true), else the one-time
+	// enrollment token.
+	Token() (tok string, refresh bool, err error)
+	// Save keeps the next refresh token durably; it is called before the registration that
+	// returned it is used.
+	Save(refresh string) error
+	// Forget drops a refresh token the dispatcher refused.
+	Forget() error
+}
+
+// Options configure a Worker. Pool, Host, AgentVersion, Capabilities and Runner are required,
+// and either Enrollment or both JoinToken and Owner.
 type Options struct {
 	// Dispatcher is the dispatcher's base URL (the API is under BasePath).
 	Dispatcher   string
@@ -52,6 +64,9 @@ type Options struct {
 	Capabilities v1alpha1.AgentCapabilities
 	Lending      v1alpha1.Lending
 
+	// Enrollment, when set, registers with the refresh token (else the enrollment token) and
+	// saves each rotated one; JoinToken and Owner are then unused.
+	Enrollment Enrollment
 	// JoinToken reads the pool's join token (from its 0600 file) at each registration.
 	JoinToken func() (string, error)
 	// Owner gets a fresh owner token at each registration (the device flow).
@@ -105,7 +120,8 @@ func New(o Options) (*Worker, error) {
 	}{
 		{"Dispatcher", o.Dispatcher != ""}, {"Pool", o.Pool != ""}, {"Host", o.Host != ""},
 		{"AgentVersion", o.AgentVersion != ""}, {"Capabilities.Harnesses", len(o.Capabilities.Harnesses) > 0},
-		{"JoinToken", o.JoinToken != nil}, {"Owner", o.Owner != nil}, {"Runner", o.Runner != nil},
+		{"JoinToken", o.Enrollment != nil || o.JoinToken != nil}, {"Owner", o.Enrollment != nil || o.Owner != nil},
+		{"Runner", o.Runner != nil},
 	} {
 		if !f.ok {
 			missing = append(missing, f.name)
@@ -342,10 +358,14 @@ func (w *Worker) sleepUntil(ctx context.Context, at time.Time) bool {
 	}
 }
 
-// register registers (or registers again): it reads the join token, gets a fresh owner token
-// and posts both once, retrying transient failures with backoff. The owner token is dropped
-// once the dispatcher answered.
+// register registers (or registers again): enrolled, with the refresh token (else the
+// enrollment token); otherwise it reads the join token, gets a fresh owner token and posts
+// both once. It retries transient failures with backoff. The owner token is dropped once the
+// dispatcher answered.
 func (w *Worker) register(ctx context.Context) error {
+	if w.o.Enrollment != nil {
+		return w.registerEnrolled(ctx)
+	}
 	join, err := w.o.JoinToken()
 	if err != nil {
 		return &permanentError{fmt.Errorf("join token: %w", err)}
@@ -364,10 +384,63 @@ func (w *Worker) register(ctx context.Context) error {
 		Pool: w.o.Pool, Host: w.o.Host, AgentVersion: w.o.AgentVersion,
 		Capabilities: w.o.Capabilities, Lending: &lending,
 	}
+	reg, err := w.post(ctx, body, map[string]string{HeaderJoinToken: join, HeaderOwnerToken: ownerToken})
+	if err != nil {
+		return err
+	}
+	w.registered(reg)
+	return nil
+}
+
+// registerEnrolled registers with the enrollment credential. The response's refresh token is
+// saved before the new agent token is used: the presented one is spent. A refused refresh
+// token is forgotten, so the next start reads enrollmentTokenFile.
+func (w *Worker) registerEnrolled(ctx context.Context) error {
+	tok, refresh, err := w.o.Enrollment.Token()
+	if err != nil {
+		return &permanentError{err}
+	}
+	header := HeaderEnrollmentToken
+	if refresh {
+		header = HeaderAgentRefreshToken
+	}
+	w.mu.Lock()
+	lending := w.lending
+	w.mu.Unlock()
+	reg, err := w.post(ctx, apiclient.RegisterAgentRequest{
+		Pool: w.o.Pool, Host: w.o.Host, AgentVersion: w.o.AgentVersion,
+		Capabilities: w.o.Capabilities, Lending: &lending,
+	}, map[string]string{header: tok})
+	switch {
+	case err != nil && refresh && isUnauthorized(err):
+		if ferr := w.o.Enrollment.Forget(); ferr != nil {
+			w.log.Error("the refused refresh token", "err", ferr)
+		}
+		return &permanentError{fmt.Errorf("the dispatcher refused the agent's refresh token (revoked, or spent by an interrupted registration): "+
+			"mint a new enrollment with `factory agent enroll`, put its token in enrollmentTokenFile and restart: %w", err)}
+	case err != nil && !refresh && (isUnauthorized(err) || statusOf(err) == http.StatusBadRequest):
+		return &permanentError{fmt.Errorf("the dispatcher refused the enrollment token (spent, expired, revoked, or for another pool or host): "+
+			"mint a new one with `factory agent enroll` for this pool and host, put it in enrollmentTokenFile and restart: %w", err)}
+	case err != nil:
+		return err
+	case reg.RefreshToken == nil || *reg.RefreshToken == "":
+		return &permanentError{errors.New("register: the dispatcher returned no refresh token")}
+	}
+	if err := w.o.Enrollment.Save(*reg.RefreshToken); err != nil {
+		return &permanentError{fmt.Errorf("the next refresh token was not saved, and the one used is spent: "+
+			"mint a new enrollment with `factory agent enroll`: %w", err)}
+	}
+	w.registered(reg)
+	return nil
+}
+
+// post sends registerAgent with headers, retrying transient failures with backoff.
+func (w *Worker) post(ctx context.Context, body apiclient.RegisterAgentRequest, headers map[string]string) (*apiclient.AgentRegistration, error) {
 	creds := func(_ context.Context, r *http.Request) error {
 		r.Header.Del("Authorization")
-		r.Header.Set(HeaderJoinToken, join)
-		r.Header.Set(HeaderOwnerToken, ownerToken)
+		for k, v := range headers {
+			r.Header.Set(k, v)
+		}
 		return nil
 	}
 	b := w.newBackoff()
@@ -376,25 +449,29 @@ func (w *Worker) register(ctx context.Context) error {
 		res, err := w.api.RegisterAgentWithResponse(cctx, body, creds)
 		cancel()
 		if err == nil && res.JSON201 != nil {
-			w.mu.Lock()
-			w.agentID, w.token = res.JSON201.AgentId, res.JSON201.AgentToken
-			w.mu.Unlock()
-			w.log.Info("registered", "agent", res.JSON201.AgentId, "pool", w.o.Pool,
-				"harnesses", harnessNames(w.o.Capabilities), "labels", w.o.Capabilities.Labels, "tokenExpiresAt", res.JSON201.ExpiresAt)
-			return nil
+			return res.JSON201, nil
 		}
 		if err == nil {
 			err = apiError("register", res.HTTPResponse, res.Body)
 		}
 		if !isTransient(err) {
-			return err
+			return nil, err
 		}
 		d := b.next()
 		w.log.Warn("registration failed; retrying", "err", err, "in", d)
 		if !w.sleep(ctx, d) {
-			return ctx.Err()
+			return nil, ctx.Err()
 		}
 	}
+}
+
+// registered keeps a registration's agent id and token.
+func (w *Worker) registered(reg *apiclient.AgentRegistration) {
+	w.mu.Lock()
+	w.agentID, w.token = reg.AgentId, reg.AgentToken
+	w.mu.Unlock()
+	w.log.Info("registered", "agent", reg.AgentId, "pool", w.o.Pool,
+		"harnesses", harnessNames(w.o.Capabilities), "labels", w.o.Capabilities.Labels, "tokenExpiresAt", reg.ExpiresAt)
 }
 
 func harnessNames(c v1alpha1.AgentCapabilities) []string {

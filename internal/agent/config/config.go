@@ -62,8 +62,13 @@ type Config struct {
 	// Pool is the registered Pool to join.
 	Pool string `json:"pool"`
 	// JoinTokenFile holds the pool's join token, given by the pool owner out of band. It must
-	// not be readable by group or others (0600).
-	JoinTokenFile string `json:"joinTokenFile"`
+	// not be readable by group or others (0600). Required unless EnrollmentTokenFile is set.
+	JoinTokenFile string `json:"joinTokenFile,omitzero"`
+	// EnrollmentTokenFile holds the one-time enrollment token an admin minted with `factory
+	// agent enroll` (P1 §6), 0600. supervise reads it only while its state dir has no refresh
+	// token, exchanges it once and re-registers with the refresh token from then on. When set,
+	// the join token and the device flow are unused.
+	EnrollmentTokenFile string `json:"enrollmentTokenFile,omitzero"`
 	// Host names the agent (agt_<owner>-<host>); default: the machine's short host name,
 	// lower-cased.
 	Host string `json:"host,omitzero"`
@@ -266,7 +271,7 @@ func (c *Config) complete(o Options) error {
 		*p = v
 		return err
 	}
-	for _, p := range []*string{&c.JoinTokenFile, &c.WorkRoot} {
+	for _, p := range []*string{&c.JoinTokenFile, &c.EnrollmentTokenFile, &c.WorkRoot} {
 		if err := expand(p); err != nil {
 			return err
 		}
@@ -310,10 +315,14 @@ func (c *Config) validate() []string {
 	if c.Pool == "" {
 		add("pool: required")
 	}
-	if c.JoinTokenFile == "" {
-		add("joinTokenFile: required")
-	} else if !filepath.IsAbs(c.JoinTokenFile) {
+	switch {
+	case c.JoinTokenFile == "" && c.EnrollmentTokenFile == "":
+		add("enrollmentTokenFile: required (or joinTokenFile)")
+	case c.JoinTokenFile != "" && !filepath.IsAbs(c.JoinTokenFile):
 		add("joinTokenFile: %q must be absolute or start with ~/", c.JoinTokenFile)
+	}
+	if c.EnrollmentTokenFile != "" && !filepath.IsAbs(c.EnrollmentTokenFile) {
+		add("enrollmentTokenFile: %q must be absolute or start with ~/", c.EnrollmentTokenFile)
 	}
 	if !hostRE.MatchString(c.Host) {
 		add("host: %q must match %s", c.Host, hostRE)
