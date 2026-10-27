@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -61,44 +60,8 @@ func job(id string) *Job {
 	return &Job{Lease: apiclient.Lease{Task: v1alpha1.Task{Metadata: v1alpha1.TaskMeta{ID: id}}}}
 }
 
-func TestStub(t *testing.T) {
-	s := &Stub{
-		Outcome:  Outcome{Result: &v1alpha1.Result{Status: v1alpha1.ResultDone, Outcome: "triaged"}, TranscriptRef: "tr"},
-		Progress: []v1alpha1.ProgressEvent{{Kind: "turn"}},
-		Usage:    &UsageDelta{InputTokens: 3},
-	}
-	started := s.Started()
+func TestFunc(t *testing.T) {
 	var k sink
-	out, err := s.Run(context.Background(), job("tsk_1"), &k)
-	if err != nil || out.Result.Task != "tsk_1" || out.Result.Outcome != "triaged" || out.TranscriptRef != "tr" || out.Status != StatusDone {
-		t.Fatalf("Run = %+v, %v", out, err)
-	}
-	if s.Outcome.Result.Task != "" {
-		t.Error("the canned Result was changed")
-	}
-	if len(k.progress) != 1 || len(k.usage) != 1 || (<-started).TaskID() != "tsk_1" || len(s.Jobs()) != 1 {
-		t.Errorf("sink %+v, jobs %d", k, len(s.Jobs()))
-	}
-
-	// Zero outcome: done with an empty Result; throttled: no Result.
-	if out, _ := (&Stub{}).Run(context.Background(), job("t"), &k); out.Result == nil || out.Result.Status != v1alpha1.ResultDone {
-		t.Errorf("zero stub = %+v", out)
-	}
-	if out, _ := (&Stub{Outcome: Outcome{Status: StatusThrottled}}).Run(context.Background(), job("t"), &k); out.Result != nil {
-		t.Errorf("throttled stub = %+v", out)
-	}
-	boom := errors.New("boom")
-	if _, err := (&Stub{Err: boom}).Run(context.Background(), job("t"), &k); !errors.Is(err, boom) {
-		t.Errorf("err stub = %v", err)
-	}
-
-	// Hold: cancelled → failed{cancelled}.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	out, err = (&Stub{Hold: make(chan struct{})}).Run(ctx, job("t"), &k)
-	if err != nil || out.Status != StatusFailed || out.Reason != ReasonCancelled || out.Result != nil {
-		t.Errorf("held stub after cancel = %+v, %v", out, err)
-	}
 	f := Func(func(context.Context, *Job, Sink) (Outcome, error) { return Outcome{Status: StatusNoop}, nil })
 	if out, _ := f.Run(context.Background(), job("t"), &k); out.Status != StatusNoop {
 		t.Errorf("Func = %+v", out)
@@ -118,7 +81,7 @@ func TestStatusesReasons(t *testing.T) {
 	if s := Statuses(); len(s) != 5 || s[4] != StatusThrottled {
 		t.Errorf("Statuses() = %v", s)
 	}
-	if r := Reasons(); len(r) != 6 || r[4] != ReasonEnvironmentError || r[5] != ReasonCancelled {
+	if r := Reasons(); len(r) != 5 || r[3] != ReasonEnvironmentError || r[4] != ReasonCancelled {
 		t.Errorf("Reasons() = %v", r)
 	}
 }

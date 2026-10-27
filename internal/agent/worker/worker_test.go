@@ -35,7 +35,7 @@ func decode[T any](t *testing.T, b []byte) T {
 func TestWorkerLifecycle(t *testing.T) {
 	f := newFakeDispatcher(t)
 	cost := 0.25
-	stub := &runner.Stub{
+	stub := &stubRunner{
 		Outcome:  runner.Outcome{Result: &v1alpha1.Result{Status: v1alpha1.ResultDone, Outcome: "triaged", Summary: "labelled"}, TranscriptRef: "tr_1"},
 		Progress: []v1alpha1.ProgressEvent{{At: t0, Kind: "turn", Message: "reading the issue"}},
 		Usage:    &runner.UsageDelta{InputTokens: 100, OutputTokens: 20, CostUSD: &cost},
@@ -127,7 +127,7 @@ func TestHeartbeatCancel(t *testing.T) {
 		return http.StatusOK, apiclient.HeartbeatResponse{ExpiresAt: t0.Add(2 * time.Minute), Cancel: n == 3}
 	})
 	hold := make(chan struct{})
-	stub := &runner.Stub{Hold: hold}
+	stub := &stubRunner{Hold: hold}
 	started := stub.Started()
 	startWorker(t, f, stub, withClock(clk))
 	f.offer(testLease("1", nil))
@@ -248,7 +248,7 @@ func TestThrottle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFakeDispatcher(t)
 			clk := clock.NewFake(t0)
-			stub := &runner.Stub{Outcome: runner.Outcome{Status: runner.StatusThrottled, Reason: "usage limit", ThrottledUntil: tt.until}}
+			stub := &stubRunner{Outcome: runner.Outcome{Status: runner.StatusThrottled, Reason: "usage limit", ThrottledUntil: tt.until}}
 			h := startWorker(t, f, stub, withClock(clk))
 			f.offer(testLease("1", nil))
 			f.waitFor("the Throttled PATCH", func() bool { return len(f.find(http.MethodPatch, "/agents/"+agentID)) == 1 })
@@ -290,7 +290,7 @@ func TestThrottle(t *testing.T) {
 func TestDrainWaitsForTheRun(t *testing.T) {
 	f := newFakeDispatcher(t)
 	hold := make(chan struct{})
-	stub := &runner.Stub{Hold: hold, Outcome: runner.Outcome{Result: &v1alpha1.Result{Status: v1alpha1.ResultDone, Outcome: "triaged"}}}
+	stub := &stubRunner{Hold: hold, Outcome: runner.Outcome{Result: &v1alpha1.Result{Status: v1alpha1.ResultDone, Outcome: "triaged"}}}
 	started := stub.Started()
 	h := startWorker(t, f, stub)
 	f.offer(testLease("1", nil))
@@ -324,7 +324,7 @@ func TestDrainWaitsForTheRun(t *testing.T) {
 func TestDrainDeadline(t *testing.T) {
 	f := newFakeDispatcher(t)
 	clk := clock.NewFake(t0)
-	stub := &runner.Stub{Hold: make(chan struct{})}
+	stub := &stubRunner{Hold: make(chan struct{})}
 	started := stub.Started()
 	h := startWorker(t, f, stub, withClock(clk))
 	f.offer(testLease("1", &v1alpha1.Limits{MaxWallClock: "10m"}))
@@ -354,7 +354,7 @@ func TestDrainDeadline(t *testing.T) {
 // once and deregisters.
 func TestAbort(t *testing.T) {
 	f := newFakeDispatcher(t)
-	stub := &runner.Stub{Hold: make(chan struct{})}
+	stub := &stubRunner{Hold: make(chan struct{})}
 	started := stub.Started()
 	h := startWorker(t, f, stub)
 	f.offer(testLease("1", nil))
@@ -388,7 +388,7 @@ func TestLeaseBackoff(t *testing.T) {
 	f := newFakeDispatcher(t)
 	clk := clock.NewFake(t0)
 	f.fail("GET /lease", http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusInternalServerError)
-	h := startWorker(t, f, &runner.Stub{}, withClock(clk))
+	h := startWorker(t, f, &stubRunner{}, withClock(clk))
 	for i, wait := range []time.Duration{time.Second, 2 * time.Second, 4 * time.Second} {
 		f.waitFor("a failed poll", func() bool { return len(f.find(http.MethodGet, "/lease")) == i+1 })
 		clk.BlockUntil(1)
@@ -411,7 +411,7 @@ func TestLeaseBackoff(t *testing.T) {
 // on.
 func TestReregisterOnUnauthorized(t *testing.T) {
 	f := newFakeDispatcher(t)
-	h := startWorker(t, f, &runner.Stub{})
+	h := startWorker(t, f, &stubRunner{})
 	f.waitFor("the first poll", func() bool { return len(f.find(http.MethodGet, "/lease")) == 1 })
 	f.revoke()
 	f.offer(testLease("1", nil)) // the parked poll still answers with the old token's request…
@@ -435,7 +435,7 @@ func TestRegisterRefused(t *testing.T) {
 		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex"}}},
 		JoinToken:    func() (string, error) { return "wrong", nil },
 		Owner:        owner.TokenFunc(func(context.Context) (string, error) { return ownerSecret, nil }),
-		Runner:       &runner.Stub{},
+		Runner:       &stubRunner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -456,7 +456,7 @@ func TestRegisterRefused(t *testing.T) {
 			return "", owner.ErrDenied
 		})},
 	} {
-		o.Dispatcher, o.Pool, o.Host, o.AgentVersion, o.Runner = f.URL(), "local", "e2e", "test", &runner.Stub{}
+		o.Dispatcher, o.Pool, o.Host, o.AgentVersion, o.Runner = f.URL(), "local", "e2e", "test", &stubRunner{}
 		o.Capabilities = v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex"}}}
 		w, err := worker.New(o)
 		if err != nil {
@@ -476,7 +476,7 @@ func TestRegisterRetries(t *testing.T) {
 	f := newFakeDispatcher(t)
 	clk := clock.NewFake(t0)
 	f.fail("POST /agents", http.StatusServiceUnavailable)
-	h := startWorker(t, f, &runner.Stub{}, withClock(clk))
+	h := startWorker(t, f, &stubRunner{}, withClock(clk))
 	f.waitFor("the failed registration", func() bool { return len(f.find(http.MethodPost, "/agents")) == 1 })
 	clk.BlockUntil(1)
 	clk.Advance(time.Second)
@@ -496,7 +496,7 @@ func TestRunFailures(t *testing.T) {
 		r    runner.Runner
 		want string
 	}{
-		{"runner error", &runner.Stub{Err: errors.New("clone failed")}, "harness-error: clone failed"},
+		{"runner error", &stubRunner{Err: errors.New("clone failed")}, "harness-error: clone failed"},
 		{"no result", runner.Func(func(context.Context, *runner.Job, runner.Sink) (runner.Outcome, error) {
 			return runner.Outcome{Status: runner.StatusFailed, Reason: runner.ReasonInvalidResult}, nil
 		}), "invalid-result"},
@@ -523,7 +523,7 @@ func TestCompleteRetries(t *testing.T) {
 	f := newFakeDispatcher(t)
 	clk := clock.NewFake(t0)
 	f.fail("POST /complete", http.StatusBadGateway)
-	h := startWorker(t, f, &runner.Stub{}, withClock(clk))
+	h := startWorker(t, f, &stubRunner{}, withClock(clk))
 	f.offer(testLease("1", nil))
 	f.waitFor("the failed complete", func() bool { return len(f.find(http.MethodPost, "/complete")) == 1 })
 	clk.BlockUntil(1) // the backoff (the heartbeats ended with the run; the loop waits for the slot)
@@ -538,7 +538,7 @@ func TestCompleteRetries(t *testing.T) {
 func TestConcurrencyAndLending(t *testing.T) {
 	f := newFakeDispatcher(t)
 	hold := make(chan struct{})
-	stub := &runner.Stub{Hold: hold}
+	stub := &stubRunner{Hold: hold}
 	started := stub.Started()
 	h := startWorker(t, f, stub, withLending(v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 2}))
 	f.offer(testLease("1", nil))
@@ -571,7 +571,7 @@ func TestNewValidates(t *testing.T) {
 	o := worker.Options{
 		Dispatcher: "http://127.0.0.1:1", Pool: "p", Host: "h", AgentVersion: "v",
 		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex"}}},
-		JoinToken:    func() (string, error) { return "", nil }, Owner: owner.TokenFunc(nil), Runner: &runner.Stub{},
+		JoinToken:    func() (string, error) { return "", nil }, Owner: owner.TokenFunc(nil), Runner: &stubRunner{},
 		LeaseWait: 90 * time.Second,
 	}
 	if _, err := worker.New(o); err == nil || !strings.Contains(err.Error(), "LeaseWait") {
@@ -585,7 +585,7 @@ func ptr[T any](v T) *T { return &v }
 // with that error and doesn't keep registering.
 func TestReregisterRefused(t *testing.T) {
 	f := newFakeDispatcher(t)
-	h := startWorker(t, f, &runner.Stub{})
+	h := startWorker(t, f, &stubRunner{})
 	f.waitFor("the first poll", func() bool { return len(f.find(http.MethodGet, "/lease")) == 1 })
 	f.revoke()
 	f.fail("POST /agents", http.StatusForbidden)

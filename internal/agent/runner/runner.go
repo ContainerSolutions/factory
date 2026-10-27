@@ -85,7 +85,6 @@ const (
 	ReasonLimit         = "limit"
 	ReasonInvalidResult = "invalid-result"
 	ReasonHarnessError  = "harness-error"
-	ReasonStackError    = "stack-error"
 	// ReasonEnvironmentError: the VM workspace's environment (spec.environment) didn't come up,
 	// or its system setup failed (workspace-run.md §The environment step).
 	ReasonEnvironmentError = "environment-error"
@@ -101,7 +100,7 @@ func Statuses() []string {
 // Reasons are every Outcome reason, without "" (no reason). A new reason constant goes here
 // too: the run bundle's outcome (runbundle) accepts only these.
 func Reasons() []string {
-	return []string{ReasonLimit, ReasonInvalidResult, ReasonHarnessError, ReasonStackError, ReasonEnvironmentError, ReasonCancelled}
+	return []string{ReasonLimit, ReasonInvalidResult, ReasonHarnessError, ReasonEnvironmentError, ReasonCancelled}
 }
 
 // Outcome is what a run ended with (run-pipeline.md).
@@ -110,7 +109,7 @@ type Outcome struct {
 	Result *v1alpha1.Result
 	// Status is done, failed, needs_input, noop or throttled.
 	Status string
-	// Reason qualifies a failure: limit, invalid-result, harness-error, stack-error,
+	// Reason qualifies a failure: limit, invalid-result, harness-error,
 	// environment-error, cancelled.
 	Reason string
 	// ThrottledUntil is when the harness's limit resets (Status throttled); nil when unknown.

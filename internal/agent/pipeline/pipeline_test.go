@@ -871,136 +871,42 @@ func TestRunCheckoutPR(t *testing.T) {
 	}
 }
 
-func TestRunNeedsStack(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	task := f.task()
-	task.Spec.Requires = &v1alpha1.Requires{Labels: []string{"has-local-stack"}}
-	task.Spec.Inputs = map[string]any{"train": "acme/workflows#1"}
-	out, err := f.pipeline().Run(context.Background(), f.job(task, time.Now()), &sink{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.Status != runner.StatusFailed || out.Reason != runner.ReasonStackError {
-		t.Fatalf("outcome %+v", out)
-	}
-	f.checkClean("")
-}
+// errFetch is the cause failSkills wraps.
+var errFetch = errors.New("fetch failed")
 
-// recordStack is a Stack that records its calls and the time Down had.
-type recordStack struct {
-	mu      sync.Mutex
-	ups     int
-	downs   int
-	downFor time.Duration
-}
-
-func (s *recordStack) Up(context.Context, harness.Workspace, v1alpha1.Task) (map[string]string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.ups++
-	return map[string]string{"FACTORY_STACK_URL": "http://localhost:8000", "FACTORY_STACK_API": "http://127.0.0.2:8080"}, nil
-}
-
-func (s *recordStack) Down(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.downs++
-	if dl, ok := ctx.Deadline(); ok {
-		s.downFor = time.Until(dl)
-	}
-	return nil
-}
-
-func TestRunWithStack(t *testing.T) {
-	t.Parallel()
-	f := newFixture(t)
-	st := &recordStack{}
-	f.opts.Stack = st
-	task := f.task()
-	task.Spec.Requires = &v1alpha1.Requires{Labels: []string{"has-local-stack"}}
-	task.Spec.Inputs = map[string]any{"verifyAgainst": map[string]any{"train": "acme/workflows#1"}}
-	f.adapter.Script = fake.Script{Turn: fake.Turn{
-		Do: func(_ context.Context, ws harness.Workspace, _ string) error {
-			if !slices.Contains(ws.Env, "FACTORY_STACK_URL=http://localhost:8000") {
-				t.Errorf("the harness's environment lacks the stack: %q", ws.Env)
-			}
-			// A sandboxed harness reaches the stack's UI and API hosts, besides the git host
-			// and the dispatcher (both the loopback here).
-			if !slices.Equal(ws.Hosts, []string{"127.0.0.1", "localhost", "127.0.0.2"}) {
-				t.Errorf("hosts %q", ws.Hosts)
-			}
-			return nil
-		},
-		Result: []byte(validResult),
-	}}
-	out, err := f.pipeline().Run(context.Background(), f.job(task, time.Now()), &sink{})
-	if err != nil || out.Status != runner.StatusDone {
-		t.Fatalf("outcome %+v %v", out, err)
-	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	// compose down (and the showcase's kind cluster) outlast the 30 s cleanup budget.
-	if st.ups != 1 || st.downs != 1 || st.downFor < pipeline.StackDownTimeout-time.Minute {
-		t.Errorf("stack ups %d downs %d, down had %s", st.ups, st.downs, st.downFor)
-	}
-	f.checkClean("")
-}
-
-// orderStack is a Stack that records its calls in a shared log.
-type orderStack struct{ record func(string) }
-
-func (s orderStack) Up(context.Context, harness.Workspace, v1alpha1.Task) (map[string]string, error) {
-	s.record("up")
-	return nil, nil
-}
-
-func (s orderStack) Down(context.Context) error {
-	s.record("down")
-	return nil
-}
-
-// errComposeUp is the cause failStack's Up wraps.
-var errComposeUp = errors.New("compose up failed")
-
-// failStack is a Stack whose Up fails with an error carrying the task's git token and a
+// failSkills is a SkillSource that fails with an error carrying the task's git token and a
 // token-shaped string, as untrusted command output can.
-type failStack struct{}
+type failSkills struct{}
 
-func (failStack) Up(context.Context, harness.Workspace, v1alpha1.Task) (map[string]string, error) {
-	return nil, fmt.Errorf("git clone https://x-access-token:%s@github.com/acme/docs (key sk-ant-api03-abcdefghijklmnopqrstuvwx): %w", gitSecret, errComposeUp)
+func (failSkills) Skills(context.Context, *runner.Job, string) (string, []harness.Skill, error) {
+	return "", nil, fmt.Errorf("git clone https://x-access-token:%s@github.com/acme/skills (key sk-ant-api03-abcdefghijklmnopqrstuvwx): %w", gitSecret, errFetch)
 }
-
-func (failStack) Down(context.Context) error { return nil }
 
 // TestRunOnStepRedacted: OnStep gets a failing step's error redacted, still matching its
 // cause with errors.Is.
 func TestRunOnStepRedacted(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	f.opts.Stack = failStack{}
+	f.opts.Skills = failSkills{}
 	var mu sync.Mutex
 	var got error
 	f.opts.OnStep = func(name string, _ time.Duration, err error) {
 		mu.Lock()
 		defer mu.Unlock()
-		if name == "stack" {
+		if name == "skills" {
 			got = err
 		} else if err != nil {
 			t.Errorf("step %s: %v", name, err)
 		}
 	}
-	task := f.task()
-	task.Spec.Requires = &v1alpha1.Requires{Labels: []string{"has-local-stack"}}
-	task.Spec.Inputs = map[string]any{"train": "acme/workflows#1"}
-	out, err := f.pipeline().Run(context.Background(), f.job(task, time.Now()), &sink{})
-	if err != nil || out.Status != runner.StatusFailed || out.Reason != runner.ReasonStackError {
+	out, err := f.pipeline().Run(context.Background(), f.job(f.task(), time.Now()), &sink{})
+	if err != nil || out.Status != runner.StatusFailed || out.Reason != runner.ReasonHarnessError {
 		t.Fatalf("outcome %+v %v", out, err)
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	if got == nil {
-		t.Fatal("OnStep got no error for the stack step")
+		t.Fatal("OnStep got no error for the skills step")
 	}
 	msg := got.Error()
 	for _, s := range []string{gitSecret, "sk-ant-api03-abcdefghijklmnopqrstuvwx"} {
@@ -1008,29 +914,26 @@ func TestRunOnStepRedacted(t *testing.T) {
 			t.Errorf("OnStep's error holds a secret %q: %s", s, msg)
 		}
 	}
-	if !strings.Contains(msg, pipeline.Redacted) || !strings.Contains(msg, "compose up failed") {
+	if !strings.Contains(msg, pipeline.Redacted) || !strings.Contains(msg, "fetch failed") {
 		t.Errorf("OnStep's error %q: want the redacted text", msg)
 	}
-	if !errors.Is(got, errComposeUp) {
-		t.Errorf("errors.Is(%v, errComposeUp) = false", got)
+	if !errors.Is(got, errFetch) {
+		t.Errorf("errors.Is(%v, errFetch) = false", got)
 	}
 	f.checkClean("")
 }
 
 // TestRunHooks: OnStep sees every step that ran, in order, with the failing step's error;
-// Finished gets the Outcome Run returns, after finish and before cleanup brings the stack
-// down and removes the workspace.
+// Finished gets the Outcome Run returns, after finish and before cleanup removes the
+// workspace.
 func TestRunHooks(t *testing.T) {
 	t.Parallel()
 	steps := func(names ...string) []string {
 		out := []string{}
 		for _, n := range names {
 			out = append(out, "step "+n)
-			if n == "clone" {
-				out = append(out, "up") // the stack step's Up, before it's reported
-			}
 		}
-		return append(out, "finished", "down")
+		return append(out, "finished")
 	}
 	tests := []struct {
 		name    string
@@ -1045,12 +948,12 @@ func TestRunHooks(t *testing.T) {
 				Turn:    fake.Turn{Result: []byte(invalidResult)},
 				Repairs: []fake.Turn{{Result: []byte(validResult)}},
 			},
-			want: steps("workspace", "credentials", "clone", "stack", "skills", "schema", "prompt", "env", "prepare", "harness", "repair", "finish"),
+			want: steps("workspace", "credentials", "clone", "skills", "schema", "prompt", "env", "prepare", "harness", "repair", "finish"),
 		},
 		{
 			name:    "the prompt fails",
 			mutate:  func(t *v1alpha1.Task) { t.Spec.Prompt.Digest = "sha256:00" },
-			want:    steps("workspace", "credentials", "clone", "stack", "skills", "schema", "prompt", "finish"),
+			want:    steps("workspace", "credentials", "clone", "skills", "schema", "prompt", "finish"),
 			errStep: "prompt",
 		},
 	}
@@ -1061,7 +964,6 @@ func TestRunHooks(t *testing.T) {
 			var mu sync.Mutex
 			var events []string
 			record := func(e string) { mu.Lock(); events = append(events, e); mu.Unlock() }
-			f.opts.Stack = orderStack{record: record}
 			f.opts.OnStep = func(name string, d time.Duration, err error) {
 				if (err != nil) != (name == tt.errStep) || d < 0 {
 					t.Errorf("step %s: %s, err %v", name, d, err)
@@ -1081,8 +983,6 @@ func TestRunHooks(t *testing.T) {
 			}
 			f.adapter.Script = tt.script
 			task := f.task()
-			task.Spec.Requires = &v1alpha1.Requires{Labels: []string{"has-local-stack"}}
-			task.Spec.Inputs = map[string]any{"train": "acme/workflows#1"}
 			if tt.mutate != nil {
 				tt.mutate(&task)
 			}

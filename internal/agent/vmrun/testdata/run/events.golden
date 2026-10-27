@@ -2,7 +2,6 @@
 {"v":1,"type":"step","at":"2026-10-22T09:00:00Z","step":{"name":"workspace","state":"ok","ms":0}}
 {"v":1,"type":"step","at":"2026-10-22T09:00:00Z","step":{"name":"credentials","state":"ok","ms":0}}
 {"v":1,"type":"step","at":"2026-10-22T09:00:00Z","step":{"name":"clone","state":"ok","ms":0}}
-{"v":1,"type":"step","at":"2026-10-22T09:00:00Z","step":{"name":"stack","state":"ok","ms":0}}
 {"v":1,"type":"step","at":"2026-10-22T09:00:00Z","step":{"name":"skills","state":"ok","ms":0}}
 {"v":1,"type":"step","at":"2026-10-22T09:00:00Z","step":{"name":"schema","state":"ok","ms":0}}
 {"v":1,"type":"step","at":"2026-10-22T09:00:00Z","step":{"name":"prompt","state":"ok","ms":0}}

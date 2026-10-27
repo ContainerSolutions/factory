@@ -25,8 +25,7 @@ const (
 	rowLabels       = 6 // requires.labels ⊆ agent labels → no-capable-agent
 	rowHarness      = 7 // patterns.Resolve → no-capable-agent
 	rowAntiAffinity = 8 // a reviewer task on its author's agent and harness → anti-affinity
-	rowLocalStack   = 9 // one has-local-stack task per agent → agent-busy
-	rowMatch        = 10
+	rowMatch        = 9
 )
 
 // ReasonNotInPool is Explain's answer for an agent that isn't a candidate at all: the task's
@@ -35,9 +34,6 @@ const ReasonNotInPool = "not-in-pool"
 
 // Names the matcher knows.
 const (
-	// LabelLocalStack marks tasks that need the agent's local stack; an agent runs one at a
-	// time.
-	LabelLocalStack = "has-local-stack"
 	// IdentityReviewer and IdentityAuthor are the TaskSpec identities anti-affinity compares.
 	IdentityReviewer = "reviewer"
 	IdentityAuthor   = "author"
@@ -186,13 +182,6 @@ func (sn *snapshot) check(t *v1alpha1.Task, a *v1alpha1.Agent) (verdict, error) 
 	}
 	if ok, err := sn.antiAffinity(t, ts, a, resolved.Name); err != nil || !ok {
 		return verdict{row: rowAntiAffinity, reason: ReasonAntiAffinity}, err
-	}
-	if slices.Contains(requiredLabels(t), LabelLocalStack) {
-		for _, r := range sn.runningByAgent[a.Metadata.Name] {
-			if r.Metadata.ID != t.Metadata.ID && slices.Contains(requiredLabels(r), LabelLocalStack) {
-				return verdict{row: rowLocalStack, reason: ReasonAgentBusy}, nil
-			}
-		}
 	}
 	return verdict{row: rowMatch, resolved: resolved, offer: offer}, nil
 }

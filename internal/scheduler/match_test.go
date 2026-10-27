@@ -188,28 +188,6 @@ func TestMatchingTable(t *testing.T) {
 			e.authored(a, "claude-code", "")
 			return e.task("tsk_a", "docs-review", nil).Metadata.ID, a
 		}, ""},
-		// 9. One has-local-stack task per agent.
-		{"9 local stack/none running", func(e *env) (string, string) {
-			e.cat.Pools[pocPool].Spec.Lease.MaxTasksPerAgent = 2
-			a, _ := e.registerWith("gus", "mbp", func(r *RegisterRequest) {
-				r.Lending = &v1alpha1.Lending{Unlimited: true, MaxConcurrent: 2}
-				r.Capabilities.Labels = []string{LabelLocalStack}
-			})
-			e.task("tsk_r1", "implement", running(a))
-			return e.task("tsk_a", "implement", func(t *v1alpha1.Task) {
-				t.Spec.Requires = &v1alpha1.Requires{Labels: []string{LabelLocalStack}}
-			}).Metadata.ID, a
-		}, ""},
-		{"9 local stack/another running", func(e *env) (string, string) {
-			e.cat.Pools[pocPool].Spec.Lease.MaxTasksPerAgent = 2
-			a, _ := e.registerWith("gus", "mbp", func(r *RegisterRequest) {
-				r.Lending = &v1alpha1.Lending{Unlimited: true, MaxConcurrent: 2}
-				r.Capabilities.Labels = []string{LabelLocalStack}
-			})
-			local := func(t *v1alpha1.Task) { t.Spec.Requires = &v1alpha1.Requires{Labels: []string{LabelLocalStack}} }
-			e.task("tsk_r1", "implement", func(t *v1alpha1.Task) { running(a)(t); local(t) })
-			return e.task("tsk_a", "implement", local).Metadata.ID, a
-		}, ReasonAgentBusy},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

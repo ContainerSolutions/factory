@@ -123,7 +123,7 @@ func TestAgainstFactoryMock(t *testing.T) {
 	}
 	rec := &recorder{}
 	logs := &logBuffer{}
-	stub := &runner.Stub{
+	stub := &stubRunner{
 		Outcome:  runner.Outcome{Result: &v1alpha1.Result{Status: v1alpha1.ResultDone, Outcome: "triaged", Summary: "labelled area/docs"}},
 		Progress: []v1alpha1.ProgressEvent{{At: time.Now().UTC(), Kind: "turn", Message: "triaging"}},
 	}
