@@ -1,2 +1,5 @@
 lisa-addressed:
 review PRRT_kwDOVK0lgs6wxG1y (CORE-DUP-001): config.Poll.validate parses the strings and calls worker.Poll.Validate (typed *PollError{Field, Value, Reason}), reported as poll.<field>; config's MaxPollWait/MinPollInterval removed. Held nit: a unit-less "0" is refused for poll.wait and poll.interval.
+
+lisa-design:
+- Superseded by review PRRT_kwDOVK0lgs6wxG1y (reviewer-directed): config now imports worker and checks the poll block with worker.Poll.Validate; the rules live only in worker. config owns only the duration syntax (a unit is required) and the 30s/0s defaults.
