@@ -1,0 +1,3 @@
+lisa-selfreview:
+Pass 1 (lenient, final): approve. CORE-GEN-001: make generate and web gen:api regenerated; web
+reviewable passes. Pool.admission kept (UI reads owners): see the PR body.
