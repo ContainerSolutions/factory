@@ -315,12 +315,12 @@ func TestKataInitHelperRequired(t *testing.T) {
 				}
 				return
 			}
-			if !strings.Contains(err.Error(), katahelper.HelperPath) {
-				t.Errorf("err %v, want the privileges status's detail", err)
-			}
 			var he *HelperRequiredError
 			if !errors.As(err, &he) || !strings.Contains(err.Error(), tt.err) || strings.Join(he.Steps, ",") != strings.Join(tt.steps, ",") {
 				t.Fatalf("err %v, want a HelperRequiredError with %q for %v", err, tt.err, tt.steps)
+			}
+			if !strings.Contains(err.Error(), katahelper.HelperPath) {
+				t.Errorf("err %v, want the privileges status's detail", err)
 			}
 			// nothing asked, planned or changed: no prompt, no plan, no sudo, no helper call
 			if prompts != 0 || out.Len() != 0 || r.ran("sudo /bin/sh") != 0 || r.ran("sudo -n "+e.sys(katahelper.HelperPath)) != 0 {
