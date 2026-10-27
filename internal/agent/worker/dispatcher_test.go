@@ -142,9 +142,12 @@ func startServe(t *testing.T, githubURL string) *served {
 	}
 }
 
-// stop sends SIGTERM and waits for a clean exit.
+// stop sends SIGTERM and waits for a clean exit. It closes the default transport's idle
+// connections first: one dialled for a request but never used is new on the server, which
+// counts it as active for 5 s, the whole --shutdown-timeout.
 func (s *served) stop(t *testing.T) {
 	t.Helper()
+	http.DefaultTransport.(*http.Transport).CloseIdleConnections()
 	if err := s.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
@@ -472,8 +475,5 @@ func TestBriefPollAgainstRealDispatcher(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("Run didn't return after Drain")
 	}
-	// A connection dialled for a poll but never used stays new on the server, which counts it
-	// as active for 5 s and would hold serve's shutdown: close the idle ones first.
-	http.DefaultTransport.(*http.Transport).CloseIdleConnections()
 	d.stop(t)
 }

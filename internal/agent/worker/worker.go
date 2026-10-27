@@ -1,7 +1,8 @@
 // Package worker is factory-agent's worker loop (supervise.md §The worker loop): it registers
 // with the dispatcher (its refresh token, else the one-time enrollment token), polls for leases
-// (a long poll by default, or a brief poll and a sleep: Poll), runs each leased task through a runner.Runner while heartbeating, reports the
-// Outcome (complete, abandon, throttle), and drains on SIGTERM.
+// (a long poll by default, or a brief poll and a sleep: Poll), runs each leased task through a
+// runner.Runner while heartbeating, reports the Outcome (complete, abandon, throttle), and
+// drains on SIGTERM.
 //
 // The agent token lives in memory only: a restart registers again with the refresh token, which
 // rotates on each registration. Tokens are never logged.
