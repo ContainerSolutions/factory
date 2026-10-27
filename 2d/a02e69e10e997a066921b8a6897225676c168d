@@ -30,3 +30,8 @@ When `cmd.CombinedOutput()` fails before the child starts, `cmd.ProcessState` is
 **Severity basis:** no rule matched; decision tree: none of the tree questions.
 
 <sub>ccf-review · 8951d8aa962e · rules@fe7cb9dc86ce</sub>
+
+lisa-design:
+- Interrupt errors are *host.InterruptedError: text "interrupted" or "interrupted: <err>" (the cause said once, no "(interrupt signal received)" suffix), Unwrap gives err and context.Cause, so errors.Is(err, context.Canceled) holds.
+- An interrupt during Init's first check returns nil statuses and the InterruptedError before any prompt/plan/apply; host check interrupted prints only "factory-agent host check: interrupted", exit 1.
+- buildVM's interrupted line is worded by whether tart run is still running (proc set and not exited): stop+delete (up to 30s to stop it), --keep-failed stop, or a quick delete; nothing for --keep-failed with no VM running.
