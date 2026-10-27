@@ -220,6 +220,28 @@ making the advisory `e2e container` job required (a container can't prove tart o
 its log upload on a timeout; a memory budget beyond `workspace.size` (limits are hard-capped by
 design: a bigger task runs on a host whose `workspace.size` is bigger).
 
+## Real-host checks on the workstation (kata), 2026-10-27
+
+Stacks 3 and 4, at main 6a3a3f6.
+- **Passed:**
+  - #214: `--only kataimage` without the helper fails at once.
+  - #204: a declined privileges prompt skips the image steps and exits 1.
+  - #202: Ctrl-C during the image build and during `warm-load` leaves nothing running, and the
+    build dir is empty.
+  - #217: the workspace hostname resolves, with no "unable to resolve host".
+  - #216, kata path: tasks ran normally.
+  - #197: the nft table follows `gatewayPort: 3129`.
+  - #208/#213: `limits: {cpus: 2, memory: 4Gi}` gives a 2-vCPU, 4 GiB VM, and a larger request
+    is capped at `workspace.size` with the notice.
+  - T6: an agent-only rebuild applies nothing, and the next workspace runs the new binary.
+- **Skipped** (Gustavo's call): #215's Ctrl-C of supervise. Its tests cover it.
+- **Found:**
+  - After a Ctrl-C, `host init`'s final check reported healthy steps as wrong.
+  - The interrupted warm build's cleanup ran silently, so a second Ctrl-C left the build
+    workspace behind.
+  - **#221** fixes both. It also prints "interrupted: …" lines, makes a second Ctrl-C exit at
+    once, and makes an interrupted `host check` say so.
+
 ## Dropped at the closing phase (2026-10-27)
 
 When the factory entered its closing phase, the backlog was cut to the next workstreams
