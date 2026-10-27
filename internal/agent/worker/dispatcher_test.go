@@ -11,7 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -258,7 +260,7 @@ func TestAgainstRealDispatcher(t *testing.T) {
 		Lending:    v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 1},
 		Enrollment: enr,
 		Runner:     stub,
-		LeaseWait:  5 * time.Second,
+		Poll:       worker.Poll{Wait: 5 * time.Second},
 		Logger:     slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	})
 	if err != nil {
@@ -327,4 +329,151 @@ func TestAgainstRealDispatcher(t *testing.T) {
 			t.Errorf("a secret is in the dispatcher logs: %q", s)
 		}
 	}
+}
+
+// leasePolls is an HTTP client that records each lease poll in the order it was sent, with its
+// wait and the answer's status.
+type leasePolls struct {
+	mu    sync.Mutex
+	polls []leasePoll
+}
+
+type leasePoll struct {
+	wait   string
+	status int // 0 until answered
+}
+
+func (p *leasePolls) Do(req *http.Request) (*http.Response, error) {
+	if req.Method != http.MethodGet || !strings.HasSuffix(req.URL.Path, "/lease") {
+		return http.DefaultTransport.RoundTrip(req)
+	}
+	p.mu.Lock()
+	i := len(p.polls)
+	p.polls = append(p.polls, leasePoll{wait: req.URL.Query().Get("wait")})
+	p.mu.Unlock()
+	res, err := http.DefaultTransport.RoundTrip(req)
+	if err == nil {
+		p.mu.Lock()
+		p.polls[i].status = res.StatusCode
+		p.mu.Unlock()
+	}
+	return res, err
+}
+
+func (p *leasePolls) all() []leasePoll {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.polls)
+}
+
+// TestBriefPollAgainstRealDispatcher runs a brief-polling worker (wait 0s, a 2 s interval)
+// against the real dispatcher (P3 §Agents poll briefly): each idle poll is answered 204 at
+// once, with wait=0s on the wire, and a task created while the agent sleeps its interval is
+// leased on its next poll.
+func TestBriefPollAgainstRealDispatcher(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs factory serve")
+	}
+	ctx := context.Background()
+	d := startServe(t, noGitHub(t))
+	cli, admin := cliClient(t, d.URL)
+	enr, _ := enrolled(t, d.URL, "brief")
+	stub := &stubRunner{Outcome: runner.Outcome{Result: &v1alpha1.Result{
+		Status: v1alpha1.ResultDone, Outcome: "single", Summary: "one issue",
+		Harness: &v1alpha1.ResultHarness{Name: "codex", EffectiveConfig: v1alpha1.EffectiveConfig{Model: "gpt-5-codex"}},
+		Data:    map[string]any{"plan": []any{}},
+	}}}
+	started := stub.Started()
+	polls := &leasePolls{}
+	w, err := worker.New(worker.Options{
+		Dispatcher: d.URL, Pool: "local", Host: "brief", AgentVersion: "test",
+		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{
+			Name: "codex", Auth: "subscription", Models: []string{"gpt-5-codex"}, ReasoningEffort: []string{"high"},
+		}}},
+		Lending:    v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 1},
+		Enrollment: enr,
+		Runner:     stub,
+		HTTPClient: polls,
+		Poll:       worker.Poll{Interval: 2 * time.Second},
+		Logger:     slog.New(slog.NewJSONHandler(&logBuffer{}, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- w.Run(ctx) }()
+
+	// Idle: two polls, each answered 204 at once and an interval apart.
+	start := time.Now()
+	eventually(t, "two idle polls answered", func() bool {
+		p := polls.all()
+		return len(p) >= 2 && p[1].status != 0
+	})
+	if el := time.Since(start); el < 2*time.Second {
+		t.Errorf("two polls in %s: the agent didn't sleep the interval after the 204", el)
+	}
+	for i, p := range polls.all()[:2] {
+		if p.status != http.StatusNoContent {
+			t.Errorf("idle poll %d answered %d, want 204", i+1, p.status)
+		}
+	}
+
+	// A task created while the agent sleeps: the webhook creates the plan-epic task.
+	body, err := os.ReadFile(filepath.Join("testdata", "issue-opened.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.Post(d.URL+"/hooks/"+ghProvider, "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusAccepted {
+		t.Fatalf("webhook: %s", res.Status)
+	}
+	var sent int // polls sent before the task was seen pending
+	eventually(t, "the task to be pending (or leased)", func() bool {
+		sent = len(polls.all())
+		r, err := cli.ListTasksWithResponse(ctx, &apiclient.ListTasksParams{}, admin)
+		return err == nil && r.JSON200 != nil && len(r.JSON200.Items) > 0
+	})
+	var job *runner.Job
+	select {
+	case job = <-started:
+	case err := <-done:
+		t.Fatalf("Run returned: %v\n%s", err, d.logs)
+	case <-time.After(30 * time.Second):
+		t.Fatalf("no lease; polls %+v", polls.all())
+	}
+	if job.Lease.Task.Spec.TaskSpec.Name != "plan-epic" {
+		t.Fatalf("leased %s", job.Lease.Task.Spec.TaskSpec.Name)
+	}
+	all := polls.all()
+	leased := slices.IndexFunc(all, func(p leasePoll) bool { return p.status == http.StatusOK })
+	if leased < 0 || leased > sent {
+		t.Errorf("leased on poll %d, but %d polls were sent before the task was pending: want it on the next one (polls %+v)", leased+1, sent, all)
+	}
+	for i, p := range all {
+		if p.wait != "0s" {
+			t.Errorf("poll %d sent wait=%q, want 0s", i+1, p.wait)
+		}
+	}
+	eventually(t, "the task to succeed", func() bool {
+		r, err := cli.GetTaskWithResponse(ctx, job.TaskID(), admin)
+		return err == nil && r.JSON200 != nil && r.JSON200.Status.Phase == v1alpha1.TaskSucceeded
+	})
+
+	w.Drain()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run = %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Run didn't return after Drain")
+	}
+	// A connection dialled for a poll but never used stays new on the server, which counts it
+	// as active for 5 s and would hold serve's shutdown: close the idle ones first.
+	http.DefaultTransport.(*http.Transport).CloseIdleConnections()
+	d.stop(t)
 }

@@ -403,6 +403,7 @@ type leaseDispatcher struct {
 	offered  int
 	complete []apiclient.CompleteRequest
 	lending  []v1alpha1.Lending
+	waits    []string // each lease poll's wait
 }
 
 func (l *leaseDispatcher) serve(w http.ResponseWriter, r *http.Request) {
@@ -430,6 +431,7 @@ func (l *leaseDispatcher) serve(w http.ResponseWriter, r *http.Request) {
 		reply(http.StatusCreated, apiclient.AgentRegistration{AgentId: "agt_gus-cmd-test", AgentToken: "agt_gus-cmd-test.secret", ExpiresAt: time.Now().Add(time.Hour), RefreshToken: &rt})
 	case r.Method == http.MethodGet && strings.HasSuffix(p, "/lease"):
 		l.mu.Lock()
+		l.waits = append(l.waits, r.URL.Query().Get("wait"))
 		var next *apiclient.Lease
 		if l.offered < len(l.leases) {
 			next = &l.leases[l.offered]
@@ -440,9 +442,11 @@ func (l *leaseDispatcher) serve(w http.ResponseWriter, r *http.Request) {
 			reply(http.StatusOK, *next)
 			return
 		}
-		select {
-		case <-r.Context().Done():
-		case <-time.After(time.Second):
+		if r.URL.Query().Get("wait") != "0s" {
+			select {
+			case <-r.Context().Done():
+			case <-time.After(time.Second):
+			}
 		}
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodPost && strings.HasSuffix(p, "/heartbeat"):
@@ -475,6 +479,12 @@ func (l *leaseDispatcher) lendings() []v1alpha1.Lending {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return slices.Clone(l.lending)
+}
+
+func (l *leaseDispatcher) polls() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.waits)
 }
 
 func (l *leaseDispatcher) completed() []apiclient.CompleteRequest {
@@ -551,6 +561,55 @@ func TestSuperviseOneLease(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(s.state, "runs", "tsk_sup1")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the run directory is left: %v", err)
+	}
+}
+
+// supervise passes agent.yaml's poll block to the worker: with none, the long poll
+// (wait=30s); with wait: 0s, each poll sends wait=0s and an idle agent sleeps the interval
+// between polls (P3 §Agents poll briefly).
+func TestSupervisePoll(t *testing.T) {
+	tests := []struct {
+		name     string
+		block    string
+		wantWait string
+		// minGap is the least time between the first two polls.
+		minGap time.Duration
+	}{
+		{"no poll block: the long poll", "", "30s", 0},
+		{"a brief poll", "poll: {wait: 0s, interval: 1s}\n", "0s", time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			disp := &leaseDispatcher{next: http.NotFoundHandler()}
+			ts := httptest.NewServer(http.HandlerFunc(disp.serve))
+			t.Cleanup(ts.Close)
+			s := newSupervisedTest(t, ts.URL)
+			s.cfg = writeConfig(t, s.dir, ts.URL, tt.block)
+			sigs := make(chan os.Signal, 1)
+			s.deps.Worker.Signals = sigs
+			errOut := &syncBuffer{}
+			code := make(chan int, 1)
+			go func() { code <- runSupervise(context.Background(), s.args(), errOut, s.deps) }()
+			start := time.Now()
+			waitUntil(t, "two polls", func() bool { return len(disp.polls()) >= 2 })
+			if gap := time.Since(start); gap < tt.minGap {
+				t.Errorf("two polls in %s, want at least %s apart", gap, tt.minGap)
+			}
+			sigs <- syscall.SIGTERM
+			select {
+			case c := <-code:
+				if c != 0 {
+					t.Fatalf("supervise exited %d\n%s", c, errOut.String())
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatalf("supervise didn't drain\n%s", errOut.String())
+			}
+			for i, w := range disp.polls() {
+				if w != tt.wantWait {
+					t.Errorf("poll %d sent wait=%q, want %q", i+1, w, tt.wantWait)
+				}
+			}
+		})
 	}
 }
 

@@ -435,6 +435,7 @@ func TestRegisterRefused(t *testing.T) {
 		Dispatcher: f.URL(), Pool: "local", Host: "e2e", AgentVersion: "test",
 		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex"}}},
 		Runner:       &stubRunner{},
+		Poll:         worker.DefaultPoll(),
 	}
 	o := base
 	o.Enrollment = &memEnrollment{enroll: "enr_wrong", f: f}
@@ -561,14 +562,123 @@ func TestNewValidates(t *testing.T) {
 	if _, err := worker.New(worker.Options{}); err == nil || !strings.Contains(err.Error(), "Runner") {
 		t.Errorf("New({}) = %v", err)
 	}
-	o := worker.Options{
-		Dispatcher: "http://127.0.0.1:1", Pool: "p", Host: "h", AgentVersion: "v",
-		Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex"}}},
-		Enrollment:   &memEnrollment{}, Runner: &stubRunner{},
-		LeaseWait: 90 * time.Second,
+	tests := []struct {
+		name string
+		poll worker.Poll
+		want string // "" when valid
+	}{
+		{"the long poll", worker.DefaultPoll(), ""},
+		{"a brief poll", worker.Poll{Interval: time.Second}, ""},
+		{"the dispatcher's longest wait", worker.Poll{Wait: 60 * time.Second}, ""},
+		{"a long poll with an interval", worker.Poll{Wait: 5 * time.Second, Interval: 500 * time.Millisecond}, ""},
+		{"the zero Poll: a hot loop", worker.Poll{}, "at least 1s"},
+		{"a zero wait, an interval under 1s", worker.Poll{Interval: 999 * time.Millisecond}, "at least 1s"},
+		{"a wait over 60s", worker.Poll{Wait: 90 * time.Second}, "whole seconds"},
+		{"a negative wait", worker.Poll{Wait: -time.Second, Interval: time.Second}, "whole seconds"},
+		{"a wait not in whole seconds", worker.Poll{Wait: 1500 * time.Millisecond}, "whole seconds"},
+		{"a negative interval", worker.Poll{Wait: time.Second, Interval: -time.Second}, "negative"},
 	}
-	if _, err := worker.New(o); err == nil || !strings.Contains(err.Error(), "LeaseWait") {
-		t.Errorf("New(LeaseWait 90s) = %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := worker.Options{
+				Dispatcher: "http://127.0.0.1:1", Pool: "p", Host: "h", AgentVersion: "v",
+				Capabilities: v1alpha1.AgentCapabilities{Harnesses: []v1alpha1.HarnessOffer{{Name: "codex"}}},
+				Enrollment:   &memEnrollment{}, Runner: &stubRunner{},
+				Poll: tt.poll,
+			}
+			_, err := worker.New(o)
+			switch {
+			case tt.want == "" && err != nil:
+				t.Errorf("New(Poll %+v) = %v", tt.poll, err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Errorf("New(Poll %+v) = %v, want an error with %q", tt.poll, err, tt.want)
+			}
+		})
+	}
+}
+
+// The poll settings reach the wire, and only a poll with an interval sleeps after a 204: a
+// zero wait is sent as wait=0s (not the long poll's default), and the defaults keep the long
+// poll (wait=30s, polling again at once).
+func TestPollWait(t *testing.T) {
+	tests := []struct {
+		name     string
+		poll     worker.Poll
+		wantWait string
+	}{
+		{"the defaults: the long poll", worker.DefaultPoll(), "30s"},
+		{"a brief poll", worker.Poll{Interval: time.Second}, "0s"},
+		{"a shorter long poll and an interval", worker.Poll{Wait: 5 * time.Second, Interval: 2 * time.Second}, "5s"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFakeDispatcher(t)
+			f.mu.Lock()
+			f.park = 10 * time.Millisecond // a long poll's 204 comes quickly
+			f.mu.Unlock()
+			clk := clock.NewFake(t0)
+			h := startWorker(t, f, &stubRunner{}, withClock(clk), withPoll(tt.poll))
+			polls := func() int { return len(f.find(http.MethodGet, "/lease")) }
+			f.waitFor("the first poll", func() bool { return polls() >= 1 })
+			if tt.poll.Interval == 0 {
+				// The clock never moves: each 204 polls again at once.
+				f.waitFor("polls again at once", func() bool { return polls() >= 3 })
+			} else {
+				clk.BlockUntil(1) // the interval's sleep
+				clk.Advance(tt.poll.Interval - time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
+				if n := polls(); n != 1 {
+					t.Fatalf("%d polls before the interval ended, want 1", n)
+				}
+				clk.Advance(time.Millisecond)
+				f.waitFor("the poll after the interval", func() bool { return polls() == 2 })
+			}
+			if err := h.stop(t); err != nil {
+				t.Fatal(err)
+			}
+			for _, c := range f.find(http.MethodGet, "/lease") {
+				if c.Wait != tt.wantWait {
+					t.Errorf("a poll sent wait=%q, want %q", c.Wait, tt.wantWait)
+				}
+			}
+		})
+	}
+}
+
+// A brief poll that gets a task polls again at once, so free slots fill; only a 204 sleeps
+// the interval, and a drain ends the sleep.
+func TestBriefPollLeasePollsAgainAtOnce(t *testing.T) {
+	f := newFakeDispatcher(t)
+	clk := clock.NewFake(t0)
+	hold := make(chan struct{})
+	stub := &stubRunner{Hold: hold}
+	started := stub.Started()
+	h := startWorker(t, f, stub, withClock(clk), withPoll(worker.Poll{Interval: 10 * time.Second}),
+		withLending(v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 2}))
+	polls := func() int { return len(f.find(http.MethodGet, "/lease")) }
+	f.waitFor("the first poll", func() bool { return polls() == 1 })
+	clk.BlockUntil(1) // the interval's sleep after the 204
+	f.offer(testLease("1", nil))
+	clk.Advance(10 * time.Second)
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("no lease on the poll after the interval; calls %v", f.Calls())
+	}
+	// The second poll leased; the third follows with the clock unmoved, and gets a 204.
+	f.waitFor("a poll at once after the lease", func() bool { return polls() == 3 })
+	time.Sleep(50 * time.Millisecond)
+	if n := polls(); n != 3 {
+		t.Fatalf("%d polls: the 204 after the lease didn't sleep the interval", n)
+	}
+	close(hold)
+	f.waitFor("complete", func() bool { return len(f.find(http.MethodPost, "/complete")) == 1 })
+	// Drained while it sleeps the interval: Run returns without the clock moving.
+	if err := h.stop(t); err != nil {
+		t.Fatal(err)
+	}
+	if n := polls(); n != 3 {
+		t.Errorf("%d polls after the drain, want 3", n)
 	}
 }
 

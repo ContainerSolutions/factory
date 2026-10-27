@@ -31,7 +31,9 @@ const (
 // call is one request the fake dispatcher saw.
 type call struct {
 	Method, Path, Auth, Enroll, Refresh string
-	Body                                []byte
+	// Wait is the query's wait (a lease poll's).
+	Wait string
+	Body []byte
 }
 
 func (c call) String() string { return c.Method + " " + c.Path }
@@ -54,11 +56,14 @@ type fakeDispatcher struct {
 	// enrollToken registers once; refresh is the current refresh token (P1 §6).
 	enrollToken, refresh string
 	refreshes            int
+	// park is the longest a lease poll is held with no lease; default 5 s. A poll with
+	// wait=0s isn't held.
+	park time.Duration
 }
 
 func newFakeDispatcher(t *testing.T) *fakeDispatcher {
 	t.Helper()
-	f := &fakeDispatcher{t: t, leases: make(chan apiclient.Lease, 8), failNext: map[string][]int{}, changed: make(chan struct{})}
+	f := &fakeDispatcher{t: t, leases: make(chan apiclient.Lease, 8), failNext: map[string][]int{}, changed: make(chan struct{}), park: 5 * time.Second}
 	f.ts = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.ts.Close)
 	return f
@@ -160,7 +165,8 @@ func (f *fakeDispatcher) serve(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	path := strings.TrimPrefix(r.URL.Path, worker.BasePath)
 	c := call{Method: r.Method, Path: path, Auth: r.Header.Get("Authorization"),
-		Enroll: r.Header.Get(worker.HeaderEnrollmentToken), Refresh: r.Header.Get(worker.HeaderAgentRefreshToken), Body: body}
+		Enroll: r.Header.Get(worker.HeaderEnrollmentToken), Refresh: r.Header.Get(worker.HeaderAgentRefreshToken),
+		Wait: r.URL.Query().Get("wait"), Body: body}
 	f.record(c) // at arrival: a parked poll counts while it waits
 
 	seg := strings.Split(strings.Trim(path, "/"), "/")
@@ -204,11 +210,23 @@ func (f *fakeDispatcher) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case r.Method == http.MethodGet && path == "/agents/"+agentID+"/lease":
+		f.mu.Lock()
+		park := f.park
+		f.mu.Unlock()
+		if c.Wait == "0s" { // one look, as the scheduler's single pass
+			select {
+			case l := <-f.leases:
+				writeJSON(w, http.StatusOK, l)
+			default:
+				w.WriteHeader(http.StatusNoContent)
+			}
+			return
+		}
 		select {
 		case l := <-f.leases:
 			writeJSON(w, http.StatusOK, l)
 		case <-r.Context().Done():
-		case <-time.After(5 * time.Second):
+		case <-time.After(park):
 			w.WriteHeader(http.StatusNoContent)
 		}
 	case r.Method == http.MethodPatch && path == "/agents/"+agentID:
@@ -286,6 +304,8 @@ func withClock(c clock.Clock) harnessOpt { return func(o *worker.Options) { o.Cl
 
 func withLending(l v1alpha1.Lending) harnessOpt { return func(o *worker.Options) { o.Lending = l } }
 
+func withPoll(p worker.Poll) harnessOpt { return func(o *worker.Options) { o.Poll = p } }
+
 func startWorker(t *testing.T, f *fakeDispatcher, r runner.Runner, opts ...harnessOpt) *harness {
 	t.Helper()
 	h := &harness{f: f, logs: &logBuffer{}, done: make(chan error, 1)}
@@ -301,6 +321,7 @@ func startWorker(t *testing.T, f *fakeDispatcher, r runner.Runner, opts ...harne
 		Lending:      v1alpha1.Lending{Queues: []string{"poc"}},
 		Enrollment:   h.enr,
 		Runner:       r,
+		Poll:         worker.DefaultPoll(),
 		Logger:       slog.New(slog.NewJSONHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}
 	for _, opt := range opts {

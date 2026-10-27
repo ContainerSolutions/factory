@@ -1,6 +1,7 @@
 // Package config is factory-agent's local, owner-controlled configuration
 // (design/workstreams/agent/LLD/supervise.md §The local config): the dispatcher, the pool, the
-// enrollment token file, labels, the harnesses' dedicated config dirs, and the owner's lending consent.
+// enrollment token file, labels, the harnesses' dedicated config dirs, the owner's lending
+// consent, and how the agent polls for tasks.
 //
 // The file is YAML 1.2 decoded strictly, the way v1alpha1 decodes the catalog: YAML → JSON →
 // encoding/json with DisallowUnknownFields, so unknown keys, duplicate keys and non-string keys
@@ -23,6 +24,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -76,6 +78,9 @@ type Config struct {
 	Lending v1alpha1.Lending `json:"lending"`
 	// Workspace is the VM workspace setup; `factory-agent host` reads only this block.
 	Workspace *Workspace `json:"workspace,omitzero"`
+	// Poll is how the lease loop asks the dispatcher for tasks; Parse fills its defaults
+	// (the long poll).
+	Poll Poll `json:"poll,omitzero"`
 
 	// Path is the file the config was read from (not a config key).
 	Path string `json:"-"`
@@ -91,6 +96,56 @@ type Harness struct {
 	Efforts []string `json:"efforts,omitzero"`
 	// Default is the model used when a task asks for none; one of Models.
 	Default string `json:"default,omitzero"`
+}
+
+// The poll block's defaults (the long poll) and bounds (P3 §Agents poll briefly).
+const (
+	// DefaultPollWait is poll.wait's default, the long poll's.
+	DefaultPollWait = "30s"
+	// DefaultPollInterval is poll.interval's default: poll again at once after a 204.
+	DefaultPollInterval = "0s"
+	// MaxPollWait is the longest poll.wait (the dispatcher's cap).
+	MaxPollWait = 60 * time.Second
+	// MinPollInterval is the shortest poll.interval a wait of 0s may have.
+	MinPollInterval = time.Second
+)
+
+// Poll is how supervise's lease loop asks the dispatcher for tasks (P3 §Agents poll briefly).
+// The defaults keep the long poll; an agent of a dispatcher where idle time must cost nothing
+// sets wait: 0s and an interval such as 30s.
+type Poll struct {
+	// Wait is how long each LeaseTask asks the dispatcher to hold the request: whole seconds
+	// from 0s to 60s. Default 30s. A wait of 0s needs an interval of at least 1s.
+	Wait string `json:"wait,omitzero"`
+	// Interval is how long an idle agent sleeps after a 204 before it polls again; never
+	// negative. Default 0s. A poll that gets a task polls again at once.
+	Interval string `json:"interval,omitzero"`
+}
+
+// WaitDuration is poll.wait; 0 when it isn't valid (Parse refuses it then).
+func (p Poll) WaitDuration() time.Duration { d, _ := time.ParseDuration(p.Wait); return d }
+
+// IntervalDuration is poll.interval; 0 when it isn't valid (Parse refuses it then).
+func (p Poll) IntervalDuration() time.Duration { d, _ := time.ParseDuration(p.Interval); return d }
+
+// validate checks a poll block with its defaults filled.
+func (p Poll) validate() []string {
+	var probs []string
+	add := func(format string, args ...any) { probs = append(probs, fmt.Sprintf("poll."+format, args...)) }
+	wait, werr := time.ParseDuration(p.Wait)
+	if werr != nil || wait < 0 || wait > MaxPollWait || wait%time.Second != 0 {
+		add("wait: %q must be whole seconds from 0s to %ds", p.Wait, int(MaxPollWait/time.Second))
+	}
+	interval, ierr := time.ParseDuration(p.Interval)
+	switch {
+	case ierr != nil:
+		add("interval: %q is not a duration (like 30s)", p.Interval)
+	case interval < 0:
+		add("interval: %q must not be negative", p.Interval)
+	case werr == nil && wait == 0 && interval < MinPollInterval:
+		add("interval: %q: a wait of 0s needs an interval of at least %s, or the agent polls in a hot loop", p.Interval, MinPollInterval)
+	}
+	return probs
 }
 
 // ValidationError lists every problem found in a config, each prefixed with its key.
@@ -241,6 +296,12 @@ func (c *Config) complete(o Options) error {
 	if c.WorkRoot == "" {
 		c.WorkRoot = DefaultWorkRoot
 	}
+	if c.Poll.Wait == "" {
+		c.Poll.Wait = DefaultPollWait
+	}
+	if c.Poll.Interval == "" {
+		c.Poll.Interval = DefaultPollInterval
+	}
 	c.Dispatcher = strings.TrimRight(c.Dispatcher, "/")
 	if c.Host == "" {
 		h, err := o.Hostname()
@@ -336,6 +397,7 @@ func (c *Config) validate() []string {
 	if c.Workspace != nil {
 		probs = append(probs, c.Workspace.validate()...)
 	}
+	probs = append(probs, c.Poll.validate()...)
 	return probs
 }
 

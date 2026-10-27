@@ -135,6 +135,7 @@ func TestAgainstFactoryMock(t *testing.T) {
 		Enrollment:   enr,
 		Runner:       stub,
 		HTTPClient:   rec,
+		Poll:         worker.DefaultPoll(),
 		Logger:       slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	})
 	if err != nil {
