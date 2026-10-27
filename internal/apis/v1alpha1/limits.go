@@ -31,8 +31,9 @@ var (
 )
 
 // Validate checks the workspace size a task asks for: cpus at least 1 and memory a whole
-// number of GiB, at least WorkspaceMinMemoryGiB (limitsMemoryMinPattern), each when set. A nil Limits is valid. That the size is at most the
-// agent's workspace.size is the agent's to enforce (it caps the request).
+// number of GiB, at least WorkspaceMinMemoryGiB (limitsMemoryMinPattern), each when set. A nil
+// Limits is valid. That the size is at most the agent's workspace.size is the agent's to
+// enforce (it caps the request).
 func (l *Limits) Validate() error {
 	if l == nil {
 		return nil
