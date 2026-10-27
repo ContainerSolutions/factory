@@ -13,6 +13,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/effector"
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
 	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 )
 
@@ -72,11 +73,8 @@ func newWorkspace(t *testing.T, mut func(*pipeline.EffectorConfig)) *workspace {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, wrapper, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+gitcred.ShellQuote(w.argv)+"\n"+
-		"printf 'GH_TOKEN=%s\\n' \"${GH_TOKEN:+set}\" >> "+gitcred.ShellQuote(w.argv)+"\nexec "+gitcred.ShellQuote(gitBin)+" \"$@\"\n")
-	if err := os.Chmod(wrapper, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	exectest.Write(t, wrapper, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+gitcred.ShellQuote(w.argv)+"\n"+
+		"printf 'GH_TOKEN=%s\\n' \"${GH_TOKEN:+set}\" >> "+gitcred.ShellQuote(w.argv)+"\nexec "+gitcred.ShellQuote(gitBin)+" \"$@\"\n", 0o755)
 	w.gitBin = wrapper
 	w.env = []string{
 		"PATH=" + filepath.Dir(wrapper) + string(filepath.ListSeparator) + os.Getenv("PATH"),

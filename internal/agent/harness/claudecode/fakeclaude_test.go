@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
+	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
 )
 
 // The test binary doubles as a fake claude (never the real one), as the child process a fake
@@ -137,9 +138,7 @@ func newFakeClaude(t *testing.T, plan fakePlan) *fakeClaude {
 	}
 	f.Binary = filepath.Join(f.dir, "claude")
 	script := "#!/bin/sh\nexec " + gitcred.ShellQuote(exe) + " fake-claude " + gitcred.ShellQuote(f.dir) + " \"$@\"\n"
-	if err := os.WriteFile(f.Binary, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	exectest.Write(t, f.Binary, script, 0o700)
 	return f
 }
 

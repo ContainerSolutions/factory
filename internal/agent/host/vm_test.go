@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
+	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
 	"github.com/compliance-framework/factory/internal/agent/vmrun"
 	"github.com/compliance-framework/factory/internal/clock"
 )
@@ -1350,9 +1351,7 @@ func TestExecRunnerCancel(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			p := filepath.Join(t.TempDir(), tt.prog)
-			if err := os.WriteFile(p, []byte(standInSudo), 0o700); err != nil { //nolint:gosec // the test's own script
-				t.Fatal(err)
-			}
+			exectest.Write(t, p, standInSudo, 0o700)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			done := make(chan error, 1)

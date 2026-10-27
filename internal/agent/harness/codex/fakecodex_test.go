@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/gitcred"
+	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
 )
 
 // The test binary doubles as a fake codex (never the real one), as the child process a fake
@@ -110,9 +111,7 @@ func newFakeCodex(t *testing.T, plan fakePlan) *fakeCodex {
 	f.setPlan(plan)
 	f.Binary = filepath.Join(f.dir, "codex")
 	script := "#!/bin/sh\nexec " + gitcred.ShellQuote(exe) + " fake-codex " + gitcred.ShellQuote(f.dir) + " \"$@\"\n"
-	if err := os.WriteFile(f.Binary, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	exectest.Write(t, f.Binary, script, 0o700)
 	return f
 }
 
