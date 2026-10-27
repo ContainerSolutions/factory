@@ -146,6 +146,9 @@ func TestParseURL(t *testing.T) {
 		"s3://AKIAEXAMPLE:hun ter2@bucket/p",     // bad userinfo
 		"file://u:hunter2@localhost" + dir,       // userinfo on file://
 		"file://u:hunter2@host" + dir,            // and on a host file:// refuses
+		"s3a://hunter2@bucket/p",                 // the user alone is the secret: unknown scheme
+		"file://hunter2@localhost" + dir,         // ... on file://
+		"file://hunter2@host" + dir,              // ... on file:// with a host it refuses
 	} {
 		_, err := ParseURL(u)
 		if err == nil {
@@ -154,6 +157,21 @@ func TestParseURL(t *testing.T) {
 		if strings.Contains(err.Error(), "hunter2") || strings.Contains(err.Error(), "hun ter2") {
 			t.Fatalf("ParseURL's error repeats the secret: %v", err)
 		}
+	}
+
+	for _, tc := range []struct{ in, want string }{
+		{"s3://hunter2@b/p", "s3://xxxxx@b/p"},
+		{"s3://AKIAEXAMPLE:hunter2@b/p", "s3://xxxxx@b/p"},
+		{"gs://b/p", "gs://b/p"},
+	} {
+		u, err := url.Parse(tc.in)
+		must(t, err)
+		if got := RedactURL(u); got != tc.want {
+			t.Fatalf("RedactURL(%s) = %s, want %s", tc.in, got, tc.want)
+		}
+	}
+	if RedactURL(nil) != "" {
+		t.Fatal("RedactURL(nil) isn't empty")
 	}
 
 	fake := NewFakeBucket(nil)

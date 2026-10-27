@@ -64,6 +64,21 @@ func RegisterScheme(scheme string, open Opener) {
 	schemes[strings.ToLower(scheme)] = open
 }
 
+// RedactURL returns u for an error or a log line with its whole userinfo masked: user and
+// password both, since either may be the credential (url.URL.Redacted masks only a password).
+// Every message about a state URL goes through it.
+func RedactURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	if u.User == nil {
+		return u.String()
+	}
+	c := *u
+	c.User = url.User("xxxxx")
+	return c.String()
+}
+
 // quoted matches what url's errors quote (a piece of the URL).
 var quoted = regexp.MustCompile(`"[^"]*"`)
 
@@ -89,7 +104,7 @@ func ParseURL(rawURL string) (Bucket, error) {
 	schemesMu.Unlock()
 	if open == nil {
 		slices.Sort(known)
-		return nil, fmt.Errorf("objectstore: state URL %q: unknown scheme %q (known: %s)", u.Redacted(), u.Scheme, strings.Join(known, ", "))
+		return nil, fmt.Errorf("objectstore: state URL %q: unknown scheme %q (known: %s)", RedactURL(u), u.Scheme, strings.Join(known, ", "))
 	}
 	return open(u)
 }
@@ -97,7 +112,7 @@ func ParseURL(rawURL string) (Bucket, error) {
 // openFileURL opens file:///abs/dir (or file://localhost/abs/dir).
 func openFileURL(u *url.URL) (Bucket, error) {
 	if u.Opaque != "" || u.User != nil || (u.Host != "" && u.Host != "localhost") || u.Path == "" || u.RawQuery != "" || u.Fragment != "" {
-		return nil, fmt.Errorf("objectstore: state URL %q: want file:///absolute/dir", u.Redacted())
+		return nil, fmt.Errorf("objectstore: state URL %q: want file:///absolute/dir", RedactURL(u))
 	}
 	return NewFileBucket(u.Path)
 }
