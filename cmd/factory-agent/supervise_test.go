@@ -530,6 +530,9 @@ func TestSuperviseOneLease(t *testing.T) {
 	if s.driver.cfg.WarmBase != "my-warm" || s.driver.cfg.Bin == "" {
 		t.Errorf("driver config %+v", s.driver.cfg)
 	}
+	if sp := s.driver.spec; sp != (workspace.Spec{CPU: 6, MemoryMiB: 8 << 10}) {
+		t.Errorf("workspace spec %+v, want workspace.size's default", sp)
+	}
 	if l := disp.lendings(); len(l) != 2 || l[0].MaxConcurrent != 1 || l[1].MaxConcurrent != 1 || len(l[1].Queues) != 1 {
 		t.Errorf("registered and reloaded lending %+v, want maxConcurrent 1", l)
 	}
@@ -644,6 +647,37 @@ func TestSuperviseKataDriver(t *testing.T) {
 			}
 			if spec != (workspace.Spec{CPU: 8, MemoryMiB: 12 << 10}) || s.workspaceGiB != 12 || s.memTotal>>30 != 61 {
 				t.Errorf("spec %+v, workspace %d GiB, memory %d GiB", spec, s.workspaceGiB, s.memTotal>>30)
+			}
+		})
+	}
+}
+
+// tart's workspaces are workspace.size too, not the driver's defaults: host init built the base
+// VM that size, and tart's Create sets the Spec on each clone.
+func TestSuperviseTartDriver(t *testing.T) {
+	tests := []struct {
+		name string
+		size config.WorkspaceSize
+		want workspace.Spec
+	}{
+		{"default", config.WorkspaceSize{}, workspace.Spec{CPU: 6, MemoryMiB: 8 << 10}},
+		{"sized", config.WorkspaceSize{CPUs: 4, Memory: "16Gi"}, workspace.Spec{CPU: 4, MemoryMiB: 16 << 10}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := newSupervisedTest(t, "http://127.0.0.1:1")
+			e := ts.deps.Host
+			e.Workspace = config.Workspace{Driver: config.DriverTart, Size: tt.size}.WithDefaults("darwin")
+			s := &supervisor{d: ts.deps, e: &e, warmBase: "my-warm", stderr: io.Discard, log: discardLog()}
+			_, spec, err := s.newDriver(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c := ts.driver.cfg; c.WarmBase != "my-warm" || ts.driver.kataCfg.Image != "" {
+				t.Errorf("tart config %+v, kata config %+v", c, ts.driver.kataCfg)
+			}
+			if spec != tt.want {
+				t.Errorf("spec %+v, want %+v", spec, tt.want)
 			}
 		})
 	}

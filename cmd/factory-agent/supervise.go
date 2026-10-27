@@ -275,9 +275,10 @@ func (s *supervisor) newRunner(ctx context.Context, cfg *config.Config) (runner.
 	})
 }
 
-// newDriver builds the workspace driver host check passed for, and the size of its workspaces.
-// tart's are Spec{} (supervise.md); kata's are workspace.size, from host init's image, on its
-// warm disk when the katawarm step is ok, and the lending cap is computed from their memory.
+// newDriver builds the workspace driver host check passed for, and the size of its workspaces:
+// workspace.size for both drivers, which host init built tart's base VM with and host check's
+// memory check assumes. kata's are from host init's image, on its warm disk when the katawarm
+// step is ok, and the lending cap is computed from their memory.
 func (s *supervisor) newDriver(ctx context.Context, sts []host.Status) (workspace.Driver, workspace.Spec, error) {
 	w := s.e.Workspace
 	if w.Driver == config.DriverTart {
@@ -289,7 +290,7 @@ func (s *supervisor) newDriver(ctx context.Context, sts []host.Status) (workspac
 		if s.log.Enabled(ctx, slog.LevelDebug) {
 			tartLog = s.stderr
 		}
-		return newDriver(tart.Config{Bin: s.e.TartBin(ctx), WarmBase: s.warmBase, Log: tartLog}), workspace.Spec{}, nil
+		return newDriver(tart.Config{Bin: s.e.TartBin(ctx), WarmBase: s.warmBase, Log: tartLog}), sizeSpec(w.Size), nil
 	}
 	img, err := s.e.ReadKataBase()
 	if err != nil {
@@ -314,7 +315,12 @@ func (s *supervisor) newDriver(ctx context.Context, sts []host.Status) (workspac
 		newKata = func(c kata.Config) workspace.Driver { return kata.New(c) }
 	}
 	drv := newKata(kata.Config{Image: img.Image, DiskGiB: w.Size.DiskGiB(), Warm: warm})
-	return drv, workspace.Spec{CPU: w.Size.CPUs, MemoryMiB: s.workspaceGiB << 10}, nil
+	return drv, sizeSpec(w.Size), nil
+}
+
+// sizeSpec is workspace.size as the Spec each workspace is created with.
+func sizeSpec(sz config.WorkspaceSize) workspace.Spec {
+	return workspace.Spec{CPU: sz.CPUs, MemoryMiB: sz.MemoryGiB() << 10}
 }
 
 // destroyOrphans destroys every workspace the driver lists: at start nothing runs, so each is
