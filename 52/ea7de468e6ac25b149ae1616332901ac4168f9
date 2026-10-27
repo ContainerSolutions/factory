@@ -3,3 +3,6 @@ pass 1: f2c379d077f7 ExecRunner.Grace renamed SudoGrace in host, vmexec and vmru
 
 lisa-design:
 - The runners' field is SudoGrace, not Grace: the drivers' Config.Grace (45 s) is the remote exec's, a different delay.
+
+lisa-selfreview:
+pass 2 (strict): approve, no findings (both pass-1 should-fixes verified fixed).
