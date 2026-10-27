@@ -5,3 +5,9 @@ lisa-design:
 - harnesstest.E2E.Pipeline(a, job, extra...) is now the VM-shaped run (Root + GitAuthGateway via internal/fakegateway, bundle sources, token-free job); HostPipeline() is supervise's bundle-only host pipeline.
 - The adapters' end-to-end tests (TestPipelineEndToEnd, TestPipelineRateLimited, claude's TestPipelineStructuredOutputRefused) were ported to that run; the unit tests of kept behaviour (failures, repair, cancel, rate limit, args) now use the VM adapter.
 - clirun's Commands/ExecCommands/ParseVersion/CompareVersions/LookupEnv are now unused outside clirun; left for a follow-up (not in the brief).
+
+lisa-selfreview:
+pass 1/1 (lenient, ccf-review core+go): approve, no blocker or must-fix found in the code.
+- should-fix, deferred: clirun's Commands/ExecCommands/ParseVersion/CompareVersions/LookupEnv are dead outside clirun; harness.Workspace.RepoWritable's comment still says adapters pick their sandbox from it.
+- size: the diff is mostly deletions (host-only code and its tests); checked with ccfr scope after opening.
+- verify: go build (darwin, linux), go vet ./..., gofmt, lint 0 issues, catalog 66/66, openapi-lint 100; make test fails only on host/provision TestBaseScriptRuns (pre-existing on macOS). The ported end-to-end tests run (not skipped) for both adapters.
