@@ -1,0 +1,7 @@
+lisa-addressed:
+pass 1 fixes:
+- GO-NIL-001: GCSBucket.List uses strings.CutPrefix and errors on a name outside the prefix.
+- FACTORY-CLOCK-001: S3Bucket has a clock.Clock (clock.Real) and waits on clk.NewTimer between 409 re-sends.
+- emulator_test: GCS isCreate requires uploadType=multipart.
+- Makefile: [[:space:]] instead of \s; the filter keeps _test.go:N: lines.
+- Removed the unused NewGCSBucket/NewS3Bucket.
