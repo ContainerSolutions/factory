@@ -1,14 +1,16 @@
 package host
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
 	"os/exec"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
+
+	"github.com/compliance-framework/factory/internal/agent/sudocancel"
 )
 
 // Spawner runs the commands a VM build needs besides Runner's: one fed on stdin, and one left
@@ -34,33 +36,18 @@ type Process interface {
 // stopGrace is how long Stop waits after SIGTERM: tart run shuts the VM down on it.
 const stopGrace = 30 * time.Second
 
-// helperGrace is how long a cancelled sudo -n call gets after SIGTERM before SIGKILL: the kata
-// helper stops its nerdctl and removes what it made (an image-build's context copy) in well
-// under it.
-const helperGrace = 30 * time.Second
-
-// onCancel sets what Run and RunInput do when ctx ends: SIGKILL, and 10 s for a child that
-// holds the output open. A sudo -n call (the kata helper's verbs) gets SIGTERM instead, which
-// sudo relays to the helper, and SIGKILL only after helperGrace: sudo can't relay a SIGKILL,
-// so the helper, root and out of factory-agent's reach, would run on to its own bounds.
-//
-// sudo stays in factory-agent's process group, so a terminal's Ctrl-C or hangup reaches it as
-// well, and it relays those too. It ignores a signal sent from a process group that sudo or its
-// command leads (sudo 1.9.15's exec_nopty.c and exec_pty.c), never factory-agent's.
-// The root script (sudo /bin/sh, without -n) keeps the SIGKILL.
-func onCancel(cmd *exec.Cmd, name string, args []string) {
-	cmd.WaitDelay = 10 * time.Second
-	if filepath.Base(name) == "sudo" && len(args) > 0 && args[0] == "-n" {
-		cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
-		cmd.WaitDelay = helperGrace
-	}
+// onCancel sets what Run and RunInput do when ctx ends (sudocancel.Apply): a sudo call, the kata
+// helper's verbs (sudo -n) and the root script (sudo /bin/sh) alike, gets SIGTERM, which sudo
+// relays, and SIGKILL only after the runner's SudoGrace; anything else gets SIGKILL.
+func (r ExecRunner) onCancel(cmd *exec.Cmd) {
+	sudocancel.Apply(cmd, cmp.Or(r.SudoGrace, sudocancel.HelperGrace))
 }
 
 // RunInput implements Spawner.
-func (ExecRunner) RunInput(ctx context.Context, in io.Reader, out io.Writer, name string, args ...string) error {
+func (r ExecRunner) RunInput(ctx context.Context, in io.Reader, out io.Writer, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, out
-	onCancel(cmd, name, args)
+	r.onCancel(cmd)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}

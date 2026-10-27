@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
+	"github.com/compliance-framework/factory/internal/agent/sudocancel/sudocanceltest"
 	"github.com/compliance-framework/factory/internal/agent/vmrun"
 	"github.com/compliance-framework/factory/internal/clock"
 )
@@ -1323,68 +1323,19 @@ func TestExecRunnerProcesses(t *testing.T) {
 	}
 }
 
-// standInSudo is a stand-in for sudo running the kata helper: on SIGTERM it takes a moment to
-// clean up, as the helper does, and says so in <itself>.cleaned. A SIGKILL leaves no file.
-const standInSudo = `#!/bin/sh
-trap 'sleep 0.2; : > "$0.cleaned"; exit 143' TERM
-: > "$0.ready"
-while :; do sleep 0.05; done
-`
-
-// TestExecRunnerCancel: when ctx ends, a sudo -n call (the kata helper's verbs), through Run or
-// RunInput, gets SIGTERM, which sudo relays, and the time to clean up; anything else, the root
-// script's sudo /bin/sh included, is killed.
+// TestExecRunnerCancel: when ctx ends, a sudo call through Run or RunInput, the kata helper's
+// verbs (sudo -n) and the root script (sudo /bin/sh) alike, gets SIGTERM, which sudo relays,
+// and SIGKILL only after SudoGrace; anything else is killed.
 func TestExecRunnerCancel(t *testing.T) {
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("no sh")
-	}
-	for _, tt := range []struct {
-		name, prog string
-		args       []string
-		input      bool
-		cleaned    bool
-	}{
-		{"helper verb", "sudo", []string{"-n", "/usr/local/libexec/factory-agent/kata-helper", "warm-load", "ws-tsk_x", "postgres:17"}, false, true},
-		{"helper verb with stdin", "sudo", []string{"-n", "/usr/local/libexec/factory-agent/kata-helper", "image-build", "factory-agent-base:0.1.0"}, true, true},
-		{"root script", "sudo", []string{"/bin/sh", "root.sh"}, false, false},
-		{"another program", "tart", []string{"-n", "x"}, false, false},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			p := filepath.Join(t.TempDir(), tt.prog)
-			exectest.Write(t, p, standInSudo, 0o700)
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			done := make(chan error, 1)
-			go func() {
-				var out bytes.Buffer
-				if tt.input {
-					done <- ExecRunner{}.RunInput(ctx, strings.NewReader("context.tar"), &out, p, tt.args...)
-					return
-				}
-				done <- ExecRunner{}.Run(ctx, &out, p, tt.args...)
-			}()
-			for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-				if _, err := os.Stat(p + ".ready"); err == nil {
-					break
-				}
-				if time.Now().After(deadline) {
-					t.Fatal("the stand-in didn't start")
-				}
-			}
-			start := time.Now()
-			cancel()
-			select {
-			case err := <-done:
-				if err == nil {
-					t.Error("a cancelled call succeeded")
-				}
-			case <-time.After(helperGrace / 2):
-				t.Fatalf("the call ran on %s after its context ended", helperGrace/2)
-			}
-			_, err := os.Stat(p + ".cleaned")
-			if cleaned := err == nil; cleaned != tt.cleaned {
-				t.Errorf("cleaned up %v, want %v (after %s)", cleaned, tt.cleaned, time.Since(start))
-			}
+	r := ExecRunner{SudoGrace: 2 * time.Second}
+	t.Run("Run", func(t *testing.T) {
+		sudocanceltest.Check(t, r.SudoGrace, func(ctx context.Context, prog string, args ...string) error {
+			return r.Run(ctx, io.Discard, prog, args...)
 		})
-	}
+	})
+	t.Run("RunInput", func(t *testing.T) {
+		sudocanceltest.Check(t, r.SudoGrace, func(ctx context.Context, prog string, args ...string) error {
+			return r.RunInput(ctx, strings.NewReader("context.tar"), io.Discard, prog, args...)
+		})
+	})
 }

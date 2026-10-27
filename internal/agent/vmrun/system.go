@@ -6,6 +6,7 @@ package vmrun
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/x509"
 	"encoding/json"
@@ -27,6 +28,7 @@ import (
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/pipeline"
 	"github.com/compliance-framework/factory/internal/agent/runbundle"
+	"github.com/compliance-framework/factory/internal/agent/sudocancel"
 	"github.com/compliance-framework/factory/internal/clock"
 )
 
@@ -131,13 +133,25 @@ type Runner interface {
 }
 
 // ExecRunner runs real programs, found on PATH.
-type ExecRunner struct{}
+type ExecRunner struct {
+	// SudoGrace is how long a cancelled sudo call gets after SIGTERM before SIGKILL. Default:
+	// DefaultSudoGrace.
+	SudoGrace time.Duration
+}
 
-// Run implements Runner.
-func (ExecRunner) Run(ctx context.Context, stdout, stderr io.Writer, name string, args ...string) error {
+// DefaultSudoGrace is ExecRunner's SudoGrace: setup's sudo -n commands (install, cat, mv,
+// update-ca-certificates, systemctl, docker) end at once on the SIGTERM sudo relays, and
+// SIGKILL after 10 s keeps a cancelled run well inside the 45 s the workspace driver's Exec
+// gives it after SIGTERM, so it still writes its outcome.
+const DefaultSudoGrace = 10 * time.Second
+
+// Run implements Runner. When ctx ends, a sudo call gets SIGTERM, which sudo relays to its
+// command (root, out of the run's reach), and SIGKILL only after SudoGrace; anything else gets
+// SIGKILL (sudocancel.Apply).
+func (r ExecRunner) Run(ctx context.Context, stdout, stderr io.Writer, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
-	cmd.WaitDelay = 10 * time.Second
+	sudocancel.Apply(cmd, cmp.Or(r.SudoGrace, DefaultSudoGrace))
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}

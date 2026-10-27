@@ -76,15 +76,21 @@ type Runner interface {
 	Run(ctx context.Context, out io.Writer, name string, args ...string) error
 }
 
-// ExecRunner runs real programs. When ctx ends, a command gets SIGKILL, but for a sudo -n
-// call (the kata helper's verbs): see onCancel.
-type ExecRunner struct{}
+// ExecRunner runs real programs. When ctx ends, a command gets SIGKILL, but for a sudo call
+// (the kata helper's verbs, the root script): see onCancel.
+type ExecRunner struct {
+	// SudoGrace is how long a cancelled sudo call gets after SIGTERM before SIGKILL. Default:
+	// sudocancel.HelperGrace, for the root script too: its lines are local (an archive's
+	// extraction, install, systemctl) and sh ends on SIGTERM, so 30 s is plenty, and at its
+	// password prompt sudo ends at once, restoring the terminal's echo.
+	SudoGrace time.Duration
+}
 
 // Run implements Runner.
-func (ExecRunner) Run(ctx context.Context, out io.Writer, name string, args ...string) error {
+func (r ExecRunner) Run(ctx context.Context, out io.Writer, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout, cmd.Stderr = out, out
-	onCancel(cmd, name, args)
+	r.onCancel(cmd)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
