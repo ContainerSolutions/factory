@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/pipeline"
+	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
 )
 
 // runResult validates a Result (a file, or the MCP tool's object) with the pipeline's own

@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/execfile"
 )
 
 //go:embed base.sh kata

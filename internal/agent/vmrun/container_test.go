@@ -16,16 +16,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/gitcred"
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/harness/harnesstest"
-	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
-	"github.com/compliance-framework/factory/internal/agent/internal/fakegateway"
-	"github.com/compliance-framework/factory/internal/agent/pipeline"
-	"github.com/compliance-framework/factory/internal/agent/runbundle"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/gitcred"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/harnesstest"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/exectest"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/fakegateway"
+	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
+	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // The container layer (workspace-run.md §Tests, layer 5) is opt-in: `make e2e-run-container`

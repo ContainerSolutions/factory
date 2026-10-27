@@ -36,7 +36,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // TokenTTL is the lifetime of the tokens the server mints, as on GitHub.

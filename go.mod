@@ -1,4 +1,4 @@
-module github.com/compliance-framework/factory
+module github.com/ContainerSolutions/factory
 
 go 1.26.0
 

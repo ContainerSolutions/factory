@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // TestVerdictsInContract checks that the engine's verdicts are exactly the stored rail

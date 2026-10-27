@@ -7,12 +7,12 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/harness/claudecode"
-	"github.com/compliance-framework/factory/internal/agent/harness/codex"
-	"github.com/compliance-framework/factory/internal/agent/runbundle"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/claudecode"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/codex"
+	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // adapterOptions are what vmrun builds the task's adapter with.

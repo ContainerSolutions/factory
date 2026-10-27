@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files under testdata/")
@@ -582,10 +582,10 @@ func TestImports(t *testing.T) {
 		t.Fatal(err)
 	}
 	allowed := []string{
-		"github.com/compliance-framework/factory/internal/apis/v1alpha1",
-		"github.com/compliance-framework/factory/internal/apiclient",
-		"github.com/compliance-framework/factory/internal/agent/runner",
-		"github.com/compliance-framework/factory/internal/agent/internal/execfile",
+		"github.com/ContainerSolutions/factory/internal/apis/v1alpha1",
+		"github.com/ContainerSolutions/factory/internal/apiclient",
+		"github.com/ContainerSolutions/factory/internal/agent/runner",
+		"github.com/ContainerSolutions/factory/internal/agent/internal/execfile",
 	}
 	for _, imp := range p.Imports {
 		std := !strings.Contains(strings.Split(imp, "/")[0], ".")

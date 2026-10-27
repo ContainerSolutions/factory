@@ -11,7 +11,7 @@ import (
 	"sort"
 	"syscall"
 
-	"github.com/compliance-framework/factory/internal/version"
+	"github.com/ContainerSolutions/factory/internal/version"
 )
 
 // commands are the subcommands, one line each.

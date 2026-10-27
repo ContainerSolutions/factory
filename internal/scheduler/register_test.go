@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 func TestRegister(t *testing.T) {

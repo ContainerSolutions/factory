@@ -3,9 +3,9 @@ package memory_test
 import (
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/store"
-	"github.com/compliance-framework/factory/internal/store/memory"
-	"github.com/compliance-framework/factory/internal/store/storetest"
+	"github.com/ContainerSolutions/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store/memory"
+	"github.com/ContainerSolutions/factory/internal/store/storetest"
 )
 
 func TestConformance(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // ChangeOp is how one rule, decision or state key changed between two evaluations.

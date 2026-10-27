@@ -13,17 +13,17 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/host"
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
-	"github.com/compliance-framework/factory/internal/agent/login"
-	"github.com/compliance-framework/factory/internal/agent/pipeline"
-	"github.com/compliance-framework/factory/internal/agent/probe"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/agent/workspace"
-	"github.com/compliance-framework/factory/internal/agent/workspace/kata"
-	"github.com/compliance-framework/factory/internal/agent/workspace/tart"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/host"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/agent/login"
+	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
+	"github.com/ContainerSolutions/factory/internal/agent/probe"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace/kata"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace/tart"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // superviseDeps are runSupervise's injectable dependencies; the zero value is production.

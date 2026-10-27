@@ -6,7 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
 )
 
 // RecordType is a Record's transcript line type.

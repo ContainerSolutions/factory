@@ -4,9 +4,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/runbundle"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // events writes the run's event stream (workspace-run.md §Event stream) to stdout: it is the

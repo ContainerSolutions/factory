@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/internal/fakegh"
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/fakegh"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // dispatcher serves GET /api/v1/auth/device-config.

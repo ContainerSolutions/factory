@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/compliance-framework/factory/internal/apiserver/gen"
+	"github.com/ContainerSolutions/factory/internal/apiserver/gen"
 )
 
 // errEnrollmentNotImplemented answers the enrollment routes and an admin's deregisterAgent

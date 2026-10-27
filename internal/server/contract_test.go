@@ -15,13 +15,13 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 
-	"github.com/compliance-framework/factory/api"
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/catalog"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/api"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 var (

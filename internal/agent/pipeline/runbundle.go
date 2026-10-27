@@ -15,10 +15,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/runbundle"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
 )
 
 // BundleExtras are what a run bundle holds beyond the job (workspace-run.md

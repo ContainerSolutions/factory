@@ -17,9 +17,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/store"
-	"github.com/compliance-framework/factory/internal/store/filestore"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store/filestore"
 )
 
 // envStateDir is the default --state-dir of factory state, as for deploy/poc/run.sh.

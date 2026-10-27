@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/catalog"
 )
 
 // testRepo commits the PoC catalog under catalog/ in a new repository and returns its path
@@ -203,10 +203,10 @@ func TestErrorsRedactCredentials(t *testing.T) {
 		}
 	}
 
-	const repo = "https://x-access-token:s3cr3t@github.com/compliance-framework/factory"
+	const repo = "https://x-access-token:s3cr3t@github.com/ContainerSolutions/factory"
 	tests := []struct{ in, want string }{
-		{repo, "https://redacted@github.com/compliance-framework/factory"},
-		{"https://github.com/compliance-framework/factory", "https://github.com/compliance-framework/factory"},
+		{repo, "https://redacted@github.com/ContainerSolutions/factory"},
+		{"https://github.com/ContainerSolutions/factory", "https://github.com/ContainerSolutions/factory"},
 		{"git@github.com:org/repo.git", "git@github.com:org/repo.git"},
 	}
 	for _, tt := range tests {

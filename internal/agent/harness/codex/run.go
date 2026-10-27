@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/harness/clirun"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/clirun"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // Bounds on what one codex run may produce besides its stream (clirun bounds that).

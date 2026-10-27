@@ -15,12 +15,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/catalog"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/provider/github"
-	"github.com/compliance-framework/factory/internal/provider/github/githubtest"
-	"github.com/compliance-framework/factory/internal/rules"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider/github"
+	"github.com/ContainerSolutions/factory/internal/provider/github/githubtest"
+	"github.com/ContainerSolutions/factory/internal/rules"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden Events under testdata/golden")

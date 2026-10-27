@@ -26,10 +26,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/sudocancel"
-	"github.com/compliance-framework/factory/internal/clock"
-	"github.com/compliance-framework/factory/internal/version"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/sudocancel"
+	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/version"
 )
 
 // State is a step's state.

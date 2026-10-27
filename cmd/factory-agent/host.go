@@ -14,8 +14,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/host"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/host"
 )
 
 // hostDeps are the host command's injectable dependencies; the zero value is production.

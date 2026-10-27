@@ -12,15 +12,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/owner"
-	"github.com/compliance-framework/factory/internal/agent/pipeline"
-	"github.com/compliance-framework/factory/internal/agent/probe"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/agent/worker"
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/version"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/owner"
+	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
+	"github.com/ContainerSolutions/factory/internal/agent/probe"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/agent/worker"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/version"
 )
 
 // workerDeps are the worker loop's injectable dependencies (runAgentLoop); the zero value is

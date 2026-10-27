@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // ErrLockDeadline is returned when a section under a work item lock ran out of its time: it

@@ -19,12 +19,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
-	"github.com/compliance-framework/factory/internal/agent/pipeline"
-	"github.com/compliance-framework/factory/internal/agent/runbundle"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/execfile"
+	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
+	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // Defaults and bounds.

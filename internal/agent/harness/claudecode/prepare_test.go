@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/gitcred"
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/gitcred"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/exectest"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // tokens that must never reach a file the adapter writes or a command line.

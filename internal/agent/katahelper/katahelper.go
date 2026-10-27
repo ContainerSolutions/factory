@@ -15,7 +15,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/compliance-framework/factory/internal/agent/workspace"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace"
 )
 
 // Protocol is the helper's verbs' version: bump it whenever a verb's arguments or behaviour

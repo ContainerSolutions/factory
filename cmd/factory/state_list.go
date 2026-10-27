@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/store/filestore"
-	"github.com/compliance-framework/factory/internal/store/memory"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/store/filestore"
+	"github.com/ContainerSolutions/factory/internal/store/memory"
 )
 
 // ---- tasks -------------------------------------------------------------------------------------

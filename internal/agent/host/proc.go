@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/sudocancel"
+	"github.com/ContainerSolutions/factory/internal/agent/sudocancel"
 )
 
 // Spawner runs the commands a VM build needs besides Runner's: one fed on stdin, and one left

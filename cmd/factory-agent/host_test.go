@@ -20,8 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/host"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/host"
 )
 
 // macRunner answers like a Mac with Tart on PATH; any other command (sudo, a download's

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/workspace"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace"
 )
 
 // The sizes create accepts: the config's bounds (config.Workspace's size.cpus, size.memory,

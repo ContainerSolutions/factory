@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 var t0 = time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)

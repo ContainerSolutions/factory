@@ -15,7 +15,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/compliance-framework/factory/internal/auth"
+	"github.com/ContainerSolutions/factory/internal/auth"
 )
 
 // access is who may call an operation (the spec's security requirements, api-server.md §Auth).

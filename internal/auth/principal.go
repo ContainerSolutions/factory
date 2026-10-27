@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
 )
 
 // Kind is what kind of caller a Principal is.

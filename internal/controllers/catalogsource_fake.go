@@ -6,7 +6,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/compliance-framework/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/catalog"
 )
 
 // FakeRevision is what a FakeCatalogSource's Load returns for one revision.

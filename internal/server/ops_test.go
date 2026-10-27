@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/controllers"
 )
 
 func get(t *testing.T, h http.Handler, path string) (int, string, http.Header) {

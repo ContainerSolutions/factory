@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/catalog"
-	"github.com/compliance-framework/factory/internal/cel"
-	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/cel"
+	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
 // DefaultInstallationCheckTimeout bounds one InstallationCheck.Check.

@@ -9,9 +9,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/provider/tokens"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider/tokens"
 )
 
 // maxCommentPages bounds the comments Project reads to find a marker (100 per page).

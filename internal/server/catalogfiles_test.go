@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
 )
 
 // TestCatalogFiles: the list holds every prompt and schema of the loaded catalog, sorted; a

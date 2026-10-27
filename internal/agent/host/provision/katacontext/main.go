@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/compliance-framework/factory/internal/agent/host/provision"
+	"github.com/ContainerSolutions/factory/internal/agent/host/provision"
 )
 
 func main() {

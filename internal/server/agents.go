@@ -11,12 +11,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/apiserver/gen"
-	"github.com/compliance-framework/factory/internal/auth"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/scheduler"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apiserver/gen"
+	"github.com/ContainerSolutions/factory/internal/auth"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 var waitRE = regexp.MustCompile(`^[0-9]{1,2}s$`)

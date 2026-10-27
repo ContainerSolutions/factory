@@ -10,7 +10,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // kindSchemas are the compiled JSON Schemas of the config kinds, by kind. They are generated

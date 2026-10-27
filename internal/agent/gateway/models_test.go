@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
-	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
 )
 
 // The model credentials hold secrets[0], so assertNoSecrets checks no record or log line has

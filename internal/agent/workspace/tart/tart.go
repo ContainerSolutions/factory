@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/host"
-	"github.com/compliance-framework/factory/internal/agent/workspace"
-	"github.com/compliance-framework/factory/internal/agent/workspace/vmexec"
+	"github.com/ContainerSolutions/factory/internal/agent/host"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace/vmexec"
 )
 
 // The runner seam is vmexec's, which both drivers share.

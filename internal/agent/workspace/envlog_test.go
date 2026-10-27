@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/harness/fake"
-	"github.com/compliance-framework/factory/internal/agent/harness/harnesstest"
-	"github.com/compliance-framework/factory/internal/agent/runbundle"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/fake"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/harnesstest"
+	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // The VM's out/environment.log is collected and uploaded re-redacted; a run without one

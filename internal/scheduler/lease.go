@@ -7,11 +7,11 @@ import (
 	"slices"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/clock"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // maxProgress bounds a run's progress ring buffer (as the run controller does).

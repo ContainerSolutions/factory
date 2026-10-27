@@ -3,7 +3,7 @@ package patterns
 import (
 	"fmt"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // ConstraintFrom compiles a TaskSpec harness constraint. An unset field matches anything.

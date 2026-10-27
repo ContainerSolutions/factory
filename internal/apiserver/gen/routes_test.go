@@ -8,8 +8,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/compliance-framework/factory/api"
-	"github.com/compliance-framework/factory/internal/apiserver/gen"
+	"github.com/ContainerSolutions/factory/api"
+	"github.com/ContainerSolutions/factory/internal/apiserver/gen"
 )
 
 // notGenerated are the tags with no generated handler: webhooks are the provider adapter's

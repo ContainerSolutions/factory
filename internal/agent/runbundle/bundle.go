@@ -23,9 +23,9 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/execfile"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // Version is the bundle format's version: bundle.json's "version".

@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
 )
 
 // TestCheckThisMac runs host check's steps on the real Mac (go test -tags tartinteg -v): each

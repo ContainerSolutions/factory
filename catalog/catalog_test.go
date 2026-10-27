@@ -22,10 +22,10 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
-	"github.com/compliance-framework/factory/internal/catalog"
-	"github.com/compliance-framework/factory/internal/cel"
-	"github.com/compliance-framework/factory/internal/patterns"
-	"github.com/compliance-framework/factory/internal/rules"
+	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/cel"
+	"github.com/ContainerSolutions/factory/internal/patterns"
+	"github.com/ContainerSolutions/factory/internal/rules"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files under testdata/render")

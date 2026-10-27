@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // The owner's login in tests: it must never be read, copied or written by the adapter.

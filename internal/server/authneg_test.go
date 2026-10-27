@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/auth"
-	"github.com/compliance-framework/factory/internal/provider/fake"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/auth"
+	"github.com/ContainerSolutions/factory/internal/provider/fake"
 )
 
 // reply is a raw response, its body read and closed.

@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/compliance-framework/factory/internal/auth"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/scheduler"
-	"github.com/compliance-framework/factory/internal/store"
-	"github.com/compliance-framework/factory/internal/store/filestore"
-	"github.com/compliance-framework/factory/internal/store/memory"
+	"github.com/ContainerSolutions/factory/internal/auth"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store/filestore"
+	"github.com/ContainerSolutions/factory/internal/store/memory"
 )
 
 // serveStore is the dispatcher's store: the records, retention and transcripts, and Close,

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 func TestDiffGolden(t *testing.T) {

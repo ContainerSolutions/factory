@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/provider/tokens"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider/tokens"
 )
 
 // The PR, review and thread ops. Their token is pull_requests: write on the target repo (and

@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/compliance-framework/factory/internal/apiserver/gen"
-	"github.com/compliance-framework/factory/internal/auth"
+	"github.com/ContainerSolutions/factory/internal/apiserver/gen"
+	"github.com/ContainerSolutions/factory/internal/auth"
 )
 
 // redirect is a 302 with cookies: the generated 302 responses carry one Set-Cookie at most,

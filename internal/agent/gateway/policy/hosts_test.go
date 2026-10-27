@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/runbundle"
+	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
 )
 
 func TestHostClasses(t *testing.T) {

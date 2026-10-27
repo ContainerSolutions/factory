@@ -3,8 +3,8 @@ package rules
 import (
 	"slices"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/catalog"
 )
 
 // Fact keys the scope reads besides the repo: the Slack channel and the git branch.

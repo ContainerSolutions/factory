@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
 )
 
 // MaxEnvironmentLog caps the environment log a VM workspace's run uploads (the VM caps it at

@@ -14,7 +14,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/catalog"
 )
 
 // The cases (format in fixture.go) are testdata/cases/<catalog>/<case>/, and their goldens are

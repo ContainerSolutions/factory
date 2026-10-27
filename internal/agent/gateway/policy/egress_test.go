@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // TestCheckAddrDenyTable has a row per range of the default deny table (TestDenyTableCovered

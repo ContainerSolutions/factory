@@ -3,7 +3,7 @@ package rules
 import (
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 func TestCouldFireAndReadsItem(t *testing.T) {

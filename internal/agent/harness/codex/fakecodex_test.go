@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/gitcred"
-	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
+	"github.com/ContainerSolutions/factory/internal/agent/gitcred"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/exectest"
 )
 
 // The test binary doubles as a fake codex (never the real one), as the child process a fake

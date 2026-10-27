@@ -12,8 +12,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // commandsServer is POST /api/v1/commands: it records the command and answers with reply.

@@ -10,8 +10,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // The VM's outputs, under the workspace root's OutDir (/work/out).

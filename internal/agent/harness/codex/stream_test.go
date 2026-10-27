@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/harness/harnesstest"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/harnesstest"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 var update = flag.Bool("update", false, "rewrite the parser goldens under testdata/")

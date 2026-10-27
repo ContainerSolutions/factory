@@ -29,11 +29,11 @@ import (
 	"github.com/invopop/jsonschema"
 	"go.yaml.in/yaml/v3"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 const (
-	module     = "github.com/compliance-framework/factory"
+	module     = "github.com/ContainerSolutions/factory"
 	pkgDir     = "./internal/apis/v1alpha1"
 	importPath = module + "/internal/apis/v1alpha1"
 	beginMark  = "# ---- BEGIN GENERATED: v1alpha1 types"

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/cel"
-	"github.com/compliance-framework/factory/internal/patterns"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/cel"
+	"github.com/ContainerSolutions/factory/internal/patterns"
 )
 
 func loadPoC(t *testing.T) (*Catalog, []Error) {

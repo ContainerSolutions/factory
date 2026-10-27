@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
 )
 
 func workitemCommand() command {

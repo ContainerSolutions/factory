@@ -31,10 +31,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/ca"
-	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/ca"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // Config configures a Gateway (gateway.md, API).

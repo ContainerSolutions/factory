@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // The egress modes (#100's environment.egress.mode).

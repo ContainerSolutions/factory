@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/provider/tokens"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider/tokens"
 )
 
 // Effects (github-provider.md §Effects). Every op acts as the identity the request names, with

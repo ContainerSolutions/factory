@@ -12,8 +12,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/store"
-	"github.com/compliance-framework/factory/internal/store/memory"
+	"github.com/ContainerSolutions/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store/memory"
 )
 
 // Compaction steps, for the crash tests' fault injection.

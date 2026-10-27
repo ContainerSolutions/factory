@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // NormalisedEfforts are the reasoning efforts catalogs write; adapters map them to their

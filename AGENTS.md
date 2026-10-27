@@ -1,4 +1,4 @@
-# AGENTS.md: compliance-framework/factory
+# AGENTS.md: ContainerSolutions/factory
 
 Guidance for coding agents (and humans) working in this repo. The design lives in `design/`; read the LLD for your workstream in `design/workstreams/<name>/LLD/` before changing code.
 

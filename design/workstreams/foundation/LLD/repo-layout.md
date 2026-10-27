@@ -6,7 +6,7 @@
 
 | Item | Choice | Why |
 |---|---|---|
-| Module | `github.com/compliance-framework/factory` | — |
+| Module | `github.com/ContainerSolutions/factory` | — |
 | Go | 1.26 (same as `api`) | One toolchain across CCF |
 | Node | 20 (`web/.nvmrc`), npm (same as `ui`) | Same as `ui` and its CI |
 | Licence | AGPL-3.0, `LICENSE` at root | Decision Q14 |

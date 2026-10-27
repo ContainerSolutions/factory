@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/execfile"
 )
 
 // Write writes script to path with mode (which needs an exec bit to be exec'd, and to be

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // lockPoll bounds how long a waiting Lock sleeps before re-checking expiry: expiry follows the

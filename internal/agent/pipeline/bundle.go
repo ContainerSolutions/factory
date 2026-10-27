@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // bundledResultDef is the $defs key the v1alpha1 Result schema is bundled under.

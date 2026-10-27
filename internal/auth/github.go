@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
 )
 
 // maxGitHubBody bounds what is read of a GitHub response.

@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/server"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/server"
 )
 
 // Context content (contracts.md §Refinements, "Context content"): the untrusted text of a

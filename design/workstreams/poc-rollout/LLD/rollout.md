@@ -50,7 +50,7 @@ PoC: Gustavo's machine (or a small VM) running `factory serve` (built with `make
 
 ## Agent onboarding (RUN-S2-T01)
 
-1. `go install github.com/compliance-framework/factory/cmd/factory-agent@<ref>`.
+1. `go install github.com/ContainerSolutions/factory/cmd/factory-agent@<ref>`.
 2. The model logins the VM workspaces' gateway adds: `claude setup-token`, then `factory-agent login claude` (paste the token); `codex login` on this machine, then `factory-agent login codex`.
 3. Host tooling: `git` (the host fetches the skills for each run bundle) and the workspace driver: `factory-agent host init` (tart on a Mac, kata on Linux). The harnesses, Docker and the docs tools ship in the workspace image; no `gh` login is needed.
 4. Run the agent as a **dedicated OS user** (e.g. `factory-agent`) with **no `gh` login and no personal GitHub credentials** in its home. Place the join token file, write `agent.yaml` (from example), set `lending`.

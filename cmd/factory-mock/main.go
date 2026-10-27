@@ -21,8 +21,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/compliance-framework/factory/api"
-	"github.com/compliance-framework/factory/internal/version"
+	"github.com/ContainerSolutions/factory/api"
+	"github.com/ContainerSolutions/factory/internal/version"
 )
 
 func main() {

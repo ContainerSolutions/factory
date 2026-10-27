@@ -12,7 +12,7 @@ import (
 	"github.com/google/cel-go/common/types/ref"
 	"github.com/google/cel-go/common/types/traits"
 
-	"github.com/compliance-framework/factory/internal/patterns"
+	"github.com/ContainerSolutions/factory/internal/patterns"
 )
 
 // Item keys read by the item functions. The rule engine fills them from WorkItemView:

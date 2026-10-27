@@ -30,7 +30,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/catalog"
 )
 
 // ErrGit is wrapped by every failure to fetch the ref (git missing, network, unknown ref).

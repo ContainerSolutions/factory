@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/gitcred"
+	"github.com/ContainerSolutions/factory/internal/agent/gitcred"
 )
 
 // Harness environment variables (run-pipeline.md §Steps 7, the ccf-skills HEADLESS.md

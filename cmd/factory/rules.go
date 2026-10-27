@@ -13,8 +13,8 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/compliance-framework/factory/internal/catalog"
-	"github.com/compliance-framework/factory/internal/rules"
+	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/rules"
 )
 
 // factory rules test exits like factory validate: 0 when every case matches its golden (or

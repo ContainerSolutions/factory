@@ -6,7 +6,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // Registry maps Provider types to adapters. `factory serve` registers the GitHub adapter;

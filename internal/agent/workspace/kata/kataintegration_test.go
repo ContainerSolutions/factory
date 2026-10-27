@@ -31,9 +31,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
-	"github.com/compliance-framework/factory/internal/agent/workspace"
-	"github.com/compliance-framework/factory/internal/version"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace"
+	"github.com/ContainerSolutions/factory/internal/version"
 )
 
 // spoofSetupFailed is a spoof check's exit when it couldn't add the spoofed address: outside

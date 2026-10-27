@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
 // Errors for GitHub's authentication failures; match them with errors.Is. 404 and 422 match

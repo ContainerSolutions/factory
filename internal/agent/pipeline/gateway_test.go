@@ -14,14 +14,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/gitcred"
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/harness/fake"
-	"github.com/compliance-framework/factory/internal/agent/internal/fakegateway"
-	"github.com/compliance-framework/factory/internal/agent/pipeline"
-	"github.com/compliance-framework/factory/internal/agent/runbundle"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/agent/gitcred"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/fake"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/fakegateway"
+	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
+	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
 )
 
 func TestNewWorkspaceOptions(t *testing.T) {

@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/execfile"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
 )
 
 // The kata driver's privileges step (workspace-kata.md#the-privileges-step): the root helper and

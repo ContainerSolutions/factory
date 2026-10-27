@@ -11,8 +11,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // get reads one object; found is false (and the not-found message printed, with the nearest

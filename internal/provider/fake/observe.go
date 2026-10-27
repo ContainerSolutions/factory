@@ -6,9 +6,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/patterns"
-	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/patterns"
+	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
 // Observe implements provider.Conn: a copy of the seeded (and since changed) object.
