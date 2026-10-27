@@ -6,3 +6,6 @@ Pass 1/1 (lenient, final): approve. Verified the diff is a pure rename: the mult
 - nit (CORE-STYLE-001-ish, dropped): design/03-domain-model.md's actions-ephemeral Pool example now says repo: ContainerSolutions/factory while its testdata copy 03-13-pool.yaml keeps compliance-framework/factory without a '# changed from the doc' marker. Dropped: the brief keeps that file's labels; nothing checks the doc against the copy and the value is an arbitrary label.
 - CORE-REL-001 considered, dismissed: the module path change only affects `go install <path>@<ref>`; factory has no releases and nothing imports it as a library; docs now name the new path.
 - CORE-SIZE-001: a module path move can't be split (every import moves at once); check ccfr scope after PR creation and justify a size exception in the body.
+
+lisa-addressed:
+CORE-SIZE-001 (ccfr scope: 2756 counted lines, limit 1000): a module path move can't be split, since every import must move in one commit. Added the size-exception label; the PR body's "Size" section gives the reason.
