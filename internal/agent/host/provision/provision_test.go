@@ -16,7 +16,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/exectest"
 )
 
 // TestWriteKataContext writes the embedded context: exactly the five files, the scripts 0755,

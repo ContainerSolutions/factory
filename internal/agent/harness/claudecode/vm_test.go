@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/harness/harnesstest"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/harnesstest"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // vmWorkspace is workspace(t, writable) as a VM workspace's pipeline hands it over in gateway

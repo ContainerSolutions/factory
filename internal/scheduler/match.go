@@ -8,10 +8,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/catalog"
-	"github.com/compliance-framework/factory/internal/patterns"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/patterns"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // Rows of the LLD's matching table, in the order they are checked. A verdict's row is the

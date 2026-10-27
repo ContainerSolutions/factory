@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // Budget counter scopes: budget.<scope>.<name>.<YYYY-MM-DD>. The agent scope holds an

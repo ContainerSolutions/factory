@@ -137,4 +137,4 @@ These are the engine invariants listed in [02](02-architecture.md#safety-rails-t
   - Pool `admission`;
   - Providers.
 - CI validates the schemas, lints CEL, checks references and harness patterns, and runs **`factory rules test`** against recorded events. It reports the decision diff ("this PR changes the outcome of 3 recorded events").
-- The factory may propose changes to its own catalog (for example `ccf-review:rules` proposing rules), but it **never** acts on its own repo: `compliance-framework/factory` is excluded from every RuleSet scope ([10](10-poc.md#rulesets)).
+- The factory may propose changes to its own catalog (for example `ccf-review:rules` proposing rules), but it **never** acts on its own repo: `ContainerSolutions/factory` is excluded from every RuleSet scope ([10](10-poc.md#rulesets)).

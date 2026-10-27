@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/api"
+	"github.com/ContainerSolutions/factory/api"
 )
 
 // keepAlive is how often an open event stream gets a comment, as the real server does.

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
 )
 
 // tlsHandshakeTimeout bounds each side's TLS handshake.

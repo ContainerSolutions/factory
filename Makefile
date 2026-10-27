@@ -1,6 +1,6 @@
 # CCF Factory. `make reviewable` is what CI runs for Go.
 VERSION ?= dev
-LDFLAGS := -X github.com/compliance-framework/factory/internal/version.Version=$(VERSION)
+LDFLAGS := -X github.com/ContainerSolutions/factory/internal/version.Version=$(VERSION)
 
 # The repo has no golangci-lint config of its own: like CI, lint with the shared one at the
 # compliance-framework/workflows commit that ci.yml pins.

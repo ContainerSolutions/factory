@@ -15,8 +15,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // Object is any stored kind. The store reads its kind from TypeMeta and its name from GetName

@@ -13,10 +13,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/effector"
-	"github.com/compliance-framework/factory/internal/agent/gitcred"
-	"github.com/compliance-framework/factory/internal/agent/harness/clirun"
-	"github.com/compliance-framework/factory/internal/agent/pipeline"
+	"github.com/ContainerSolutions/factory/internal/agent/effector"
+	"github.com/ContainerSolutions/factory/internal/agent/gitcred"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/clirun"
+	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
 )
 
 func TestFxGitCredential(t *testing.T) {

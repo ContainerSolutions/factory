@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/sudocancel"
-	"github.com/compliance-framework/factory/internal/agent/sudocancel/sudocanceltest"
+	"github.com/ContainerSolutions/factory/internal/agent/sudocancel"
+	"github.com/ContainerSolutions/factory/internal/agent/sudocancel/sudocanceltest"
 )
 
 func TestApply(t *testing.T) {

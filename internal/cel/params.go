@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // ErrParamType: a substituted value doesn't fit the field it lands in, e.g. a string param in

@@ -8,7 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/compliance-framework/factory/internal/version"
+	"github.com/ContainerSolutions/factory/internal/version"
 )
 
 // MCPInstructions are the MCP server's instructions to the harness.

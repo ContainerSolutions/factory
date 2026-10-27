@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // maxKey is the dispatcher's bound on an idempotency key; maxUserKey bounds a --key.

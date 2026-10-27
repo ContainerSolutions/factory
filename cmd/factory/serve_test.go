@@ -17,13 +17,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/catalog"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/provider/fake"
-	"github.com/compliance-framework/factory/internal/scheduler"
-	"github.com/compliance-framework/factory/internal/server"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider/fake"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/server"
 )
 
 const (
@@ -463,7 +463,7 @@ func TestParseServeConfig(t *testing.T) {
 	}{
 		{name: "defaults", env: testEnv(), check: func(t *testing.T, c serveConfig, w []string) {
 			if c.Addr != ":8800" || c.OpsAddr != "127.0.0.1:9090" || c.Retention != 2160*time.Hour || c.LogFormat != "json" ||
-				c.CatalogRepo != "https://github.com/compliance-framework/factory" || c.CatalogRef != "main" || c.CatalogPath != "catalog" ||
+				c.CatalogRepo != "https://github.com/ContainerSolutions/factory" || c.CatalogRef != "main" || c.CatalogPath != "catalog" ||
 				c.DevFakeProviders || c.PublicURL != "http://localhost:8800" || c.DeployEnvironment != "github-pages" || c.StateDir != "" ||
 				c.AntiAffinityWait != scheduler.DefaultAntiAffinityWait {
 				t.Errorf("defaults %+v", c)

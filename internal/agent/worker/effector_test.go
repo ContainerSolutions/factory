@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/effector"
-	agentharness "github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/internal/fakegh"
-	"github.com/compliance-framework/factory/internal/agent/owner"
-	"github.com/compliance-framework/factory/internal/agent/pipeline"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/agent/worker"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/effector"
+	agentharness "github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/fakegh"
+	"github.com/ContainerSolutions/factory/internal/agent/owner"
+	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/agent/worker"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // TestEffectorAgainstRealDispatcher runs the Effector against the real dispatcher's

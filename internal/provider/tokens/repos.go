@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
 // maxRepoPages bounds InstallationRepos (100 repos per page).

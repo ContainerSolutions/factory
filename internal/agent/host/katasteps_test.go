@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
 )
 
 // testKataConfigSource stands in for the release's configuration-clh-runtime-rs.toml: the

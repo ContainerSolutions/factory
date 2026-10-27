@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/workspace"
-	"github.com/compliance-framework/factory/internal/agent/workspace/vmexec"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace/vmexec"
 )
 
 var update = flag.Bool("update", false, "rewrite the goldens under testdata/")

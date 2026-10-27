@@ -3,9 +3,9 @@ package controllers
 import (
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/rules"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/rules"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // Internal kinds the controllers keep in the store. They are not part of v1alpha1 (no API, no

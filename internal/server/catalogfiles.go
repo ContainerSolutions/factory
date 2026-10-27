@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/apiserver/gen"
-	"github.com/compliance-framework/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/apiserver/gen"
+	"github.com/ContainerSolutions/factory/internal/catalog"
 )
 
 // The catalog directories whose files the API serves.

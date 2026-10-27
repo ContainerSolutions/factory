@@ -19,9 +19,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
 )
 
 // The tokens hold secrets[0], so assertNoSecrets checks no record or log line has one.

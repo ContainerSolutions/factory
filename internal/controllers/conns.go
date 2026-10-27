@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/clock"
-	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
 // ConnSource gives the controllers the live connection of a Provider instance by name. The

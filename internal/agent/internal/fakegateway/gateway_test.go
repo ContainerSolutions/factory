@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/runbundle"
+	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
 )
 
 // The tokens the gateway holds in these tests: none may appear in a Record.

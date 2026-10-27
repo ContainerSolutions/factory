@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 	"github.com/labstack/echo/v4"
 	"github.com/oapi-codegen/runtime"
 )

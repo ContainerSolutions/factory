@@ -8,8 +8,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/compliance-framework/factory/internal/apiserver/gen"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apiserver/gen"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // EnvironmentLogRefPrefix starts an environment log reference (uploadEnvironmentLog's

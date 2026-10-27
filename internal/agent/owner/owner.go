@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // TokenSource returns a fresh owner token, once per registration.

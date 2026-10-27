@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // stubRunner is a runner.Runner that reports canned progress and usage, optionally waits,

@@ -1,7 +1,7 @@
 package store
 
 import (
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // Indexed fields, for ListOptions.Field.

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
 )
 
 // EffectorServer is the Effector's MCP server name in every harness's MCP config. Its command

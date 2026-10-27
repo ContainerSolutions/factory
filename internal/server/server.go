@@ -21,15 +21,15 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/apiserver/gen"
-	"github.com/compliance-framework/factory/internal/auth"
-	"github.com/compliance-framework/factory/internal/clock"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/provider"
-	"github.com/compliance-framework/factory/internal/rules"
-	"github.com/compliance-framework/factory/internal/scheduler"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apiserver/gen"
+	"github.com/ContainerSolutions/factory/internal/auth"
+	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/rules"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // BasePath is where the generated API is mounted.

@@ -12,7 +12,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
 )
 
 // envServer is the default --server of factory dispatch.

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/harness/harnesstest"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/harnesstest"
 )
 
 const okResult = `{"status":"done","outcome":"pr-opened","summary":"opened acme/docs#13","data":{"prs":["acme/docs#13"]}}`

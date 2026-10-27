@@ -24,9 +24,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 var update = flag.Bool("update", false, "rewrite the goldens under testdata/")

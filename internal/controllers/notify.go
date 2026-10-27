@@ -7,9 +7,9 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/catalog"
-	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
 // Destination kinds an EffectRequest.Target can name besides issues and PRs.

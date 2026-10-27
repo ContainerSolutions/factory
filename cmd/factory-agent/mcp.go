@@ -8,7 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/compliance-framework/factory/internal/agent/effector"
+	"github.com/ContainerSolutions/factory/internal/agent/effector"
 )
 
 // mcpCommand is `factory-agent mcp`, the Effector's stdio MCP server (effector.md §Shape).

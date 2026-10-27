@@ -446,7 +446,7 @@ kind: Pool                            # later: ephemeral, autoscaled
 metadata: { name: actions-ephemeral }
 spec:
   mode: ephemeral
-  backend: { type: github-actions, githubActions: { providerRef: github-public, repo: compliance-framework/factory, workflow: run-agent.yml } }
+  backend: { type: github-actions, githubActions: { providerRef: github-public, repo: ContainerSolutions/factory, workflow: run-agent.yml } }
   image: ghcr.io/compliance-framework/factory-agent:0.1.0
   scaling: { min: 0, max: 10 }
   llmAuth: { apiKeyRef: { name: anthropic-api-key, key: key } }   # ephemeral agents need API keys

@@ -15,12 +15,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/internal/fakegh"
-	"github.com/compliance-framework/factory/internal/agent/owner"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/agent/worker"
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/fakegh"
+	"github.com/ContainerSolutions/factory/internal/agent/owner"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/agent/worker"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 const (
@@ -90,7 +90,7 @@ type served struct {
 // for /readyz.
 func startServe(t *testing.T, githubURL string) *served {
 	t.Helper()
-	bin := buildBinary(t, "github.com/compliance-framework/factory/cmd/factory")
+	bin := buildBinary(t, "github.com/ContainerSolutions/factory/cmd/factory")
 	addr, ops := freeAddr(t), freeAddr(t)
 	cmd := exec.Command(bin, "serve", "--dev-fake-providers", "--catalog-dir", testCatalog(t, "gus"),
 		"--addr", addr, "--ops-addr", ops, "--public-url", "http://"+addr,

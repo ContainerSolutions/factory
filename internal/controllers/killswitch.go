@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // KindKillSwitch is a pause flag set by the pause command (internal kind, no API, no schema).

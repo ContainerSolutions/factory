@@ -26,7 +26,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // DefaultPath is where factory-agent looks for its config when --config isn't given.

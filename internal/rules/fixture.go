@@ -10,8 +10,8 @@ import (
 	"path"
 	"sort"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/catalog"
 )
 
 // Fixture files (rules-engine LLD §Fixtures). A case is a directory that holds them:

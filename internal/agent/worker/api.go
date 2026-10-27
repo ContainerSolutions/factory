@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
 )
 
 // The dispatcher's API base path and the registration credential headers (contracts.md §HTTP

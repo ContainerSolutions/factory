@@ -72,7 +72,7 @@ Share the join token with agent owners out of band, never in a repo or an issue.
 
 ## 4. Catalog
 
-`factory serve` reads the catalog from git by default: `catalog/` of `https://github.com/compliance-framework/factory` at `main`, polled every minute. `run.sh` passes that (`--catalog-repo … --catalog-ref "${FACTORY_CATALOG_REF:-main}" --catalog-path catalog`), or `--catalog-dir "$FACTORY_CATALOG_DIR"` when that is set in `.env`.
+`factory serve` reads the catalog from git by default: `catalog/` of `https://github.com/ContainerSolutions/factory` at `main`, polled every minute. `run.sh` passes that (`--catalog-repo … --catalog-ref "${FACTORY_CATALOG_REF:-main}" --catalog-path catalog`), or `--catalog-dir "$FACTORY_CATALOG_DIR"` when that is set in `.env`.
 
 `main` works as is once the real App IDs are merged into `catalog/providers/github-public.yaml` and `ccf-skills` has the tag the TaskSpecs pin (`ref: v0.8.0`). A Provider change needs two approvals. Until both are true, run from a local copy:
 

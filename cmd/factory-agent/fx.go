@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/effector"
-	"github.com/compliance-framework/factory/internal/agent/gitcred"
-	"github.com/compliance-framework/factory/internal/agent/harness/claudecode"
+	"github.com/ContainerSolutions/factory/internal/agent/effector"
+	"github.com/ContainerSolutions/factory/internal/agent/gitcred"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/claudecode"
 )
 
 // fxCommand is the Effector CLI (effector.md), on a run's PATH as `factory`: the effect ops

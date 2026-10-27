@@ -15,12 +15,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/effector"
-	"github.com/compliance-framework/factory/internal/agent/gitcred"
-	"github.com/compliance-framework/factory/internal/agent/internal/exectest"
-	"github.com/compliance-framework/factory/internal/agent/internal/fakegateway"
-	"github.com/compliance-framework/factory/internal/agent/pipeline"
-	"github.com/compliance-framework/factory/internal/agent/runbundle"
+	"github.com/ContainerSolutions/factory/internal/agent/effector"
+	"github.com/ContainerSolutions/factory/internal/agent/gitcred"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/exectest"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/fakegateway"
+	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
+	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
 )
 
 // The repos' tokens, which only the gateway holds.

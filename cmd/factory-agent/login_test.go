@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/host"
-	"github.com/compliance-framework/factory/internal/agent/login"
+	"github.com/ContainerSolutions/factory/internal/agent/host"
+	"github.com/ContainerSolutions/factory/internal/agent/login"
 )
 
 // codexAuth is a codex auth.json with a ChatGPT login (an unsigned id_token).

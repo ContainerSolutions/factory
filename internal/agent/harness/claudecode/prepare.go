@@ -10,10 +10,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/gitcred"
-	"github.com/compliance-framework/factory/internal/agent/harness"
-	"github.com/compliance-framework/factory/internal/agent/harness/clirun"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/gitcred"
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/clirun"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // The adapter's files in the workspace: a scratch directory of the run's HOME (claude's own

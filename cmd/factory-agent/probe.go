@@ -12,10 +12,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
-	"github.com/compliance-framework/factory/internal/agent/host"
-	"github.com/compliance-framework/factory/internal/agent/login"
-	"github.com/compliance-framework/factory/internal/agent/probe"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/host"
+	"github.com/ContainerSolutions/factory/internal/agent/login"
+	"github.com/ContainerSolutions/factory/internal/agent/probe"
 )
 
 func probeCommand() command {

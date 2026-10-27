@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/clock"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // record is one stored object. Records are immutable: a write replaces the record, so a

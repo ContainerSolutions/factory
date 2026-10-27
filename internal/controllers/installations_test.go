@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
 // installs is a Conn that is a provider.InstallationChecker: the identities' installed repos.

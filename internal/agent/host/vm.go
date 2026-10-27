@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/config"
 )
 
 // provisionScript is the base VM's provisioning script (provision/base.sh). basevm.json

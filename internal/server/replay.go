@@ -5,9 +5,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/compliance-framework/factory/internal/apiserver/gen"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apiserver/gen"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // CodeReplayHistoryGone is replayEvent's 409 for an event whose earlier decisions aged out of

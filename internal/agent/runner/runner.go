@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // Runner executes one leased task. Run returns when the task is done, failed or throttled, or

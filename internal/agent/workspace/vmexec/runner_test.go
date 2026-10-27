@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/sudocancel/sudocanceltest"
+	"github.com/ContainerSolutions/factory/internal/agent/sudocancel/sudocanceltest"
 )
 
 // TestExecRunnerCancel: when ctx ends, a sudo call (the kata helper's verbs) gets SIGTERM, which

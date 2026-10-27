@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
 )
 
 // Redacted replaces every secret in a transcript, a progress summary or an error.

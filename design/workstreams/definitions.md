@@ -22,7 +22,7 @@ This file breaks the PoC ([08-roadmap.md](../08-roadmap.md)) into tasks that age
 
 ### Backend and frontend run separately
 
-All factory code lives in `compliance-framework/factory` ([repo layout](foundation/LLD/repo-layout.md)). Backend and frontend workstreams never block each other:
+All factory code lives in `ContainerSolutions/factory` ([repo layout](foundation/LLD/repo-layout.md)). Backend and frontend workstreams never block each other:
 
 - **The contract is the boundary.** `api/openapi.yaml` (FND) is the only coupling. The backend generates its server and client from it; the frontend generates its TypeScript client from it and develops against **MSW mocks** of it. A contract change is always its own small PR, merged first.
 - **Separate trees, separate toolchains.** Backend: `cmd/`, `internal/` (Go). Frontend: `web/` (Node, own `package.json`). No PR touches both, except the FND scaffold.
@@ -84,7 +84,7 @@ awk -v id="### $TASK " 'index($0,id)==1{f=1;print;next} f&&/^### /{f=0} f' "$FIL
 ```
 
 - **Reading an extracted task.** Links in a task are relative to `design/workstreams/` in the `factory` repo. A task without a `Repo:` line uses the repo of the first task in its stack.
-- **LLDs are part of the spec.** For `factory` tasks, the LLD is in the clone, so read it. For `ccf-skills`, `docs`, `mock-docs` and `workflows` tasks, fetch it: `gh api repos/compliance-framework/factory/contents/<path> --jq .content | base64 -d`.
+- **LLDs are part of the spec.** For `factory` tasks, the LLD is in the clone, so read it. For `ccf-skills`, `docs`, `mock-docs` and `workflows` tasks, fetch it: `gh api repos/ContainerSolutions/factory/contents/<path> --jq .content | base64 -d`.
 - **Stacks.** Tasks with the same `Stack:` value land as one `gh stack` in one repo, in the order listed. lisa opens **one PR per run**, so build a stack one layer at a time:
   - Run the bottom task as **"one-shot"**.
   - For each next task, set `LISA_BASE=<branch below>` and run it "one-shot".
@@ -138,7 +138,7 @@ Every PR gets `/ccf-review:review <PR URL>` before merge, and `--again` after ne
 
 **Spec.** Create the layout in [repo-layout.md](foundation/LLD/repo-layout.md):
 
-- `go.mod` (`github.com/compliance-framework/factory`, Go 1.26) and empty `cmd/factory` and `cmd/factory-agent` mains that print their version.
+- `go.mod` (`github.com/ContainerSolutions/factory`, Go 1.26) and empty `cmd/factory` and `cmd/factory-agent` mains that print their version.
 - `Makefile` with the targets in the LLD (`build`, `test`, `lint`, `reviewable`, `generate`, `web`, `build-release`).
 - No `.golangci.yml`: like `api`, lint with the shared CCF config from `compliance-framework/workflows`.
 - `internal/webui` with the two build-tagged embed files and the committed placeholder page.
@@ -821,7 +821,7 @@ Use a **fake harness** adapter in tests.
 
 - **Who:** maintainer
 
-Review and merge [compliance-framework/factory#1](https://github.com/compliance-framework/factory/pull/1), together with this workstream PR, so the LLDs are on `main` before any lisa run.
+Review and merge [ContainerSolutions/factory#1](https://github.com/ContainerSolutions/factory/pull/1), together with this workstream PR, so the LLDs are on `main` before any lisa run.
 
 ### RUN-S0-T02 `[human]` create and install the factory GitHub Apps
 

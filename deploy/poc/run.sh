@@ -62,11 +62,11 @@ else
 fi
 
 # The catalog: a local directory (FACTORY_CATALOG_DIR), or catalog/ of
-# compliance-framework/factory at FACTORY_CATALOG_REF (default main), polled every minute.
+# ContainerSolutions/factory at FACTORY_CATALOG_REF (default main), polled every minute.
 if [ -n "${FACTORY_CATALOG_DIR:-}" ]; then
 	catalog=(--catalog-dir "$FACTORY_CATALOG_DIR")
 else
-	catalog=(--catalog-repo https://github.com/compliance-framework/factory
+	catalog=(--catalog-repo https://github.com/ContainerSolutions/factory
 		--catalog-ref "${FACTORY_CATALOG_REF:-main}" --catalog-path catalog)
 fi
 

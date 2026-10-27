@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
 // MaxWebhookBytes bounds a posted webhook body, like the API server's body limit.

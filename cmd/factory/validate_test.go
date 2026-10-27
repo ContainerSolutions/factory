@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/catalog"
 )
 
 const pocDir = "../../internal/catalog/testdata/poc"

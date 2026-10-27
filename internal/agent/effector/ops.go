@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // Op is one Effector op: a CLI command (Words), an MCP tool (Name), its params, and what it

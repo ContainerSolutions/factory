@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/internal/fakegh"
-	"github.com/compliance-framework/factory/internal/agent/owner"
-	"github.com/compliance-framework/factory/internal/agent/runner"
-	"github.com/compliance-framework/factory/internal/agent/worker"
-	"github.com/compliance-framework/factory/internal/apiclient"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/fakegh"
+	"github.com/ContainerSolutions/factory/internal/agent/owner"
+	"github.com/ContainerSolutions/factory/internal/agent/runner"
+	"github.com/ContainerSolutions/factory/internal/agent/worker"
+	"github.com/ContainerSolutions/factory/internal/apiclient"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // recorder is an HTTP client that records each exchange as "METHOD path status".
@@ -73,7 +73,7 @@ func buildBinary(t *testing.T, pkg string) string {
 // startFactoryMock builds cmd/factory-mock and runs it on an ephemeral port.
 func startFactoryMock(t *testing.T) string {
 	t.Helper()
-	bin := buildBinary(t, "github.com/compliance-framework/factory/cmd/factory-mock")
+	bin := buildBinary(t, "github.com/ContainerSolutions/factory/cmd/factory-mock")
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, bin, "--addr", "127.0.0.1:0")
 	stderr, err := cmd.StderrPipe()

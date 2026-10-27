@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/compliance-framework/factory/internal/agent/vmrun"
+	"github.com/ContainerSolutions/factory/internal/agent/vmrun"
 )
 
 // runCommand is the runtime inside a VM workspace (workspace-run.md §factory-agent run): the

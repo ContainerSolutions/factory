@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/chatgpt"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/chatgpt"
 )
 
 // Dir is the store's directory under the state dir.

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
 )
 
 // TestChatGPTRetryOn401: a chatgpt.com 401 to an injected token is resent once with the login

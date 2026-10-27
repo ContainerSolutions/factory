@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/execfile"
 )
 
 // The image verbs (workspace-kata.md#the-image-provisionkata): image-build builds the workspace

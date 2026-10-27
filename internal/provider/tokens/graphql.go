@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
 // GraphQLURL is the GraphQL endpoint of a REST API base: https://api.github.com/graphql for

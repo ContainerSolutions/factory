@@ -18,10 +18,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/internal/execfile"
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
-	"github.com/compliance-framework/factory/internal/agent/workspace"
-	"github.com/compliance-framework/factory/internal/agent/workspace/vmexec"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/execfile"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace"
+	"github.com/ContainerSolutions/factory/internal/agent/workspace/vmexec"
 )
 
 // The agent binary's place in a workspace: Start puts it in AgentDir and links AgentLink to it,

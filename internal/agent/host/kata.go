@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
 )
 
 // KataSlotPool is the kata driver's workspace addresses, the helper's katahelper.SlotPool. The

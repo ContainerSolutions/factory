@@ -1,7 +1,7 @@
 package rules
 
 import (
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // Rails judges each decision against the safety rails (design/02-architecture.md §Safety

@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // Retention says how an object ages out.

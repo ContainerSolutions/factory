@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/gateway/ca"
-	"github.com/compliance-framework/factory/internal/agent/gateway/policy"
-	"github.com/compliance-framework/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/ca"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // testCA is a new gateway CA on the real clock: Go's TLS verifies leaves on it.

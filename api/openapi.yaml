@@ -24,7 +24,7 @@ info:
     - Additive changes only during the PoC; a breaking change moves to `/api/v2`.
   contact:
     name: compliance-framework maintainers
-    url: https://github.com/compliance-framework/factory
+    url: https://github.com/ContainerSolutions/factory
   license:
     name: AGPL-3.0-only
     url: https://www.gnu.org/licenses/agpl-3.0.html
@@ -1868,7 +1868,7 @@ components:
           enum: [Ready, Throttled, Draining, Offline]
           x-go-type: v1alpha1.AgentPhase
           x-go-type-import:
-            path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+            path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
         until:
           type: string
           format: date-time
@@ -2125,7 +2125,7 @@ components:
           type: string
           x-go-type: v1alpha1.Duration
           x-go-type-import:
-            path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+            path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
           default: 7d
           description: How long the enrollment token may be used, a Duration (`7d`, `36h`). At most `30d`.
     EnrollmentCreated:
@@ -2683,7 +2683,7 @@ components:
     Action:
       x-go-type: v1alpha1.Action
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'Action is a tagged union: exactly one member is set.'
       type: object
       minProperties: 1
@@ -2709,7 +2709,7 @@ components:
     Actor:
       x-go-type: v1alpha1.Actor
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Actor is who caused an event.
       type: object
       required:
@@ -2731,7 +2731,7 @@ components:
     Admission:
       x-go-type: v1alpha1.Admission
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Admission is how registered agents join.
       type: object
       required:
@@ -2747,7 +2747,7 @@ components:
     Agent:
       x-go-type: v1alpha1.Agent
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Agent is a registered worker.
       type: object
       required:
@@ -2773,7 +2773,7 @@ components:
     AgentCapabilities:
       x-go-type: v1alpha1.AgentCapabilities
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: AgentCapabilities are the agent's harness offers and labels.
       type: object
       properties:
@@ -2789,7 +2789,7 @@ components:
     AgentPhase:
       x-go-type: v1alpha1.AgentPhase
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: AgentPhase is a registered agent's state.
       type: string
       enum:
@@ -2801,7 +2801,7 @@ components:
     AgentSpec:
       x-go-type: v1alpha1.AgentSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: AgentSpec is what the agent offers and what its owner lends.
       type: object
       required:
@@ -2822,7 +2822,7 @@ components:
     AgentStatus:
       x-go-type: v1alpha1.AgentStatus
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: AgentStatus is the agent's state.
       type: object
       required:
@@ -2848,7 +2848,7 @@ components:
     AgentUsage:
       x-go-type: v1alpha1.AgentUsage
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: AgentUsage is the agent's usage today, checked against its lending.
       type: object
       required:
@@ -2863,7 +2863,7 @@ components:
     AppIdentity:
       x-go-type: v1alpha1.AppIdentity
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: AppIdentity is a GitHub App.
       type: object
       required:
@@ -2878,7 +2878,7 @@ components:
     ApprovalPhase:
       x-go-type: v1alpha1.ApprovalPhase
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'ApprovalPhase is an Approval''s state: Pending → Granted | Denied | Expired.'
       type: string
       enum:
@@ -2889,7 +2889,7 @@ components:
     ApprovalRef:
       x-go-type: v1alpha1.ApprovalRef
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: ApprovalRef is an approval's name and phase, as shown on the work item.
       type: object
       required:
@@ -2904,7 +2904,7 @@ components:
     ApprovalSpec:
       x-go-type: v1alpha1.ApprovalSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: ApprovalSpec is what is asked, of whom.
       type: object
       required:
@@ -2932,7 +2932,7 @@ components:
     Artifact:
       x-go-type: v1alpha1.Artifact
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Artifact is something the run produced.
       type: object
       required:
@@ -2948,7 +2948,7 @@ components:
     Budget:
       x-go-type: v1alpha1.Budget
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Budget caps spend.
       type: object
       properties:
@@ -2958,7 +2958,7 @@ components:
     BudgetLimit:
       x-go-type: v1alpha1.BudgetLimit
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: BudgetLimit is one budget window's limits; an unset limit is unlimited.
       type: object
       properties:
@@ -2972,7 +2972,7 @@ components:
     CancelAction:
       x-go-type: v1alpha1.CancelAction
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: CancelAction cancels the active tasks of a task spec for the work item.
       type: object
       required:
@@ -2984,7 +2984,7 @@ components:
     ChannelRef:
       x-go-type: v1alpha1.ChannelRef
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: ChannelRef is a channel on a provider.
       type: object
       required:
@@ -2999,7 +2999,7 @@ components:
     ContextItem:
       x-go-type: v1alpha1.ContextItem
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: ContextItem is something the agent is given, with its trust label.
       type: object
       required:
@@ -3020,7 +3020,7 @@ components:
     Debounce:
       x-go-type: v1alpha1.Debounce
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Debounce collapses bursts of events into one action.
       type: object
       required:
@@ -3034,7 +3034,7 @@ components:
     Decision:
       x-go-type: v1alpha1.Decision
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'Decision records why a rule did (or didn''t) act: the UI''s "why did this happen?".'
       type: object
       properties:
@@ -3072,7 +3072,7 @@ components:
     Destination:
       x-go-type: v1alpha1.Destination
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Destination is one recipient of a notification.
       type: object
       properties:
@@ -3106,7 +3106,7 @@ components:
     DispatchAction:
       x-go-type: v1alpha1.DispatchAction
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: DispatchAction creates a Task (Pending) in a queue.
       type: object
       required:
@@ -3136,13 +3136,13 @@ components:
     Duration:
       x-go-type: v1alpha1.Duration
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: A Go duration ("90s", "15m", "1h30m"), optionally prefixed by whole days ("7d", "1d12h").
       type: string
     Effect:
       x-go-type: v1alpha1.Effect
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Effect is an audit record of one provider write.
       type: object
       required:
@@ -3168,7 +3168,7 @@ components:
     EffectAction:
       x-go-type: v1alpha1.EffectAction
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'A direct provider effect: op, an optional target, and the op-specific fields inline (e.g. labels for label.add). The catalog loader checks those fields per op.'
       type: object
       required:
@@ -3186,7 +3186,7 @@ components:
     EffectOp:
       x-go-type: v1alpha1.EffectOp
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: EffectOp is a provider effect, as named in TaskSpec effects.allow and the effect action.
       type: string
       enum:
@@ -3213,7 +3213,7 @@ components:
     EffectResult:
       x-go-type: v1alpha1.EffectResult
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: EffectResult is the outcome of an effect.
       type: object
       properties:
@@ -3225,7 +3225,7 @@ components:
     EffectSpec:
       x-go-type: v1alpha1.EffectSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: EffectSpec is what was asked.
       type: object
       required:
@@ -3251,7 +3251,7 @@ components:
     EffectStatus:
       x-go-type: v1alpha1.EffectStatus
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: EffectStatus is what happened.
       type: object
       properties:
@@ -3264,7 +3264,7 @@ components:
     EffectiveConfig:
       x-go-type: v1alpha1.EffectiveConfig
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: EffectiveConfig is the exact config the harness ran with.
       type: object
       required:
@@ -3278,7 +3278,7 @@ components:
     EffectsPolicy:
       x-go-type: v1alpha1.EffectsPolicy
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: EffectsPolicy is what a task may do.
       type: object
       properties:
@@ -3297,7 +3297,7 @@ components:
     EgressPolicy:
       x-go-type: v1alpha1.EgressPolicy
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: EgressPolicy narrows a workspace's network.
       type: object
       properties:
@@ -3326,7 +3326,7 @@ components:
     Environment:
       x-go-type: v1alpha1.Environment
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'Environment is what a task''s workspace brings up before the harness runs (P1 §4): plain commands run as root inside the task''s VM workspace, which has its own Docker.'
       type: object
       properties:
@@ -3363,7 +3363,7 @@ components:
     Event:
       x-go-type: v1alpha1.Event
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'Event is a normalised provider event, shaped as a CloudEvent: its identity is (Source = provider instance or "factory", Type).'
       type: object
       required:
@@ -3402,7 +3402,7 @@ components:
     EventData:
       x-go-type: v1alpha1.EventData
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: EventData is the event's payload.
       type: object
       required:
@@ -3433,7 +3433,7 @@ components:
     EventType:
       x-go-type: v1alpha1.EventType
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: EventType is a normalised event type.
       type: string
       enum:
@@ -3468,7 +3468,7 @@ components:
     ExprOrHarnessRequest:
       x-go-type: v1alpha1.ExprOr[v1alpha1.HarnessRequest]
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: ExprOr holds either an expression string or a typed value.
       oneOf:
         - description: 'An expression: "{{ params.x }}" (substituted at catalog load) or "=CEL" (evaluated at runtime).'
@@ -3504,7 +3504,7 @@ components:
     GitCredentialSpec:
       x-go-type: v1alpha1.GitCredentialSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'GitCredentialSpec describes the scoped git tokens minted for a task: one for Repo with the TaskSpec permissions and, unless PublicReads is set, a read-only one per read repo.'
       type: object
       required:
@@ -3540,7 +3540,7 @@ components:
     GitHubActionsBackend:
       x-go-type: v1alpha1.GitHubActionsBackend
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: GitHubActionsBackend runs agents as a workflow.
       type: object
       required:
@@ -3558,7 +3558,7 @@ components:
     GitHubProviderSpec:
       x-go-type: v1alpha1.GitHubProviderSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: GitHubProviderSpec is the connection to a GitHub (or GHE) instance.
       type: object
       required:
@@ -3578,7 +3578,7 @@ components:
     Group:
       x-go-type: v1alpha1.Group
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Group is a named set of people, resolved per provider.
       type: object
       required:
@@ -3602,7 +3602,7 @@ components:
     GroupCache:
       x-go-type: v1alpha1.GroupCache
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: GroupCache says how long resolved members are cached.
       type: object
       required:
@@ -3614,7 +3614,7 @@ components:
     GroupSource:
       x-go-type: v1alpha1.GroupSource
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: GroupSource is one source of members on one provider.
       type: object
       required:
@@ -3647,7 +3647,7 @@ components:
     GroupSpec:
       x-go-type: v1alpha1.GroupSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: GroupSpec is the spec of a Group.
       type: object
       required:
@@ -3663,7 +3663,7 @@ components:
     HarnessConfig:
       x-go-type: v1alpha1.HarnessConfig
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: HarnessConfig is a requested harness config.
       type: object
       properties:
@@ -3680,7 +3680,7 @@ components:
     HarnessConstraint:
       x-go-type: v1alpha1.HarnessConstraint
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: HarnessConstraint bounds what a harness may run.
       type: object
       required:
@@ -3696,7 +3696,7 @@ components:
     HarnessOffer:
       x-go-type: v1alpha1.HarnessOffer
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'HarnessOffer is what one agent can actually run with one harness (from the agent''s Probe and local config): concrete values, not patterns.'
       type: object
       required:
@@ -3726,7 +3726,7 @@ components:
     HarnessPolicy:
       x-go-type: v1alpha1.HarnessPolicy
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: HarnessPolicy is a TaskSpec's harness constraints and default request.
       type: object
       properties:
@@ -3741,7 +3741,7 @@ components:
     HarnessRequest:
       x-go-type: v1alpha1.HarnessRequest
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: HarnessRequest asks for a harness and config.
       type: object
       required:
@@ -3755,7 +3755,7 @@ components:
     HarnessResolved:
       x-go-type: v1alpha1.HarnessResolved
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: HarnessResolved is the concrete harness config chosen when an agent leased the task.
       type: object
       required:
@@ -3775,7 +3775,7 @@ components:
     InlineRule:
       x-go-type: v1alpha1.InlineRule
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: InlineRule is a Rule without its TypeMeta, embedded in a RuleSet.
       type: object
       required:
@@ -3790,7 +3790,7 @@ components:
     InputSpec:
       x-go-type: v1alpha1.InputSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: InputSpec declares one TaskSpec input.
       type: object
       properties:
@@ -3813,7 +3813,7 @@ components:
     Instructions:
       x-go-type: v1alpha1.Instructions
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Instructions is the prompt template.
       type: object
       required:
@@ -3827,7 +3827,7 @@ components:
     LLMAuth:
       x-go-type: v1alpha1.LLMAuth
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: LLMAuth is the LLM credential ephemeral agents use.
       type: object
       properties:
@@ -3837,7 +3837,7 @@ components:
     LabelSelector:
       x-go-type: v1alpha1.LabelSelector
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: LabelSelector selects objects by their labels, as in Kubernetes.
       type: object
       properties:
@@ -3853,7 +3853,7 @@ components:
     LabelSelectorRequirement:
       x-go-type: v1alpha1.LabelSelectorRequirement
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: LabelSelectorRequirement is one matchExpressions entry.
       type: object
       required:
@@ -3877,7 +3877,7 @@ components:
     LeasePolicy:
       x-go-type: v1alpha1.LeasePolicy
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: LeasePolicy sets lease timing.
       type: object
       properties:
@@ -3891,7 +3891,7 @@ components:
     Lending:
       x-go-type: v1alpha1.Lending
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'Lending is the owner''s consent: what the agent may take.'
       type: object
       properties:
@@ -3921,7 +3921,7 @@ components:
     Limits:
       x-go-type: v1alpha1.Limits
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Limits bound a run.
       type: object
       properties:
@@ -3956,7 +3956,7 @@ components:
     Link:
       x-go-type: v1alpha1.Link
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Link is a provider object that belongs to the work item.
       type: object
       required:
@@ -3975,7 +3975,7 @@ components:
     LinkAction:
       x-go-type: v1alpha1.LinkAction
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: LinkAction adds a provider object to the work item.
       type: object
       required:
@@ -3988,7 +3988,7 @@ components:
     NotifyAction:
       x-go-type: v1alpha1.NotifyAction
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: NotifyAction sends a templated message through the providers; no LLM involved.
       type: object
       required:
@@ -4005,7 +4005,7 @@ components:
     ObjectMeta:
       x-go-type: v1alpha1.ObjectMeta
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: ObjectMeta is the metadata of every kind except Task (TaskMeta) and Event (CloudEvents attributes).
       type: object
       required:
@@ -4027,7 +4027,7 @@ components:
     ObjectRef:
       x-go-type: v1alpha1.ObjectRef
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: ObjectRef identifies a provider object, e.g.
       type: object
       required:
@@ -4043,7 +4043,7 @@ components:
     OrgRole:
       x-go-type: v1alpha1.OrgRole
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: OrgRole selects the members of an org with a role, e.g.
       type: object
       required:
@@ -4058,7 +4058,7 @@ components:
     OutputSpec:
       x-go-type: v1alpha1.OutputSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'OutputSpec is the expected Result: its spec-specific schema and outcomes.'
       type: object
       properties:
@@ -4072,7 +4072,7 @@ components:
     Pool:
       x-go-type: v1alpha1.Pool
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Pool is who takes tasks out of queues and how capacity scales.
       type: object
       required:
@@ -4096,7 +4096,7 @@ components:
     PoolBackend:
       x-go-type: v1alpha1.PoolBackend
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: PoolBackend runs ephemeral agents.
       type: object
       required:
@@ -4110,7 +4110,7 @@ components:
     PoolRequirements:
       x-go-type: v1alpha1.PoolRequirements
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: PoolRequirements is the minimum an agent must offer to join.
       type: object
       properties:
@@ -4123,7 +4123,7 @@ components:
     PoolSpec:
       x-go-type: v1alpha1.PoolSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: PoolSpec is the spec of a Pool.
       type: object
       required:
@@ -4154,7 +4154,7 @@ components:
     ProgressEvent:
       x-go-type: v1alpha1.ProgressEvent
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: ProgressEvent is one progress line streamed by the agent.
       type: object
       required:
@@ -4175,7 +4175,7 @@ components:
     PromptRef:
       x-go-type: v1alpha1.PromptRef
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: PromptRef is where the agent fetches the rendered prompt.
       type: object
       required:
@@ -4189,7 +4189,7 @@ components:
     Provenance:
       x-go-type: v1alpha1.Provenance
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Provenance is the event, RuleSet, rule and catalog commit that created a task.
       type: object
       required:
@@ -4210,7 +4210,7 @@ components:
     Provider:
       x-go-type: v1alpha1.Provider
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Provider says how to connect to one provider instance.
       type: object
       required:
@@ -4234,7 +4234,7 @@ components:
     ProviderScope:
       x-go-type: v1alpha1.ProviderScope
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: ProviderScope bounds what a provider instance covers.
       type: object
       properties:
@@ -4250,7 +4250,7 @@ components:
     ProviderSpec:
       x-go-type: v1alpha1.ProviderSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: ProviderSpec is the spec of a Provider.
       type: object
       required:
@@ -4278,7 +4278,7 @@ components:
     Queue:
       x-go-type: v1alpha1.Queue
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Queue holds tasks until a pool's agents take them.
       type: object
       required:
@@ -4302,7 +4302,7 @@ components:
     QueueSpec:
       x-go-type: v1alpha1.QueueSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: QueueSpec is the spec of a Queue.
       type: object
       required:
@@ -4322,7 +4322,7 @@ components:
     RailVerdict:
       x-go-type: v1alpha1.RailVerdict
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: RailVerdict is one safety rail's verdict on a decision as the work item stores it (lowercase, unsupported included); the dry-run API's EvaluationRail is a different view of it (Allowed, Suppressed or Deferred), where unsupported shows as Suppressed and the rail name is prefixed to the reason.
       type: object
       required:
@@ -4345,7 +4345,7 @@ components:
     ReadyCheck:
       x-go-type: v1alpha1.ReadyCheck
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: ReadyCheck is how the runtime waits for an environment.
       type: object
       properties:
@@ -4363,7 +4363,7 @@ components:
     RepoMount:
       x-go-type: v1alpha1.RepoMount
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: RepoMount is one repo in the workspace.
       type: object
       required:
@@ -4381,7 +4381,7 @@ components:
     Requires:
       x-go-type: v1alpha1.Requires
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Requires lists the agent labels a task needs.
       type: object
       properties:
@@ -4393,7 +4393,7 @@ components:
     Result:
       x-go-type: v1alpha1.Result
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Result is what an agent reports when a run completes.
       type: object
       required:
@@ -4438,7 +4438,7 @@ components:
     ResultHarness:
       x-go-type: v1alpha1.ResultHarness
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: ResultHarness is the harness that ran, its effective config and usage.
       type: object
       required:
@@ -4460,7 +4460,7 @@ components:
     ResyncPolicy:
       x-go-type: v1alpha1.ResyncPolicy
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: ResyncPolicy says how often the provider's objects are re-observed.
       type: object
       required:
@@ -4472,7 +4472,7 @@ components:
     RetryPolicy:
       x-go-type: v1alpha1.RetryPolicy
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: RetryPolicy says how often, and on what, a task is retried.
       type: object
       required:
@@ -4488,7 +4488,7 @@ components:
     Rule:
       x-go-type: v1alpha1.Rule
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Rule is when and what.
       type: object
       required:
@@ -4512,7 +4512,7 @@ components:
     RuleSelection:
       x-go-type: v1alpha1.RuleSelection
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'RuleSelection picks rules: refs ∪ selector, minus exclude.'
       type: object
       properties:
@@ -4530,7 +4530,7 @@ components:
     RuleSet:
       x-go-type: v1alpha1.RuleSet
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'RuleSet is where rules apply: it binds provider instances, sets the scope, selects rules and overrides their params.'
       type: object
       required:
@@ -4554,7 +4554,7 @@ components:
     RuleSetSpec:
       x-go-type: v1alpha1.RuleSetSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: RuleSetSpec is the spec of a RuleSet.
       type: object
       required:
@@ -4593,7 +4593,7 @@ components:
     RuleSpec:
       x-go-type: v1alpha1.RuleSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: RuleSpec is the spec of a Rule.
       type: object
       required:
@@ -4631,7 +4631,7 @@ components:
     Run:
       x-go-type: v1alpha1.Run
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Run is one attempt at a Task by one agent.
       type: object
       required:
@@ -4657,7 +4657,7 @@ components:
     RunSpec:
       x-go-type: v1alpha1.RunSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: RunSpec is a Run's spec.
       type: object
       required:
@@ -4677,7 +4677,7 @@ components:
     RunStatus:
       x-go-type: v1alpha1.RunStatus
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: RunStatus is a Run's status.
       type: object
       properties:
@@ -4716,7 +4716,7 @@ components:
     Scaling:
       x-go-type: v1alpha1.Scaling
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Scaling bounds an ephemeral pool's size.
       type: object
       required:
@@ -4731,7 +4731,7 @@ components:
     Scope:
       x-go-type: v1alpha1.Scope
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Scope narrows a RuleSet to repos (globs) or channels.
       type: object
       properties:
@@ -4755,7 +4755,7 @@ components:
     SecretRef:
       x-go-type: v1alpha1.SecretRef
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: SecretRef points at a secret held outside the catalog.
       type: object
       required:
@@ -4770,7 +4770,7 @@ components:
     SkillRef:
       x-go-type: v1alpha1.SkillRef
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: SkillRef pins skills from a skills repo.
       type: object
       required:
@@ -4790,7 +4790,7 @@ components:
     SlackProviderSpec:
       x-go-type: v1alpha1.SlackProviderSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: SlackProviderSpec is the connection to a Slack workspace (future).
       type: object
       properties:
@@ -4804,7 +4804,7 @@ components:
     StringOrList:
       x-go-type: v1alpha1.StringOrList
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: StringOrList is a field that takes one string (often a pattern, e.g.
       oneOf:
         - type: string
@@ -4814,7 +4814,7 @@ components:
     Suggestion:
       x-go-type: v1alpha1.Suggestion
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Suggestion is a follow-up the agent proposes; rules decide.
       type: object
       required:
@@ -4831,7 +4831,7 @@ components:
     Target:
       x-go-type: v1alpha1.Target
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Target says which repo or object the work happens on, when it isn't the event's object.
       type: object
       properties:
@@ -4845,7 +4845,7 @@ components:
     Task:
       x-go-type: v1alpha1.Task
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Task is one instantiation of a TaskSpec for a work item.
       type: object
       required:
@@ -4871,7 +4871,7 @@ components:
     TaskCredentials:
       x-go-type: v1alpha1.TaskCredentials
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: TaskCredentials are the credentials a task gets.
       type: object
       properties:
@@ -4883,7 +4883,7 @@ components:
     TaskHarness:
       x-go-type: v1alpha1.TaskHarness
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: TaskHarness is the requested harness and, once leased, the resolved one (null until then).
       type: object
       required:
@@ -4899,7 +4899,7 @@ components:
     TaskMeta:
       x-go-type: v1alpha1.TaskMeta
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'TaskMeta is a Task''s metadata: tasks are named by id and carry their provenance.'
       type: object
       required:
@@ -4925,7 +4925,7 @@ components:
     TaskPhase:
       x-go-type: v1alpha1.TaskPhase
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: TaskPhase is a Task's lifecycle phase.
       type: string
       enum:
@@ -4939,7 +4939,7 @@ components:
     TaskRunSpec:
       x-go-type: v1alpha1.TaskRunSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'TaskRunSpec is a Task''s spec: the TaskSpec resolved for this work item.'
       type: object
       required:
@@ -4998,7 +4998,7 @@ components:
     TaskSpec:
       x-go-type: v1alpha1.TaskSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: TaskSpec is what and how for one role, with no triggers or transitions.
       type: object
       required:
@@ -5022,7 +5022,7 @@ components:
     TaskSpecRef:
       x-go-type: v1alpha1.TaskSpecRef
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: TaskSpecRef is the TaskSpec a task was made from, by name and digest.
       type: object
       required:
@@ -5036,7 +5036,7 @@ components:
     TaskSpecSpec:
       x-go-type: v1alpha1.TaskSpecSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: TaskSpecSpec is the spec of a TaskSpec.
       type: object
       properties:
@@ -5075,7 +5075,7 @@ components:
     TaskStatus:
       x-go-type: v1alpha1.TaskStatus
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: TaskStatus is a Task's status.
       type: object
       required:
@@ -5103,7 +5103,7 @@ components:
     Template:
       x-go-type: v1alpha1.Template
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Template is the text of notifications and approval prompts, one body per provider type.
       type: object
       required:
@@ -5127,7 +5127,7 @@ components:
     TemplateBody:
       x-go-type: v1alpha1.TemplateBody
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: 'TemplateBody is either an inline Go text/template (written as a string) or, for Slack, a Block Kit file ({blocks: path}).'
       oneOf:
         - description: An inline Go text/template.
@@ -5144,7 +5144,7 @@ components:
     TemplateSpec:
       x-go-type: v1alpha1.TemplateSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: TemplateSpec is the spec of a Template.
       type: object
       required:
@@ -5158,7 +5158,7 @@ components:
     TrustRule:
       x-go-type: v1alpha1.TrustRule
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: TrustRule maps actors to a trust tier.
       type: object
       required:
@@ -5182,7 +5182,7 @@ components:
     Usage:
       x-go-type: v1alpha1.Usage
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Usage is what a run consumed.
       type: object
       required:
@@ -5205,7 +5205,7 @@ components:
     VersionSource:
       x-go-type: v1alpha1.VersionSource
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: VersionSource is where an environment's component versions come from.
       type: object
       required:
@@ -5229,7 +5229,7 @@ components:
     Webhook:
       x-go-type: v1alpha1.Webhook
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Webhook is where the provider's webhook is mounted, and the secret that signs it.
       type: object
       required:
@@ -5244,7 +5244,7 @@ components:
     WorkItem:
       x-go-type: v1alpha1.WorkItem
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: WorkItem groups the provider objects that are about one piece of work.
       type: object
       required:
@@ -5270,7 +5270,7 @@ components:
     WorkItemClosed:
       x-go-type: v1alpha1.WorkItemClosed
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: WorkItemClosed records why and when an admin closed a work item.
       type: object
       required:
@@ -5295,7 +5295,7 @@ components:
     WorkItemSpec:
       x-go-type: v1alpha1.WorkItemSpec
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: WorkItemSpec is the spec of a WorkItem.
       type: object
       properties:
@@ -5307,7 +5307,7 @@ components:
     WorkItemStatus:
       x-go-type: v1alpha1.WorkItemStatus
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: WorkItemStatus is the work item's state, set only by rules and controllers.
       type: object
       properties:
@@ -5336,7 +5336,7 @@ components:
     Workspace:
       x-go-type: v1alpha1.Workspace
       x-go-type-import:
-        path: github.com/compliance-framework/factory/internal/apis/v1alpha1
+        path: github.com/ContainerSolutions/factory/internal/apis/v1alpha1
       description: Workspace says what the agent checks out.
       type: object
       properties:

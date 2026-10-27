@@ -4,8 +4,8 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
 // cloneValue deep-copies JSON-like values (maps, slices, scalars).

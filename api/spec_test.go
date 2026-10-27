@@ -17,8 +17,8 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/invopop/jsonschema"
 
-	"github.com/compliance-framework/factory/api"
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/api"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // kinds are the v1alpha1 kinds the API carries (api/componentsgen's roots). goTypes, the Go
@@ -77,7 +77,7 @@ func goExpr(t reflect.Type) string {
 	return "v1alpha1." + strings.ReplaceAll(t.Name(), v1alpha1Import+".", "v1alpha1.")
 }
 
-const v1alpha1Import = "github.com/compliance-framework/factory/internal/apis/v1alpha1"
+const v1alpha1Import = "github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 
 func load(t *testing.T) (*openapi3.T, []api.Operation) {
 	t.Helper()

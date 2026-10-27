@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"unicode/utf8"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
-	"github.com/compliance-framework/factory/internal/apiserver/gen"
-	"github.com/compliance-framework/factory/internal/controllers"
-	"github.com/compliance-framework/factory/internal/scheduler"
-	"github.com/compliance-framework/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apiserver/gen"
+	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
 
 // CodeTaskLeased is deleteWorkItem's 409 without force while one of the item's tasks is

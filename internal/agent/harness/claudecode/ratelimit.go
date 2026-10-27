@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/harness/clirun"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/clirun"
 )
 
 var (

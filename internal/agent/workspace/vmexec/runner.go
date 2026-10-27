@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/host"
-	"github.com/compliance-framework/factory/internal/agent/sudocancel"
+	"github.com/ContainerSolutions/factory/internal/agent/host"
+	"github.com/ContainerSolutions/factory/internal/agent/sudocancel"
 )
 
 // Cmd is one invocation of a driver's command (tart, or sudo and the kata helper).

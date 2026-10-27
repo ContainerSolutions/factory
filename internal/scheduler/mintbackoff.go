@@ -3,7 +3,7 @@ package scheduler
 import (
 	"time"
 
-	"github.com/compliance-framework/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/catalog"
 )
 
 // The git-credential backoff: a pending task whose credentials failed to mint isn't offered to

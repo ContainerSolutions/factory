@@ -3,7 +3,7 @@ package katahelper
 import (
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 )
 
 // The helper keeps its own size literals (changing them means reinstalling it as root), but

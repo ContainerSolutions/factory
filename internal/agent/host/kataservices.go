@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/compliance-framework/factory/internal/agent/katahelper"
+	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
 )
 
 // The kata driver's services (workspace-kata.md#containerd-and-buildkitd,
@@ -34,7 +34,7 @@ const (
 )
 
 // docURL names the LLD in the units.
-const docURL = "https://github.com/compliance-framework/factory/blob/main/design/workstreams/agent/LLD/workspace-kata.md"
+const docURL = "https://github.com/ContainerSolutions/factory/blob/main/design/workstreams/agent/LLD/workspace-kata.md"
 
 // sysFile is a file a step renders, at its path on the host.
 type sysFile struct{ path, content string }

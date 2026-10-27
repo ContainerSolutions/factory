@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/catalog"
 )
 
 const pocCatalog = "../catalog/testdata/poc"
@@ -132,8 +132,8 @@ func TestCatalogSyncGitEndToEnd(t *testing.T) {
 }
 
 func TestGitSourceRedactsCredentials(t *testing.T) {
-	g := GitSource{Repo: "https://x-access-token:s3cr3t@github.com/compliance-framework/factory"}
-	if s := g.String(); strings.Contains(s, "s3cr3t") || !strings.Contains(s, "github.com/compliance-framework/factory") {
+	g := GitSource{Repo: "https://x-access-token:s3cr3t@github.com/ContainerSolutions/factory"}
+	if s := g.String(); strings.Contains(s, "s3cr3t") || !strings.Contains(s, "github.com/ContainerSolutions/factory") {
 		t.Errorf("String() = %q", s)
 	}
 }

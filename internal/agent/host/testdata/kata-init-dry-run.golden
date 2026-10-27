@@ -94,7 +94,7 @@ FACTORY_AGENT_EOF
 # /etc/systemd/system/factory-agent-containerd.service (factory-agent host init)
 [Unit]
 Description=factory-agent's containerd for the kata workspaces (apart from Docker's)
-Documentation=https://github.com/compliance-framework/factory/blob/main/design/workstreams/agent/LLD/workspace-kata.md
+Documentation=https://github.com/ContainerSolutions/factory/blob/main/design/workstreams/agent/LLD/workspace-kata.md
 After=network.target local-fs.target
 
 [Service]
@@ -119,7 +119,7 @@ FACTORY_AGENT_EOF
 # /etc/systemd/system/factory-agent-buildkit.service (factory-agent host init)
 [Unit]
 Description=factory-agent's BuildKit for the kata workspace image
-Documentation=https://github.com/compliance-framework/factory/blob/main/design/workstreams/agent/LLD/workspace-kata.md
+Documentation=https://github.com/ContainerSolutions/factory/blob/main/design/workstreams/agent/LLD/workspace-kata.md
 Requires=factory-agent-containerd.service
 After=factory-agent-containerd.service
 
@@ -180,7 +180,7 @@ FACTORY_AGENT_EOF
 # /etc/systemd/system/factory-agent-nft.service (factory-agent host init)
 [Unit]
 Description=factory-agent's kata workspace firewall (nft table inet factory_workspaces)
-Documentation=https://github.com/compliance-framework/factory/blob/main/design/workstreams/agent/LLD/workspace-kata.md
+Documentation=https://github.com/ContainerSolutions/factory/blob/main/design/workstreams/agent/LLD/workspace-kata.md
 Before=factory-agent-containerd.service
 
 [Service]
