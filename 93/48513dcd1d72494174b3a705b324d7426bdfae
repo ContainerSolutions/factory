@@ -1,0 +1,2 @@
+lisa-addressed:
+Pass 1 fixes: Sweep returns maintenance/compaction errors (and retries maintenance next sweep); dropTranscript returns errors, evictFor fails on them; journal.FileStore*/ObjectStore*/TranscriptDir shared; deletedRuns collector in the write's ctx; lastMaint zero at load (first sweep maintains); noteSync logs once; TestSegmentRetention; Ready after Close; rules_test.go reverted.
