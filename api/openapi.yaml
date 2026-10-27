@@ -3944,14 +3944,12 @@ components:
         memory:
           description: |-
             Memory is the workspace VM's memory for this task: a whole number of GiB in the form of
-            the agent's workspace.size.memory (e.g. "4Gi"), hard-capped at that size as cpus is: a
-            larger request gets workspace.size.memory, and the run says so. The agent passes a
-            smaller value to the driver as given, not raised to workspace.size.memory's 2Gi minimum:
-            on tart "1Gi" gives a 1 GiB VM (which may be too small for Docker); on kata the helper
-            refuses a VM under 2 GiB, so such a run fails creating its workspace. Unset means the
-            agent's size.
+            the agent's workspace.size.memory (e.g. "4Gi"), at least 2Gi on every driver (the minimum
+            workspace.size.memory has, WorkspaceMinMemoryGiB), and hard-capped at the agent's
+            workspace.size.memory as cpus is: a larger request gets workspace.size.memory, and the run
+            says so. A value in between is taken as given. Unset means the agent's size.
           type: string
-          pattern: ^[1-9][0-9]{0,5}Gi$
+          pattern: ^([2-9]|[1-9][0-9]{1,5})Gi$
       additionalProperties: false
     Link:
       x-go-type: v1alpha1.Link

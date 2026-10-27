@@ -345,7 +345,7 @@ spec:
   effects:
     allow: [comment, label.add, label.remove, link-duplicate, create-issue]
     labels: ["type/*", "area/*", "needs-info", "good-first-issue"]
-  limits: { maxTurns: 40, maxWallClock: 15m, maxCostUSD: 1.50 }   # cpus (≥ 1) and memory ("<n>Gi") size the workspace VM; unset is the agent's workspace.size, a hard cap: a larger request gets it, and the run says so
+  limits: { maxTurns: 40, maxWallClock: 15m, maxCostUSD: 1.50 }   # cpus (≥ 1) and memory ("<n>Gi", ≥ 2Gi) size the workspace VM; unset is the agent's workspace.size, a hard cap: a larger request gets it, and the run says so
   output:
     schema: schemas/results/triage.json
     outcomes: [triaged, needs-info, duplicate, not-actionable, promote]

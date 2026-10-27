@@ -3,6 +3,8 @@ package v1alpha1
 import (
 	"encoding/json"
 	"errors"
+	"regexp"
+	"strconv"
 	"testing"
 )
 
@@ -19,11 +21,13 @@ var limitsCases = []struct {
 	{"run limits only", map[string]any{"maxTurns": 40, "maxWallClock": "15m"}, "", nil},
 	{"cpus 1", map[string]any{"cpus": 1}, "", nil},
 	{"cpus 4", map[string]any{"cpus": 4}, "", nil},
-	{"memory 1Gi", map[string]any{"memory": "1Gi"}, "", nil},
+	{"memory 2Gi", map[string]any{"memory": "2Gi"}, "", nil},
+	{"memory 10Gi", map[string]any{"memory": "10Gi"}, "", nil},
 	{"memory 16Gi", map[string]any{"cpus": 2, "memory": "16Gi"}, "", nil},
 	{"memory 6 digits", map[string]any{"memory": "999999Gi"}, "", nil},
 	{"cpus negative", map[string]any{"cpus": -1}, "cpus", ErrLimitsCPUs},
 	{"memory 0Gi", map[string]any{"memory": "0Gi"}, "memory", ErrLimitsMemory},
+	{"memory 1Gi below the minimum", map[string]any{"memory": "1Gi"}, "memory", ErrLimitsMemory},
 	{"memory leading zero", map[string]any{"memory": "08Gi"}, "memory", ErrLimitsMemory},
 	{"memory no suffix", map[string]any{"memory": "8"}, "memory", ErrLimitsMemory},
 	{"memory G", map[string]any{"memory": "8G"}, "memory", ErrLimitsMemory},
@@ -129,6 +133,24 @@ func TestLimitsSchemaMatchesGo(t *testing.T) {
 		}
 		if s.sch.Validate(inst(map[string]any{"cpus": 0})) == nil {
 			t.Errorf("%s: schema accepts cpus: 0", s.name)
+		}
+	}
+}
+
+// TestLimitsMemoryMinPattern checks limitsMemoryMinPattern against its definition: a value
+// LimitsMemoryPattern accepts whose GiB are at least WorkspaceMinMemoryGiB.
+func TestLimitsMemoryMinPattern(t *testing.T) {
+	form := regexp.MustCompile(LimitsMemoryPattern)
+	var values []string
+	for n := 0; n <= 200; n++ {
+		values = append(values, strconv.Itoa(n)+"Gi")
+	}
+	values = append(values, "99999Gi", "100000Gi", "999999Gi", "1000000Gi", "02Gi", "2", "2G")
+	for _, v := range values {
+		n, err := strconv.Atoi(v[:max(len(v)-2, 0)])
+		want := form.MatchString(v) && err == nil && n >= WorkspaceMinMemoryGiB
+		if got := limitsMemoryRE.MatchString(v); got != want {
+			t.Errorf("%q: limitsMemoryMinPattern matches = %v, want %v", v, got, want)
 		}
 	}
 }
