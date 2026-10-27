@@ -1,0 +1,6 @@
+lisa-design:
+- limits.memory's pattern is the agent's own gibRE, ^[1-9][0-9]{0,5}Gi$ (v1alpha1.LimitsMemoryPattern), not the spec's ^[1-9][0-9]*Gi$: anything the contract accepts PR 9 can parse with the agent's gib() (no int overflow), and the two forms can't drift apart in what they accept today.
+- The pattern lives in v1alpha1 as a constant (apis is pure; the agent config isn't imported); the agent config keeps its own regex in this contract PR. PR 9 may point the agent's gibRE at the constant.
+- Validation is Limits.Validate, called from TaskSpec.Validate and Task.Validate (Decode runs both; the catalog loads through Decode), mirrored in the schema by Limits.JSONSchemaExtend (minimum 1, pattern). cpus 0 is "unset" in Go (omitzero) while the schema rejects an explicit cpus: 0.
+- No upper bound in the contract: the agent caps at its workspace.size (Gustavo: a task may ask for less or equal); the contract only rejects malformed values.
+- Field names: Go CPUs/Memory, JSON cpus/memory (omitzero), matching workspace.size's keys.
