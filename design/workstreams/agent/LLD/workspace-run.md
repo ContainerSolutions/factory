@@ -339,6 +339,7 @@ Specified in [gateway.md](gateway.md); in short:
 - api.github.com: GET only, `Authorization` replaced.
 - Anthropic: the bearer replaced, or `x-api-key` set. chatgpt.com: the bearer and `chatgpt-account-id` replaced.
 - **Always replace, never match placeholders.**
+- Every other host: a tunnel or a forward after the egress check, under the Task's `spec.environment.egress` (`default`, or `deny-by-default` with its `allow` list); the hosts above aren't subject to the mode ([gateway.md](gateway.md#egress)).
 
 ### Phase 5's supervisor
 

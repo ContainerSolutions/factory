@@ -238,8 +238,9 @@ func newDispatcher(t *testing.T, tlsOn bool) *dispatcherServer {
 }
 
 // TestDispatcherRoute: POST effects reaches a 127.0.0.1 dispatcher (which the egress dialer
-// refuses) and an https one through UpstreamRoots, with its path joined to the base's, every
-// carrier and Cookie stripped, and the dispatcher token; every other route is refused.
+// refuses) and an https one through UpstreamRoots, under deny-by-default with an empty allow
+// list, with its path joined to the base's, every carrier and Cookie stripped, and the
+// dispatcher token; every other route is refused.
 func TestDispatcherRoute(t *testing.T) {
 	for _, tlsOn := range []bool{false, true} {
 		t.Run(map[bool]string{false: "http", true: "https"}[tlsOn], func(t *testing.T) {
@@ -247,6 +248,7 @@ func TestDispatcherRoute(t *testing.T) {
 			e := start(t, func(c *Config) {
 				c.Dispatcher, _ = url.Parse(d.URL + "/base/")
 				c.DispatcherToken = func() string { return agentTok }
+				c.Egress.Mode = policy.ModeDenyByDefault // the dispatcher route isn't subject to it
 				if tlsOn {
 					c.UpstreamRoots = d.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
 				}

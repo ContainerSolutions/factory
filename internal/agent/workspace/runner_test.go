@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ContainerSolutions/factory/internal/agent/gateway"
+	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
 	"github.com/ContainerSolutions/factory/internal/agent/gitcred"
 	"github.com/ContainerSolutions/factory/internal/agent/harness/fake"
 	"github.com/ContainerSolutions/factory/internal/agent/harness/harnesstest"
@@ -235,7 +237,8 @@ type rig struct {
 	opts   RunnerOptions
 
 	mu     sync.Mutex
-	gwAddr string // the gateway's real listener
+	gwAddr string         // the gateway's real listener
+	gwCfg  gateway.Config // the Config the gateway was built from
 }
 
 func newRig(t *testing.T, h v1alpha1.HarnessResolved, script vmScript) *rig {
@@ -271,6 +274,12 @@ func (r *rig) run(ctx context.Context) runner.Outcome {
 	rn, err := NewRunner(r.opts)
 	if err != nil {
 		r.t.Fatal(err)
+	}
+	rn.newGateway = func(c gateway.Config) (*gateway.Gateway, error) {
+		r.mu.Lock()
+		r.gwCfg = c
+		r.mu.Unlock()
+		return gateway.New(c)
 	}
 	out, err := rn.Run(ctx, r.job, r.sink)
 	if err != nil {
@@ -529,6 +538,40 @@ func TestRunnerGatewayPort(t *testing.T) {
 			}
 			if i := slices.Index(r.driver.argv, "--proxy"); i < 0 || i+1 >= len(r.driver.argv) || r.driver.argv[i+1] != tt.proxy {
 				t.Errorf("argv %v, want --proxy %s", r.driver.argv, tt.proxy)
+			}
+		})
+	}
+}
+
+// The gateway gets the Task's spec.environment.egress; no environment or no egress is the zero
+// Egress (ModeDefault).
+func TestRunnerEgress(t *testing.T) {
+	t.Parallel()
+	allow := []string{"registry.npmjs.org", "*.githubusercontent.com:443"}
+	tests := []struct {
+		name string
+		env  *v1alpha1.Environment
+		want policy.Egress
+	}{
+		{"no environment", nil, policy.Egress{}},
+		{"no egress", &v1alpha1.Environment{Setup: "true"}, policy.Egress{}},
+		{"default", &v1alpha1.Environment{Egress: &v1alpha1.EgressPolicy{Mode: policy.ModeDefault}}, policy.Egress{Mode: policy.ModeDefault}},
+		{"deny-by-default", &v1alpha1.Environment{Egress: &v1alpha1.EgressPolicy{Mode: policy.ModeDenyByDefault, Allow: allow}},
+			policy.Egress{Mode: policy.ModeDenyByDefault, AllowHosts: allow}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t, v1alpha1.HarnessResolved{Name: fake.Name, Model: "m"}, finishWith(runbundle.Outcome{Status: runner.StatusDone, Result: doneResult()}))
+			r.job.Lease.Task.Spec.Environment = tt.env
+			if out := r.run(context.Background()); out.Status != runner.StatusDone {
+				t.Fatalf("outcome %+v", out)
+			}
+			r.mu.Lock()
+			got := r.gwCfg.Egress
+			r.mu.Unlock()
+			if got.Mode != tt.want.Mode || !slices.Equal(got.AllowHosts, tt.want.AllowHosts) || got.Deny != nil || got.OpenAddrs != nil {
+				t.Errorf("the gateway's Egress %+v, want %+v", got, tt.want)
 			}
 		})
 	}
