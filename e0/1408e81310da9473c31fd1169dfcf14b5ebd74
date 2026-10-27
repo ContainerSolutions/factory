@@ -1,0 +1,2 @@
+lisa-addressed:
+X:docs/lld-myhostname-ipv6-claim: the LLD now says the hostname resolves to the guest's own addresses, without the ::1 claim.
