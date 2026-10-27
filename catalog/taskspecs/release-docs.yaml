@@ -6,9 +6,6 @@
 # PR with the docs repo's existing `documentation` label and nothing else, so effects.labels
 # names exactly that (the Effector refuses every other label, since #43).
 #
-# Hosts: the docs site builds with yarn (Node 20), so the sandbox may reach the yarn and npm
-# registries. Widening workspace.hosts needs two approvals (FACTORY-CAT-002).
-#
 # Read repos: local-dev is private, so the TaskSpec doesn't set workspace.publicReads and the
 # scheduler mints local-dev its own read-only token with the author App (ccf-factory), which
 # must be installed on compliance-framework/local-dev and compliance-framework/ccf-skills.
@@ -41,7 +38,6 @@ spec:
       # compliance-framework/docs (prod) or mock-docs (dev), and the write token follows it.
       - { ref: "=task.target.repo + '@main'", mode: rw }        # the only writable repo
       - { ref: compliance-framework/local-dev@main, mode: ro }  # the environment (private: its own read token)
-    hosts: [registry.yarnpkg.com, registry.npmjs.org]           # yarn install for the docs site
     environment:
       # local-dev's clean slate, up before the harness starts (P1 §4). The ro repos are under
       # /work/ro/<name>; the scripts run as the run's user (admin, in the docker group) in the

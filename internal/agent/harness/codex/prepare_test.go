@@ -17,7 +17,7 @@ const ownerLogin = `{"tokens":{"access_token":"owner-access-token-never-copied",
 // tokens that must never reach a file the adapter writes.
 var testSecrets = []string{"owner-access-token-never-copied", "owner-refresh-never-copied", "ghs_taskTokenNeverOnDisk0123456789", "agent-token-never-on-disk"}
 
-// ownerHome is a signed-in dedicated CODEX_HOME.
+// ownerHome is a directory holding a real-looking login, which an auth.json link could name.
 func ownerHome(t *testing.T) string {
 	t.Helper()
 	home := filepath.Join(t.TempDir(), "codex-home")

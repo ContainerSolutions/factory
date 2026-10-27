@@ -8,7 +8,7 @@ spec:
     harnesses:
       - { name: codex, auth: subscription, models: [gpt-5-codex], reasoningEffort: [low, medium, high] }
       - { name: claude-code, auth: subscription, models: [claude-sonnet-5-5, claude-opus-5-5], reasoningEffort: [low, medium, high, max] }
-    labels: [has-local-stack, gif-tooling]       # docker + local-dev checkout; playwright, gifski, vhs
+    labels: [fast-disk]                          # advertised as configured
   lending:                                       # the owner's consent, set locally
     unlimited: true                              # full throttle: any queue, any hour, no daily cap
     maxConcurrent: 2

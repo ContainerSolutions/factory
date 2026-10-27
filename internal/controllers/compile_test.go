@@ -14,59 +14,8 @@ import (
 	"github.com/compliance-framework/factory/internal/rules"
 )
 
-// withHosts is the PoC catalog with docs-review's workspace listing hosts (the TaskSpec and
+// withLimits is the PoC catalog with docs-review's limits replaced (the TaskSpec and
 // the catalog are copied: the loaded ones are shared).
-func withHosts(c *catalog.Catalog, hosts []string) *catalog.Catalog {
-	ts := *c.TaskSpecs["docs-review"]
-	spec := *ts.Spec
-	ws := v1alpha1.Workspace{}
-	if spec.Spec.Workspace != nil {
-		ws = *spec.Spec.Workspace
-	}
-	ws.Hosts = hosts
-	spec.Spec.Workspace = &ws
-	ts.Spec = &spec
-	out := *c
-	out.TaskSpecs = maps.Clone(c.TaskSpecs)
-	out.TaskSpecs["docs-review"] = &ts
-	return &out
-}
-
-func TestCompileHosts(t *testing.T) {
-	e := newEnv(t)
-	wi, _ := e.startPlan()
-	for _, tc := range []struct {
-		name  string
-		hosts []string
-		want  []string
-	}{
-		{name: "hosts", hosts: []string{"registry.npmjs.org", "*.yarnpkg.com"}, want: []string{"registry.npmjs.org", "*.yarnpkg.com"}},
-		{name: "none"},
-		{name: "empty", hosts: []string{}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cat := withHosts(e.cat, tc.hosts)
-			task, _, err := compileTask(e.ctx, compileInput{
-				cat: cat, wi: wi, ev: v1alpha1.Event{ID: "ev"}, taskID: "tsk_h", now: e.clk.Now(),
-				d: &rules.Dispatch{TaskSpec: "docs-review", Queue: "poc"},
-			}, KeepSkills{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := task.Spec.Hosts; !slices.Equal(got, tc.want) || (tc.want == nil && got != nil) {
-				t.Fatalf("hosts = %#v, want %#v", got, tc.want)
-			}
-			if len(tc.hosts) > 0 {
-				task.Spec.Hosts[0] = "changed.example.com"
-				if tc.hosts[0] == "changed.example.com" {
-					t.Error("the task's hosts alias the TaskSpec's")
-				}
-			}
-		})
-	}
-}
-
-// withLimits is the PoC catalog with docs-review's limits replaced (copied like withHosts).
 func withLimits(c *catalog.Catalog, l *v1alpha1.Limits) *catalog.Catalog {
 	ts := *c.TaskSpecs["docs-review"]
 	spec := *ts.Spec

@@ -336,7 +336,7 @@ spec:
       - { name: claude-code, models: ["claude-{sonnet,haiku}-5-*"], reasoningEffort: "*" }
     default: { name: codex, config: { model: "gpt-5*", reasoningEffort: medium } }
   inputs: {}                                # declared, typed inputs that dispatch.inputs must satisfy (see the PoC task specs)
-  requires: { labels: [] }                  # agent labels needed, e.g. has-local-stack
+  requires: { labels: [] }                  # agent labels needed, e.g. fast-disk
   workspace:
     repos: [{ ref: "=task.target.repo + '@main'", mode: ro }]   # several repos allowed; at most one rw
     publicReads: false                      # true: the ro repos are public (cloned anonymously, no token) and other public repos may be cloned at runtime; false: each ro repo gets a read-only token
@@ -476,7 +476,7 @@ spec:
         auth: subscription
         models: [gpt-5-codex]
         reasoningEffort: [low, medium, high]
-    labels: [has-local-stack, macos]
+    labels: [fast-disk, macos]
   lending:                                       # the owner's consent, set in the worker's local config (no catalog PR)
     queues: [default, triage, review, validation]   # beyond the PoC, claude-code (API key) takes validation only
     ruleSets: [docs]

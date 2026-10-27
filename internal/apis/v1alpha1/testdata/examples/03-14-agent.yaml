@@ -16,7 +16,7 @@ spec:
         auth: subscription
         models: [gpt-5-codex]
         reasoningEffort: [low, medium, high]
-    labels: [has-local-stack, macos]
+    labels: [fast-disk, macos]
   lending:                                       # the owner's consent, set in the worker's local config (no catalog PR)
     queues: [default, triage, review, validation]   # beyond the PoC, claude-code (API key) takes validation only
     ruleSets: [docs]

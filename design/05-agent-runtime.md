@@ -66,7 +66,7 @@ Each adapter maps the same Task fields to its harness. Every value comes from `t
 | Invocation | `codex exec`, `--json` (JSONL events) | `claude -p`, `--output-format stream-json` |
 | Model | `-m <resolved.model>` | `--model <resolved.model>` |
 | Reasoning effort | `-c model_reasoning_effort=<resolved.reasoningEffort>` | Mapped to Claude Code's effort or thinking setting (flag or settings key to verify) |
-| Auth (PoC) | Owner's `codex login`, in a **dedicated `CODEX_HOME`** | Owner's subscription login, in a **dedicated `CLAUDE_CONFIG_DIR`** (verify) |
+| Auth (PoC) | Owner's ChatGPT login, stored by `factory-agent login codex`; the VM gets a placeholder and the gateway injects the real token | Owner's subscription token, stored by `factory-agent login claude`; the same placeholder and gateway |
 | Auth (beyond the PoC) | API key or Enterprise access token (Q15) | `ANTHROPIC_API_KEY` in the worker's environment |
 | System / TaskSpec prompt | `AGENTS.md` in the scratch `CODEX_HOME`, prompt on stdin | `--append-system-prompt` (headless preamble), prompt on stdin |
 | Skills | `SKILL.md` folders copied into the scratch Codex skills dir (path to verify) | `--plugin-dir <materialised ccf-skills plugin>` |

@@ -37,7 +37,7 @@ func noBinary(t *testing.T) string {
 	return filepath.Join(t.TempDir(), "no-claude")
 }
 
-// vmAdapter is the adapter under IsolationVM with uid as the run's user, running binary
+// vmAdapter is the adapter with uid as the run's user, running binary
 // (noBinary when it is "").
 func vmAdapter(t *testing.T, uid int, binary string) *Adapter {
 	t.Helper()
@@ -45,7 +45,7 @@ func vmAdapter(t *testing.T, uid int, binary string) *Adapter {
 		binary = noBinary(t)
 	}
 	return New(Options{
-		Isolation: harness.IsolationVM, Binary: binary, Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond,
+		Binary: binary, Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond,
 		Config: config.Harness{Default: "claude-sonnet-5-5"},
 		Getuid: func() int { return uid },
 	})
@@ -75,7 +75,7 @@ func golden(t *testing.T, ws harness.Workspace, name string, got []byte) {
 	}
 }
 
-// TestVMPrepare pins the files Prepare writes under IsolationVM: the settings have no sandbox
+// TestVMPrepare pins the files Prepare writes: the settings have no sandbox
 // and no permission rules but keep the plugins, the effort and the hook (with --write / when
 // the checkout is writable), the MCP config is the host's, and the scratch CLAUDE_CONFIG_DIR
 // exists.
@@ -118,7 +118,7 @@ func TestVMPrepare(t *testing.T) {
 	}
 }
 
-// TestVMRunEnv pins claude's environment under IsolationVM: the pipeline's, the scratch
+// TestVMRunEnv pins claude's environment: the pipeline's, the scratch
 // config dir and the placeholder as the auth mode's credential; no USER, nothing of the
 // worker's; IS_SANDBOX only as root.
 func TestVMRunEnv(t *testing.T) {
@@ -150,7 +150,7 @@ func TestVMRunEnv(t *testing.T) {
 	}
 }
 
-// TestVMRun runs the fake claude under IsolationVM: the placeholder credential and the scratch
+// TestVMRun runs the fake claude: the placeholder credential and the scratch
 // config dir reach it, the hook lets the file tools write anywhere in a writable workspace
 // and still refuses git push and gh writes, a read-only workspace keeps its disallowed write
 // tools, and Repair resumes the session with the same environment.
@@ -222,37 +222,5 @@ func TestVMRun(t *testing.T) {
 				t.Errorf("hook answers %+v, want %v", calls[0].Hooks, tt.wantHooks)
 			}
 		})
-	}
-}
-
-// TestVMRefusals: an Isolation other than IsolationVM, the zero one (the host) included, is
-// refused rather than run without a sandbox. Its adapter has no claude to fall back on, so a
-// regressed guard fails the test fast.
-func TestVMRefusals(t *testing.T) {
-	t.Parallel()
-	for _, iso := range []harness.Isolation{harness.IsolationSandbox, 7} {
-		a := New(Options{
-			Isolation: iso, Binary: noBinary(t), Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond,
-			Config: config.Harness{ConfigDir: ownerConfigDir(t)},
-		})
-		ws := vmWorkspace(t, true)
-		for name, err := range map[string]error{
-			"Prepare": a.Prepare(context.Background(), ws, task("", "", AuthSubscription)),
-			"Run": func() error {
-				_, err := a.Run(context.Background(), ws, task("", "", AuthSubscription), "p", &harnesstest.Recorder{})
-				return err
-			}(),
-			"runEnv": func() error {
-				_, err := a.runEnv(ws, session{Auth: AuthSubscription})
-				return err
-			}(),
-		} {
-			if want := "runs only in a VM workspace, not under isolation " + iso.String(); err == nil || !strings.Contains(err.Error(), want) {
-				t.Errorf("%s under %s = %v, want %q", name, iso, err, want)
-			}
-		}
-		if _, err := os.Lstat(filepath.Join(ws.Home, ".factory-claude")); err == nil {
-			t.Errorf("isolation %s made the scratch dir", iso)
-		}
 	}
 }

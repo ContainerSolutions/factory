@@ -26,7 +26,7 @@ func claudeHarness(model, effort, auth string) v1alpha1.HarnessResolved {
 
 // e2eAdapter is the claude-code adapter as vmrun builds it, running binary.
 func e2eAdapter(binary string) *Adapter {
-	return New(Options{Isolation: harness.IsolationVM, Binary: binary, Getuid: func() int { return 1000 },
+	return New(Options{Binary: binary, Getuid: func() int { return 1000 },
 		Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond})
 }
 

@@ -11,7 +11,7 @@
 # at main: the review skill checks the PR head out in its own workspace.
 #
 # Read repos: local-dev is private, so the TaskSpec doesn't set workspace.publicReads (as
-# release-docs). Hosts: as docs-review (FACTORY-CAT-002).
+# release-docs).
 kind: TaskSpec
 metadata: { name: docs-review-verify }
 spec:
@@ -28,7 +28,6 @@ spec:
     repos:
       - { ref: "=task.target.repo + '@main'", mode: ro }        # the docs repo, read-only
       - { ref: compliance-framework/local-dev@main, mode: ro }  # the environment (private: its own read token)
-    hosts: [registry.yarnpkg.com, registry.npmjs.org]
     environment:
       # local-dev's clean slate, up before the harness starts (P1 §4). The ro repos are under
       # /work/ro/<name>; the scripts run as the run's user (admin, in the docker group) in the

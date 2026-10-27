@@ -83,19 +83,8 @@ func TestText(t *testing.T) {
 		}
 	}
 	env := WithEnv([]string{"A=1", "B=2", "A=3"}, "A", "4")
-	if !slices.Equal(env, []string{"B=2", "A=4"}) || LookupEnv(env, "A") != "4" || LookupEnv(env, "C") != "" {
+	if !slices.Equal(env, []string{"B=2", "A=4"}) {
 		t.Errorf("env %q", env)
-	}
-	if v, ok := ParseVersion([]byte("2.1.3 (Claude Code)")); !ok || v != "2.1.3" {
-		t.Errorf("ParseVersion = %q, %v", v, ok)
-	}
-	for _, tt := range []struct {
-		a, b string
-		want int
-	}{{"0.72.0", "0.72.0", 0}, {"0.80.1", "0.72.0", 1}, {"0.9.0", "0.72.0", -1}, {"1.0.0", "0.99.99", 1}} {
-		if got := CompareVersions(tt.a, tt.b); got != tt.want {
-			t.Errorf("CompareVersions(%s, %s) = %d", tt.a, tt.b, got)
-		}
 	}
 	p := filepath.Join(t.TempDir(), "f")
 	if err := os.WriteFile(p, []byte("abcdef"), 0o600); err != nil {

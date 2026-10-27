@@ -16,8 +16,8 @@ func testConfig() *config.Config {
 	return &config.Config{
 		Labels: []string{"macos", "fast-disk"},
 		Harnesses: map[string]config.Harness{
-			"codex":       {Home: "/c", Models: []string{"gpt-5-codex"}, Efforts: []string{"low", "high"}, Default: "gpt-5-codex"},
-			"claude-code": {ConfigDir: "/cc", Models: []string{"claude-sonnet-5-5"}},
+			"codex":       {Models: []string{"gpt-5-codex"}, Efforts: []string{"low", "high"}, Default: "gpt-5-codex"},
+			"claude-code": {Models: []string{"claude-sonnet-5-5"}},
 		},
 	}
 }

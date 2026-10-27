@@ -31,19 +31,16 @@ joinTokenFile: ~/.config/factory-agent/join-token
 # workRoot: ~/.factory-agent/work
 
 # One entry per harness this machine offers (at least one), offered when its model login is
-# stored (`factory-agent login`, README §Agent onboarding). Each still names a config dir;
-# models are what your plan allows, default one of them; efforts from minimal, low, medium,
-# high, max.
+# stored (`factory-agent login`, README §Agent onboarding). Models are what your plan allows,
+# default one of them; efforts from minimal, low, medium, high, max.
 harnesses:
   codex:
-    home: ~/.factory-agent/codex-home          # codex's dedicated CODEX_HOME
     # Change the model: put <a gpt-5* or gpt-6* model your codex sign-in offers> (see /model
     # in codex). The TaskSpecs match a glob, and a model the sign-in doesn't offer fails the run.
     models: [gpt-6.1-sol]                      # release-docs, implement, plan-epic and merge ask gpt-5* or gpt-6*
     efforts: [low, medium, high]               # merge asks low, implement medium, the others high
     default: gpt-6.1-sol
   claude-code:
-    configDir: ~/.factory-agent/claude         # claude's dedicated CLAUDE_CONFIG_DIR
     models: [claude-sonnet-5-5, claude-opus-5-5]   # docs-review asks claude-{sonnet,opus}-5-* at high
     efforts: [low, medium, high, max]
     default: claude-sonnet-5-5

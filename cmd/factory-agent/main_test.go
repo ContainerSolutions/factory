@@ -49,7 +49,7 @@ func writeConfig(t *testing.T, dir, dispatcher string, extra string) string {
 	p := filepath.Join(dir, "agent.yaml")
 	cfg := "dispatcher: " + dispatcher + "\npool: local\njoinTokenFile: " + tok + "\nhost: cmd-test\n" +
 		"labels: [fast-disk, gpu]\n" +
-		"harnesses:\n  codex:\n    home: ~/codex\n    models: [gpt-5-codex]\n    efforts: [low, high]\n    default: gpt-5-codex\n" +
+		"harnesses:\n  codex:\n    models: [gpt-5-codex]\n    efforts: [low, high]\n    default: gpt-5-codex\n" +
 		"lending:\n  queues: [poc]\n" + extra
 	if err := os.WriteFile(p, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)

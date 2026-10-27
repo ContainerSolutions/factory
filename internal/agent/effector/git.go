@@ -256,14 +256,11 @@ func runStackPush(ctx context.Context, e *Effector, a args) (map[string]any, err
 	if _, err := e.git(ctx, push...); err != nil {
 		return nil, err
 	}
-	rec := map[string]any{"base": base, "via": "git", "branches": bs}
-	if bs, ok := rec["branches"].([]string); ok {
-		shas, err := e.shas(ctx, bs)
-		if err != nil {
-			return nil, err
-		}
-		rec["shas"] = shas
+	shas, err := e.shas(ctx, bs)
+	if err != nil {
+		return nil, err
 	}
+	rec := map[string]any{"base": base, "via": "git", "branches": bs, "shas": shas}
 	return e.record(ctx, v1alpha1.OpStackPush, rec, a.str("key"))
 }
 

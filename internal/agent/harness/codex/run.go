@@ -45,9 +45,6 @@ func workDir(ws harness.Workspace) string {
 // resolved model and effort, danger-full-access (the VM is the boundary) from workDir's
 // directory.
 func (a *Adapter) Run(ctx context.Context, ws harness.Workspace, t v1alpha1.Task, prompt string, sink harness.EventSink) (harness.Raw, error) {
-	if err := a.checkVM(); err != nil {
-		return harness.Raw{}, err
-	}
 	s := session{Sandbox: sandboxDangerFullAccess, WorkDir: workDir(ws), Model: a.o.Config.Default}
 	if s.WorkDir == "" {
 		return harness.Raw{}, errors.New("codex: the workspace has neither a work dir nor a root to run in")
@@ -75,9 +72,6 @@ func (a *Adapter) Run(ctx context.Context, ws harness.Workspace, t v1alpha1.Task
 // gets the original prompt followed by the problems. The sandbox and working directory are
 // the Run's, from the session record.
 func (a *Adapter) Repair(ctx context.Context, ws harness.Workspace, problems []string, sink harness.EventSink) (harness.Raw, error) {
-	if err := a.checkVM(); err != nil {
-		return harness.Raw{}, err
-	}
 	home := codexHome(ws)
 	s, err := readSession(home)
 	if err != nil {

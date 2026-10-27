@@ -293,7 +293,7 @@ type RecompileOptions struct {
 // current defaults), the dispatch's context refs, the requires labels, the labels and the
 // rule provenance. It recomputes everything the current TaskSpec gives: the prompt (with wi's
 // current summary), skills (resolved again), workspace, context mounts, credentials request,
-// effects, limits, output, hosts, environment and versions (from the kept inputs); the
+// effects, limits, output, environment and versions (from the kept inputs); the
 // provenance's CatalogSHA is cat's and its Event is left for the caller. The harness request
 // is opts.Harness, else the original's while the TaskSpec is unchanged (same digest), else the
 // current TaskSpec's default: a stored task can't tell a dispatch's request from the default
@@ -546,9 +546,6 @@ func buildTask(ctx context.Context, b taskBasis, skills SkillResolver) (*v1alpha
 	}
 	if len(requires) > 0 {
 		task.Spec.Requires = &v1alpha1.Requires{Labels: requires}
-	}
-	if ws := spec.Workspace; ws != nil && len(ws.Hosts) > 0 {
-		task.Spec.Hosts = slices.Clone(ws.Hosts)
 	}
 	if ws := spec.Workspace; ws != nil && ws.Environment != nil {
 		task.Spec.Environment = cloneEnvironment(ws.Environment)
