@@ -1,0 +1,3 @@
+lisa-selfreview:
+pass 1 (strict): request_changes
+- [must-fix] CORE-TEST-001 1688c29de79d internal/agent/host/kataprivileges_test.go TestKataInitHelperRequired: no case for a selected helper step that is already ok while privileges isn't (the sts[j].State != StateOK condition is untested). Fix: add a case with an out-of-date helper and a current image, --only kataimage: no error, nothing applied.
