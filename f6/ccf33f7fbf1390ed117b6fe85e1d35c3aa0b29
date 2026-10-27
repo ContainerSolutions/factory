@@ -1,0 +1,3 @@
+lisa-selfreview:
+Pass 1 (final, lenient): approve. No blocker or must-fix.
+- Checked: stored records decode leniently (memory store json.Unmarshal; filestore keeps raw bytes; run bundles json.Unmarshal), so a stored Task with spec.hosts still loads and loses the field on its next write. Only catalog files and agent.yaml decode strictly, and the catalog has no hosts since PR A.
