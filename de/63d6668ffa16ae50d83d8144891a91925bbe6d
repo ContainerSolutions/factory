@@ -1,2 +1,5 @@
 lisa-design:
 - watchSudo (host.go) closes the sudo-grace open question on the host side, without touching sudocancel: a context.AfterFunc for each sudo call's length (e.helper, e.helperOK, image-build's RunInput, runRoot) prints `interrupted: waiting for <what> to stop (up to 30s; Ctrl-C again exits now)` only when ctx is Canceled mid-call (not a timeout, not a ctx already done); stop waits for a line being written so it precedes what follows. The call's output and the line share a LockedWriter over e.Out. e.helper lost its out parameter: every caller passed e.Out.
+
+lisa-selfreview:
+- pass 2 (strict, the watchSudo commit): no findings; make reviewable green; mutations (no wait in stop, timeouts printing, no already-done guard, helper unwatched) each fail a test; the new tests pass 20x under -race. The open question from pass 1 is closed by this commit.
