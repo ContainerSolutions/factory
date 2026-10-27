@@ -12,10 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/agent/harness/harnesstest"
-	"github.com/compliance-framework/factory/internal/clock"
 )
 
 const okResult = `{"status":"done","outcome":"pr-opened","summary":"opened acme/docs#13"}`
@@ -25,124 +23,16 @@ const okResult = `{"status":"done","outcome":"pr-opened","summary":"opened acme/
 // runs) or stopping it. The fakes that would hang block forever, so a hang still fails.
 const slow = time.Minute
 
-// prepared is a prepared workspace and an adapter running the fake codex.
+// prepared is a prepared VM workspace and an adapter running the fake codex.
 func prepared(t *testing.T, writable bool, plan fakePlan) (*Adapter, harness.Workspace, *fakeCodex) {
 	t.Helper()
 	fc := newFakeCodex(t, plan)
-	a := New(Options{Config: config.Harness{Home: ownerHome(t), Default: "gpt-5-codex"}, Binary: fc.Binary,
-		Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond})
-	ws := workspace(t, writable)
+	a := vmAdapter(t, fc.Binary)
+	ws := vmWorkspace(t, writable)
 	if err := a.Prepare(context.Background(), ws, task("", "")); err != nil {
 		t.Fatal(err)
 	}
 	return a, ws, fc
-}
-
-func TestRun(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name     string
-		writable bool
-		model    string
-		effort   string
-		run      fakeRun
-		wantArgs []string
-		result   string
-	}{
-		{"read-write, final message from the file", true, "gpt-5.1-codex-max", "max",
-			fakeRun{Stream: "codex-success.jsonl", LastMessage: okResult},
-			[]string{"--model", "gpt-5.1-codex-max", `model_reasoning_effort="xhigh"`, "--sandbox", "workspace-write"}, okResult},
-		{"read-only checkout, from out/, final message from the stream, unfenced", false, "", "minimal",
-			fakeRun{Stream: "codex-multiturn.jsonl"},
-			[]string{"--model", "gpt-5-codex", `model_reasoning_effort="low"`, "--sandbox", "workspace-write"},
-			`{"status":"done","outcome":"decomposed","summary":"five sub-issues"}`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			a, ws, fc := prepared(t, tt.writable, fakePlan{Runs: []fakeRun{tt.run}})
-			s := &harnesstest.Recorder{}
-			raw, err := a.Run(context.Background(), ws, task(tt.model, tt.effort), "the prompt\n", s)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(raw.Result) != tt.result {
-				t.Errorf("result %q, want %q", raw.Result, tt.result)
-			}
-			calls := fc.calls()
-			if len(calls) != 1 {
-				t.Fatalf("%d execs", len(calls))
-			}
-			c := calls[0]
-			dir := ws.Repo
-			if !tt.writable {
-				dir = ws.Out
-			}
-			if i := slices.Index(c.Args, "--cd"); i < 0 || i+1 >= len(c.Args) || c.Args[i+1] != dir {
-				t.Errorf("args %q don't run in %s", c.Args, dir)
-			}
-			for _, w := range append(tt.wantArgs, "exec", "--json", "--output-last-message", `approval_policy="never"`) {
-				if !slices.Contains(c.Args, w) {
-					t.Errorf("args %q lack %q", c.Args, w)
-				}
-			}
-			checkSchemaArgs(t, c.Args, ws.Schema)
-			if c.Args[len(c.Args)-1] != "-" || c.Stdin != "the prompt\n" {
-				t.Errorf("the prompt isn't on stdin: args %q, stdin %q", c.Args, c.Stdin)
-			}
-			home := filepath.Join(ws.Home, ".codex")
-			if c.Env["CODEX_HOME"] != home || c.Env["FACTORY_TOKEN"] != "agent-token-never-on-disk" || c.Env["SECRET"] != "" || !sameDir(c.Dir, dir) {
-				t.Errorf("env %v, dir %s", c.Env, c.Dir)
-			}
-			if !slices.Contains(c.Home, "auth.json -> "+filepath.Join(a.o.Config.Home, "auth.json")) || !slices.Contains(c.Home, "skills/docs-style/SKILL.md") {
-				t.Errorf("CODEX_HOME during the run: %q", c.Home)
-			}
-			lines := strings.Split(strings.TrimSpace(string(raw.Transcript)), "\n")
-			if !strings.Contains(lines[0], `"factory.codex-exec"`) || !strings.Contains(string(raw.Transcript), `"thread.started"`) {
-				t.Errorf("transcript:\n%s", raw.Transcript)
-			}
-			if len(s.Events) == 0 || s.Events[0].Kind != harness.KindTurn || len(s.Usages) == 0 || len(s.Limits) != 0 {
-				t.Errorf("sink: %+v", s)
-			}
-			sess, err := readSession(home)
-			if err != nil || sess.ThreadID == "" || sess.Sandbox != sandboxWorkspaceWrite || sess.WorkDir != dir {
-				t.Errorf("session %+v, %v", sess, err)
-			}
-		})
-	}
-}
-
-// TestWorkDirFor: codex runs in a writable checkout, else in out/, so a read-only checkout or
-// the workspace root is never workspace-write's cwd (a writable root).
-func TestWorkDirFor(t *testing.T) {
-	ws := harness.Workspace{Root: "/w", Repo: "/w/repo", RepoWritable: true, WorkDir: "/w/repo", Out: "/w/out"}
-	noRepo := ws
-	noRepo.Repo, noRepo.RepoWritable, noRepo.WorkDir = "", false, "/w"
-	ro, noOut, roNoOut := ws, ws, ws
-	ro.RepoWritable = false
-	noOut.Out = ""
-	roNoOut.RepoWritable, roNoOut.Out = false, ""
-	for _, tt := range []struct {
-		name string
-		ws   harness.Workspace
-		want string
-	}{
-		{"writable checkout", ws, "/w/repo"},
-		{"read-only checkout", ro, "/w/out"},
-		{"no checkout", noRepo, "/w/out"},
-		{"writable checkout, no out/", noOut, "/w/repo"},
-		{"read-only checkout, no out/", roNoOut, ""},
-	} {
-		if got := workDirFor(tt.ws); got != tt.want {
-			t.Errorf("%s: workDirFor = %q, want %q", tt.name, got, tt.want)
-		}
-	}
-	// No codex to fall back on: if Run ever stops refusing, it fails fast instead of running
-	// the real codex on PATH.
-	a := noCodex(t, Options{})
-	if _, err := a.Run(context.Background(), roNoOut, task("", ""), "p", &harnesstest.Recorder{}); err == nil {
-		t.Error("Run without a writable directory succeeded")
-	}
 }
 
 func TestRunFailures(t *testing.T) {
@@ -200,29 +90,6 @@ func TestRepair(t *testing.T) {
 		}
 		if !strings.Contains(c.Stdin, "- /outcome: missing") || !strings.Contains(c.Stdin, ws.Result) || strings.Contains(c.Stdin, "the prompt") {
 			t.Errorf("repair prompt %q", c.Stdin)
-		}
-	})
-	t.Run("resumes from the run's workdir", func(t *testing.T) {
-		t.Parallel()
-		a, ws, fc := prepared(t, false, fakePlan{Runs: []fakeRun{
-			{Stream: "codex-success.jsonl", LastMessage: `{"status":"done"}`},
-			{Stream: "codex-success.jsonl", LastMessage: okResult},
-		}})
-		if _, err := a.Run(context.Background(), ws, task("gpt-5", "medium"), "the prompt", &harnesstest.Recorder{}); err != nil {
-			t.Fatal(err)
-		}
-		// The session, not the workspace handed to Repair, says where codex runs.
-		ws.RepoWritable = true
-		if _, err := a.Repair(context.Background(), ws, []string{"/outcome: missing"}, &harnesstest.Recorder{}); err != nil {
-			t.Fatal(err)
-		}
-		c := fc.calls()[1]
-		i := slices.Index(c.Args, "--cd")
-		if i < 0 || c.Args[i+1] != ws.Out || !sameDir(c.Dir, ws.Out) || !slices.Contains(c.Args, "resume") {
-			t.Errorf("repair args %q in %s, want --cd %s", c.Args, c.Dir, ws.Out)
-		}
-		if j := slices.Index(c.Args, "--sandbox"); j < 0 || c.Args[j+1] != sandboxWorkspaceWrite {
-			t.Errorf("repair args %q", c.Args)
 		}
 	})
 	t.Run("a new exec without a thread", func(t *testing.T) {
@@ -327,7 +194,7 @@ func TestFinalMessage(t *testing.T) {
 
 func TestSessionRecord(t *testing.T) {
 	dir := t.TempDir()
-	if err := writeSession(dir, session{ThreadID: "t", Sandbox: sandboxWorkspaceWrite}); err != nil {
+	if err := writeSession(dir, session{ThreadID: "t", Sandbox: sandboxDangerFullAccess}); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(filepath.Join(dir, sessionFile))

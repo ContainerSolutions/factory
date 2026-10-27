@@ -97,7 +97,6 @@ func Handler() http.Handler // serves assets under root; SPA fallback to index.h
 | `reviewable` | `check-generated lint test catalog openapi-lint` — what CI runs for Go |
 | `web` | `cd web && npm ci && npm run build` |
 | `build-release` | `web` + `go build -tags webui -trimpath -ldflags "-X …/version.Version=$(VERSION)" ./cmd/...` |
-| `smoke-codex`, `smoke-claude` | manual harness smoke tests (AGT), skipped in CI |
 | `poc-up` | RUN kit |
 
 ## CI (`.github/workflows/ci.yml`)

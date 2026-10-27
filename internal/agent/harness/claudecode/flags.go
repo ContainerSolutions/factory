@@ -6,64 +6,39 @@ import (
 )
 
 // This file is every part of the Claude Code CLI's interface the adapter relies on: the
-// minimum version, the environment variables and files of its login, its print-mode flags,
-// the settings and MCP config keys, the hook protocol, tool names and the stream-json event
-// names. The LLD (harness-adapters.md §Claude Code) marks most of them *verify*. The owner
-// decided (2026-10-19) that claude isn't run while the adapter is written, so they were
-// written unchecked and marked UNVERIFIED, to be fixed here, in one place, after
-// `make smoke-claude`. The owner's smoke run with claude 2.1.304 (2026-10-20) accepted the
+// environment variables of its config and login, its print-mode flags, the settings and MCP
+// config keys, the hook protocol, tool names and the stream-json event names. The LLD
+// (harness-adapters.md §Claude Code) marks most of them *verify*. The owner decided
+// (2026-10-19) that claude isn't run while the adapter is written, so they were written
+// unchecked and marked UNVERIFIED, to be fixed here, in one place, once a VM workspace run
+// shows one wrong. The owner's smoke run with claude 2.1.304 (2026-10-20) accepted the
 // print-mode flags it passes; those are no longer marked. The rest still are.
 
-// ---- Version and login ---------------------------------------------------------------------
+// ---- Config and login ----------------------------------------------------------------------
 
-// MinVersion is the oldest claude the adapter accepts: one with --json-schema (and the
-// structured_output result field), --plugin-dir, --setting-sources and stream-json's
-// system/init listing plugins.
-// UNVERIFIED (owner to verify with make smoke-claude)
-const MinVersion = "2.1.0"
-
-// versionArgs print the version, as "2.1.3 (Claude Code)".
-// UNVERIFIED (owner to verify with make smoke-claude)
-var versionArgs = []string{"--version"}
-
-// envConfigDir is the directory claude keeps its config, sessions and (outside macOS) its
-// login in; the macOS Keychain entry of the login is keyed by it too.
-// UNVERIFIED (owner to verify with make smoke-claude)
+// envConfigDir is the directory claude keeps its config and sessions in (configPath).
+// UNVERIFIED (owner to verify on a VM workspace run)
 const envConfigDir = "CLAUDE_CONFIG_DIR"
 
-// envAPIKey set in the worker's environment makes the agent run claude on that API key
-// (beyond the PoC, 10-poc.md); claude prefers it over a subscription login.
-// UNVERIFIED (owner to verify with make smoke-claude)
+// envAPIKey holds the placeholder of an API-key run (beyond the PoC, 10-poc.md); claude
+// prefers it over a subscription token.
+// UNVERIFIED (owner to verify on a VM workspace run)
 const envAPIKey = "ANTHROPIC_API_KEY"
 
-// envOAuthToken is a subscription's long-lived token (`claude setup-token`), an alternative
-// to the config dir's login for a headless machine.
-// UNVERIFIED (owner to verify with make smoke-claude)
+// envOAuthToken is a subscription's long-lived token (`claude setup-token`): the placeholder
+// a subscription run carries.
+// UNVERIFIED (owner to verify on a VM workspace run)
 const envOAuthToken = "CLAUDE_CODE_OAUTH_TOKEN"
 
 // envIsSandbox=1 tells claude it runs in a sandbox it may trust: it refuses
-// bypassPermissions as root without it. Only a root run under IsolationVM sets it (a plain
-// container; the VM runs as admin).
-// UNVERIFIED (owner to verify with make smoke-claude)
+// bypassPermissions as root without it. Only a root run sets it (a plain container; the VM
+// runs as admin).
+// UNVERIFIED (owner to verify on a VM workspace run)
 const envIsSandbox = "IS_SANDBOX"
-
-// credentialsFile is where claude stores a subscription login in its config dir when it has
-// no keychain (Linux). Probe only stats it.
-// UNVERIFIED (owner to verify with make smoke-claude)
-const credentialsFile = ".credentials.json"
-
-// stateFile is claude's state in its config dir. On macOS the login is in the Keychain, which
-// the agent never reads: the state file's presence is all Probe can check there.
-// UNVERIFIED (owner to verify with make smoke-claude)
-const stateFile = ".claude.json"
-
-// loginHint is how the owner signs the dedicated config dir in once (%[1]s is the dir).
-// UNVERIFIED (owner to verify with make smoke-claude)
-const loginHint = "run `CLAUDE_CONFIG_DIR=%[1]s claude` once and sign in with /login, or set ANTHROPIC_API_KEY in the worker's environment"
 
 // runEnv is set for every run: no auto-update and no non-essential traffic (telemetry, error
 // reports) from a headless run.
-// UNVERIFIED (owner to verify with make smoke-claude)
+// UNVERIFIED (owner to verify on a VM workspace run)
 var runEnv = [][2]string{
 	{"DISABLE_AUTOUPDATER", "1"},
 	{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"},
@@ -99,18 +74,18 @@ const (
 	// flagMaxTurns stops the run after that many turns (result subtype error_max_turns).
 	flagMaxTurns = "--max-turns"
 	// flagMaxBudget stops the run past a USD budget (error_max_budget_usd); API keys only.
-	// UNVERIFIED (owner to verify with make smoke-claude)
+	// UNVERIFIED (owner to verify on a VM workspace run)
 	flagMaxBudget = "--max-budget-usd"
 	// flagPermissionMode bypassPermissions: no permission prompts (there is no one to
 	// answer them); --disallowedTools and the PreToolUse hook still apply.
 	flagPermissionMode = "--permission-mode"
 	permissionBypass   = "bypassPermissions"
 	// flagDisallowedTools removes tools, as one comma-separated list.
-	// UNVERIFIED (owner to verify with make smoke-claude)
+	// UNVERIFIED (owner to verify on a VM workspace run)
 	flagDisallowedTools = "--disallowedTools"
 	// flagSettings loads a settings file on top of the setting sources.
 	flagSettings = "--settings"
-	// flagSettingSources limits the settings files read: user only (the dedicated config
+	// flagSettingSources limits the settings files read: user only (the scratch config
 	// dir's), never the target repo's project or local settings (.claude/settings*.json),
 	// which could add hooks or permissions.
 	flagSettingSources = "--setting-sources"
@@ -118,7 +93,7 @@ const (
 	// flagAddDir gives the tools another directory besides the working directory.
 	flagAddDir = "--add-dir"
 	// flagResume continues a session by id (from the same working directory).
-	// UNVERIFIED (owner to verify with make smoke-claude)
+	// UNVERIFIED (owner to verify on a VM workspace run)
 	flagResume = "--resume"
 )
 
@@ -140,7 +115,7 @@ const repairMaxTurns = 5
 // ---- Tools ---------------------------------------------------------------------------------
 
 // Tool names (stream-json tool_use names, hook tool_name, --disallowedTools).
-// UNVERIFIED (owner to verify with make smoke-claude)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const (
 	toolBash             = "Bash"
 	toolWrite            = "Write"
@@ -160,11 +135,11 @@ const (
 )
 
 // writeTools write files; a read-only workspace disallows them.
-// UNVERIFIED (owner to verify with make smoke-claude)
+// UNVERIFIED (owner to verify on a VM workspace run)
 var writeTools = []string{toolWrite, toolEdit, toolMultiEdit, toolNotebookEdit}
 
 // Tool input fields the adapter reads.
-// UNVERIFIED (owner to verify with make smoke-claude)
+// UNVERIFIED (owner to verify on a VM workspace run)
 type toolInput struct {
 	Command      string `json:"command"`       // Bash
 	FilePath     string `json:"file_path"`     // Write, Edit, MultiEdit, Read
@@ -184,7 +159,7 @@ const todoCompleted = "completed"
 // ---- settings.json, the PreToolUse hook and mcp.json ---------------------------------------
 
 // Keys of the generated settings file (see renderSettings).
-// UNVERIFIED (owner to verify with make smoke-claude)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const (
 	// keyEnabledPlugins {}: no marketplace plugin, only the --plugin-dir ones.
 	keyEnabledPlugins = "enabledPlugins"
@@ -201,7 +176,7 @@ const (
 )
 
 // hookMatcher selects the tools the PreToolUse hook checks (a regular expression).
-// UNVERIFIED (owner to verify with make smoke-claude)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const hookMatcher = "Write|Edit|MultiEdit|NotebookEdit|Bash"
 
 // hookTimeout bounds one hook call, in seconds.
@@ -210,12 +185,12 @@ const hookTimeout = 30
 // The PreToolUse hook protocol: claude writes {tool_name, tool_input, cwd, …} to the hook's
 // stdin; exit 0 lets the call run, exit hookExitBlock blocks it and gives the hook's stderr
 // to the model.
-// UNVERIFIED (owner to verify with make smoke-claude)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const hookExitBlock = 2
 
 // Keys of the generated MCP config: {"mcpServers": {<name>: {type, command, args, env}}},
 // with env values ${NAME} expanded by claude from its own environment (no value on disk).
-// UNVERIFIED (owner to verify with make smoke-claude)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const (
 	keyMCPServers  = "mcpServers"
 	keyMCPType     = "type"
@@ -227,83 +202,11 @@ const (
 	mcpEnvRefEnd   = "}"
 )
 
-// ---- OS sandbox ----------------------------------------------------------------------------
-
-// Keys of the settings file's sandbox block: claude runs Bash commands inside the OS sandbox
-// (Seatbelt on macOS, bubblewrap on Linux). Its filesystem and network limits come from the
-// permission rules below.
-// UNVERIFIED (owner to verify with make smoke-claude)
-const (
-	keySandbox        = "sandbox"
-	keySandboxEnabled = "enabled"
-	// keyAllowUnsandboxed false: no command may ask to run outside the sandbox
-	// (dangerouslyDisableSandbox).
-	keyAllowUnsandboxed = "allowUnsandboxedCommands"
-	// keyAutoAllowBash: sandboxed commands run without a permission prompt.
-	keyAutoAllowBash = "autoAllowBashIfSandboxed"
-	// keyExcludedCommands []: no command is exempt from the sandbox.
-	keyExcludedCommands = "excludedCommands"
-	// keyWeakerNested false: never the weaker sandbox meant for running inside a container.
-	keyWeakerNested = "enableWeakerNestedSandbox"
-	// keySandboxNetwork: allowUnixSockets (the git credential helper's socket) and
-	// allowLocalBinding (off: commands can't listen).
-	keySandboxNetwork    = "network"
-	keyAllowUnixSockets  = "allowUnixSockets"
-	keyAllowLocalBinding = "allowLocalBinding"
-	// keyPermissions: allow and deny rules. The sandbox takes its writable paths from the
-	// Edit allow rules, its unreadable paths from the Read deny rules and its network
-	// allow-list from the WebFetch(domain:…) allow rules. Deny wins over allow.
-	keyPermissions = "permissions"
-	keyAllow       = "allow"
-	keyDeny        = "deny"
-)
-
-// Permission rule forms; an absolute path is written with a leading "//" (a single "/" is
-// relative to the settings file).
-// UNVERIFIED (owner to verify with make smoke-claude)
-const (
-	ruleEditFormat   = "Edit(/%s/**)"
-	ruleReadFormat   = "Read(/%s)"
-	ruleReadAllForm  = "Read(/%s/**)"
-	ruleDomainFormat = "WebFetch(domain:%s)"
-)
-
-// harnessDomains are what the harness itself needs from inside the sandbox (its API;
-// non-essential traffic is off, see runEnv).
-// UNVERIFIED (owner to verify with make smoke-claude)
-var harnessDomains = []string{"api.anthropic.com"}
-
-// hostDomains are the domains that come with a git host: github.com's API and raw content.
-// Another host (GHE) serves its API itself.
-// UNVERIFIED (owner to verify with make smoke-claude)
-var hostDomains = map[string][]string{
-	"github.com": {"github.com", "api.github.com", "*.githubusercontent.com"},
-}
-
-// deniedHomePaths, under the worker's HOME, are never readable from the sandbox: other
-// credentials and logins (keys, cloud, gh, docker, package registries), the agent's own
-// config and join token, and both harnesses' default and dedicated config dirs. An entry
-// that holds the workspace (a work root inside it) is left out.
-var deniedHomePaths = []string{
-	".ssh", ".gnupg", ".aws", ".azure", ".config/gcloud", ".config/gh", ".config/factory-agent",
-	".netrc", ".git-credentials", ".docker", ".kube", ".npmrc", ".pypirc",
-	".claude", ".claude.json", ".codex", ".factory-agent/codex-home", ".factory-agent/claude",
-	"Library/Keychains",
-}
-
-// sandboxTools are what the OS sandbox needs on each platform; elsewhere it isn't
-// supported and the adapter refuses to run.
-// UNVERIFIED (owner to verify with make smoke-claude)
-var sandboxTools = map[string][]string{
-	"darwin": {"sandbox-exec"},
-	"linux":  {"bwrap", "socat"},
-}
-
 // ---- Effort --------------------------------------------------------------------------------
 
 // effortMapping maps a normalised effort to the effortLevel setting. max is the highest
 // level claude takes (the LLD: "max → highest available").
-// UNVERIFIED (owner to verify with make smoke-claude)
+// UNVERIFIED (owner to verify on a VM workspace run)
 var effortMapping = map[string]string{
 	"minimal": "low",
 	"low":     "low",
@@ -324,7 +227,7 @@ func nativeEffort(effort string) string {
 // ---- stream-json ---------------------------------------------------------------------------
 
 // Event types and subtypes of `--output-format stream-json --verbose`.
-// UNVERIFIED (owner to verify with make smoke-claude)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const (
 	evSystem    = "system" // subtype init: {session_id, model, tools, mcp_servers, plugins, plugin_errors}
 	subInit     = "init"
@@ -348,7 +251,7 @@ const (
 )
 
 // Content block types.
-// UNVERIFIED (owner to verify with make smoke-claude)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const (
 	blockText    = "text"
 	blockToolUse = "tool_use"
@@ -359,7 +262,7 @@ const (
 // rateLimitWords, found case-insensitively in an error, say the plan's usage limit or the
 // API's rate limit was hit ("Claude AI usage limit reached|<reset>", "5-hour limit reached ∙
 // resets 3pm", "API Error: 429 … rate_limit_error").
-// UNVERIFIED (owner to verify with make smoke-claude)
+// UNVERIFIED (owner to verify on a VM workspace run)
 var rateLimitWords = []string{"usage limit", "rate limit", "rate_limit", "too many requests", "429", "quota", "limit reached", "hit your limit"}
 
 // ---- Command line --------------------------------------------------------------------------

@@ -58,20 +58,20 @@ func TestExecArgs(t *testing.T) {
 		o    execOptions
 		want []string
 	}{
-		{"read-write with schema", execOptions{Model: "gpt-5-codex", Effort: "high", Sandbox: sandboxWorkspaceWrite, WorkDir: "/w/repo", Schema: "/w/s.json", LastMessage: "/w/last"},
+		{"read-write with schema", execOptions{Model: "gpt-5-codex", Effort: "high", Sandbox: sandboxDangerFullAccess, WorkDir: "/w/repo", Schema: "/w/s.json", LastMessage: "/w/last"},
 			append(slices.Clone(base), append([]string{"--model", "gpt-5-codex", "-c", `model_reasoning_effort="high"`, "-c", `approval_policy="never"`,
-				"--sandbox", "workspace-write", "--cd", "/w/repo", "--skip-git-repo-check"}, append(schemaArgs("/w/s.json"), tail("--output-last-message", "/w/last")...)...)...)},
-		{"read-only checkout: workspace-write from out/, max on a codex-max model", execOptions{Model: "gpt-5.1-codex-max", Effort: "max", Sandbox: sandboxWorkspaceWrite, WorkDir: "/w/out"},
+				"--sandbox", "danger-full-access", "--cd", "/w/repo", "--skip-git-repo-check"}, append(schemaArgs("/w/s.json"), tail("--output-last-message", "/w/last")...)...)...)},
+		{"max on a codex-max model", execOptions{Model: "gpt-5.1-codex-max", Effort: "max", Sandbox: sandboxDangerFullAccess, WorkDir: "/w"},
 			append(slices.Clone(base), tail("--model", "gpt-5.1-codex-max", "-c", `model_reasoning_effort="xhigh"`, "-c", `approval_policy="never"`,
-				"--sandbox", "workspace-write", "--cd", "/w/out", "--skip-git-repo-check")...)},
-		{"minimal on a codex model, no workdir", execOptions{Model: "gpt-5-codex", Effort: "minimal", Sandbox: sandboxWorkspaceWrite},
+				"--sandbox", "danger-full-access", "--cd", "/w", "--skip-git-repo-check")...)},
+		{"minimal on a codex model, no workdir", execOptions{Model: "gpt-5-codex", Effort: "minimal", Sandbox: sandboxDangerFullAccess},
 			append(slices.Clone(base), tail("--model", "gpt-5-codex", "-c", `model_reasoning_effort="low"`, "-c", `approval_policy="never"`,
-				"--sandbox", "workspace-write", "--skip-git-repo-check")...)},
-		{"no model or effort: codex's defaults", execOptions{Sandbox: sandboxWorkspaceWrite},
-			append(slices.Clone(base), tail("-c", `approval_policy="never"`, "--sandbox", "workspace-write", "--skip-git-repo-check")...)},
-		{"resume", execOptions{Model: "gpt-5", Effort: "medium", Sandbox: sandboxWorkspaceWrite, WorkDir: "/w/repo", LastMessage: "/w/last", Resume: "thread-1"},
+				"--sandbox", "danger-full-access", "--skip-git-repo-check")...)},
+		{"no model or effort: codex's defaults", execOptions{Sandbox: sandboxDangerFullAccess},
+			append(slices.Clone(base), tail("-c", `approval_policy="never"`, "--sandbox", "danger-full-access", "--skip-git-repo-check")...)},
+		{"resume", execOptions{Model: "gpt-5", Effort: "medium", Sandbox: sandboxDangerFullAccess, WorkDir: "/w/repo", LastMessage: "/w/last", Resume: "thread-1"},
 			append(slices.Clone(base), tail("--model", "gpt-5", "-c", `model_reasoning_effort="medium"`, "-c", `approval_policy="never"`,
-				"--sandbox", "workspace-write", "--cd", "/w/repo", "--skip-git-repo-check", "--output-last-message", "/w/last", "resume", "thread-1")...)},
+				"--sandbox", "danger-full-access", "--cd", "/w/repo", "--skip-git-repo-check", "--output-last-message", "/w/last", "resume", "thread-1")...)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -35,9 +35,8 @@ func vmWorkspace(t *testing.T, writable bool) harness.Workspace {
 	return ws
 }
 
-// vmAdapter is the adapter under IsolationVM with vmAccount. Anything it must not use in the
-// VM (the owner's environment, Probe's commands) fails the test. Config.Home is a signed-in
-// owner's CODEX_HOME, which the VM must never read: the token scans find its tokens if it
+// vmAdapter is the adapter under IsolationVM with vmAccount. Config.Home is a signed-in
+// owner's CODEX_HOME, which the adapter must never read: the token scans find its tokens if it
 // does. An empty binary is one that doesn't exist (noCodex), never the codex on PATH.
 func vmAdapter(t *testing.T, binary string) *Adapter {
 	t.Helper()
@@ -47,12 +46,7 @@ func vmAdapter(t *testing.T, binary string) *Adapter {
 	acct := vmAccount
 	return New(Options{
 		Isolation: harness.IsolationVM, Account: &acct, Binary: binary, Clock: clock.NewFake(t0), KillGrace: 200 * time.Millisecond,
-		Config:   config.Harness{Home: ownerHome(t), Default: "gpt-5-codex"},
-		Commands: refuseCommands{t},
-		Environ: func() []string {
-			t.Error("the VM adapter read the worker's environment")
-			return []string{"OPENAI_API_KEY=sk-should-not-pass"}
-		},
+		Config: config.Harness{Home: ownerHome(t), Default: "gpt-5-codex"},
 	})
 }
 
@@ -334,40 +328,34 @@ func TestVMRun(t *testing.T) {
 	}
 }
 
-// TestVMRefusals: Probe doesn't run in the VM; an unknown Isolation is refused rather than run
-// without a sandbox; a VM run without the account, on an API key or an unknown auth, or over
-// an existing auth.json is refused.
+// TestVMRefusals: an Isolation other than IsolationVM, the zero one (the host) included, is
+// refused rather than run without a sandbox; a VM run without the account, on an API key or
+// an unknown auth, or over an existing auth.json is refused.
 func TestVMRefusals(t *testing.T) {
 	t.Parallel()
-	if _, err := vmAdapter(t, "").Probe(context.Background(), config.Harness{Home: ownerHome(t)}); err == nil || !strings.Contains(err.Error(), "doesn't run in a VM workspace") {
-		t.Errorf("Probe = %v", err)
-	}
-
-	// Built with noCodex: were vm() to stop refusing the value, no method could reach the
-	// codex on PATH or the worker's environment.
-	unknown := noCodex(t, Options{Isolation: 7, Config: config.Harness{Home: ownerHome(t)}})
-	ws := vmWorkspace(t, true)
-	for name, err := range map[string]error{
-		"Probe": func() error {
-			_, err := unknown.Probe(context.Background(), unknown.o.Config)
-			return err
-		}(),
-		"Prepare": unknown.Prepare(context.Background(), ws, vmTask("", "", AuthSubscription)),
-		"Run": func() error {
-			_, err := unknown.Run(context.Background(), ws, vmTask("", "", AuthSubscription), "p", &harnesstest.Recorder{})
-			return err
-		}(),
-		"Repair": func() error {
-			_, err := unknown.Repair(context.Background(), ws, []string{"x"}, &harnesstest.Recorder{})
-			return err
-		}(),
-	} {
-		if err == nil || !strings.Contains(err.Error(), "unknown isolation Isolation(7)") {
-			t.Errorf("%s = %v", name, err)
+	// Built with noCodex: were checkVM to stop refusing the value, no method could reach the
+	// codex on PATH.
+	for _, iso := range []harness.Isolation{harness.IsolationSandbox, 7} {
+		other := noCodex(t, Options{Isolation: iso, Account: &vmAccount, Config: config.Harness{Home: ownerHome(t)}})
+		ws := vmWorkspace(t, true)
+		for name, err := range map[string]error{
+			"Prepare": other.Prepare(context.Background(), ws, vmTask("", "", AuthSubscription)),
+			"Run": func() error {
+				_, err := other.Run(context.Background(), ws, vmTask("", "", AuthSubscription), "p", &harnesstest.Recorder{})
+				return err
+			}(),
+			"Repair": func() error {
+				_, err := other.Repair(context.Background(), ws, []string{"x"}, &harnesstest.Recorder{})
+				return err
+			}(),
+		} {
+			if want := "runs only in a VM workspace, not under isolation " + iso.String(); err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("%s under %s = %v, want %q", name, iso, err, want)
+			}
 		}
-	}
-	if _, err := os.Lstat(filepath.Join(ws.Home, ".codex")); err == nil {
-		t.Error("an unknown isolation made CODEX_HOME")
+		if _, err := os.Lstat(filepath.Join(ws.Home, ".codex")); err == nil {
+			t.Errorf("isolation %s made CODEX_HOME", iso)
+		}
 	}
 	noDir := vmWorkspace(t, true)
 	noDir.WorkDir, noDir.Root = "", ""

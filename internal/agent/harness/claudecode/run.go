@@ -38,8 +38,7 @@ type session struct {
 // model and auth, in the workspace's working directory, the write tools disallowed unless the
 // primary checkout is writable.
 func (a *Adapter) Run(ctx context.Context, ws harness.Workspace, t v1alpha1.Task, prompt string, sink harness.EventSink) (harness.Raw, error) {
-	vm, err := a.vm()
-	if err != nil {
+	if err := a.checkVM(); err != nil {
 		return harness.Raw{}, err
 	}
 	s := session{Model: a.o.Config.Default, WorkDir: ws.WorkDir, ReadOnly: readOnly(ws)}
@@ -52,17 +51,10 @@ func (a *Adapter) Run(ctx context.Context, ws harness.Workspace, t v1alpha1.Task
 	if s.WorkDir == "" {
 		s.WorkDir = ws.Root
 	}
-	switch {
-	case s.Auth == "" && vm:
+	if s.Auth == "" {
 		// The VM has no owner's environment or login to tell the mode from: a task without
 		// a resolved auth runs on the subscription, the PoC's mode.
 		s.Auth = AuthSubscription
-	case s.Auth == "":
-		auth, err := a.authMode(a.o.Config.ConfigDir)
-		if err != nil {
-			return harness.Raw{}, err
-		}
-		s.Auth = auth
 	}
 	maxTurns := 0
 	if l := t.Spec.Limits; l != nil {
@@ -180,51 +172,16 @@ func (a *Adapter) exec(ctx context.Context, ws harness.Workspace, s session, pro
 	return raw, sessionID, nil
 }
 
-// runEnv is claude's environment: the pipeline's (already reduced to its allow-list), the
-// dedicated CLAUDE_CONFIG_DIR, runEnv's settings, and the one credential variable the auth
-// mode needs from the worker's environment: ANTHROPIC_API_KEY for an API-key run, or a
-// subscription's CLAUDE_CODE_OAUTH_TOKEN when the owner set one. USER is passed too: claude
-// looks its macOS Keychain entry up by it. Under IsolationVM it is vmRunEnv.
+// runEnv is claude's environment: the pipeline's, the scratch CLAUDE_CONFIG_DIR, the runEnv
+// settings, and harness.Placeholder as the auth mode's credential (the gateway replaces it
+// with the real one on the way to Anthropic). Nothing comes from the worker's environment,
+// and USER isn't set: there is no Keychain to look up. A root run gets envIsSandbox, which
+// claude wants before it bypasses permissions as root.
 func (a *Adapter) runEnv(ws harness.Workspace, s session) ([]string, error) {
-	vm, err := a.vm()
-	if err != nil {
+	if err := a.checkVM(); err != nil {
 		return nil, err
 	}
-	if vm {
-		return a.vmRunEnv(ws, s)
-	}
-	env := clirun.WithEnv(ws.Env, envConfigDir, a.o.Config.ConfigDir)
-	for _, kv := range runEnv {
-		env = clirun.WithEnv(env, kv[0], kv[1])
-	}
-	owner := a.o.Environ()
-	if u := clirun.LookupEnv(owner, "USER"); u != "" {
-		env = clirun.WithEnv(env, "USER", u)
-	}
-	switch s.Auth {
-	case AuthAPIKey:
-		key := clirun.LookupEnv(owner, envAPIKey)
-		if key == "" {
-			return nil, fmt.Errorf("claude-code: the task runs on an API key, but %s isn't set in the worker's environment", envAPIKey)
-		}
-		env = clirun.WithEnv(env, envAPIKey, key)
-	case AuthSubscription:
-		if tok := clirun.LookupEnv(owner, envOAuthToken); tok != "" {
-			env = clirun.WithEnv(env, envOAuthToken, tok)
-		}
-	default:
-		return nil, fmt.Errorf("claude-code: unknown auth %q", s.Auth)
-	}
-	return env, nil
-}
-
-// vmRunEnv is claude's environment under IsolationVM: the pipeline's, the scratch
-// CLAUDE_CONFIG_DIR, runEnv's settings, and harness.Placeholder as the auth mode's credential
-// (the gateway replaces it with the real one on the way to Anthropic). Nothing comes from the
-// worker's environment, and USER isn't set: there is no Keychain to look up. A root run gets
-// envIsSandbox, which claude wants before it bypasses permissions as root.
-func (a *Adapter) vmRunEnv(ws harness.Workspace, s session) ([]string, error) {
-	env := clirun.WithEnv(ws.Env, envConfigDir, vmConfigPath(ws))
+	env := clirun.WithEnv(ws.Env, envConfigDir, configPath(ws))
 	for _, kv := range runEnv {
 		env = clirun.WithEnv(env, kv[0], kv[1])
 	}

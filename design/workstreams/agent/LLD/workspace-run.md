@@ -388,7 +388,7 @@ A gh stack on phase 2's (about the line counts, without generated code):
 7. **`NO_PROXY` CIDRs** need curl ≥ 7.86 (the base has 8.5), and the docker proxy config must exist before `setup` (it does: system setup runs first).
 8. **The scripts run under bash `-eo pipefail`,** with the scratch `HOME` rather than `/home/admin`. Check that against local-dev's scripts in phase 7.
 9. **A host runtime with an environment** skips it with a warning. **Decided (2026-10-22):** a supervisor advertises the capability label `vm-workspace`, and a TaskSpec with `workspace.environment` requires it (phase 6 adds the label; phase 7's catalog TaskSpecs require it), so such tasks are only scheduled to VM workspaces.
-10. **The codex `auth.json` shape is from Phase 0,** pinned as constants and re-checked by `make smoke-codex`.
+10. **The codex `auth.json` shape is from Phase 0,** pinned as constants, to re-check on the first VM workspace run.
 11. **Clocks:** `--remaining` avoids skew, and the supervisor enforces the hard deadline from outside.
 12. **`ReservedEnvNames`** should add `FACTORY_RUNTIME` and `FACTORY_KIND_IMAGES`, so `exposes` can't set them: a small contract PR.
 13. **Containers and the proxy. Decided (2026-10-22):** the docker client gets no `proxies` (see `DOCKER_CONFIG` above), because they'd send calls between compose services by name (`http://api:8080`) to the gateway, which refuses private addresses. dockerd keeps its proxy for image pulls. Containers that need the internet aren't supported for the PoC; revisit in phase 7 if local-dev's showcase needs it (per-service `HTTPS_PROXY` set by the TaskSpec's `up`).

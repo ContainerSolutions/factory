@@ -36,53 +36,16 @@ const (
 // codexHome is the run's scratch CODEX_HOME.
 func codexHome(ws harness.Workspace) string { return filepath.Join(ws.Home, homeDir) }
 
-// Prepare implements harness.Adapter: the scratch CODEX_HOME with the owner's login linked
-// (not copied), config.toml, AGENTS.md (the headless preamble), skills/<name>/ for every
+// Prepare implements harness.Adapter: the task must run on the subscription (an API-key run
+// has no gateway injection in the PoC) and the adapter must have the account, and the scratch
+// CODEX_HOME gets placeholderAuth's auth.json (0600, never over an existing file),
+// renderConfig's config.toml, AGENTS.md (the headless preamble), skills/<name>/ for every
 // skill the pipeline materialised in its plugin layout and skills/<plugin>/bin linked to each
 // plugin's bin/ (linkPluginBins).
-//
-// Under IsolationVM there is no owner's login: the scratch CODEX_HOME gets a placeholder
-// auth.json instead (prepareVM).
 func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, t v1alpha1.Task) error {
-	vm, err := a.vm()
-	if err != nil {
+	if err := a.checkVM(); err != nil {
 		return err
 	}
-	if vm {
-		return a.prepareVM(ws, t)
-	}
-	owner := a.o.Config.Home
-	if owner == "" || !filepath.IsAbs(owner) {
-		return fmt.Errorf("codex: home %q must be an absolute directory", owner)
-	}
-	if ws.Home == "" {
-		return errors.New("codex: the workspace has no scratch HOME")
-	}
-	src := filepath.Join(owner, authFile)
-	if _, err := os.Stat(src); err != nil {
-		return fmt.Errorf("codex is not signed in in %s (run `CODEX_HOME=%s %s` once): %w", owner, owner, loginCommand, err)
-	}
-	home := codexHome(ws)
-	if err := os.MkdirAll(home, 0o700); err != nil {
-		return fmt.Errorf("codex home: %w", err)
-	}
-	// The login is the owner's file, linked: codex refreshes the token in place, and the token
-	// is never read, copied or written by the agent.
-	if err := os.Symlink(src, filepath.Join(home, authFile)); err != nil {
-		return fmt.Errorf("codex home: link the login: %w", err)
-	}
-	cache := filepath.Join(ws.Home, ".cache")
-	if err := os.MkdirAll(cache, 0o700); err != nil {
-		return fmt.Errorf("codex home: %w", err)
-	}
-	return writeHome(home, renderConfig(ws, cache), agentsMD(ws), ws)
-}
-
-// prepareVM is Prepare under IsolationVM: the task must run on the subscription (an API-key
-// run has no gateway injection in the PoC) and the adapter must have the account, and the
-// scratch CODEX_HOME gets placeholderAuth's auth.json (0600, never over an existing file),
-// renderVMConfig's config.toml, AGENTS.md and the skills.
-func (a *Adapter) prepareVM(ws harness.Workspace, t v1alpha1.Task) error {
 	if h := t.Spec.Harness; h != nil && h.Resolved != nil {
 		switch h.Resolved.Auth {
 		case "", AuthSubscription:
@@ -110,7 +73,7 @@ func (a *Adapter) prepareVM(ws harness.Workspace, t v1alpha1.Task) error {
 	if err := writeNew(filepath.Join(home, authFile), auth); err != nil {
 		return fmt.Errorf("codex home: the placeholder login: %w", err)
 	}
-	return writeHome(home, renderVMConfig(ws), vmAgentsMD(ws), ws)
+	return writeHome(home, renderConfig(ws), agentsMD(ws), ws)
 }
 
 // writeHome writes the scratch CODEX_HOME's config.toml, AGENTS.md and skills/: ws's skill
@@ -191,38 +154,18 @@ func placeholderAuth(acct runbundle.CodexAccount, now time.Time) ([]byte, error)
 	return append(b, '\n'), nil
 }
 
-// renderConfig is the scratch config.toml: no update check, the workspace-write sandbox with
-// the network and the run's out/, caches and writable checkouts' git dirs writable, commands
-// given the whole run environment, and the Effector's MCP server with the run's variables
-// passed through by name (their values, tokens among them, never reach the file) and its
-// tools approved (keyMCPToolsApproval). The model, effort, sandbox mode and approval policy
-// are on the command line.
-func renderConfig(ws harness.Workspace, cache string) string {
-	var b strings.Builder
-	line := func(k, v string) { b.WriteString(k + " = " + v + "\n") }
-	b.WriteString(configHead)
-	b.WriteString("\n[" + tableSandboxWrite + "]\n")
-	line(keyNetworkAccess, "true")
-	roots := []string{}
-	for _, d := range append([]string{ws.Out, ws.Tmp, cache}, gitDirs(ws)...) {
-		if d != "" && !slices.Contains(roots, d) {
-			roots = append(roots, d)
-		}
-	}
-	line(keyWritableRoots, tomlList(roots))
-	b.WriteString(configTail(ws))
-	return b.String()
-}
-
-// renderVMConfig is the scratch config.toml under IsolationVM: renderConfig's without the
-// [sandbox_workspace_write] table, since codex runs danger-full-access in the VM.
-func renderVMConfig(ws harness.Workspace) string { return configHead + configTail(ws) }
+// renderConfig is the scratch config.toml: no update check, and configTail's tables. There is
+// no [sandbox_workspace_write]: codex runs danger-full-access in the VM. The model, effort,
+// sandbox mode and approval policy are on the command line.
+func renderConfig(ws harness.Workspace) string { return configHead + configTail(ws) }
 
 // configHead is the top of every config.toml: the banner and no update check.
 const configHead = "# Generated by factory-agent for this run; removed with the workspace.\n" + keyUpdateCheck + " = false\n"
 
-// configTail is the [shell_environment_policy] and [mcp_servers.factory] tables of every
-// config.toml.
+// configTail is config.toml's [shell_environment_policy] and [mcp_servers.factory] tables:
+// commands get the whole run environment, and the Effector's MCP server gets the run's
+// variables passed through by name (their values never reach the file) and its tools
+// approved (keyMCPToolsApproval).
 func configTail(ws harness.Workspace) string {
 	var b strings.Builder
 	line := func(k, v string) { b.WriteString(k + " = " + v + "\n") }
@@ -237,25 +180,10 @@ func configTail(ws harness.Workspace) string {
 	return b.String()
 }
 
-// agentsMD is the scratch AGENTS.md: the headless preamble and, when codex runs from out/
-// rather than the checkout (workDirFor), where the checkout is, since the prompt names paths
-// relative to the workspace root.
+// agentsMD is the scratch AGENTS.md, where codex runs from the pipeline's WorkDir (workDir):
+// the headless preamble and, for a read-only checkout, that the task may not change it, since
+// nothing in the VM stops a write to it (the gateway refuses the push).
 func agentsMD(ws harness.Workspace) string {
-	s := agentsHead(ws)
-	if ws.Out != "" && workDirFor(ws) == ws.Out {
-		s += "\nYou start in `$FACTORY_OUT` (" + ws.Out + "), which you may write. Paths in the prompt are relative to the workspace, " + ws.Root + "."
-		if ws.Repo != "" {
-			s += " The primary checkout is " + ws.Repo + " and it is read-only to you: read it there."
-		}
-		s += "\n"
-	}
-	return s
-}
-
-// vmAgentsMD is the scratch AGENTS.md under IsolationVM, where codex runs from the pipeline's
-// WorkDir (vmWorkDir): the headless preamble and, for a read-only checkout, that the task may
-// not change it, since nothing in the VM stops a write to it (the gateway refuses the push).
-func vmAgentsMD(ws harness.Workspace) string {
 	s := agentsHead(ws)
 	if ws.Repo != "" && !ws.RepoWritable {
 		s += "\nThe primary checkout, " + ws.Repo + ", is read-only to you: don't change it (a push to it is refused).\n"
@@ -266,68 +194,6 @@ func vmAgentsMD(ws harness.Workspace) string {
 // agentsHead is the top of every AGENTS.md: the banner and the headless preamble.
 func agentsHead(ws harness.Workspace) string {
 	return "<!-- Generated by factory-agent for this run. -->\n\n" + strings.TrimSpace(ws.Preamble) + "\n"
-}
-
-// gitDirs is the git directory of every checkout the harness may write: the primary checkout
-// when RepoWritable, and every Writable mount.
-//
-// codex's workspace-write sandbox keeps <writable root>/.git, and the gitdir a .git pointer
-// file names, read-only even under the cwd (gitDirName in flags.go). A live release-docs
-// run ended blocked on it (2026-10-21): "the sandbox denies writes to repo/.git/FETCH_HEAD
-// and repo/.git/index.lock", so no commit, fetch or `factory push` worked. Listing the git
-// dir as a writable root of its own lifts that protection for it alone. Read-only checkouts
-// keep it. A hook planted in a writable .git doesn't run outside the sandbox because
-// worker-side git ignores the checkout's hooks (fx/git-ignore-repo-hooks).
-func gitDirs(ws harness.Workspace) []string {
-	var dirs []string
-	add := func(checkout string, writable bool) {
-		if !writable || checkout == "" {
-			return
-		}
-		if d := gitDir(checkout); d != "" && !slices.Contains(dirs, d) {
-			dirs = append(dirs, d)
-		}
-	}
-	add(ws.Repo, ws.RepoWritable)
-	for _, m := range ws.Mounts {
-		add(m.Dir, m.Writable)
-	}
-	return dirs
-}
-
-// gitDir is checkout's git directory as codex names it: <checkout>/.git when that is a
-// directory; when .git is a pointer file ("gitdir: <path>", as in a worktree or submodule),
-// the directory it names, relative to the checkout when relative. "" when there is none, or
-// when .git is a symlink: codex's seatbelt refuses a writable root with a symlink in it, which
-// would stop the whole run.
-func gitDir(checkout string) string {
-	dot := filepath.Join(checkout, gitDirName)
-	fi, err := os.Lstat(dot)
-	switch {
-	case err != nil:
-		return ""
-	case fi.IsDir():
-		return dot
-	case !fi.Mode().IsRegular():
-		return ""
-	}
-	b, err := os.ReadFile(dot)
-	if err != nil {
-		return ""
-	}
-	key, raw, ok := strings.Cut(strings.TrimSpace(string(b)), ":")
-	raw = strings.TrimSpace(raw)
-	if !ok || strings.TrimSpace(key) != gitDirPointerKey || raw == "" {
-		return ""
-	}
-	if !filepath.IsAbs(raw) {
-		raw = filepath.Join(checkout, raw)
-	}
-	raw = filepath.Clean(raw)
-	if fi, err := os.Lstat(raw); err != nil || !fi.IsDir() {
-		return ""
-	}
-	return raw
 }
 
 // flattenSkills copies each skill folder to dst/<name>/ (codex's layout). Two plugins'

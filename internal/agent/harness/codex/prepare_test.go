@@ -4,11 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
@@ -119,70 +117,8 @@ func listTree(t *testing.T, dir string) []string {
 	return out
 }
 
-func TestPrepareLayout(t *testing.T) {
-	owner := ownerHome(t)
-	ws := workspace(t, true)
-	a := noCodex(t, Options{Config: config.Harness{Home: owner}})
-	if err := a.Prepare(context.Background(), ws, task("gpt-5-codex", "high")); err != nil {
-		t.Fatal(err)
-	}
-	home := filepath.Join(ws.Home, ".codex")
-	want := []string{
-		"AGENTS.md",
-		"auth.json -> " + filepath.Join(owner, "auth.json"),
-		"config.toml",
-		"skills/",
-		"skills/ccf-review-review/",
-		"skills/ccf-review-review/SKILL.md",
-		"skills/docs-style/",
-		"skills/docs-style/SKILL.md",
-		"skills/docs-style/scripts/",
-		"skills/docs-style/scripts/check.sh (x)",
-		"skills/lisa-review/",
-		"skills/lisa-review/SKILL.md",
-	}
-	if got := listTree(t, home); !slices.Equal(got, want) {
-		t.Errorf("CODEX_HOME:\n  %s\nwant\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
-	}
-	if b, _ := os.ReadFile(filepath.Join(home, "skills/lisa-review/SKILL.md")); !strings.Contains(string(b), "lisa") {
-		t.Errorf("lisa-review is %q", b)
-	}
-	agents, _ := os.ReadFile(filepath.Join(home, "AGENTS.md"))
-	if !strings.Contains(string(agents), ws.Preamble) || strings.Contains(string(agents), "FACTORY_OUT") {
-		t.Errorf("AGENTS.md isn't the preamble alone:\n%s", agents)
-	}
-	cfg, _ := os.ReadFile(filepath.Join(home, "config.toml"))
-	for _, want := range []string{
-		"check_for_update_on_startup = false",
-		"[sandbox_workspace_write]\nnetwork_access = true\nwritable_roots = [\"" + ws.Out + "\", \"" + ws.Tmp + "\", \"" + filepath.Join(ws.Home, ".cache") + "\"]",
-		"[shell_environment_policy]\ninherit = \"all\"\nignore_default_excludes = true",
-		"[mcp_servers.factory]\ncommand = \"" + filepath.Join(ws.Bin, "factory") + "\"\nargs = [\"mcp\"]\n" +
-			`env_vars = ["FACTORY_API", "FACTORY_RESULT", "FACTORY_TOKEN", "GH_TOKEN", "HOME", "PATH", "TMPDIR"]` + "\n" +
-			`default_tools_approval_mode = "approve"` + "\n",
-	} {
-		if !strings.Contains(string(cfg), want) {
-			t.Errorf("config.toml lacks %q:\n%s", want, cfg)
-		}
-	}
-	scanFiles(t, ws.Root)
-	// The owner's login is untouched.
-	if b, _ := os.ReadFile(filepath.Join(owner, "auth.json")); string(b) != ownerLogin {
-		t.Errorf("the owner's login changed: %q", b)
-	}
-	// Removing the workspace removes the link, not the owner's login.
-	if err := os.RemoveAll(ws.Root); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(owner, "auth.json")); err != nil {
-		t.Errorf("the owner's login is gone with the workspace: %v", err)
-	}
-}
-
-// TestPreparePluginBins: a plugin's bin/ is linked at skills/<plugin>/bin, so lisa's
-// <lisa skill dir>/../ccf-review/bin/ccfr is ccf-review's ccfr, at its real path (it finds its
-// lib/ from there); a plugin without bin/ gets nothing.
 func TestPreparePluginBins(t *testing.T) {
-	ws := workspace(t, true)
+	ws := vmWorkspace(t, true)
 	for name, body := range map[string]string{
 		"lisa/skills/lisa/SKILL.md": "---\nname: lisa\n---\n",
 		"ccf-review/bin/ccfr":       "#!/bin/sh\necho ccfr\n",
@@ -196,7 +132,7 @@ func TestPreparePluginBins(t *testing.T) {
 		}
 	}
 	ws.SkillList = append(ws.SkillList, harness.Skill{Plugin: "lisa", Name: "lisa", Dir: filepath.Join(ws.Skills, "lisa", "skills", "lisa")})
-	if err := noCodex(t, Options{Config: config.Harness{Home: ownerHome(t)}}).Prepare(context.Background(), ws, task("", "")); err != nil {
+	if err := vmAdapter(t, "").Prepare(context.Background(), ws, task("", "")); err != nil {
 		t.Fatal(err)
 	}
 	skills := filepath.Join(ws.Home, ".codex", "skills")
@@ -216,41 +152,7 @@ func TestPreparePluginBins(t *testing.T) {
 	}
 }
 
-// TestPrepareReadOnly: a read-only checkout gets the same config.toml (out/ is already a
-// writable root, the checkout's .git isn't) and an AGENTS.md saying codex starts in out/ and
-// where the read-only checkout is.
-func TestPrepareReadOnly(t *testing.T) {
-	owner := ownerHome(t)
-	rw, ro := workspace(t, true), workspace(t, false)
-	for _, ws := range []harness.Workspace{rw, ro} {
-		if err := os.MkdirAll(filepath.Join(ws.Repo, ".git"), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := noCodex(t, Options{Config: config.Harness{Home: owner}}).Prepare(context.Background(), ws, task("", "")); err != nil {
-			t.Fatal(err)
-		}
-	}
-	read := func(ws harness.Workspace, name string) string {
-		b, err := os.ReadFile(filepath.Join(ws.Home, ".codex", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return strings.ReplaceAll(string(b), ws.Root, "<root>")
-	}
-	rwCfg, roCfg := read(rw, "config.toml"), read(ro, "config.toml")
-	if want := strings.Replace(rwCfg, `, "<root>/repo/.git"]`, "]", 1); roCfg != want || rwCfg == want {
-		t.Errorf("read-only config.toml:\n%s\nwant the read-write one without the checkout's .git:\n%s", roCfg, rwCfg)
-	}
-	agents := read(ro, "AGENTS.md")
-	for _, w := range []string{ro.Preamble, "You start in `$FACTORY_OUT` (<root>/out)", "relative to the workspace, <root>.", "<root>/repo and it is read-only"} {
-		if !strings.Contains(agents, w) {
-			t.Errorf("AGENTS.md lacks %q:\n%s", w, agents)
-		}
-	}
-}
-
-// scanFiles fails if a regular file under dir holds a token (the owner's login is reached
-// only through the symlink, which isn't followed).
+// scanFiles fails if a regular file under dir holds a token.
 func scanFiles(t *testing.T, dir string) {
 	t.Helper()
 	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
@@ -267,111 +169,12 @@ func scanFiles(t *testing.T, dir string) {
 	})
 }
 
-func TestPrepareRefusals(t *testing.T) {
-	ws := workspace(t, true)
-	for name, h := range map[string]config.Harness{
-		"no home":       {},
-		"relative home": {Home: "codex-home"},
-		"not signed in": {Home: t.TempDir()},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if err := noCodex(t, Options{Config: h}).Prepare(context.Background(), ws, task("", "")); err == nil {
-				t.Error("Prepare succeeded")
-			}
-		})
-	}
-	// Two skills that would land in the same folder.
+// TestPrepareSkillClash: two skills that would land in the same folder are refused.
+func TestPrepareSkillClash(t *testing.T) {
+	ws := vmWorkspace(t, true)
 	ws.SkillList = append(ws.SkillList, harness.Skill{Plugin: "", Name: "docs-style", Dir: ws.SkillList[0].Dir})
 	ws.SkillList = append(ws.SkillList, harness.Skill{Plugin: "", Name: "docs-style", Dir: ws.SkillList[0].Dir})
-	if err := noCodex(t, Options{Config: config.Harness{Home: ownerHome(t)}}).Prepare(context.Background(), ws, task("", "")); err == nil {
+	if err := vmAdapter(t, "").Prepare(context.Background(), ws, task("", "")); err == nil {
 		t.Error("clashing skill folders: Prepare succeeded")
-	}
-}
-
-// TestConfigGitDirs: config.toml's writable_roots list the git dir of every writable
-// checkout (codex keeps .git read-only otherwise), and never a read-only checkout's.
-func TestConfigGitDirs(t *testing.T) {
-	mkdir := func(t *testing.T, dirs ...string) {
-		t.Helper()
-		for _, d := range dirs {
-			if err := os.MkdirAll(d, 0o700); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	write := func(t *testing.T, p, body string) {
-		t.Helper()
-		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for name, tc := range map[string]struct {
-		// setup turns the workspace into the case and returns the git dirs config.toml lists.
-		setup func(t *testing.T, ws *harness.Workspace) []string
-	}{
-		"rw checkout": {func(t *testing.T, ws *harness.Workspace) []string {
-			mkdir(t, filepath.Join(ws.Repo, ".git"))
-			ws.Mounts = []harness.Mount{{Repo: "o/r", Dir: ws.Repo, Writable: true}}
-			return []string{filepath.Join(ws.Repo, ".git")}
-		}},
-		"ro checkout": {func(t *testing.T, ws *harness.Workspace) []string {
-			mkdir(t, filepath.Join(ws.Repo, ".git"))
-			ws.RepoWritable = false
-			ws.Mounts = []harness.Mount{{Repo: "o/r", Dir: ws.Repo}}
-			return nil
-		}},
-		"rw, ro and rw mounts": {func(t *testing.T, ws *harness.Workspace) []string {
-			ro, rw := filepath.Join(ws.Root, "repos", "ro"), filepath.Join(ws.Root, "repos", "rw")
-			mkdir(t, filepath.Join(ws.Repo, ".git"), filepath.Join(ro, ".git"), filepath.Join(rw, ".git"))
-			ws.Mounts = []harness.Mount{{Repo: "o/r", Dir: ws.Repo, Writable: true}, {Repo: "o/ro", Dir: ro}, {Repo: "o/rw", Dir: rw, Writable: true}}
-			return []string{filepath.Join(ws.Repo, ".git"), filepath.Join(rw, ".git")}
-		}},
-		"relative gitdir pointer": {func(t *testing.T, ws *harness.Workspace) []string {
-			gd := filepath.Join(ws.Root, "gitdirs", "repo")
-			mkdir(t, gd)
-			write(t, filepath.Join(ws.Repo, ".git"), "gitdir: ../gitdirs/repo\n")
-			return []string{gd}
-		}},
-		"absolute gitdir pointer": {func(t *testing.T, ws *harness.Workspace) []string {
-			gd := filepath.Join(ws.Root, "gitdirs", "repo")
-			mkdir(t, gd)
-			write(t, filepath.Join(ws.Repo, ".git"), "gitdir: "+gd+"\n")
-			return []string{gd}
-		}},
-		"pointer to a missing gitdir": {func(t *testing.T, ws *harness.Workspace) []string {
-			write(t, filepath.Join(ws.Repo, ".git"), "gitdir: ../gone\n")
-			return nil
-		}},
-		"not a pointer": {func(t *testing.T, ws *harness.Workspace) []string {
-			mkdir(t, filepath.Join(ws.Root, "gitdirs"))
-			write(t, filepath.Join(ws.Repo, ".git"), "worktree: ../gitdirs\n")
-			return nil
-		}},
-		"symlinked .git": {func(t *testing.T, ws *harness.Workspace) []string {
-			target := filepath.Join(ws.Root, "real.git")
-			mkdir(t, target)
-			if err := os.Symlink(target, filepath.Join(ws.Repo, ".git")); err != nil {
-				t.Fatal(err)
-			}
-			return nil
-		}},
-		"rw checkout without .git": {func(t *testing.T, ws *harness.Workspace) []string {
-			return nil
-		}},
-		"no checkout": {func(t *testing.T, ws *harness.Workspace) []string {
-			ws.Repo, ws.RepoWritable, ws.WorkDir = "", false, ws.Root
-			return nil
-		}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			ws := workspace(t, true)
-			cache := filepath.Join(ws.Home, ".cache")
-			want := append([]string{ws.Out, ws.Tmp, cache}, tc.setup(t, &ws)...)
-			cfg := renderConfig(ws, cache)
-			line := "writable_roots = " + tomlList(want) + "\n"
-			if !strings.Contains(cfg, line) {
-				t.Errorf("config.toml lacks %q:\n%s", line, cfg)
-			}
-		})
 	}
 }

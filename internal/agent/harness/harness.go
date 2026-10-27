@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
 
@@ -20,8 +19,8 @@ import (
 type Isolation int
 
 const (
-	// IsolationSandbox, the zero value, is the owner's host: the harness's own OS sandbox
-	// bounds every command, and the harness signs in with the owner's login.
+	// IsolationSandbox, the zero value, was the owner's host, where the harness's own OS
+	// sandbox bounded every command. Phase 10 removed the host runtime: the adapters refuse it.
 	IsolationSandbox Isolation = iota
 	// IsolationVM is `factory-agent run` inside a VM workspace: the VM is the boundary, so
 	// the harness runs without its own sandbox, and it holds no credential: the gateway
@@ -53,8 +52,6 @@ type Adapter interface {
 	Name() string
 	// Capabilities is static per adapter version: the effort mapping and features.
 	Capabilities() v1alpha1.AdapterCapabilities
-	// Probe reports what this machine can run with this harness (version, auth, models).
-	Probe(ctx context.Context, cfg config.Harness) (v1alpha1.HarnessOffer, error)
 	// Prepare lays out the harness's own config in the workspace: the scratch config dir,
 	// the skills in its layout, the MCP wiring.
 	Prepare(ctx context.Context, ws Workspace, t v1alpha1.Task) error

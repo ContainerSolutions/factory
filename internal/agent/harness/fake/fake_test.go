@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/compliance-framework/factory/internal/agent/config"
 	"github.com/compliance-framework/factory/internal/agent/harness"
 	"github.com/compliance-framework/factory/internal/apis/v1alpha1"
 )
@@ -45,10 +44,6 @@ func TestAdapter(t *testing.T) {
 	var _ harness.Adapter = a
 	if a.Name() != Name || a.Capabilities().Harness != Name {
 		t.Error("name")
-	}
-	off, err := a.Probe(context.Background(), config.Harness{Models: []string{"m"}, Default: "m"})
-	if err != nil || off.DefaultModel != "m" || len(off.Models) != 1 {
-		t.Errorf("probe %+v %v", off, err)
 	}
 	if err := a.Prepare(context.Background(), ws, v1alpha1.Task{}); err != nil || len(a.Prepared()) != 1 {
 		t.Fatal("prepare")

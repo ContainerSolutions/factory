@@ -6,45 +6,17 @@ import (
 	"strings"
 )
 
-// This file is every part of the Codex CLI's interface the adapter relies on: the minimum
-// version, subcommands, flags, config keys, file names and the JSONL event names. The LLD
-// (harness-adapters.md §Codex) marks most of them *verify*. The owner decided (2026-10-19)
-// that codex isn't run while the adapter is written, so none of them was checked against an
-// installed codex: each is marked UNVERIFIED and is fixed here, in one place, after
-// `make smoke-codex`.
-
-// ---- Version and login ---------------------------------------------------------------------
-
-// MinVersion is the oldest codex the adapter accepts: the one with `exec --json` emitting
-// the thread/turn/item JSONL events, `--output-schema` and skills in $CODEX_HOME/skills.
-// UNVERIFIED (owner to verify with make smoke-codex)
-const MinVersion = "0.72.0"
-
-// versionArgs print the version, as "codex-cli 0.72.0".
-// UNVERIFIED (owner to verify with make smoke-codex)
-var versionArgs = []string{"--version"}
-
-// loginStatusArgs report how $CODEX_HOME is signed in; exit 0 when it is.
-// UNVERIFIED (owner to verify with make smoke-codex)
-var loginStatusArgs = []string{"login", "status"}
-
-// What `codex login status` prints for a ChatGPT (subscription) login and for an API key.
-// UNVERIFIED (owner to verify with make smoke-codex)
-const (
-	loginSubscriptionMarker = "ChatGPT"
-	loginAPIKeyMarker       = "API key"
-)
-
-// loginCommand is what the owner runs once to sign the dedicated CODEX_HOME in (in errors).
-// UNVERIFIED (owner to verify with make smoke-codex)
-const loginCommand = "codex login --device-auth"
+// This file is every part of the Codex CLI's interface the adapter relies on: subcommands,
+// flags, config keys, file names and the JSONL event names. The LLD (harness-adapters.md
+// §Codex) marks most of them *verify*. The owner decided (2026-10-19) that codex isn't run
+// while the adapter is written, so none of them was checked against an installed codex:
+// each is marked UNVERIFIED and is fixed here, in one place, once a VM workspace run shows
+// it wrong.
 
 // ---- Files in CODEX_HOME -------------------------------------------------------------------
 
-// authFile is the login codex keeps in CODEX_HOME. The scratch CODEX_HOME links to the
-// owner's; codex must write a refreshed token through the link (open + truncate), not
-// replace the file (write a temporary file and rename it over).
-// UNVERIFIED (owner to verify with make smoke-codex)
+// authFile is the login codex keeps in CODEX_HOME: the placeholder below.
+// UNVERIFIED (owner to verify on a VM workspace run)
 const authFile = "auth.json"
 
 // auth.json under IsolationVM (placeholderAuth): the keys codex reads its ChatGPT login from,
@@ -71,8 +43,7 @@ const authFile = "auth.json"
 //     placeholder refresh token to auth.openai.com, which refuses it: the run fails on auth,
 //     and nothing it holds is a credential.
 //
-// Phase 0's shape (owner to re-check on the first VM workspace run: make smoke-codex runs
-// the host path only)
+// Phase 0's shape (owner to re-check on the first VM workspace run)
 const (
 	authKeyAPIKey      = "OPENAI_API_KEY"
 	authKeyTokens      = "tokens"
@@ -99,58 +70,58 @@ const (
 )
 
 // configFile is codex's config in CODEX_HOME.
-// UNVERIFIED (owner to verify with make smoke-codex)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const configFile = "config.toml"
 
 // agentsFile in CODEX_HOME holds the user-level instructions codex adds to every session.
-// UNVERIFIED (owner to verify with make smoke-codex)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const agentsFile = "AGENTS.md"
 
 // skillsDir in CODEX_HOME is where codex discovers skills: skills/<name>/SKILL.md (the LLD's
 // fallback, a repo-local .agents/skills/, isn't used: it would put files in the checkout).
-// UNVERIFIED (owner to verify with make smoke-codex)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const skillsDir = "skills"
 
 // ---- exec ----------------------------------------------------------------------------------
 
 // The exec subcommand and its flags.
 const (
-	// UNVERIFIED (owner to verify with make smoke-codex)
+	// UNVERIFIED (owner to verify on a VM workspace run)
 	cmdExec = "exec"
 	// cmdResume continues a session: `codex exec [flags] resume <thread id> -`. The exec flags
 	// go before `resume`.
-	// UNVERIFIED (owner to verify with make smoke-codex)
+	// UNVERIFIED (owner to verify on a VM workspace run)
 	cmdResume = "resume"
 	// flagJSON streams JSONL events on stdout.
-	// UNVERIFIED (owner to verify with make smoke-codex)
+	// UNVERIFIED (owner to verify on a VM workspace run)
 	flagJSON = "--json"
 	// flagModel picks the model.
-	// UNVERIFIED (owner to verify with make smoke-codex)
+	// UNVERIFIED (owner to verify on a VM workspace run)
 	flagModel = "--model"
 	// flagConfig overrides one config key: -c key=<TOML value>.
-	// UNVERIFIED (owner to verify with make smoke-codex)
+	// UNVERIFIED (owner to verify on a VM workspace run)
 	flagConfig = "-c"
-	// flagSandbox is the sandbox mode: workspace-write on the host (see workDirFor; the LLD
-	// notes 2026 renames towards a permission profile), danger-full-access under IsolationVM.
-	// UNVERIFIED (owner to verify with make smoke-codex)
+	// flagSandbox is the sandbox mode: danger-full-access (the LLD notes 2026 renames towards
+	// a permission profile).
+	// UNVERIFIED (owner to verify on a VM workspace run)
 	flagSandbox = "--sandbox"
-	// flagCd is the directory codex works in: the writable checkout, else out/ (workDirFor).
-	// UNVERIFIED (owner to verify with make smoke-codex)
+	// flagCd is the directory codex works in: the pipeline's WorkDir (workDir).
+	// UNVERIFIED (owner to verify on a VM workspace run)
 	flagCd = "--cd"
 	// flagOutputSchema is the JSON Schema the final message must match. OpenAI's strict
 	// structured outputs accept a subset of JSON Schema (no remote $ref, every property
 	// required) the Result schemas are outside of: not passed, see useOutputSchema.
-	// UNVERIFIED (owner to verify with make smoke-codex)
+	// UNVERIFIED (owner to verify on a VM workspace run)
 	flagOutputSchema = "--output-schema"
 	// flagLastMessage writes the final message to a file.
-	// UNVERIFIED (owner to verify with make smoke-codex)
+	// UNVERIFIED (owner to verify on a VM workspace run)
 	flagLastMessage = "--output-last-message"
-	// flagSkipGitRepoCheck lets exec run outside a git checkout (in out/ when the checkout is
-	// read-only or there is none).
-	// UNVERIFIED (owner to verify with make smoke-codex)
+	// flagSkipGitRepoCheck lets exec run outside a git checkout (the workspace root of a task
+	// without one).
+	// UNVERIFIED (owner to verify on a VM workspace run)
 	flagSkipGitRepoCheck = "--skip-git-repo-check"
 	// promptStdin reads the prompt from stdin.
-	// UNVERIFIED (owner to verify with make smoke-codex)
+	// UNVERIFIED (owner to verify on a VM workspace run)
 	promptStdin = "-"
 )
 
@@ -165,21 +136,14 @@ const (
 // passes the workspace's schema again.
 const useOutputSchema = false
 
-// sandboxWorkspaceWrite is the sandbox every run on the host gets. codex's read-only mode isn't used: it
-// denies the agent every write ($FACTORY_OUT, $FACTORY_RESULT, TMPDIR) and the network (the
-// `factory` CLI), so a read-only checkout runs workspace-write from out/ instead (workDirFor).
-// UNVERIFIED (owner to verify with make smoke-codex)
-const sandboxWorkspaceWrite = "workspace-write"
-
-// sandboxDangerFullAccess is the sandbox under IsolationVM: none, since the VM is the
-// boundary (workspace-run.md §Harnesses under IsolationVM). codex then needs no bubblewrap
+// sandboxDangerFullAccess is the sandbox: none, since the VM is the boundary (workspace-run.md §Harnesses under IsolationVM). codex then needs no bubblewrap
 // (Phase 0 saw only a warning that it was missing) and asks no approval for MCP tools.
-// UNVERIFIED (owner to verify with make smoke-codex)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const sandboxDangerFullAccess = "danger-full-access"
 
 // Config keys set with -c. The LLD's `--ask-for-approval never` is a top-level codex flag
 // that exec doesn't take as far as known, so the approval policy goes through -c.
-// UNVERIFIED (owner to verify with make smoke-codex)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const (
 	keyEffort     = "model_reasoning_effort"
 	keyApproval   = "approval_policy"
@@ -189,16 +153,10 @@ const (
 // ---- config.toml ---------------------------------------------------------------------------
 
 // Keys of the generated config.toml (see renderConfig).
-// UNVERIFIED (owner to verify with make smoke-codex)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const (
 	// keyUpdateCheck off: no update check (and no version file) at every start.
 	keyUpdateCheck = "check_for_update_on_startup"
-	// tableSandboxWrite tunes workspace-write: network_access (git, gh and the factory CLI
-	// need the network) and writable_roots (out/, the scratch caches and the writable
-	// checkouts' git dirs besides the cwd, see gitDirName).
-	tableSandboxWrite = "sandbox_workspace_write"
-	keyNetworkAccess  = "network_access"
-	keyWritableRoots  = "writable_roots"
 	// tableShellEnv: commands get the whole run environment. By default codex drops
 	// variables named like *KEY*, *SECRET*, *TOKEN*, which would drop FACTORY_TOKEN and
 	// GH_TOKEN.
@@ -213,9 +171,10 @@ const (
 	keyMCPArgs      = "args"
 	keyMCPEnvVars   = "env_vars"
 	// keyMCPToolsApproval = "approve" runs the factory server's tools without asking. With
-	// approval_policy never, codex otherwise denies them in a workspace-write sandbox: a live
-	// plan-epic run (2026-10-21) reported "the MCP result tool required unavailable
-	// approval". From codex's source (openai/codex at d138398, 2026-10-21; the same in
+	// approval_policy never, codex otherwise denied them in the host's workspace-write
+	// sandbox: a live plan-epic run (2026-10-21) reported "the MCP result tool required
+	// unavailable approval". Under danger-full-access codex may not ask (below), but no VM run
+	// has shown it, so the key stays. From codex's source (openai/codex at d138398, 2026-10-21; the same in
 	// rust-v0.163.0), not a run:
 	//   - codex-rs/core/src/mcp_tool_call.rs: the mode is the server's tool_approval_mode;
 	//     maybe_request_mcp_tool_approval skips approval when
@@ -238,30 +197,10 @@ const (
 	mcpToolsApprove     = "approve"
 )
 
-// gitDirName and gitDirPointerKey are git's names for a checkout's git dir: .git, a directory
-// or a "gitdir: <path>" pointer file. codex's workspace-write keeps <writable root>/.git (and
-// the gitdir a pointer names) read-only, the cwd included, unless that path is itself a
-// writable root; gitDirs lists the writable checkouts' git dirs for that. From codex's source
-// (openai/codex at af91f6e, 2026-10-21), not a run:
-//   - codex-rs/protocol/src/permissions.rs: get_writable_roots_with_cwd_impl and
-//     from_legacy_sandbox_policy_for_cwd skip a default read-only subpath (.git, the
-//     resolved gitdir) that has an explicit entry; metadata_write_denial allows a write
-//     under a writable root at or below the protected path; at equal depth write beats read;
-//   - codex-rs/sandboxing/src/seatbelt.rs: each writable root is its own (allow file-write*)
-//     clause, so the git dir's clause grants it whatever the cwd's clause excludes;
-//   - codex-rs/linux-sandbox/src/bwrap.rs: writable roots are bound shallowest first, so the
-//     git dir's rw bind comes after the cwd's read-only carveouts.
-//
-// UNVERIFIED (owner to verify with a release-docs or implement run that commits and pushes)
-const (
-	gitDirName       = ".git"
-	gitDirPointerKey = "gitdir"
-)
-
 // ---- Effort --------------------------------------------------------------------------------
 
 // effortMapping maps a normalised effort to model_reasoning_effort (the LLD's mapping).
-// UNVERIFIED (owner to verify with make smoke-codex)
+// UNVERIFIED (owner to verify on a VM workspace run)
 var effortMapping = map[string]string{
 	"minimal": "minimal",
 	"low":     "low",
@@ -271,12 +210,12 @@ var effortMapping = map[string]string{
 }
 
 // xhighModels take model_reasoning_effort=xhigh, which max maps to for them.
-// UNVERIFIED (owner to verify with make smoke-codex)
+// UNVERIFIED (owner to verify on a VM workspace run)
 var xhighModels = []string{"*-codex-max", "*-codex-max-*"}
 
 // noMinimalModels don't take minimal (the codex-tuned models start at low), so minimal maps
 // to low for them.
-// UNVERIFIED (owner to verify with make smoke-codex)
+// UNVERIFIED (owner to verify on a VM workspace run)
 var noMinimalModels = []string{"*-codex", "*-codex-*"}
 
 // nativeEffort is the model_reasoning_effort for a normalised effort and model: the
@@ -307,7 +246,7 @@ func matchAny(globs []string, s string) bool {
 // ---- JSONL stream --------------------------------------------------------------------------
 
 // Event types of `codex exec --json`.
-// UNVERIFIED (owner to verify with make smoke-codex)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const (
 	evThreadStarted = "thread.started" // {thread_id}
 	evTurnStarted   = "turn.started"
@@ -321,7 +260,7 @@ const (
 )
 
 // Item types inside item.* events.
-// UNVERIFIED (owner to verify with make smoke-codex)
+// UNVERIFIED (owner to verify on a VM workspace run)
 const (
 	itemAgentMessage = "agent_message"     // {text}
 	itemReasoning    = "reasoning"         // {text}
@@ -337,7 +276,7 @@ const (
 
 // rateLimitWords, found case-insensitively in an error, say the plan's usage limit or the
 // API's rate limit was hit.
-// UNVERIFIED (owner to verify with make smoke-codex)
+// UNVERIFIED (owner to verify on a VM workspace run)
 var rateLimitWords = []string{"usage limit", "rate limit", "rate_limit", "too many requests", "429", "quota"}
 
 // ---- helpers -------------------------------------------------------------------------------
