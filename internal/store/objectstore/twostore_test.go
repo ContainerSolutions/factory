@@ -408,3 +408,27 @@ func TestNewerSnapshotRefusesStart(t *testing.T) {
 		t.Fatalf("Open on a newer snapshot = %v, want ErrSchema saying %q", err, want)
 	}
 }
+
+// TestTwoStoresDeleteIfUnchanged: a store behind another deletes at the version it read, so an
+// object the other deleted and created again under the same name (a redelivered Delivery)
+// survives: the stale delete syncs and answers ErrConflict.
+func TestTwoStoresDeleteIfUnchanged(t *testing.T) {
+	ctx := t.Context()
+	r := newRig()
+	a, b := r.open(t, "ins_a"), r.open(t, "ins_b")
+	must(t, a.Create(ctx, newRun("run_1")))
+	must(t, b.Sync(ctx))
+	stale := getRun(t, b, "run_1") // what b's reconcile read
+	must(t, a.Delete(ctx, runKey("run_1")))
+	again := newRun("run_1")
+	again.Spec.Agent = "agent-2"
+	must(t, a.Create(ctx, again))
+
+	if err := b.DeleteIfUnchanged(ctx, runKey("run_1"), stale.Metadata.ResourceVersion); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("a stale delete: %v, want ErrConflict", err)
+	}
+	must(t, a.Sync(ctx))
+	if got := getRun(t, a, "run_1"); got.Spec.Agent != "agent-2" {
+		t.Fatalf("the recreated run: %+v, want it kept", got.Spec)
+	}
+}

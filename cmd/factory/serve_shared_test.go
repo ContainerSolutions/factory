@@ -61,11 +61,16 @@ type sharedServe struct {
 
 func (sh sharedServe) start(name string, syncEvery, resync time.Duration) *served {
 	sh.t.Helper()
+	return sh.startWith(name, syncEvery, resync, nil)
+}
+
+func (sh sharedServe) startWith(name string, syncEvery, resync time.Duration, wrap func(provider.Adapter) provider.Adapter) *served {
+	sh.t.Helper()
 	cfg := testConfig(sh.t, sh.github.URL)
 	cfg.StateURL, cfg.StateMemory, cfg.StateSyncInterval = "file://"+sh.dir, false, syncEvery
 	cfg.GitHubURL = sh.github.URL
 	s := runServed(sh.t, cfg, serveDeps{
-		Getenv: getenvOf(testEnv()), Fake: sh.adapter, ResyncInterval: resync,
+		Getenv: getenvOf(testEnv()), Fake: sh.adapter, ResyncInterval: resync, WrapAdapter: wrap,
 		Leader: controllers.LeaderOptions{TTL: 3 * time.Second, Renew: 100 * time.Millisecond, Try: 300 * time.Millisecond},
 	})
 	s.gh = sh.adapter.Conn(ghProvider)
@@ -475,5 +480,57 @@ func TestLeaderSweeps(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(err.Error(), "store down") || !strings.Contains(err.Error(), "sweep used login states: list failed") {
 		t.Fatalf("err = %v, want both failures", err)
+	}
+}
+
+// notInstalled is an adapter whose Conns check installations (as the GitHub Conn does) and
+// find the author App installed nowhere.
+type notInstalled struct{ provider.Adapter }
+
+func (n notInstalled) Connect(ctx context.Context, p v1alpha1.Provider, secrets provider.SecretResolver) (provider.Conn, error) {
+	c, err := n.Adapter.Connect(ctx, p, secrets)
+	return notInstalledConn{c}, err
+}
+
+type notInstalledConn struct{ provider.Conn }
+
+func (notInstalledConn) MissingInstallations(_ context.Context, identity string, repos []string) (string, []string, error) {
+	if identity != "author" {
+		return "ccf-factory-" + identity, nil, nil
+	}
+	return "ccf-factory-author", repos, nil
+}
+
+// The installation check runs on every instance (it only reads GitHub): a non-leader's
+// getCatalog shows the missing installations too.
+func TestServeInstallationsOnEveryInstance(t *testing.T) {
+	ctx := context.Background()
+	adapter := pocAdapter(t)
+	sh := sharedServe{t: t, dir: filepath.Join(t.TempDir(), "bucket"), adapter: adapter, github: fakeGitHubOAuth(t)}
+	wrap := func(a provider.Adapter) provider.Adapter { return notInstalled{a} }
+	a := sh.startWith("A", 100*time.Millisecond, time.Hour, wrap)
+	eventuallyT(t, "A to lead", func() bool { return strings.Contains(a.logs.String(), leaderLog) })
+	b := sh.startWith("B", 100*time.Millisecond, time.Hour, wrap)
+	for name, s := range map[string]*served{"A (the leader)": a, "B": b} {
+		eventuallyT(t, name+"'s catalog warnings", func() bool {
+			res, err := s.client(t).GetCatalogWithResponse(ctx, bearer(testCLIToken))
+			if err != nil || res.JSON200 == nil {
+				t.Fatalf("getCatalog on %s: %v %s", name, err, res.Status())
+			}
+			for _, w := range res.JSON200.Warnings {
+				if w.Code != nil && *w.Code == server.CodeAppNotInstalled && strings.Contains(w.Message, "ccf-factory-author") {
+					return true
+				}
+			}
+			return false
+		})
+	}
+	if strings.Contains(b.logs.String(), leaderLog) {
+		t.Fatal("B leads: the test needs a non-leader")
+	}
+	for _, s := range []*served{b, a} {
+		if err := s.stop(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

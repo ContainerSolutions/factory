@@ -105,7 +105,7 @@ Claude Code and Codex are the opposite. They're *thick* agent loops that run the
 
 ## Dispatch and durability
 
-The dispatcher owns its state (ADR-0001): work items, tasks and runs in a store that starts **in-memory** and is rebuilt from provider projections. Decisions are recomputed on every event (P4). What it needs is:
+The dispatcher owns its state (ADR-0001): work items, tasks and runs in a store that started **in-memory**, rebuilt from provider projections, and is now durable (a state dir, P2, or object storage, [P3](proposals/P3-dispatcher-state-in-object-storage.md)) with no rebuild. Decisions are recomputed on every event (P4). What it needs is:
 
 - deduplication per (event, rule),
 - a per-(work item, task spec) lock,
@@ -117,7 +117,7 @@ That's a **job queue plus a table**, not a workflow engine.
 
 | Option | Fit | Pros | Cons | Verdict |
 |---|---|---|---|---|
-| **Own Go dispatcher, in-memory store** | Exactly the needs above, with no durability | Zero dependencies; one binary on a laptop or VM | History lost on restart (state itself is rebuilt) | **PoC** ([ADR-0005](adr/0005-poc-plain-go-binary-registered-agents.md)) |
+| **Own Go dispatcher, in-memory store** | Exactly the needs above, with no durability | Zero dependencies; one binary on a laptop or VM | History lost on restart (the state itself was rebuilt from projections, until the durable stores replaced the rebuild: [P3](proposals/P3-dispatcher-state-in-object-storage.md#no-rebuild-from-markers)) | **PoC** ([ADR-0005](adr/0005-poc-plain-go-binary-registered-agents.md)) |
 | **Same, on Postgres** (e.g. **River** job queue, SKIP LOCKED) | The durable version | Go like the rest of CCF; leases and unique jobs built in | One database to run | Future (durable) |
 | **GitHub Actions as dispatcher** (caller workflow → `factory route` CLI → `workflow_dispatch`) | — | Zero infra | Needs per-repo caller files (breaks P6). Nowhere to keep state. No registered agents. | Rejected |
 | **Temporal** | Long human-in-the-loop sagas; its workers pull from task queues | Strongest durability, signals, timers | Heavy ops. Duplicates the factory's own state model and rule layer. | Not now. Revisit if cascades need complex compensation. |

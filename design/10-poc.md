@@ -25,7 +25,7 @@ The PoC demonstrates **two use cases**, end to end and fully automatic, on **one
 3. **i18n epic → sub-issues → PR stack → stack review → stack merge → PT-BR live on GitHub Pages**, with no human action after opening the issue.
 4. **A human PR on `docs` gets a factory review** within minutes, and nothing else happens to it.
 5. Author and reviewer run on **different harnesses** (Codex writes, Claude Code reviews), resolved from [patterns](03-domain-model.md#patterns-in-harness-config), and each Result reports the exact effective config.
-6. Restarting the dispatcher mid-cascade loses nothing rules need. The state is rebuilt from projections.
+6. Restarting the dispatcher mid-cascade loses nothing rules need. The state is kept in a durable store (the run kit's state dir), which is the authority: nothing is rebuilt from projections ([P3](proposals/P3-dispatcher-state-in-object-storage.md#no-rebuild-from-markers)).
 7. **No provider credential or LLM credential is ever stored by the dispatcher or sent across it**, apart from per-task, scoped git tokens.
 
 ## Versioned docs per repository

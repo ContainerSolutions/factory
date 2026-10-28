@@ -59,6 +59,9 @@ type serveDeps struct {
 	// is the work-item resync's default interval. Tests shorten them.
 	Leader         controllers.LeaderOptions
 	ResyncInterval time.Duration
+	// WrapAdapter, when set, wraps each registered adapter (tests: a Conn that checks
+	// installations).
+	WrapAdapter func(provider.Adapter) provider.Adapter
 }
 
 // adapters are the provider adapters `factory serve` registers: the GitHub adapter, unless
@@ -76,6 +79,11 @@ func adapters(cfg serveConfig, d serveDeps, groups provider.GroupLookup, log *sl
 			HTTPClient: d.HTTPClient, Clock: d.Clock, Logger: log.With("component", "github"), Groups: groups,
 			UIBaseURL: cfg.PublicURL, DeployEnvironment: cfg.DeployEnvironment,
 		}), log: log})
+	}
+	if d.WrapAdapter != nil {
+		for i, a := range out {
+			out[i] = d.WrapAdapter(a)
+		}
 	}
 	return out
 }
@@ -195,9 +203,9 @@ func (g *runGroup) Go(ctx context.Context, name string, f func(context.Context) 
 // deliveries since 10 s before this process started) → listeners (webhooks are stored as
 // Deliveries from now on) → the provider (normalise), rule, debounce, work-item, run
 // controllers, the scheduler, the sweeper and the installation check → ready. Every instance
-// serves the API and runs the scheduler's tick; the controllers' reconciles, the lease
-// controller, Refresh, the sweeper and the installation check run on the leader only (P3
-// §Several dispatchers). There is no rebuild from markers: the store is the authority.
+// serves the API, runs the scheduler's tick and checks the App installations (reads only);
+// the controllers' reconciles, the lease controller, Refresh and the sweeper run on the
+// leader only (P3 §Several dispatchers). There is no rebuild from markers: the store is the authority.
 func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logger) error {
 	if d.Getenv == nil {
 		d.Getenv = func(string) string { return "" }
@@ -295,10 +303,9 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	}
 	group.Go(runCtx, "provider-health", func(ctx context.Context) error { return followHealth(ctx, cs, pc, log) })
 	installs := controllers.NewInstallationCheck(pc, controllers.InstallationCheckOptions{SkillsBase: cfg.SkillsBase, Logger: log})
-	group.Go(runCtx, "installations", func(ctx context.Context) error {
-		leader.While(ctx, "installations", func(ctx context.Context) error { return installs.Follow(ctx, cs) })
-		return nil
-	})
+	// Every instance checks the App installations itself: the check only reads GitHub, and
+	// each instance's getCatalog shows its own result.
+	group.Go(runCtx, "installations", func(ctx context.Context) error { return installs.Follow(ctx, cs) })
 	// Every instance recovers what GitHub sent while it started: a create of each Delivery,
 	// deduplicated by id, so it is the same intake as a webhook on any instance.
 	if err := pc.Recover(ctx, startedAt.Add(-recoverSlack)); err != nil {
