@@ -629,6 +629,25 @@ type Bucket interface {
 overwritten, transcript blobs included (each put has its own name). GCS's limit of
 one write per second per object name doesn't apply either, since each name is written once.
 
+Decided while building PR 2 (Gustavo, 2026-10-27):
+- **Errors never print the state URL or `FACTORY_S3_ENDPOINT`.** They name the scheme and which
+  part is wrong. Masking userinfo isn't enough: a secret containing `/`, `?`, `#` or `"` parses
+  outside the userinfo, and AWS secret keys can contain `/`. An `@` anywhere in the URL is refused.
+- **`FACTORY_S3_ENDPOINT` must be `https://`.** Only a loopback host (`localhost`, `127.0.0.1`,
+  `::1`) may use `http://`, as the emulator tests do.
+- **A missing GCS bucket is never `ErrNotExist`.** The SDK reports every 404 on an object as "not
+  found". So a not-found `Get` or `Delete` is confirmed with a one-object list of the prefix,
+  whose 404 the SDK reports as a missing bucket whatever the wording. The list is skipped when a
+  request in the last minute proved the bucket exists, so it costs at most about one list a
+  minute while idle (about $0.22 a month with the CPU always on). Every idle sync ends on a
+  not-found `Get`, so confirming each one would cost up to about $6.50 a month. Opening a
+  bucket lists one object, so a bucket missing at start fails at once.
+- **The S3 emulator is `pgsty/minio`, pinned by digest.** It is a community build of MinIO; the
+  official images can no longer be pulled. Garage was tested and ignores `If-None-Match: *` on
+  PutObject, so it can't test the one precondition.
+- **S3's 409 (`ConditionalRequestConflict`) is an unknown outcome,** not `ErrExists`. It is
+  re-sent a few times, then read back.
+
 The two SDKs are new dependencies (the repo-layout LLD's allow-list): they get a justification in
 their PR. Signing S3 requests (SigV4) and finding credentials on each platform are not worth
 writing ourselves. Credentials always come from the platform's identity, never from a key in the
