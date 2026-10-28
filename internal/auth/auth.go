@@ -49,8 +49,8 @@ const (
 	StateCookie = "factory_oauth_state"
 )
 
-// DefaultScopes are the OAuth scopes of the UI login and of the agent owners' device flow:
-// GET /user is all either needs (Group membership is resolved with the App's credentials).
+// DefaultScopes are the OAuth scopes of the UI login: GET /user is all it needs (Group
+// membership is resolved with the App's credentials).
 var DefaultScopes = []string{"read:user"}
 
 // Errors. The API server maps them to statuses with errors.Is.
@@ -73,7 +73,7 @@ var (
 )
 
 // OAuthConfig is the GitHub OAuth App (or the author App's user-to-server client) the UI login
-// and the agent owners' device flow use.
+// uses.
 type OAuthConfig struct {
 	ClientID     string
 	ClientSecret string
@@ -86,8 +86,6 @@ type OAuthConfig struct {
 	RedirectURL string
 	// Scopes default to DefaultScopes.
 	Scopes []string
-	// DeviceScopes are the agent owners' device-flow scopes (getDeviceConfig). Default Scopes.
-	DeviceScopes []string
 }
 
 // Config configures an Authenticator. Zero fields take the defaults.
@@ -150,9 +148,6 @@ func (c Config) withDefaults() Config {
 	c.OAuth.APIBase = strings.TrimRight(c.OAuth.APIBase, "/")
 	if len(c.OAuth.Scopes) == 0 {
 		c.OAuth.Scopes = DefaultScopes
-	}
-	if len(c.OAuth.DeviceScopes) == 0 {
-		c.OAuth.DeviceScopes = c.OAuth.Scopes
 	}
 	if c.HTTPClient == nil {
 		c.HTTPClient = http.DefaultClient
@@ -229,11 +224,6 @@ func New(cfg Config, d Deps) (*Authenticator, error) {
 		a.key = k
 	}
 	return a, nil
-}
-
-// DeviceConfig is getDeviceConfig: the OAuth client id and scopes of the owners' device flow.
-func (a *Authenticator) DeviceConfig() (clientID string, scopes []string) {
-	return a.cfg.OAuth.ClientID, append([]string(nil), a.cfg.OAuth.DeviceScopes...)
 }
 
 // Provider is the catalog Provider the GitHub logins belong to.

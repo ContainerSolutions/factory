@@ -57,13 +57,6 @@ export const operations: readonly MockOperation[] = [
     contentType: '',
   },
   {
-    id: 'getDeviceConfig',
-    method: 'get',
-    path: '/api/v1/auth/device-config',
-    status: 200,
-    contentType: 'application/json',
-  },
-  {
     id: 'login',
     method: 'get',
     path: '/api/v1/auth/login',
