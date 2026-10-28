@@ -383,8 +383,13 @@ Event and both post the same notice. So:
     once. So does the scheduler's preference state (§Locks and leases).
 - **The leader only** runs every loop that writes from a watch or a timer: the controllers
   (provider, rule, debounce, work-item, run), the scheduler's lease controller and its
-  `Refresh`, the sweeper (lock records included), compaction, the transcript orphan scan, and
-  the App installation check.
+  `Refresh`, the sweeper (lock records included), compaction and the transcript orphan scan.
+- **The App installation check runs on every instance** (Gustavo, 2026-10-28). It only reads
+  GitHub and keeps its result in process, so each instance shows the catalog API's installation
+  warnings, wherever the UI lands.
+- **A delivery is deleted only at the version read.** A leader that paused past its lease could
+  otherwise delete a Delivery that a redelivery re-created with the same id, before it was
+  normalised (Gustavo, 2026-10-28).
 - **The provider's delivery recovery** (`pc.Recover`) runs as today on every instance, at its
   start and before its listeners open, with `since` 10 s (GitHub's timeout) before its process
   start. It covers what GitHub sent while the instance was loading, including a delivery that
