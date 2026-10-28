@@ -1,0 +1,2 @@
+lisa-selfreview:
+- pass 2: [nit] github-provider.md: stale restart-gap rationale (in-memory store, 24 h); "one call fewer" understated; the P3 section didn't name provider.WriteProblem. Fixed.
