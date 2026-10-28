@@ -176,6 +176,16 @@ func (r *RunController) Reconcile(ctx context.Context, id string) (Result, error
 		if err != nil || run == nil {
 			return Result{}, err
 		}
+		// The task was read before the run: a lease issued since (the task back in Leased,
+		// then its new run) would have this reconcile close the new run as lost. A run is
+		// created only after its task's lease is stored, so the task read again now shows
+		// that lease, and its own reconcile (queued by that write) keeps the run.
+		if cur, err := r.getTask(ctx, t.Metadata.ID); err != nil || holdsRun(cur) {
+			if errors.Is(err, ErrUnknownTask) {
+				return Result{}, nil
+			}
+			return Result{}, err
+		}
 		switch t.Status.Phase {
 		case v1alpha1.TaskFailed:
 			return Result{}, r.finish(ctx, t, run, finish{phase: t.Status.Phase, reason: t.Status.Reason, end: v1alpha1.RunFailed, force: true})
@@ -567,9 +577,15 @@ type finish struct {
 	force bool
 }
 
+// maxFinishCAS bounds the re-reads of a run or task that a concurrent write (a heartbeat's
+// progress or lease renewal: they don't take the work item's lock) changed under a finish.
+const maxFinishCAS = 10
+
 // finish ends a task and its run under the work item's lock, in an order that makes a retry
 // safe: the run (result, end), the work item's counters (only when this call ended the run),
-// the task's phase, then the factory.run.* event (deduplicated by the run's name).
+// the task's phase, then the factory.run.* event (deduplicated by the run's name). The run and
+// the task were read before the lock: finishLocked writes each on a fresh read, so a write
+// that came in between (a heartbeat's progress) doesn't fail it.
 func (r *RunController) finish(ctx context.Context, t *v1alpha1.Task, run *v1alpha1.Run, f finish) error {
 	return withItemLock(ctx, r.s, t.Metadata.WorkItem, r.opts.LockTTL, func(ctx context.Context) error {
 		return r.finishLocked(ctx, t, run, f)
@@ -580,40 +596,24 @@ func (r *RunController) finish(ctx context.Context, t *v1alpha1.Task, run *v1alp
 func (r *RunController) finishLocked(ctx context.Context, t *v1alpha1.Task, run *v1alpha1.Run, f finish) error {
 	now := r.opts.Clock.Now()
 
-	if run != nil && !ended(run) {
-		setEnd(run, f.end, now)
-		if f.result != nil {
-			res := *f.result
-			run.Status.Result = &res
-			if res.Harness != nil {
-				u := res.Harness.Usage
-				run.Status.Usage = &u
-			}
+	if run != nil {
+		ended, byThis, err := r.endRun(ctx, run, f, now)
+		if err != nil {
+			return err
 		}
-		if f.invalid != "" {
-			run.Status.Progress = appendProgress(run.Status.Progress, v1alpha1.ProgressEvent{
-				At: now, Kind: ReasonInvalidResult, Message: f.invalid, Data: resultMap(f.rejected),
-			})
-		}
-		if f.reason != "" && f.result == nil && f.invalid == "" {
-			run.Status.Progress = appendProgress(run.Status.Progress, v1alpha1.ProgressEvent{At: now, Kind: string(f.end), Message: f.reason})
-		}
-		if err := r.s.Update(ctx, run); err != nil {
-			return fmt.Errorf("end run %s: %w", run.Metadata.Name, err)
-		}
-		if counted(run) {
+		run = ended
+		if byThis && counted(run) {
 			if err := r.count(ctx, t.Metadata.WorkItem, t.Spec.TaskSpec.Name); err != nil {
 				return err
 			}
 		}
 	}
 	if !f.force {
-		t.Status.Phase = f.phase
-		t.Status.Reason = f.reason
-		t.Status.LeaseExpiresAt = time.Time{}
-		if err := r.s.Update(ctx, t); err != nil {
-			return fmt.Errorf("finish task %s: %w", t.Metadata.ID, err)
+		done, err := r.endTask(ctx, t, f)
+		if err != nil {
+			return err
 		}
+		t = done
 	}
 	r.log.InfoContext(ctx, "task finished", "task", t.Metadata.ID, "phase", f.phase, "reason", f.reason)
 	if run == nil {
@@ -635,6 +635,70 @@ func (r *RunController) finishLocked(ctx context.Context, t *v1alpha1.Task, run 
 		Type: typ, WorkItem: t.Metadata.WorkItem, Key: "run/" + run.Metadata.Name, Facts: runFacts(sum, reason),
 	})
 	return err
+}
+
+// endRun ends run as f says, unless it has ended already, with a compare-and-swap on a fresh
+// read: a write between the caller's read and this one (a heartbeat's progress) is kept, not
+// a conflict. It returns the run as stored, and whether this call ended it.
+func (r *RunController) endRun(ctx context.Context, run *v1alpha1.Run, f finish, now time.Time) (*v1alpha1.Run, bool, error) {
+	for attempt := 0; ; attempt++ {
+		var cur v1alpha1.Run
+		if err := r.s.Get(ctx, store.KeyOf(run), &cur); err != nil {
+			return nil, false, fmt.Errorf("end run %s: %w", run.Metadata.Name, err)
+		}
+		if ended(&cur) {
+			return &cur, false, nil // another finish (or a close) ended it
+		}
+		setEnd(&cur, f.end, now)
+		if f.result != nil {
+			res := *f.result
+			cur.Status.Result = &res
+			if res.Harness != nil {
+				u := res.Harness.Usage
+				cur.Status.Usage = &u
+			}
+		}
+		if f.invalid != "" {
+			cur.Status.Progress = appendProgress(cur.Status.Progress, v1alpha1.ProgressEvent{
+				At: now, Kind: ReasonInvalidResult, Message: f.invalid, Data: resultMap(f.rejected),
+			})
+		}
+		if f.reason != "" && f.result == nil && f.invalid == "" {
+			cur.Status.Progress = appendProgress(cur.Status.Progress, v1alpha1.ProgressEvent{At: now, Kind: string(f.end), Message: f.reason})
+		}
+		err := r.s.Update(ctx, &cur)
+		if err == nil {
+			return &cur, true, nil
+		}
+		if !errors.Is(err, store.ErrConflict) || attempt >= maxFinishCAS {
+			return nil, false, fmt.Errorf("end run %s: %w", run.Metadata.Name, err)
+		}
+	}
+}
+
+// endTask moves t to f's phase with a compare-and-swap on a fresh read. A write between the
+// caller's read and this one that left the task where the finish was decided (a lease
+// renewal, Leased to Running) is kept; one that moved it elsewhere is a conflict, as before.
+func (r *RunController) endTask(ctx context.Context, t *v1alpha1.Task, f finish) (*v1alpha1.Task, error) {
+	for attempt := 0; ; attempt++ {
+		cur, err := r.getTask(ctx, t.Metadata.ID)
+		if err != nil {
+			return nil, fmt.Errorf("finish task %s: %w", t.Metadata.ID, err)
+		}
+		if cur.Status.Phase != t.Status.Phase && (!holdsRun(cur) || !holdsRun(t)) {
+			return nil, fmt.Errorf("finish task %s: it moved from %s to %s meanwhile: %w", t.Metadata.ID, t.Status.Phase, cur.Status.Phase, store.ErrConflict)
+		}
+		cur.Status.Phase = f.phase
+		cur.Status.Reason = f.reason
+		cur.Status.LeaseExpiresAt = time.Time{}
+		err = r.s.Update(ctx, cur)
+		if err == nil {
+			return cur, nil
+		}
+		if !errors.Is(err, store.ErrConflict) || attempt >= maxFinishCAS {
+			return nil, fmt.Errorf("finish task %s: %w", t.Metadata.ID, err)
+		}
+	}
 }
 
 // count adds one run of spec to the work item's counters (compare-and-swap, retried on a
