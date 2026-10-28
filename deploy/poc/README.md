@@ -292,5 +292,23 @@ Nothing releases on its own: no bot tags, bumps versions or drafts releases. A p
 | Workflow | What it adds to the release |
 |---|---|
 | `release-binaries.yml` | the assets `make release-assets VERSION=<tag>` builds into `dist/`: `factory-<os>-<arch>` (the dispatcher and CLI, UI embedded) for linux/amd64, linux/arm64 and darwin/arm64; `factory-agent-<os>-<arch>` for darwin/arm64, linux/amd64 and linux/arm64 (linux/arm64 is also the Mac's VM binary, `host init --agent-linux`); `SHA256SUMS` over them. |
+| `release-image.yml` | pushes the dispatcher image, the root `Dockerfile` (`factory` with the UI, on Alpine with `git` and the CA roots, as uid 65532), to `ghcr.io/containersolutions/factory:<tag>` and `:latest`, for linux/amd64 and linux/arm64. `make image` builds it locally (`IMAGE`, default `factory:dev`) and never pushes. |
 
 A workflow that fails can be re-run from its Actions page: the upload replaces the release's assets (`--clobber`). `make release-assets VERSION=v0.0.0-test` builds the same `dist/` locally (it needs Node, like `make build-release`); `cd dist && shasum -a 256 -c SHA256SUMS` checks it.
+
+### Run the image
+
+The image's entrypoint is `factory` and its default command `serve`; give `serve`'s flags after the image name, as `run.sh` does (§6). It holds no secret: every `FACTORY_*` variable of §3 comes from the environment at run time. Pass them by name from a shell that loaded `.env` (a PEM spans lines, which `docker run --env-file` can't carry). The state dir (§6, State) belongs on a volume at `/var/lib/factory`, owned by uid 65532 (a named volume is; a host directory must be `chown 65532` and mode 0700):
+
+```bash
+set -a; . deploy/poc/.env; set +a
+docker run --rm -p 127.0.0.1:8800:8800 -v factory-state:/var/lib/factory \
+  -e FACTORY_PUBLIC_URL -e FACTORY_OAUTH_CLIENT_ID -e FACTORY_OAUTH_CLIENT_SECRET \
+  -e FACTORY_SESSION_KEY -e FACTORY_CLI_TOKEN \
+  -e FACTORY_SECRET_GITHUB_PUBLIC_WEBHOOK_SECRET -e FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY \
+  -e FACTORY_SECRET_CCF_FACTORY_REVIEWER_APP_PRIVATE_KEY -e FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN \
+  ghcr.io/containersolutions/factory:<tag> \
+  serve --state-dir /var/lib/factory/state --log-format json
+```
+
+`--addr` defaults to `:8800`, the port the image exposes. The catalog defaults to `catalog/` of this repository at `main` (`--catalog-repo`, `--catalog-ref`, `--catalog-path`); `--catalog-dir` needs the directory mounted. The ops listener (`--ops-addr`, `/healthz`, `/readyz`, `/metrics`) must stay on loopback, so it is reachable only from inside the container.
