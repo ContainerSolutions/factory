@@ -18,6 +18,7 @@ var crudTests = []test{
 	{name: "UpdateMissing", run: testUpdateMissing},
 	{name: "UnversionedKind", run: testUnversionedKind},
 	{name: "Delete", run: testDelete},
+	{name: "DeleteIfUnchanged", run: testDeleteIfUnchanged},
 	{name: "Invalid", run: testInvalid},
 	{name: "DeepCopy", run: testDeepCopy},
 	{name: "Context", run: testContext},
@@ -162,6 +163,36 @@ func testDelete(t *testing.T, h *harness) {
 	wantErr(t, h.s.Delete(h.ctx, store.KeyOf(r)), store.ErrNotFound)
 	// The name is free again.
 	h.mustCreate(t, newRun("r1", "t2"))
+}
+
+// testDeleteIfUnchanged: a store that is a store.UnchangedDeleter deletes only at the version
+// read, so an object recreated under the same name since survives.
+func testDeleteIfUnchanged(t *testing.T, h *harness) {
+	d, ok := h.s.(store.UnchangedDeleter)
+	if !ok {
+		t.Skip("not a store.UnchangedDeleter")
+	}
+	r := newRun("r1", "t1")
+	h.mustCreate(t, r)
+	read := r.Metadata.ResourceVersion
+	// Deleted and created again under the same name since it was read.
+	if err := h.s.Delete(h.ctx, store.KeyOf(r)); err != nil {
+		t.Fatal(err)
+	}
+	again := newRun("r1", "t2")
+	h.mustCreate(t, again)
+	wantErr(t, d.DeleteIfUnchanged(h.ctx, store.KeyOf(r), read), store.ErrConflict)
+	var got v1alpha1.Run
+	if err := h.s.Get(h.ctx, store.KeyOf(r), &got); err != nil || got.Spec.Task != "t2" {
+		t.Fatalf("the recreated object: %+v, %v; want it kept", got.Spec, err)
+	}
+	// At the version read, it goes.
+	if err := d.DeleteIfUnchanged(h.ctx, store.KeyOf(again), again.Metadata.ResourceVersion); err != nil {
+		t.Fatalf("DeleteIfUnchanged at the stored version: %v", err)
+	}
+	wantErr(t, h.s.Get(h.ctx, store.KeyOf(r), &got), store.ErrNotFound)
+	wantErr(t, d.DeleteIfUnchanged(h.ctx, store.KeyOf(r), again.Metadata.ResourceVersion), store.ErrNotFound)
+	wantErr(t, d.DeleteIfUnchanged(h.ctx, store.KeyOf(r), "not-a-version"), store.ErrInvalid)
 }
 
 func testInvalid(t *testing.T, h *harness) {

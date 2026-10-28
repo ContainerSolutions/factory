@@ -155,6 +155,25 @@ func SyncIfSupported(ctx context.Context, s Store) error {
 	return nil
 }
 
+// UnchangedDeleter is a store that deletes an object only at the resourceVersion its caller
+// read: ErrConflict when the object changed since (it was replaced, or another writer
+// updated it), ErrNotFound when it is gone. The memory store, the file store and the object
+// store implement it; the Store interface doesn't change. A caller whose delete must not
+// remove an object recreated under the same name (a redelivered Delivery, P3 §Several
+// dispatchers) uses DeleteIfUnchanged.
+type UnchangedDeleter interface {
+	DeleteIfUnchanged(ctx context.Context, k Key, resourceVersion string) error
+}
+
+// DeleteIfUnchanged deletes k at resourceVersion when s is an UnchangedDeleter, and
+// unconditionally otherwise.
+func DeleteIfUnchanged(ctx context.Context, s Store, k Key, resourceVersion string) error {
+	if d, ok := s.(UnchangedDeleter); ok {
+		return d.DeleteIfUnchanged(ctx, k, resourceVersion)
+	}
+	return s.Delete(ctx, k)
+}
+
 // Sweeper deletes what is past retention (see Retention). Deletions are sent to watchers.
 type Sweeper interface {
 	Sweep(ctx context.Context) (SweepResult, error)

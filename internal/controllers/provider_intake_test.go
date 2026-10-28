@@ -578,3 +578,61 @@ func TestIntakeKeepsFactoryEventBeforeItsLink(t *testing.T) {
 		t.Fatalf("event status %+v %v, want it processed for %s", st, err, wiID)
 	}
 }
+
+// redeliveryStore runs beforeDelete (another dispatcher acting) before the first conditional
+// delete, as a leader paused between its read and its delete would see it.
+type redeliveryStore struct {
+	*memory.Store
+	beforeDelete func(ctx context.Context)
+}
+
+func (s *redeliveryStore) DeleteIfUnchanged(ctx context.Context, k store.Key, rv string) error {
+	if f := s.beforeDelete; f != nil {
+		s.beforeDelete = nil
+		f(ctx)
+	}
+	return s.Store.DeleteIfUnchanged(ctx, k, rv)
+}
+
+// TestIntakeRedeliveryRacesTheDelete: a reconcile reads a delivery whose events are all
+// dropped; before it deletes it, another leader deletes it and the delivery is redelivered
+// under the same id. The stale delete is at the version read, so the redelivery survives, and
+// is normalised in its turn.
+func TestIntakeRedeliveryRacesTheDelete(t *testing.T) {
+	var rs *redeliveryStore
+	e := newIntakeEnv(t, loadPoC(t), func(m *memory.Store) store.Store {
+		rs = &redeliveryStore{Store: m}
+		return rs
+	})
+	w := webhook(v1alpha1.EventIssueOpened, provider.KindIssue, localDev+"#1", "alice") // out of scope: dropped
+	raws, err := e.gh.Emit(e.ctx, e.pc, w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := raws[0].ID
+	rs.beforeDelete = func(ctx context.Context) {
+		// The other leader deleted it, and GitHub redelivered it.
+		if err := e.mem.Delete(ctx, store.Key{Kind: KindDelivery, Name: id}); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.pc.Accept(ctx, raws[0]); err != nil {
+			t.Fatalf("redelivery: %v", err)
+		}
+	}
+	if _, err := e.pc.Reconcile(e.ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if d := e.delivery(t, id); d == nil || d.Status.Phase != DeliveryReceived {
+		t.Fatalf("the redelivery after the stale delete: %+v, want it kept, not yet normalised", d)
+	}
+	// Its own reconcile normalises it.
+	if _, err := e.pc.Reconcile(e.ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if d := e.delivery(t, id); d != nil {
+		t.Fatalf("the redelivery after its own reconcile: %+v, want it normalised (dropped, then deleted)", d)
+	}
+	if drops := e.pc.Drops(); len(drops) != 1 || drops[0].Count != 2 {
+		t.Fatalf("drops %+v, want the event dropped by both reconciles", drops)
+	}
+}

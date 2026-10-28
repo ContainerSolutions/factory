@@ -180,10 +180,11 @@ type faults struct {
 }
 
 var (
-	_ store.Store           = (*Store)(nil)
-	_ store.Sweeper         = (*Store)(nil)
-	_ store.TranscriptStore = (*Store)(nil)
-	_ io.Closer             = (*Store)(nil)
+	_ store.Store            = (*Store)(nil)
+	_ store.Sweeper          = (*Store)(nil)
+	_ store.TranscriptStore  = (*Store)(nil)
+	_ store.UnchangedDeleter = (*Store)(nil)
+	_ io.Closer              = (*Store)(nil)
 )
 
 // Open opens (creating it if missing) the state dir and loads it: the snapshot, then the
@@ -286,6 +287,15 @@ func (s *Store) Update(ctx context.Context, obj store.Object) error {
 // transcript goes with it.
 func (s *Store) Delete(ctx context.Context, k store.Key) error {
 	if err := s.mem.Delete(ctx, k); err != nil {
+		return err
+	}
+	s.maybeCompact()
+	return nil
+}
+
+// DeleteIfUnchanged implements store.UnchangedDeleter: through the journal, as Delete.
+func (s *Store) DeleteIfUnchanged(ctx context.Context, k store.Key, resourceVersion string) error {
+	if err := s.mem.DeleteIfUnchanged(ctx, k, resourceVersion); err != nil {
 		return err
 	}
 	s.maybeCompact()
