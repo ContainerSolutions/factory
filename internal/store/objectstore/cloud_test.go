@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"google.golang.org/api/googleapi"
@@ -329,42 +330,69 @@ func sentinel(err error) string {
 	return "other"
 }
 
-// TestGCSErrorMapping: a missing object's 404 on a read or a delete is ErrNotExist, a 412
-// on a create is ErrExists, and a missing bucket's 404 (GCS's real body) and other statuses
-// map to neither. A mapped error keeps the SDK's in its chain. 4xx are not retried, so each
-// case is one request against a canned server.
+// gcsServer answers a GCS list (GET …/o) with list, and every other request with object,
+// and counts the lists.
+func gcsServer(t *testing.T, object, list func() (int, string)) (*httptest.Server, *atomic.Int32) {
+	var lists atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		status, body := object()
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/o") {
+			lists.Add(1)
+			status, body = list()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &lists
+}
+
+// TestGCSErrorMapping: a 412 on a create is ErrExists. An object 404 on a get or a delete
+// is ErrNotExist only once a one-object list of the prefix succeeds; a missing bucket's 404
+// is not ErrNotExist, either by its message (no list) or, when GCS words it otherwise, by the
+// list's own 404. Other statuses map to neither. A mapped error keeps the SDK's in its chain.
+// 4xx are not retried, so each case is a fixed number of requests against a canned server.
 func TestGCSErrorMapping(t *testing.T) {
 	gcsError := func(code int, msg string) string {
 		return fmt.Sprintf(`{"error":{"code":%d,"message":%q,"errors":[{"message":%q,"domain":"global","reason":"notFound"}]}}`, code, msg, msg)
 	}
+	reply := func(code int, msg string) func() (int, string) {
+		return func() (int, string) { return code, gcsError(code, msg) }
+	}
+	listOK := func() (int, string) { return http.StatusOK, `{"kind":"storage#objects"}` }
 	const (
 		noObject = "No such object: b/p/log/1"
 		noBucket = "The specified bucket does not exist."
+		reworded = "Not found." // a message gcsBucketMissing doesn't know
 	)
 	get := func(b Bucket) error { _, err := b.Get(t.Context(), "log/1"); return err }
 	create := func(b Bucket) error { return b.Create(t.Context(), "log/1", []byte("x")) }
 	del := func(b Bucket) error { return b.Delete(t.Context(), "log/1") }
 	list := func(b Bucket) error { return b.List(t.Context(), "log/", "", func(ObjectInfo) error { return nil }) }
 	for _, tc := range []struct {
-		name   string
-		op     func(b Bucket) error
-		status int
-		msg    string
-		want   string
+		name         string
+		op           func(b Bucket) error
+		object, list func() (int, string)
+		want         string
+		lists        int32
 	}{
-		{"get 404", get, 404, noObject, "ErrNotExist"},
-		{"get 404 (no bucket)", get, 404, noBucket, "no bucket"},
-		{"get 403", get, 403, "canned", "other"},
-		{"create 412", create, 412, "conditionNotMet", "ErrExists"},
-		{"create 403", create, 403, "canned", "other"},
-		{"create 404 (no bucket)", create, 404, noBucket, "no bucket"},
-		{"delete 404", del, 404, noObject, "ErrNotExist"},
-		{"delete 404 (no bucket)", del, 404, noBucket, "no bucket"},
-		{"delete 403", del, 403, "canned", "other"},
-		{"list 404 (no bucket)", list, 404, noBucket, "no bucket"},
+		{"get 404, list 200", get, reply(404, noObject), listOK, "ErrNotExist", 1},
+		{"get 404 (no bucket)", get, reply(404, noBucket), listOK, "no bucket", 0},
+		{"get 404 reworded, list 404", get, reply(404, reworded), reply(404, reworded), "no bucket", 1},
+		{"get 404, list 403", get, reply(404, noObject), reply(403, "canned"), "other", 1},
+		{"get 403", get, reply(403, "canned"), listOK, "other", 0},
+		{"create 412", create, reply(412, "conditionNotMet"), listOK, "ErrExists", 0},
+		{"create 403", create, reply(403, "canned"), listOK, "other", 0},
+		{"create 404 (no bucket)", create, reply(404, noBucket), listOK, "no bucket", 0},
+		{"delete 404, list 200", del, reply(404, noObject), listOK, "ErrNotExist", 1},
+		{"delete 404 (no bucket)", del, reply(404, noBucket), listOK, "no bucket", 0},
+		{"delete 404 reworded, list 404", del, reply(404, reworded), reply(404, reworded), "no bucket", 1},
+		{"delete 403", del, reply(403, "canned"), listOK, "other", 0},
+		{"list 404 (no bucket)", list, listOK, reply(404, reworded), "no bucket", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			srv, _ := newCannedServer(t, func(string, int) (int, string) { return tc.status, gcsError(tc.status, tc.msg) })
+			srv, lists := gcsServer(t, tc.object, tc.list)
 			t.Setenv("STORAGE_EMULATOR_HOST", srv.URL)
 			b, err := newGCSBucket(t.Context(), cloudLocation{bucket: "b", prefix: "p/"}, nil)
 			must(t, err)
@@ -380,11 +408,13 @@ func TestGCSErrorMapping(t *testing.T) {
 			if got := sentinel(err); got != want {
 				t.Fatalf("%s = %s (%v), want %s", tc.name, got, err, want)
 			}
-			if want != "other" {
-				var gerr *googleapi.Error
-				if !errors.As(err, &gerr) || gerr.Code != tc.status {
+			if want == "ErrNotExist" || want == "ErrExists" {
+				if _, ok := errors.AsType[*googleapi.Error](err); !ok {
 					t.Fatalf("%s = %v: the SDK's error is not in the chain", tc.name, err)
 				}
+			}
+			if n := lists.Load(); n != tc.lists {
+				t.Fatalf("%s: %d lists, want %d", tc.name, n, tc.lists)
 			}
 		})
 	}

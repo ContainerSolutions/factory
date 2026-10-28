@@ -26,8 +26,9 @@ import (
 //     retries it on a 408, 429, 5xx or a broken connection (a conditional upload is
 //     idempotent), so a retry whose first attempt landed answers ErrExists, which the
 //     store's nonce check resolves.
-//   - Get and Delete answer ErrNotExist on a missing object's 404. A missing bucket is not
-//     ErrNotExist (gcsBucketMissing), and ParseURL lists the prefix once at open, so a bucket
+//   - Get and Delete answer ErrNotExist on a missing object's 404, confirmed by a one-object
+//     list of the prefix (notFound). A missing bucket is not ErrNotExist (gcsBucketMissing's
+//     message match, then the list), and ParseURL lists the prefix once at open, so a bucket
 //     that doesn't exist fails the start rather than reading as an empty, current log.
 //   - List lists from startOffset, in name order, skipping startAfter itself.
 //
@@ -75,14 +76,39 @@ func newGCSBucket(ctx context.Context, loc cloudLocation, hc *http.Client) (*GCS
 	return &GCSBucket{client: client, bucket: client.Bucket(loc.bucket), loc: loc}, nil
 }
 
-// probe lists at most one object under the prefix.
+// probe lists at most one object under the prefix, at open.
 func (b *GCSBucket) probe(ctx context.Context) error {
+	if err := b.listOne(ctx); err != nil {
+		return fmt.Errorf("objectstore: open: %w", err)
+	}
+	return nil
+}
+
+// listOne lists at most one object under the prefix. The SDK maps a list's 404 to
+// ErrBucketNotExist whatever GCS's message says, so a missing bucket is an error here
+// (gcsBucketMissing), never an empty listing.
+func (b *GCSBucket) listOne(ctx context.Context) error {
 	it := b.bucket.Objects(ctx, &storage.Query{Prefix: b.loc.prefix, Projection: storage.ProjectionNoACL})
 	it.PageInfo().MaxSize = 1
 	if _, err := it.Next(); err != nil && !errors.Is(err, iterator.Done) {
-		return fmt.Errorf("objectstore: open: %w", b.err(ctx, "list", "", err))
+		return b.err(ctx, "list", "", err)
 	}
 	return nil
+}
+
+// notFound maps a Get's or a Delete's error. An object 404 is confirmed with a one-object
+// list of the prefix before it is ErrNotExist: the SDK gives a missing bucket the same
+// ErrObjectNotExist, and gcsBucketMissing's message match is only the fast path, so a
+// bucket that vanishes mid-run fails loudly even if GCS rewords its message. The list costs
+// one request per not-found Get or Delete; when it fails, the outcome is that error, not
+// ErrNotExist.
+func (b *GCSBucket) notFound(ctx context.Context, op, name string, err error) error {
+	if errors.Is(gcsSentinel(err), ErrNotExist) {
+		if lerr := b.listOne(ctx); lerr != nil {
+			return fmt.Errorf("gs://%s/%s%s: %s: not found, and the bucket check failed: %w", b.loc.bucket, b.loc.prefix, name, op, lerr)
+		}
+	}
+	return b.err(ctx, op, name, err)
 }
 
 // Close releases the client's connections.
@@ -95,7 +121,7 @@ func (b *GCSBucket) String() string { return "gs://" + b.loc.bucket + "/" + b.lo
 func (b *GCSBucket) Get(ctx context.Context, name string) ([]byte, error) {
 	r, err := b.bucket.Object(b.loc.prefix + name).NewReader(ctx)
 	if err != nil {
-		return nil, b.err(ctx, "get", name, err)
+		return nil, b.notFound(ctx, "get", name, err)
 	}
 	defer func() { _ = r.Close() }()
 	data, err := io.ReadAll(r)
@@ -166,7 +192,7 @@ func (b *GCSBucket) List(ctx context.Context, prefix, startAfter string, fn func
 // Delete implements Bucket.
 func (b *GCSBucket) Delete(ctx context.Context, name string) error {
 	if err := b.bucket.Object(b.loc.prefix + name).Delete(ctx); err != nil {
-		return b.err(ctx, "delete", name, err)
+		return b.notFound(ctx, "delete", name, err)
 	}
 	return nil
 }
