@@ -36,6 +36,10 @@ const githubHTTPTimeout = 30 * time.Second
 // healthCheckTimeout bounds a Provider's health check (GitHub: GET /app per identity).
 const healthCheckTimeout = 15 * time.Second
 
+// recoverSlack is how far before its own start an instance recovers deliveries: GitHub's
+// webhook timeout, so a delivery that timed out while the instance started is covered.
+const recoverSlack = 10 * time.Second
+
 // serveDeps are runServe's injectable dependencies; the zero value is production.
 type serveDeps struct {
 	// Getenv reads the catalog secretRefs (FACTORY_SECRET_<NAME>_<KEY>). Default: none set.
@@ -49,8 +53,12 @@ type serveDeps struct {
 	HTTPClient *http.Client
 	// Listening, when set, gets the bound public and ops addresses once both listen.
 	Listening func(public, ops net.Addr)
-	// Ready, when set, is called once startup is done (rebuild finished, controllers up).
+	// Ready, when set, is called once startup is done (listeners and controllers up).
 	Ready func()
+	// Leader configures the leader lock (the zero value takes its defaults); ResyncInterval
+	// is the work-item resync's default interval. Tests shorten them.
+	Leader         controllers.LeaderOptions
+	ResyncInterval time.Duration
 }
 
 // adapters are the provider adapters `factory serve` registers: the GitHub adapter, unless
@@ -182,10 +190,14 @@ func (g *runGroup) Go(ctx context.Context, name string, f func(context.Context) 
 }
 
 // runServe runs the dispatcher until ctx is done, then shuts it down gracefully. Startup order
-// (controllers.md §Ordering and startup): store → catalog-sync (wait for the first good catalog)
-// → providers (connect, recover) → listeners (webhooks are stored as Deliveries from now on) →
-// work-item rebuild → provider (normalise), rule, debounce, work-item, run controllers and the
-// scheduler → ready.
+// (controllers.md §Ordering and startup): store → the leader lock (tried at once, then every
+// minute) → catalog-sync (wait for the first good catalog) → providers (connect, recover the
+// deliveries since 10 s before this process started) → listeners (webhooks are stored as
+// Deliveries from now on) → the provider (normalise), rule, debounce, work-item, run
+// controllers, the scheduler, the sweeper and the installation check → ready. Every instance
+// serves the API and runs the scheduler's tick; the controllers' reconciles, the lease
+// controller, Refresh, the sweeper and the installation check run on the leader only (P3
+// §Several dispatchers). There is no rebuild from markers: the store is the authority.
 func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logger) error {
 	if d.Getenv == nil {
 		d.Getenv = func(string) string { return "" }
@@ -203,11 +215,12 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	log.Info("factory serve starting",
 		"addr", cfg.Addr, "opsAddr", cfg.OpsAddr, "publicURL", cfg.PublicURL,
 		"catalog", catalogSource(cfg).String(), "retention", cfg.Retention.String(),
-		"stateDir", cfg.StateDir, "devFakeProviders", cfg.DevFakeProviders)
+		"stateDir", cfg.StateDir, "stateURL", stateURLScheme(cfg.StateURL), "stateMemory", cfg.StateMemory,
+		"devFakeProviders", cfg.DevFakeProviders)
 
 	// The store, first: it is closed last, once everything that writes to it has stopped
 	// (shutdown closes it within the shutdown timeout; this covers a failed start).
-	st, err := openStore(cfg, store.Options{Clock: clk, Retention: cfg.Retention, Logger: log}, log)
+	st, err := openStore(ctx, cfg, store.Options{Clock: clk, Retention: cfg.Retention, Logger: log}, log)
 	if err != nil {
 		return err
 	}
@@ -227,6 +240,12 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		}
 	}()
 
+	// The leader lock: given up once the loops have stopped, before the store closes.
+	lopts := d.Leader
+	lopts.Clock, lopts.Logger = clk, log
+	leader := controllers.NewLeader(st, lopts)
+	defer leader.Release()
+
 	// Components run under runCtx, which is cancelled only once the listeners have drained,
 	// so in-flight completes still reach the run controller.
 	runCtx, cancelRun := context.WithCancel(context.WithoutCancel(ctx))
@@ -234,12 +253,7 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	group := newRunGroup()
 	defer group.wg.Wait()
 	defer cancelRun()
-
-	// Retention.
-	group.Go(runCtx, "sweeper", func(ctx context.Context) error {
-		store.RunSweeper(ctx, st, 0, log.With("component", "sweeper"))
-		return nil
-	})
+	group.Go(runCtx, "leader", leader.Run)
 
 	// Catalog.
 	cs := controllers.NewCatalogSync(catalogSource(cfg), controllers.CatalogSyncOptions{
@@ -281,8 +295,13 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	}
 	group.Go(runCtx, "provider-health", func(ctx context.Context) error { return followHealth(ctx, cs, pc, log) })
 	installs := controllers.NewInstallationCheck(pc, controllers.InstallationCheckOptions{SkillsBase: cfg.SkillsBase, Logger: log})
-	group.Go(runCtx, "installations", func(ctx context.Context) error { return installs.Follow(ctx, cs) })
-	if err := pc.Recover(ctx, startedAt); err != nil {
+	group.Go(runCtx, "installations", func(ctx context.Context) error {
+		leader.While(ctx, "installations", func(ctx context.Context) error { return installs.Follow(ctx, cs) })
+		return nil
+	})
+	// Every instance recovers what GitHub sent while it started: a create of each Delivery,
+	// deduplicated by id, so it is the same intake as a webhook on any instance.
+	if err := pc.Recover(ctx, startedAt.Add(-recoverSlack)); err != nil {
 		log.Warn("recovering deliveries failed; continuing", "err", err)
 	}
 
@@ -312,7 +331,7 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		return err
 	}
 	wic, err := controllers.NewWorkItemController(st, cs, pc, factory, controllers.WorkItemOptions{
-		Clock: clk, Logger: log, Cache: cache, Retention: cfg.Retention,
+		Clock: clk, Logger: log, Cache: cache, Retention: cfg.Retention, ResyncInterval: d.ResyncInterval,
 	})
 	if err != nil {
 		return err
@@ -323,9 +342,15 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	}
 	sched, err := scheduler.New(scheduler.Deps{
 		Store: st, Catalog: cs, Conns: pc, Runs: runs,
-	}, scheduler.Options{Clock: clk, Logger: log, AntiAffinityWait: cfg.AntiAffinityWait})
+	}, scheduler.Options{Clock: clk, Logger: log, AntiAffinityWait: cfg.AntiAffinityWait, Leader: leader})
 	if err != nil {
 		return err
+	}
+	// The controllers that write from a watch or a timer reconcile on the leader only.
+	for _, c := range []*controllers.Controller{pc.Controller(), rule.Controller(), dbn.Controller(), wic.Controller(), runs.Controller()} {
+		if err := c.SetGate(leader); err != nil {
+			return err
+		}
 	}
 	authn, err := auth.New(auth.Config{
 		CLIToken: cfg.CLIToken,
@@ -336,16 +361,16 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 			APIBase:      apiBase,
 			RedirectURL:  cfg.PublicURL + server.BasePath + "/auth/callback",
 		},
-		Provider:   authProvider,
-		SessionKey: []byte(cfg.SessionKey),
-		HTTPClient: d.HTTPClient,
-		Clock:      clk,
-		Logger:     log,
+		Provider:           authProvider,
+		SessionKey:         []byte(cfg.SessionKey),
+		PreviousSessionKey: []byte(cfg.SessionKeyPrevious),
+		HTTPClient:         d.HTTPClient,
+		Clock:              clk,
+		Logger:             log,
 	}, auth.Deps{Store: st, Catalog: cs, Conns: pc, Agents: sched})
 	if err != nil {
 		return err
 	}
-	ready := make(chan struct{})
 	repo, ref := "", ""
 	if cfg.CatalogDir == "" {
 		repo, ref = gitsource.RedactURL(cfg.CatalogRepo), cfg.CatalogRef
@@ -355,7 +380,7 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		Conns: pc, Sink: pc, Scheduler: sched, Factory: factory,
 		KillSwitches: controllers.StoreKillSwitches{Store: st}, Evaluator: rule, Replayer: rule, Auth: authn, Skills: skills,
 	}, server.Options{
-		PublicURL: cfg.PublicURL, CatalogRepo: repo, CatalogRef: ref, Ready: ready,
+		PublicURL: cfg.PublicURL, CatalogRepo: repo, CatalogRef: ref,
 		Controllers: []*controllers.Controller{
 			cs.Controller(), pc.Controller(), rule.Controller(), dbn.Controller(),
 			wic.Controller(), runs.Controller(), sched.Controller(),
@@ -381,18 +406,27 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		return fmt.Errorf("listen on --ops-addr: %w", err)
 	}
 	errLog := slog.NewLogLogger(log.With("component", "http").Handler(), slog.LevelWarn)
-	public := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, ErrorLog: errLog}
-	ops := &http.Server{Handler: srv.OpsHandler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, ErrorLog: errLog}
+	pubConns, opsConns := newConnTracker(), newConnTracker()
+	public := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, ErrorLog: errLog, ConnState: pubConns.track}
+	ops := &http.Server{Handler: srv.OpsHandler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, ErrorLog: errLog, ConnState: opsConns.track}
 	serveErr := make(chan error, 2)
 	var serving sync.WaitGroup
 	for _, l := range []struct {
-		s *http.Server
-		l net.Listener
-	}{{public, pubL}, {ops, opsL}} {
+		s     *http.Server
+		l     net.Listener
+		conns *connTracker
+	}{{public, pubL, pubConns}, {ops, opsL, opsConns}} {
 		serving.Add(1)
 		go func() {
 			defer serving.Done()
-			if err := l.s.Serve(l.l); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			err := l.s.Serve(l.l)
+			if errors.Is(err, http.ErrServerClosed) {
+				// The listener stopped (Shutdown): a connection that never sent a request
+				// won't, and Shutdown would wait for it.
+				l.conns.closeFresh()
+				return
+			}
+			if err != nil {
 				serveErr <- err
 			}
 		}()
@@ -429,7 +463,9 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		serving.Wait()
 		cancelRun()
 		group.wg.Wait()
-		// Nothing writes to the store any more: close it (the file store's final compaction).
+		leader.Release()
+		// Nothing writes to the store any more: close it (the final compaction, then the
+		// bucket).
 		if err := closeOnce(sctx); err != nil {
 			errs = append(errs, err)
 		}
@@ -441,20 +477,22 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		return nil
 	}
 
-	// Rebuild, then the controllers. The provider controller normalises deliveries only from
-	// here: its intake filter keeps an event about a linked object, so it must see the links
-	// the rebuild restores. Deliveries accepted (or recovered) before wait as Deliveries.
-	if _, err := wic.Rebuild(ctx); err != nil {
-		_ = shutdown("rebuild failed")
-		return fmt.Errorf("work-item rebuild: %w", err)
-	}
+	// The controllers (their reconciles wait for the leader lock) and the leader's sweep: the
+	// store's retention, then the records it can't age out on its own.
+	sweeps := leaderSweeps{st: st, authn: authn, wic: wic, log: log.With("component", "sweeper")}
+	group.Go(runCtx, "sweeper", func(ctx context.Context) error {
+		leader.While(ctx, "sweeper", func(ctx context.Context) error {
+			store.RunSweeper(ctx, sweeps, 0, sweeps.log)
+			return nil
+		})
+		return nil
+	})
 	group.Go(runCtx, "provider", pc.Run)
 	group.Go(runCtx, "rule", rule.Run)
 	group.Go(runCtx, "debounce", dbn.Run)
 	group.Go(runCtx, "work-item", wic.Run)
 	group.Go(runCtx, "run", runs.Run)
 	group.Go(runCtx, "scheduler", sched.Run)
-	close(ready)
 	log.Info("ready")
 	if d.Ready != nil {
 		d.Ready()
@@ -470,6 +508,69 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		_ = shutdown("component failed")
 		return err
 	}
+}
+
+// leaderSweeps is the leader's sweep: the store's own (retention, and the object store's
+// compaction, lock records and transcript orphans), then the records nothing else ages out:
+// used login states past their expiry and resync baselines whose work item is gone.
+type leaderSweeps struct {
+	st    store.Sweeper
+	authn *auth.Authenticator
+	wic   *controllers.WorkItemController
+	log   *slog.Logger
+}
+
+// Sweep implements store.Sweeper.
+func (l leaderSweeps) Sweep(ctx context.Context) (store.SweepResult, error) {
+	res, err := l.st.Sweep(ctx)
+	if n, uerr := l.authn.SweepUsedStates(ctx); uerr != nil {
+		err = errors.Join(err, uerr)
+	} else if n > 0 {
+		l.log.DebugContext(ctx, "swept used login states", "deleted", n)
+	}
+	if n, oerr := l.wic.SweepObservations(ctx); oerr != nil {
+		err = errors.Join(err, oerr)
+	} else if n > 0 {
+		l.log.InfoContext(ctx, "swept resync baselines of deleted work items", "deleted", n)
+	}
+	return res, err
+}
+
+// connTracker follows a server's connections that haven't sent a request yet (StateNew), so
+// shutdown can close them once the listener stops: http.Server.Shutdown counts such a
+// connection as busy for 5 s, which can outlast --shutdown-timeout.
+type connTracker struct {
+	mu      sync.Mutex
+	fresh   map[net.Conn]struct{}
+	stopped bool
+}
+
+func newConnTracker() *connTracker { return &connTracker{fresh: map[net.Conn]struct{}{}} }
+
+// track is http.Server.ConnState.
+func (t *connTracker) track(c net.Conn, st http.ConnState) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if st != http.StateNew {
+		delete(t.fresh, c)
+		return
+	}
+	if t.stopped {
+		_ = c.Close()
+		return
+	}
+	t.fresh[c] = struct{}{}
+}
+
+// closeFresh closes the connections that haven't sent a request, and any accepted later.
+func (t *connTracker) closeFresh() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.stopped = true
+	for c := range t.fresh {
+		_ = c.Close()
+	}
+	clear(t.fresh)
 }
 
 // catalogSource is the catalog-sync source cfg names.

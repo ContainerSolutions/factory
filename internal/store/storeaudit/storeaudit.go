@@ -30,18 +30,20 @@ import (
 // table as serve's (cmd/factory internalKinds, which a test keeps equal to this one).
 func InternalKinds() map[string]store.Object {
 	return map[string]store.Object{
-		auth.KindSession:               &auth.Session{},
-		scheduler.KindLease:            &scheduler.Lease{},
-		scheduler.KindAgentToken:       &scheduler.AgentToken{},
-		scheduler.KindEnrollment:       &scheduler.Enrollment{},
-		scheduler.KindAgentRefresh:     &scheduler.AgentRefresh{},
-		controllers.KindDelivery:       &controllers.Delivery{},
-		controllers.KindEventStatus:    &controllers.EventStatus{},
-		controllers.KindDebounce:       &controllers.DebounceRecord{},
-		controllers.KindTaskPrompt:     &controllers.TaskPrompt{},
-		controllers.KindKillSwitch:     &controllers.KillSwitch{},
-		objectstore.KindStoreLock:      &objectstore.StoreLock{},
-		objectstore.KindTranscriptBlob: &objectstore.TranscriptBlob{},
+		auth.KindSession:                 &auth.Session{},
+		auth.KindUsedLoginState:          &auth.UsedLoginState{},
+		scheduler.KindLease:              &scheduler.Lease{},
+		scheduler.KindAgentToken:         &scheduler.AgentToken{},
+		scheduler.KindEnrollment:         &scheduler.Enrollment{},
+		scheduler.KindAgentRefresh:       &scheduler.AgentRefresh{},
+		controllers.KindDelivery:         &controllers.Delivery{},
+		controllers.KindEventStatus:      &controllers.EventStatus{},
+		controllers.KindDebounce:         &controllers.DebounceRecord{},
+		controllers.KindTaskPrompt:       &controllers.TaskPrompt{},
+		controllers.KindKillSwitch:       &controllers.KillSwitch{},
+		controllers.KindLinkObservations: &controllers.LinkObservations{},
+		objectstore.KindStoreLock:        &objectstore.StoreLock{},
+		objectstore.KindTranscriptBlob:   &objectstore.TranscriptBlob{},
 	}
 }
 
@@ -49,26 +51,28 @@ func InternalKinds() map[string]store.Object {
 // that reaches the disk or a bucket without an entry here fails the tests: add one (after
 // checking), or keep the secret out of the store.
 var KindAudit = map[string]string{
-	v1alpha1.KindEvent:             "normalised provider events: ids, refs, actors, facts and the untrusted raw payload; webhook payloads carry no credentials",
-	v1alpha1.KindWorkItem:          "links, rule state, counters and decisions; no credentials",
-	v1alpha1.KindTask:              "spec and status; spec.credentials describes the git token to mint (repo, permissions, TTL) and llm is always agent-local: the tokens themselves are minted per lease and never stored",
-	v1alpha1.KindRun:               "attempt, agent, progress events and the Result; the agent reports no credentials",
-	v1alpha1.KindAgent:             "pool, owner login, capabilities and lending; the agent's token is the AgentToken kind, hashed",
-	v1alpha1.KindEffect:            "the provider write asked and its result (URL or error); the identity is a name, its credentials stay in the provider adapter",
-	v1alpha1.KindBudgetCounter:     "run, token and USD counts",
-	v1alpha1.KindApproval:          "the question, approvers group and decisions (logins)",
-	auth.KindSession:               "named by the SHA-256 of the session id (never the cookie value), holds the GitHub login and no GitHub token",
-	scheduler.KindLease:            "who holds which task until when and the usage deltas; git credentials are minted per lease and never stored, only their expiry",
-	scheduler.KindAgentToken:       "the agent token as a sha256: hash of its secret part, never the token",
-	scheduler.KindEnrollment:       "the pool, owner, host name and expiry an admin fixed, and the enrollment token as a sha256: hash, never the token",
-	scheduler.KindAgentRefresh:     "the agent's refresh token as a sha256: hash, never the token, and the enrollment it came from",
-	controllers.KindDelivery:       "the raw webhook as received, minus Authorization, Cookie and Proxy-Authorization (github ingress droppedHeaders); body and headers are dropped once handled. X-Hub-Signature-256 is an HMAC of the body, not the secret",
-	controllers.KindEventStatus:    "an event id, a work item name and a time",
-	controllers.KindDebounce:       "a rule's held actions (dispatch, set, notify...): catalog values and event facts, no credentials",
-	controllers.KindTaskPrompt:     "the rendered prompt: catalog templates and untrusted provider text; no credential is templated into prompts",
-	controllers.KindKillSwitch:     "a pause scope, target, actor and time",
-	objectstore.KindStoreLock:      "a lock's name, the holding store's instance id, a random per-hold id and an expiry; no credential",
-	objectstore.KindTranscriptBlob: "a transcript blob's run name, random blob id, size and put time; the blob itself is agent output, kept beside the log",
+	v1alpha1.KindEvent:               "normalised provider events: ids, refs, actors, facts and the untrusted raw payload; webhook payloads carry no credentials",
+	v1alpha1.KindWorkItem:            "links, rule state, counters and decisions; no credentials",
+	v1alpha1.KindTask:                "spec and status; spec.credentials describes the git token to mint (repo, permissions, TTL) and llm is always agent-local: the tokens themselves are minted per lease and never stored",
+	v1alpha1.KindRun:                 "attempt, agent, progress events and the Result; the agent reports no credentials",
+	v1alpha1.KindAgent:               "pool, owner login, capabilities and lending; the agent's token is the AgentToken kind, hashed",
+	v1alpha1.KindEffect:              "the provider write asked and its result (URL or error); the identity is a name, its credentials stay in the provider adapter",
+	v1alpha1.KindBudgetCounter:       "run, token and USD counts",
+	v1alpha1.KindApproval:            "the question, approvers group and decisions (logins)",
+	auth.KindSession:                 "named by the SHA-256 of the session id (never the cookie value), holds the GitHub login and no GitHub token",
+	auth.KindUsedLoginState:          "named by the SHA-256 of a finished login's OAuth state id (never the state), holds the state's expiry",
+	scheduler.KindLease:              "who holds which task until when and the usage deltas; git credentials are minted per lease and never stored, only their expiry",
+	scheduler.KindAgentToken:         "the agent token as a sha256: hash of its secret part, never the token",
+	scheduler.KindEnrollment:         "the pool, owner, host name and expiry an admin fixed, and the enrollment token as a sha256: hash, never the token",
+	scheduler.KindAgentRefresh:       "the agent's refresh token as a sha256: hash, never the token, and the enrollment it came from",
+	controllers.KindDelivery:         "the raw webhook as received, minus Authorization, Cookie and Proxy-Authorization (github ingress droppedHeaders); body and headers are dropped once handled. X-Hub-Signature-256 is an HMAC of the body, not the secret",
+	controllers.KindEventStatus:      "an event id, a work item name and a time",
+	controllers.KindDebounce:         "a rule's held actions (dispatch, set, notify...): catalog values and event facts, no credentials",
+	controllers.KindTaskPrompt:       "the rendered prompt: catalog templates and untrusted provider text; no credential is templated into prompts",
+	controllers.KindKillSwitch:       "a pause scope, target, actor and time",
+	controllers.KindLinkObservations: "a work item's links (provider/ref) and the SHA-256 digests of their last observations; no provider text",
+	objectstore.KindStoreLock:        "a lock's name, the holding store's instance id, a random per-hold id and an expiry; no credential",
+	objectstore.KindTranscriptBlob:   "a transcript blob's run name, random blob id, size and put time; the blob itself is agent output, kept beside the log",
 }
 
 // TokenMarkers are the prefixes of the credentials the dispatcher handles.
@@ -245,6 +249,11 @@ func Fixtures() []store.Object {
 			User:      auth.User{Provider: "github-public", Login: "octocat", Name: "The Octocat", AvatarURL: "https://avatars.githubusercontent.com/u/583231"},
 			ExpiresAt: Epoch.Add(12 * time.Hour),
 		},
+		&auth.UsedLoginState{
+			TypeMeta:  v1alpha1.TypeMeta{Kind: auth.KindUsedLoginState},
+			Metadata:  v1alpha1.ObjectMeta{Name: "uls_2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"},
+			ExpiresAt: Epoch.Add(10 * time.Minute),
+		},
 		Lease("lse_1"),
 		&scheduler.AgentToken{
 			TypeMeta:  v1alpha1.TypeMeta{Kind: scheduler.KindAgentToken},
@@ -292,6 +301,14 @@ func Fixtures() []store.Object {
 			TypeMeta: v1alpha1.TypeMeta{Kind: controllers.KindKillSwitch},
 			Metadata: v1alpha1.ObjectMeta{Name: controllers.KillSwitchName(controllers.ScopeQueue, "docs")},
 			Scope:    controllers.ScopeQueue, Target: "docs", By: "github-public:octocat", At: Epoch,
+		},
+		&controllers.LinkObservations{
+			TypeMeta: v1alpha1.TypeMeta{Kind: controllers.KindLinkObservations},
+			Metadata: v1alpha1.ObjectMeta{Name: "wi-1"},
+			Digests: map[string]string{
+				"github-public/compliance-framework/mock-docs#4":  "5d41402abc4b2a76b9719d911017c592ae2fb6ee4dc1f4b7e5b0c1f0f8d6e4a1",
+				"github-public/compliance-framework/mock-docs#57": "gone",
+			},
 		},
 	}
 }

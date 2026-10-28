@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -23,24 +24,34 @@ func (s *Server) registerOps() {
 	s.ops.GET("/metrics", s.metrics)
 }
 
-// ready reports whether the catalog is loaded and the startup rebuild (Options.Ready) is done.
-func (s *Server) ready() (bool, string) {
+// StoreReadiness is a store that says whether it can serve: loaded, synced with the shared
+// state within its maximum lag, and still writing (the object store). A store without it
+// (memory, the file store) has nothing to sync: it is ready once it is loaded.
+type StoreReadiness interface {
+	Ready() error
+}
+
+// ready reports whether this instance is ready, the same on every instance, leader or not: the
+// catalog is loaded and the store is ready (StoreReadiness). code is the problem code when it
+// isn't.
+func (s *Server) ready() (ok bool, code, why string) {
 	if !s.catalogStatus().Ready || s.d.Catalog.Current() == nil {
-		return false, "catalog not loaded"
+		return false, CodeCatalogNotLoaded, "catalog not loaded"
 	}
-	if s.opts.Ready != nil {
-		select {
-		case <-s.opts.Ready:
-		default:
-			return false, "startup not done"
+	if r, isR := s.d.Store.(StoreReadiness); isR {
+		if err := r.Ready(); err != nil {
+			if errors.Is(err, store.ErrReadOnly) {
+				return false, CodeStoreReadOnly, err.Error()
+			}
+			return false, CodeUnavailable, err.Error()
 		}
 	}
-	return true, ""
+	return true, "", ""
 }
 
 func (s *Server) readyz(c echo.Context) error {
-	if ok, why := s.ready(); !ok {
-		return problemf(http.StatusServiceUnavailable, CodeUnavailable, "not ready: %s", why)
+	if ok, code, why := s.ready(); !ok {
+		return problemf(http.StatusServiceUnavailable, code, "not ready: %s", why)
 	}
 	return c.String(http.StatusOK, "ready\n")
 }
@@ -95,10 +106,10 @@ func (s *Server) metrics(c echo.Context) error {
 	fmt.Fprintf(&b, "factory_sse_subscribers %d\n", s.subscribers.Load())
 
 	ready := 0
-	if ok, _ := s.ready(); ok {
+	if ok, _, _ := s.ready(); ok {
 		ready = 1
 	}
-	gauge("factory_ready", "1 when the catalog is loaded and startup is done.")
+	gauge("factory_ready", "1 when the catalog and the store are loaded, the store has synced within its maximum lag and still writes (/readyz).")
 	fmt.Fprintf(&b, "factory_ready %d\n", ready)
 
 	counter("factory_controller_panics_total", "Reconcile calls that panicked, by controller.")

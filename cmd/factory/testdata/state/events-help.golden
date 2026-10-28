@@ -1,11 +1,13 @@
 --- stderr
-usage: factory state events [--since 1h] [--type T] [--workitem W] [--state-dir DIR] [--json]
+usage: factory state events [--since 1h] [--type T] [--workitem W] [--state-dir DIR | --state-url URL] [--json]
   -json
     	print the objects as JSON instead of tables
   -since string
     	only events this recent (by their time: 30m, 24h, 7d)
   -state-dir string
     	the dispatcher's state dir (default $FACTORY_STATE_DIR, else ~/.factory/state)
+  -state-url string
+    	the dispatchers' shared state: gs://bucket/prefix, s3://bucket/prefix or file:///dir (instead of --state-dir)
   -type string
     	only events of this type (issue.opened, pr.merged, factory.run.completed…)
   -workitem string

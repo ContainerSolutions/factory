@@ -373,6 +373,9 @@ type image struct {
 	// readOnly is set when the log holds an entry past ReadableSchema: the image stops before
 	// it.
 	readOnly error
+	// entries are the log entries applied above the snapshot, kept only when the store
+	// collects them (Read, for factory state's log).
+	entries []LogEntry
 }
 
 // readImage reads the newest snapshot and the log above it. A snapshot or entry deleted
@@ -422,6 +425,9 @@ func (s *Store) readImage(ctx context.Context) (*image, error) {
 		}
 		img.version = e.v
 		img.logEntries++
+		if s.collectLog {
+			img.entries = append(img.entries, LogEntry{Version: e.v, At: line.At, Op: line.Op, Kind: line.Kind, Name: line.Name, Obj: line.Obj})
+		}
 		img.maxSchema = max(img.maxSchema, line.Schema)
 	}
 	return img, nil

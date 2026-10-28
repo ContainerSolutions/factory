@@ -262,6 +262,19 @@ func TestStreamResume(t *testing.T) {
 	}
 }
 
+// TestStreamResumeAheadOfTheStore: a Last-Event-ID from a dispatcher that has seen more of the
+// shared state than this one is ahead of this store. The stream syncs and tries again; when
+// the version is still ahead, it starts from now rather than failing.
+func TestStreamResumeAheadOfTheStore(t *testing.T) {
+	e := newEnv(t)
+	gus := e.login("gus")
+	s := e.subscribe([]string{"tasks"}, "999999", session(gus))
+	e.task("tsk_a", nil)
+	if f := s.until(SSETaskUpdated); !strings.Contains(f.data, "tsk_a") {
+		t.Fatalf("frame %s", f.data)
+	}
+}
+
 func TestStreamLimits(t *testing.T) {
 	e := newEnv(t, func(o *Options) { o.MaxSubscribers = 1 })
 	gus := e.login("gus")

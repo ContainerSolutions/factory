@@ -230,6 +230,9 @@ type Store struct {
 	// tmu serialises this store's transcript puts (the cap is read, then written).
 	tmu sync.Mutex
 
+	// collectLog keeps the log entries a load applies (Read's).
+	collectLog bool
+
 	stopLoop context.CancelFunc
 	loopDone chan struct{}
 }

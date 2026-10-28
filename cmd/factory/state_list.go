@@ -100,7 +100,7 @@ func sortTasks(tasks []v1alpha1.Task) {
 }
 
 // runsByTask returns every run by task, in attempt order.
-func runsByTask(ctx context.Context, v *filestore.View) (map[string][]v1alpha1.Run, error) {
+func runsByTask(ctx context.Context, v stateView) (map[string][]v1alpha1.Run, error) {
 	runs, err := listAll[v1alpha1.Run](ctx, v, v1alpha1.KindRun)
 	if err != nil {
 		return nil, err
@@ -287,13 +287,13 @@ func stateLog(_ context.Context, r *stateRun, args []string) int {
 		}
 		return r.writeJSON(out)
 	}
-	li := r.view.Loaded()
+	version := r.view.Version()
 	if len(journal) == 0 {
-		fmt.Fprintf(r.stdout, "the journal is empty: every change up to version %d is in the snapshot\n", li.Version)
+		fmt.Fprintf(r.stdout, "the %s is empty: every change up to version %d is in the snapshot\n", r.view.LogName(), version)
 		return 0
 	}
 	fmt.Fprintf(r.stdout, "%d changes since the snapshot (versions %d to %d); older ones are folded into the snapshot\n",
-		len(journal), journal[0].Version, li.Version)
+		len(journal), journal[0].Version, version)
 	tw := newTable(r.stdout)
 	row(tw, "VERSION", "TIME", "OP", "KIND", "NAME", "NOTE")
 	for i, e := range journal {

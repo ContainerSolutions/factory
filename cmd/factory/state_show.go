@@ -217,13 +217,13 @@ func stateRunCmd(ctx context.Context, r *stateRun, args []string) int {
 	if code, ok := r.get(ctx, v1alpha1.KindRun, pos[0], &run); !ok {
 		return code
 	}
-	tr, trErr := r.view.Transcript(run.Metadata.Name)
+	tr, trErr := r.view.Transcript(ctx, run.Metadata.Name)
 	if trErr != nil && !errors.Is(trErr, store.ErrNotFound) {
 		return r.fail(trErr)
 	}
 	if *transcript {
 		if trErr != nil {
-			fmt.Fprintf(r.stderr, "%s: run %s has no transcript in %s\n", r.name, run.Metadata.Name, r.view.Dir())
+			fmt.Fprintf(r.stderr, "%s: run %s has no transcript in %s\n", r.name, run.Metadata.Name, r.dir)
 			return 1
 		}
 		zr, err := gzip.NewReader(bytes.NewReader(tr))

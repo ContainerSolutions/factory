@@ -127,7 +127,7 @@ type env struct {
 	t    *testing.T
 	ctx  context.Context
 	clk  *clock.Fake
-	st   *memory.Store
+	st   store.Store
 	cat  *catalog.Catalog
 	cats *swapCatalog
 	logs *logRecorder
@@ -146,15 +146,23 @@ func newEnv(t *testing.T) *env {
 	gh := fake.NewConn(*cat.Providers[ghProvider], fake.Options{Clock: clk})
 	gh.SetOrgRole("compliance-framework", "admin", "gus", "ana", "bob")
 	st := memory.New(store.Options{Clock: clk, Logger: discardLogger()})
+	return newEnvOn(t, clk, st, cat, gh, Options{})
+}
+
+// newEnvOn is a scheduler on st, with the catalog cat and the fake GitHub gh (another
+// instance's env shares them), after opts.
+func newEnvOn(t *testing.T, clk *clock.Fake, st store.Store, cat *catalog.Catalog, gh *fake.Conn, opts Options) *env {
+	t.Helper()
 	cp := newSwapCatalog(cat)
 	logs := newLogRecorder()
 	runs, err := controllers.NewRunController(st, cp, controllers.NewFactoryProvider(st, clk), controllers.RunOptions{Clock: clk, Logger: discardLogger()})
 	if err != nil {
 		t.Fatal(err)
 	}
+	opts.Clock, opts.Logger = clk, slog.New(logs)
 	s, err := New(Deps{
 		Store: st, Catalog: cp, Conns: controllers.StaticConns{ghProvider: gh}, Runs: runs,
-	}, Options{Clock: clk, Logger: slog.New(logs)})
+	}, opts)
 	if err != nil {
 		t.Fatal(err)
 	}

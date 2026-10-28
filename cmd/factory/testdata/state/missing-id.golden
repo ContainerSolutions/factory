@@ -1,7 +1,9 @@
 --- stderr
 factory state workitem: want 1 argument(s), got []
-usage: factory state workitem WORKITEM [--state-dir DIR] [--json]
+usage: factory state workitem WORKITEM [--state-dir DIR | --state-url URL] [--json]
   -json
     	print the objects as JSON instead of tables
   -state-dir string
     	the dispatcher's state dir (default $FACTORY_STATE_DIR, else ~/.factory/state)
+  -state-url string
+    	the dispatchers' shared state: gs://bucket/prefix, s3://bucket/prefix or file:///dir (instead of --state-dir)

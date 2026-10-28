@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math/rand/v2"
 	"slices"
 	"strings"
 	"sync"
@@ -25,9 +26,33 @@ const (
 	// DefaultResyncInterval is how often a work item's links are re-observed when their
 	// Provider sets no resync.every.
 	DefaultResyncInterval = 10 * time.Minute
-	// DefaultRebuildTimeout bounds the startup rebuild.
-	DefaultRebuildTimeout = 5 * time.Minute
 )
+
+// KindLinkObservations holds a work item's resync baselines (internal store kind, no API, no
+// schema): per link, the digest of its last observation, so a new leader, or one after a
+// restart, compares with the last one any leader saw (P3 §Several dispatchers). It is named
+// by the work item id, written only when a digest changes, and deleted with the item; the
+// leader's sweep deletes one whose work item is gone. It holds digests and link refs only.
+const KindLinkObservations = "LinkObservations"
+
+// LinkObservations is a stored KindLinkObservations.
+type LinkObservations struct {
+	v1alpha1.TypeMeta
+	Metadata v1alpha1.ObjectMeta `json:"metadata"`
+	// Digests maps each link ("<provider>/<ref>") to the digest of its last observation
+	// ("gone" when the object no longer existed).
+	Digests map[string]string `json:"digests"`
+}
+
+var _ store.MetaObject = (*LinkObservations)(nil)
+
+// GetName returns metadata.name (the work item id).
+func (o *LinkObservations) GetName() string { return o.Metadata.Name }
+
+// GetObjectMeta implements store.MetaObject.
+func (o *LinkObservations) GetObjectMeta() *v1alpha1.ObjectMeta { return &o.Metadata }
+
+func observationsKey(id string) store.Key { return store.Key{Kind: KindLinkObservations, Name: id} }
 
 // WorkItemOptions configure the work-item controller. Zero fields take the defaults.
 type WorkItemOptions struct {
@@ -44,8 +69,10 @@ type WorkItemOptions struct {
 	Retention time.Duration
 	// ResyncInterval applies when a Provider has no resync.every. Default 10 m.
 	ResyncInterval time.Duration
-	// RebuildTimeout bounds Rebuild. Default 5 m.
-	RebuildTimeout time.Duration
+	// Jitter picks the delay of an item's first resync in this process, when a leader before
+	// it stored the item's baselines: from 0 up to the interval, so a new leader spreads its
+	// checks over the interval. Default uniform (math/rand/v2).
+	Jitter func(interval time.Duration) time.Duration
 	// LockTTL is the work item lock's lease. Default DefaultLockTTL.
 	LockTTL time.Duration
 }
@@ -56,11 +83,10 @@ type WorkItemOptions struct {
 //   - projects state, counters and links onto every linked object (Conn.Project) when the
 //     projection changed;
 //   - re-observes the links every resync interval (refreshing the observation cache) and
-//     emits factory.workitem.resynced when an observation changed out of band;
+//     emits factory.workitem.resynced when an observation changed out of band, against the
+//     baselines stored in its LinkObservations;
 //   - deletes the item once all its links are closed and its last activity is older than the
 //     retention (the store never sweeps WorkItems).
-//
-// Rebuild recreates the work items from the providers' projections on startup.
 type WorkItemController struct {
 	s       store.Store
 	cat     CatalogProvider
@@ -70,10 +96,10 @@ type WorkItemController struct {
 	log     *slog.Logger
 	ctrl    *Controller
 
+	// Caches that only save work (a cold one costs a provider call, never a wrong result).
 	mu         sync.Mutex
 	projected  map[string]string    // wi|link → digest of the last projection written
-	observed   map[string]string    // wi|link → digest of the last observation
-	lastResync map[string]time.Time // wi → when its links were last observed
+	lastResync map[string]time.Time // wi → when its links were last observed (or are due)
 }
 
 // NewWorkItemController returns the work-item controller, watching WorkItems.
@@ -93,8 +119,8 @@ func NewWorkItemController(s store.Store, cat CatalogProvider, conns ConnSource,
 	if opts.ResyncInterval <= 0 {
 		opts.ResyncInterval = DefaultResyncInterval
 	}
-	if opts.RebuildTimeout <= 0 {
-		opts.RebuildTimeout = DefaultRebuildTimeout
+	if opts.Jitter == nil {
+		opts.Jitter = func(d time.Duration) time.Duration { return rand.N(d) }
 	}
 	if opts.LockTTL <= 0 {
 		opts.LockTTL = DefaultLockTTL
@@ -103,7 +129,6 @@ func NewWorkItemController(s store.Store, cat CatalogProvider, conns ConnSource,
 		s: s, cat: cat, conns: conns, factory: factory, opts: opts,
 		log:        opts.Logger.With("controller", "work-item"),
 		projected:  map[string]string{},
-		observed:   map[string]string{},
 		lastResync: map[string]time.Time{},
 	}
 	w.ctrl = NewController("work-item", w, Options{Workers: opts.Workers, Clock: opts.Clock, Logger: opts.Logger})
@@ -130,17 +155,19 @@ func digestOf(v any) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// forget drops what the controller remembers of a work item.
-func (w *WorkItemController) forget(id string) {
+// forget drops what the controller remembers of a work item, its stored baselines included.
+// A delete that fails is logged: the leader's sweep deletes the orphan.
+func (w *WorkItemController) forget(ctx context.Context, id string) {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	delete(w.lastResync, id)
-	for _, m := range []map[string]string{w.projected, w.observed} {
-		for k := range m {
-			if strings.HasPrefix(k, id+"|") {
-				delete(m, k)
-			}
+	for k := range w.projected {
+		if strings.HasPrefix(k, id+"|") {
+			delete(w.projected, k)
 		}
+	}
+	w.mu.Unlock()
+	if err := w.s.Delete(ctx, observationsKey(id)); err != nil && !errors.Is(err, store.ErrNotFound) {
+		w.log.WarnContext(ctx, "delete a work item's resync baselines", "workItem", id, "err", err)
 	}
 }
 
@@ -149,7 +176,7 @@ func (w *WorkItemController) Reconcile(ctx context.Context, id string) (Result, 
 	var wi v1alpha1.WorkItem
 	err := w.s.Get(ctx, store.Key{Kind: v1alpha1.KindWorkItem, Name: id}, &wi)
 	if errors.Is(err, store.ErrNotFound) {
-		w.forget(id)
+		w.forget(ctx, id)
 		return Result{}, nil
 	}
 	if err != nil {
@@ -163,6 +190,21 @@ func (w *WorkItemController) Reconcile(ctx context.Context, id string) (Result, 
 	w.mu.Lock()
 	last, seen := w.lastResync[id]
 	w.mu.Unlock()
+	if !seen {
+		// The first resync in this process. When a leader before this one stored baselines,
+		// it isn't urgent: spread it over the interval rather than observing every item now.
+		switch err := w.s.Get(ctx, observationsKey(id), &LinkObservations{}); {
+		case err == nil:
+			if delay := w.opts.Jitter(interval); delay > 0 {
+				w.mu.Lock()
+				w.lastResync[id] = now.Add(delay - interval)
+				w.mu.Unlock()
+				return Result{RequeueAfter: delay}, nil
+			}
+		case !errors.Is(err, store.ErrNotFound):
+			return Result{}, fmt.Errorf("get the resync baselines of %s: %w", id, err)
+		}
+	}
 	if seen && now.Before(last.Add(interval)) {
 		return Result{RequeueAfter: last.Add(interval).Sub(now)}, nil
 	}
@@ -191,8 +233,43 @@ func projection(wi *v1alpha1.WorkItem) provider.Projection {
 }
 
 // project writes the projection onto every link whose provider is connected, when it changed
-// since the last write. An object that no longer exists is skipped.
+// since the last write. The provider calls run under the work item's lock, on the item read
+// again there, so an overlapping leader (P3 §Several dispatchers) can't write an older
+// projection over a newer one. An object that no longer exists is skipped.
 func (w *WorkItemController) project(ctx context.Context, wi *v1alpha1.WorkItem) error {
+	if !w.projectionChanged(wi) {
+		return nil
+	}
+	return withItemLock(ctx, w.s, wi.Metadata.Name, w.opts.LockTTL, func(ctx context.Context) error {
+		var cur v1alpha1.WorkItem
+		switch err := w.s.Get(ctx, store.Key{Kind: v1alpha1.KindWorkItem, Name: wi.Metadata.Name}, &cur); {
+		case errors.Is(err, store.ErrNotFound):
+			return nil // deleted meanwhile
+		case err != nil:
+			return fmt.Errorf("get work item %s: %w", wi.Metadata.Name, err)
+		}
+		return w.projectLocked(ctx, &cur)
+	})
+}
+
+// projectionChanged reports whether a connected link's last projection differs from wi's.
+func (w *WorkItemController) projectionChanged(wi *v1alpha1.WorkItem) bool {
+	d := digestOf(projection(wi))
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, l := range wi.Spec.Links {
+		if l.Provider == v1alpha1.FactoryProvider {
+			continue
+		}
+		if _, ok := w.conns.Conn(l.Provider); ok && w.projected[linkKey(wi.Metadata.Name, l)] != d {
+			return true
+		}
+	}
+	return false
+}
+
+// projectLocked is project's writes, with the work item's lock held.
+func (w *WorkItemController) projectLocked(ctx context.Context, wi *v1alpha1.WorkItem) error {
 	p := projection(wi)
 	d := digestOf(p)
 	for _, l := range wi.Spec.Links {
@@ -244,28 +321,48 @@ func (w *WorkItemController) resyncInterval(wi *v1alpha1.WorkItem) time.Duration
 	return interval
 }
 
-// observationDigest digests what an out-of-band change can move (not the timestamp, nor the
-// projections the factory itself writes).
+// observationDigest digests what an out-of-band change can move: not the timestamp, nor the
+// projections the factory itself writes, should an adapter report them.
 func observationDigest(o provider.Observation) string {
 	o.UpdatedAt = time.Time{}
-	o.Projections = nil
-	return digestOf(o)
+	b, err := json.Marshal(o)
+	if err != nil {
+		return ""
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return ""
+	}
+	delete(m, "projections")
+	return digestOf(m)
 }
 
-// resync re-observes the item's links. When an observation changed since the last resync it
-// emits factory.workitem.resynced; when every link is closed and the item has been idle past
-// the retention it deletes the item (true).
+// resync re-observes the item's links. When an observation changed since the baseline stored
+// in its LinkObservations it emits factory.workitem.resynced, then stores the new baselines
+// (only when they changed); when every link is closed and the item has been idle past the
+// retention it deletes the item (true).
 func (w *WorkItemController) resync(ctx context.Context, wi *v1alpha1.WorkItem, now time.Time) (bool, error) {
+	var base LinkObservations
+	stored := true
+	switch err := w.s.Get(ctx, observationsKey(wi.Metadata.Name), &base); {
+	case errors.Is(err, store.ErrNotFound):
+		stored = false
+	case err != nil:
+		return false, fmt.Errorf("get the resync baselines of %s: %w", wi.Metadata.Name, err)
+	}
 	var changed []string
 	open := false
 	digests := map[string]string{}
 	for _, l := range wi.Spec.Links {
+		k := cacheKey(l)
 		if _, ok := w.conns.Conn(l.Provider); !ok {
-			open = true // can't tell: keep the item
+			open = true // can't tell: keep the item, and its baseline
+			if d, ok := base.Digests[k]; ok {
+				digests[k] = d
+			}
 			continue
 		}
 		obs, err := w.opts.Cache.Refresh(ctx, l)
-		k := linkKey(wi.Metadata.Name, l)
 		switch {
 		case isNotFound(err):
 			digests[k] = "gone"
@@ -277,11 +374,7 @@ func (w *WorkItemController) resync(ctx context.Context, wi *v1alpha1.WorkItem, 
 				open = true
 			}
 		}
-		w.mu.Lock()
-		prev, ok := w.observed[k]
-		w.observed[k] = digests[k]
-		w.mu.Unlock()
-		if ok && prev != digests[k] {
+		if prev, ok := base.Digests[k]; ok && prev != digests[k] {
 			changed = append(changed, l.Provider+"/"+l.Ref)
 		}
 	}
@@ -295,6 +388,9 @@ func (w *WorkItemController) resync(ctx context.Context, wi *v1alpha1.WorkItem, 
 		}
 		w.log.InfoContext(ctx, "work item resynced", "workItem", wi.Metadata.Name, "changed", changed)
 	}
+	if err := w.storeBaselines(ctx, wi.Metadata.Name, &base, stored, digests); err != nil {
+		return false, err
+	}
 	if open || len(wi.Spec.Links) == 0 {
 		return false, nil
 	}
@@ -306,6 +402,60 @@ func (w *WorkItemController) resync(ctx context.Context, wi *v1alpha1.WorkItem, 
 		return false, nil
 	}
 	return w.retire(ctx, wi.Metadata.Name, last)
+}
+
+// storeBaselines writes digests as the item's LinkObservations when they differ from base (a
+// digest changed, a link was added or removed): a create, or a compare-and-swap on the
+// version read. A conflict (another leader wrote meanwhile) retries the reconcile; the
+// resynced event it may emit again has the same key, so it isn't stored twice.
+func (w *WorkItemController) storeBaselines(ctx context.Context, id string, base *LinkObservations, stored bool, digests map[string]string) error {
+	if stored && maps.Equal(base.Digests, digests) {
+		return nil
+	}
+	if !stored && len(digests) == 0 {
+		return nil
+	}
+	var err error
+	if stored {
+		base.Digests = digests
+		err = w.s.Update(ctx, base)
+	} else {
+		err = w.s.Create(ctx, &LinkObservations{
+			TypeMeta: v1alpha1.TypeMeta{Kind: KindLinkObservations},
+			Metadata: v1alpha1.ObjectMeta{Name: id},
+			Digests:  digests,
+		})
+	}
+	if err != nil {
+		return fmt.Errorf("store the resync baselines of %s: %w", id, err)
+	}
+	return nil
+}
+
+// SweepObservations deletes the LinkObservations whose work item no longer exists (a delete
+// whose baselines' delete failed), and returns how many it deleted. The leader's sweep runs it.
+func (w *WorkItemController) SweepObservations(ctx context.Context) (int, error) {
+	var recs []*LinkObservations
+	if _, err := w.s.List(ctx, KindLinkObservations, store.ListOptions{}, &recs); err != nil {
+		return 0, fmt.Errorf("list resync baselines: %w", err)
+	}
+	n := 0
+	for _, r := range recs {
+		switch err := w.s.Get(ctx, store.Key{Kind: v1alpha1.KindWorkItem, Name: r.Metadata.Name}, &v1alpha1.WorkItem{}); {
+		case err == nil:
+			continue
+		case !errors.Is(err, store.ErrNotFound):
+			return n, fmt.Errorf("get work item %s: %w", r.Metadata.Name, err)
+		}
+		switch err := w.s.Delete(ctx, store.KeyOf(r)); {
+		case errors.Is(err, store.ErrNotFound):
+		case err != nil:
+			return n, fmt.Errorf("delete the resync baselines of %s: %w", r.Metadata.Name, err)
+		default:
+			n++
+		}
+	}
+	return n, nil
 }
 
 // lastActivity is the latest of the item's creation, decisions, tasks and runs.
@@ -369,139 +519,7 @@ func (w *WorkItemController) retireLocked(ctx context.Context, id string, last t
 	if err := w.s.Delete(ctx, store.Key{Kind: v1alpha1.KindWorkItem, Name: id}); err != nil && !errors.Is(err, store.ErrNotFound) {
 		return false, fmt.Errorf("delete work item %s: %w", id, err)
 	}
-	w.forget(id)
+	w.forget(ctx, id)
 	w.log.InfoContext(ctx, "work item retired", "workItem", id, "lastActivity", last)
 	return true, nil
-}
-
-// RebuildResult reports a Rebuild.
-type RebuildResult struct {
-	// Objects is how many provider objects were listed and observed.
-	Objects int
-	// Created are the work items recreated, by id; Existing counts those already stored.
-	Created  []string
-	Existing int
-}
-
-type rebuilt struct {
-	links    []v1alpha1.Link
-	state    map[string]any
-	stateAt  time.Time
-	counters map[string]int
-}
-
-// Rebuild recreates work items from the providers' projections (startup, before the rule
-// controller starts): for every RuleSet scope it lists each bound provider's objects, observes
-// them and reads their projections (the markers). Projections of one work item on several
-// objects are merged: links are united, counters take the maximum, and state comes from the
-// most recently updated object. Work items already in the store are left alone. It is
-// bounded by RebuildTimeout.
-func (w *WorkItemController) Rebuild(ctx context.Context) (RebuildResult, error) {
-	cat := w.cat.Current()
-	if cat == nil {
-		return RebuildResult{}, errors.New("rebuild: no catalog loaded yet")
-	}
-	ctx, cancel := context.WithTimeout(ctx, w.opts.RebuildTimeout)
-	defer cancel()
-
-	var res RebuildResult
-	seen := map[string]bool{}
-	items := map[string]*rebuilt{}
-	for _, name := range sortedNames(cat.RuleSets) {
-		rs := cat.RuleSets[name]
-		scope := v1alpha1.Scope{}
-		if rs.Spec.Spec.Scope != nil {
-			scope = *rs.Spec.Spec.Scope
-		}
-		for _, pname := range rs.Providers {
-			if pname == v1alpha1.FactoryProvider {
-				continue
-			}
-			conn, ok := w.conns.Conn(pname)
-			if !ok {
-				continue
-			}
-			refs, err := conn.List(ctx, scope)
-			if err != nil {
-				return res, fmt.Errorf("rebuild: list %s for RuleSet %s: %w", pname, name, err)
-			}
-			for _, ref := range refs {
-				if ref.Provider == "" {
-					ref.Provider = pname
-				}
-				k := ref.Provider + "/" + ref.Ref
-				if seen[k] {
-					continue
-				}
-				seen[k] = true
-				obs, err := w.opts.Cache.Refresh(ctx, v1alpha1.Link{Provider: ref.Provider, Ref: ref.Ref, Kind: ref.Kind})
-				if isNotFound(err) {
-					continue
-				}
-				if err != nil {
-					return res, fmt.Errorf("rebuild: observe %s: %w", ref.Ref, err)
-				}
-				res.Objects++
-				mergeProjections(items, ref, obs)
-			}
-		}
-	}
-	for _, id := range sortedNames(items) {
-		it := items[id]
-		wi := &v1alpha1.WorkItem{
-			TypeMeta: v1alpha1.TypeMeta{Kind: v1alpha1.KindWorkItem},
-			Metadata: v1alpha1.ObjectMeta{Name: id},
-			Spec:     v1alpha1.WorkItemSpec{Links: it.links},
-			Status:   &v1alpha1.WorkItemStatus{State: it.state, Counters: it.counters},
-		}
-		if !slices.ContainsFunc(wi.Spec.Links, func(l v1alpha1.Link) bool { return l.Primary }) && len(wi.Spec.Links) > 0 {
-			wi.Spec.Links[0].Primary = true
-		}
-		err := w.s.Create(ctx, wi)
-		switch {
-		case errors.Is(err, store.ErrAlreadyExists):
-			res.Existing++
-		case err != nil:
-			return res, fmt.Errorf("rebuild: create work item %s: %w", id, err)
-		default:
-			res.Created = append(res.Created, id)
-		}
-	}
-	w.log.InfoContext(ctx, "work items rebuilt", "objects", res.Objects, "created", len(res.Created), "existing", res.Existing)
-	return res, nil
-}
-
-func mergeProjections(items map[string]*rebuilt, ref v1alpha1.ObjectRef, obs provider.Observation) {
-	for _, p := range obs.Projections {
-		if p.WorkItemID == "" {
-			continue
-		}
-		it := items[p.WorkItemID]
-		if it == nil {
-			it = &rebuilt{counters: map[string]int{}}
-			items[p.WorkItemID] = it
-		}
-		add := func(l v1alpha1.Link) {
-			i := slices.IndexFunc(it.links, func(x v1alpha1.Link) bool { return x.Provider == l.Provider && x.Ref == l.Ref })
-			if i < 0 {
-				it.links = append(it.links, l)
-			} else if l.Primary {
-				it.links[i].Primary = true
-			}
-		}
-		for _, l := range p.Links {
-			add(l)
-		}
-		add(v1alpha1.Link{Provider: ref.Provider, Ref: ref.Ref, Kind: obs.Ref.Kind})
-		for k, n := range p.Counters {
-			it.counters[k] = max(it.counters[k], n)
-		}
-		if it.state == nil || obs.UpdatedAt.After(it.stateAt) {
-			it.state = maps.Clone(p.State)
-			if it.state == nil {
-				it.state = map[string]any{}
-			}
-			it.stateAt = obs.UpdatedAt
-		}
-	}
 }

@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/url"
 
 	"github.com/ContainerSolutions/factory/internal/auth"
 	"github.com/ContainerSolutions/factory/internal/controllers"
@@ -30,16 +33,18 @@ type serveStore interface {
 // TestStoredSchema when a stored type changes without a store.ReadableSchema bump.
 func internalKinds() map[string]store.Object {
 	return map[string]store.Object{
-		auth.KindSession:            &auth.Session{},
-		scheduler.KindLease:         &scheduler.Lease{},
-		scheduler.KindAgentToken:    &scheduler.AgentToken{},
-		scheduler.KindEnrollment:    &scheduler.Enrollment{},
-		scheduler.KindAgentRefresh:  &scheduler.AgentRefresh{},
-		controllers.KindDelivery:    &controllers.Delivery{},
-		controllers.KindEventStatus: &controllers.EventStatus{},
-		controllers.KindDebounce:    &controllers.DebounceRecord{},
-		controllers.KindTaskPrompt:  &controllers.TaskPrompt{},
-		controllers.KindKillSwitch:  &controllers.KillSwitch{},
+		auth.KindSession:                 &auth.Session{},
+		auth.KindUsedLoginState:          &auth.UsedLoginState{},
+		scheduler.KindLease:              &scheduler.Lease{},
+		scheduler.KindAgentToken:         &scheduler.AgentToken{},
+		scheduler.KindEnrollment:         &scheduler.Enrollment{},
+		scheduler.KindAgentRefresh:       &scheduler.AgentRefresh{},
+		controllers.KindDelivery:         &controllers.Delivery{},
+		controllers.KindEventStatus:      &controllers.EventStatus{},
+		controllers.KindDebounce:         &controllers.DebounceRecord{},
+		controllers.KindTaskPrompt:       &controllers.TaskPrompt{},
+		controllers.KindKillSwitch:       &controllers.KillSwitch{},
+		controllers.KindLinkObservations: &controllers.LinkObservations{},
 		// The object store's own: its lock records and transcript index (store.md §Object
 		// store). The file store registers them too, and never writes them.
 		objectstore.KindStoreLock:      &objectstore.StoreLock{},
@@ -58,17 +63,79 @@ func fileStoreKinds() []filestore.Option {
 	return options
 }
 
+// objectStoreKinds registers internalKinds with the object store (Open, and Read for factory
+// state).
+func objectStoreKinds() []objectstore.Option {
+	kinds := internalKinds()
+	options := make([]objectstore.Option, 0, len(kinds))
+	for kind, proto := range kinds {
+		options = append(options, objectstore.WithKind(kind, proto))
+	}
+	return options
+}
+
 // memoryStore is the in-memory store, with a Close that does nothing.
 type memoryStore struct{ *memory.Store }
 
 func (memoryStore) Close() error { return nil }
 
-// openStore opens the store cfg asks for: the file store on --state-dir, else memory. Open
-// errors (a state dir others can read, one another dispatcher holds, an unknown format,
-// corruption with its line) are returned as they are, so serve fails at start saying why.
-func openStore(cfg serveConfig, opts store.Options, log *slog.Logger) (serveStore, error) {
+// sharedStore is the object store and its bucket: Close closes the store (its final
+// compaction), then the bucket, when it holds connections (the GCS and S3 clients).
+type sharedStore struct {
+	*objectstore.Store
+	bucket objectstore.Bucket
+}
+
+func (s sharedStore) Close() error {
+	err := s.Store.Close()
+	return errors.Join(err, closeBucket(s.bucket))
+}
+
+// closeBucket closes b when it is an io.Closer.
+func closeBucket(b objectstore.Bucket) error {
+	if c, ok := b.(io.Closer); ok {
+		if err := c.Close(); err != nil {
+			return fmt.Errorf("close the bucket: %w", err)
+		}
+	}
+	return nil
+}
+
+// stateURLScheme is the scheme of a state URL, the only part of it that is logged (it may
+// carry a secret anywhere).
+func stateURLScheme(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if u, err := url.Parse(raw); err == nil && u.Scheme != "" {
+		return u.Scheme + "://"
+	}
+	return "(unparsed)"
+}
+
+// openStore opens the store cfg asks for: the object store on --state-url, the file store on
+// --state-dir, else memory. Open errors (a state dir others can read, one another dispatcher
+// holds, an unknown format, corruption with its line, a bucket that can't be reached, a
+// snapshot from a newer release) are returned as they are, so serve fails at start saying
+// why; none of them prints the state URL.
+func openStore(ctx context.Context, cfg serveConfig, opts store.Options, log *slog.Logger) (serveStore, error) {
+	if cfg.StateURL != "" {
+		b, err := objectstore.ParseURL(ctx, cfg.StateURL)
+		if err != nil {
+			return nil, fmt.Errorf("open --state-url: %w", err)
+		}
+		st, err := objectstore.Open(ctx, b, opts, append(objectStoreKinds(), objectstore.WithSyncInterval(cfg.StateSyncInterval))...)
+		if err != nil {
+			return nil, errors.Join(fmt.Errorf("open --state-url: %w", err), closeBucket(b))
+		}
+		li := st.Loaded()
+		log.Info("store: loaded the shared state", "stateURL", stateURLScheme(cfg.StateURL), "writer", li.Writer,
+			"version", li.Version, "objects", li.Objects, "transcripts", li.Transcripts, "snapshot", li.Snapshot,
+			"logEntries", li.LogEntries, "readOnly", li.ReadOnly, "syncInterval", cfg.StateSyncInterval.String())
+		return sharedStore{Store: st, bucket: b}, nil
+	}
 	if cfg.StateDir == "" {
-		log.Info("store: in memory; state is lost on restart (--state-dir keeps it)")
+		log.Warn("store: in memory; every work item starts fresh on a restart, with no state and no run counters (--state-dir or --state-url keeps them)")
 		return memoryStore{memory.New(opts)}, nil
 	}
 	st, err := filestore.Open(cfg.StateDir, opts, fileStoreKinds()...)
@@ -83,8 +150,9 @@ func openStore(cfg serveConfig, opts store.Options, log *slog.Logger) (serveStor
 }
 
 // closeStore closes st within ctx (the shutdown timeout). The file store's Close compacts the
-// journal into the snapshot; if it outlasts ctx, serve returns without waiting, and the next
-// start replays the journal, which already holds every change.
+// journal into the snapshot, and the object store's the log into a snapshot, then closes its
+// bucket; if it outlasts ctx, serve returns without waiting, and the next start replays the
+// journal or the log, which already hold every change.
 func closeStore(ctx context.Context, st serveStore) error {
 	done := make(chan error, 1)
 	go func() { done <- st.Close() }()

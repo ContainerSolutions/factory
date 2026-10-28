@@ -19,6 +19,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/scheduler"
 	"github.com/ContainerSolutions/factory/internal/store"
 	"github.com/ContainerSolutions/factory/internal/store/filestore"
+	"github.com/ContainerSolutions/factory/internal/store/objectstore"
 )
 
 // stateEpoch is when the fixture starts.
@@ -554,5 +555,70 @@ func TestStateCopyWithTornLine(t *testing.T) {
 	}
 	if !reflect.DeepEqual(snapshotFiles(t, cp), before) {
 		t.Fatal("factory state changed the copy")
+	}
+}
+
+// TestStateURL: factory state reads a --state-url's bucket, read-only, while a dispatcher has
+// it open: the objects, the log above the snapshot and a run's transcript. reset refuses it,
+// and no error prints the URL.
+func TestStateURL(t *testing.T) {
+	ctx := t.Context()
+	dir := filepath.Join(t.TempDir(), "bucket")
+	stateURL := "file://" + dir
+	clk := clock.NewFake(stateEpoch)
+	b, err := objectstore.ParseURL(ctx, stateURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := objectstore.Open(ctx, b, store.Options{Clock: clk, Logger: slog.New(slog.DiscardHandler)}, objectStoreKinds()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	task := &v1alpha1.Task{
+		TypeMeta: v1alpha1.TypeMeta{Kind: v1alpha1.KindTask},
+		Metadata: v1alpha1.TaskMeta{ID: "tsk_shared", WorkItem: "wi_1"},
+		Spec:     v1alpha1.TaskRunSpec{TaskSpec: v1alpha1.TaskSpecRef{Name: "implement"}, Queue: "docs"},
+		Status:   &v1alpha1.TaskStatus{Phase: v1alpha1.TaskPending},
+	}
+	run := &v1alpha1.Run{
+		TypeMeta: v1alpha1.TypeMeta{Kind: v1alpha1.KindRun},
+		Metadata: v1alpha1.ObjectMeta{Name: "run_shared-1"},
+		Spec:     v1alpha1.RunSpec{Task: "tsk_shared", Attempt: 1, Agent: "agt_1"},
+	}
+	for _, obj := range []store.Object{task, run} {
+		if err := st.Create(ctx, obj); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.PutTranscript(ctx, run.Metadata.Name, gzipped(t, "{\"text\":\"shared\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	f := &stateFixture{dir: filepath.Join(t.TempDir(), "state"), clk: clk}
+
+	code, out, errOut := f.state(t, "--state-url", stateURL, "tasks")
+	if code != 0 || !strings.Contains(out, "tsk_shared") || errOut != "" {
+		t.Fatalf("tasks: exit %d\nstdout:\n%s\nstderr:\n%s", code, out, errOut)
+	}
+	code, out, errOut = f.state(t, "run", "run_shared-1", "--transcript", "--state-url", stateURL)
+	if code != 0 || out != "{\"text\":\"shared\"}\n" {
+		t.Fatalf("transcript: exit %d\nstdout:\n%s\nstderr:\n%s", code, out, errOut)
+	}
+	code, out, errOut = f.state(t, "log", "--state-url", stateURL)
+	if code != 0 || !strings.Contains(out, "changes since the snapshot") || !strings.Contains(out, "tsk_shared") {
+		t.Fatalf("log: exit %d\nstdout:\n%s\nstderr:\n%s", code, out, errOut)
+	}
+	code, _, errOut = f.state(t, "reset", "--yes", "--state-url", stateURL)
+	if code != exitUsage || !strings.Contains(errOut, "deleting the objects under its prefix") {
+		t.Fatalf("reset of a --state-url: exit %d\nstderr:\n%s", code, errOut)
+	}
+	code, _, errOut = f.state(t, "tasks", "--state-url", stateURL, "--state-dir", f.dir)
+	if code != exitUsage || !strings.Contains(errOut, "exclusive") {
+		t.Fatalf("both flags: exit %d\nstderr:\n%s", code, errOut)
+	}
+	secret := "s3://AKIA:hunter2-secret@bucket/prefix"
+	code, _, errOut = f.state(t, "tasks", "--state-url", secret)
+	if code != 1 || strings.Contains(errOut, "hunter2") {
+		t.Fatalf("a bad URL: exit %d, stderr carries the URL:\n%s", code, errOut)
 	}
 }
