@@ -165,7 +165,7 @@ var (
 
 // fixtures returns one real-shaped object of every kind the dispatcher stores.
 func fixtures() []store.Object {
-	return storeaudit.Fixtures()
+	return append(storeaudit.Fixtures(), storeaudit.ObjectStoreFixtures()...)
 }
 
 // writeMix writes creates, updates and deletes across every kind, transcripts, and holds a

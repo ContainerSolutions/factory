@@ -11,8 +11,8 @@ const (
 	// encodedPrefix marks a name holding a run name that isn't safe as a file name, in
 	// base64url. It is outside the safe set, so the two never collide.
 	encodedPrefix = "~"
-	// maxName keeps names under the 255-byte limit of the file systems we run on.
-	maxName = 240
+	// MaxTranscriptName keeps names under the 255-byte limit of the file systems we run on.
+	MaxTranscriptName = 240
 )
 
 // TranscriptName returns run's blob name (P2's file name in transcripts/), or "" when run is
@@ -23,7 +23,7 @@ func TranscriptName(run string) string {
 		name = encodedPrefix + base64.RawURLEncoding.EncodeToString([]byte(run))
 	}
 	name += TranscriptSuffix
-	if len(name) > maxName {
+	if len(name) > MaxTranscriptName {
 		return ""
 	}
 	return name

@@ -11,6 +11,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/store"
 	"github.com/ContainerSolutions/factory/internal/store/filestore"
 	"github.com/ContainerSolutions/factory/internal/store/memory"
+	"github.com/ContainerSolutions/factory/internal/store/objectstore"
 )
 
 // serveStore is the dispatcher's store: the records, retention and transcripts, and Close,
@@ -39,6 +40,10 @@ func internalKinds() map[string]store.Object {
 		controllers.KindDebounce:    &controllers.DebounceRecord{},
 		controllers.KindTaskPrompt:  &controllers.TaskPrompt{},
 		controllers.KindKillSwitch:  &controllers.KillSwitch{},
+		// The object store's own: its lock records and transcript index (store.md §Object
+		// store). The file store registers them too, and never writes them.
+		objectstore.KindStoreLock:      &objectstore.StoreLock{},
+		objectstore.KindTranscriptBlob: &objectstore.TranscriptBlob{},
 	}
 }
 
