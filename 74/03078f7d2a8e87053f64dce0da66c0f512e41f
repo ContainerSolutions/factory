@@ -1,0 +1,11 @@
+lisa-design:
+- Leader gating is a Gate on controllers.Controller (SetGate: each reconcile waits for Held), not stopping/restarting controllers: Controller.Run may be called once, and informers on every instance keep the queues full for a takeover. Non-controller loops (sweeper, installation check) run per term via Leader.While.
+- Leader.Held is local: from a successful Lock/Renew until the lease that call set ends on this process's clock, so a paused holder stops before another instance can take over.
+- The scheduler's leader gate is scheduler.Options.Leader (lease controller + Refresh); the tick's wake runs everywhere.
+- sched lock: mint before the lock; a Lock timeout is errSchedBusy which ends the pass and sets schedBusyUntil (s.mu); the re-check reloads the snapshot under the lock and runs check() on the fresh task and agent; commitLocked runs under a SchedTTL/2 context.
+- Resync baselines live in LinkObservations (named by the work item); the first resync in a process is jittered only when a record exists (a new item gets its baseline at once).
+- observationDigest drops the "projections" JSON key rather than the Go field, so PR 6 can delete Observation.Projections without touching RT files.
+- OAuth state: payload.HMAC(key, "factory-oauth-state\x00"+payload); single use by Create of UsedLoginState (uls_<sha256(id)>); swept by the leader's sweep (serve's leaderSweeps), not by store retention.
+- Readiness: the server checks any Deps.Store implementing Ready() (server.StoreReadiness); Options.Ready removed.
+- Overlap audit fixes: rule processLocked re-checks EventStatus, debounce re-reads and deletes its record under the wi lock, Project runs under the wi lock on the item re-read there.
+- factory state --state-url uses a new objectstore.Read/View (read-only, no sync, no writes); reset refuses --state-url.
