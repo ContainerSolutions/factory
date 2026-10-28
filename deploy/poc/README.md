@@ -281,3 +281,16 @@ The commands below go to `POST /api/v1/commands` with the CLI token. The UI show
 4. Stop ngrok.
 
 A dispatcher restart keeps its state (§6, State): agents stay registered and running tasks carry on. Started with an empty state dir, it keeps nothing but what GitHub holds: work items come back from their markers, and agents must be enrolled again: their refresh tokens are refused (supervise then drops its own and says so), so put a new token from `bin/factory agent enroll` in `enrollment-token` and restart.
+
+## 12. Releasing
+
+Nothing releases on its own: no bot tags, bumps versions or drafts releases. A person releases by hand:
+
+1. On GitHub, create a release (Releases → Draft a new release) with a new tag `vX.Y.Z` on the commit to release (`main`, usually), and publish it. The tag must be `vX.Y.Z` or `vX.Y.Z-<suffix>`; any other fails the workflows.
+2. Publishing starts each `release-*.yml` workflow in `.github/workflows/`. Each is standalone, runs only on `release: published` and builds from the release's tag:
+
+| Workflow | What it adds to the release |
+|---|---|
+| `release-binaries.yml` | the assets `make release-assets VERSION=<tag>` builds into `dist/`: `factory-<os>-<arch>` (the dispatcher and CLI, UI embedded) for linux/amd64, linux/arm64 and darwin/arm64; `factory-agent-<os>-<arch>` for darwin/arm64, linux/amd64 and linux/arm64 (linux/arm64 is also the Mac's VM binary, `host init --agent-linux`); `SHA256SUMS` over them. |
+
+A workflow that fails can be re-run from its Actions page: the upload replaces the release's assets (`--clobber`). `make release-assets VERSION=v0.0.0-test` builds the same `dist/` locally (it needs Node, like `make build-release`); `cd dist && shasum -a 256 -c SHA256SUMS` checks it.
