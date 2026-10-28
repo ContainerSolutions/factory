@@ -2,8 +2,9 @@
 // later Slack): ingress, observation, projection, effects and git credentials for agents
 // (design/workstreams/foundation/LLD/contracts.md §Provider interface).
 //
-// The package holds only interfaces and plain types. Adapters live in sub-packages
-// (provider/github); provider/fake is the in-memory implementation for tests.
+// The package holds interfaces and plain types, and WriteProblem, which the adapters' webhook
+// handlers answer a refusal with. Adapters live in sub-packages (provider/github);
+// provider/fake is the in-memory implementation for tests.
 package provider
 
 import (

@@ -4,4 +4,5 @@ package github
 var (
 	FormatMarker = formatMarker
 	ParseMarker  = parseMarker
+	ObserveQuery = observeQuery
 )

@@ -261,6 +261,35 @@ func TestObserveFields(t *testing.T) {
 	})
 }
 
+// TestObserveReadsNoComments: Observe reads an object's comment count, never the comments: one
+// query, however many pages of comments the object has, and no comment body selected.
+func TestObserveReadsNoComments(t *testing.T) {
+	e := newEnv(t)
+	comments := make([]githubtest.Comment, 150) // two pages of 100
+	for i := range comments {
+		comments[i] = githubtest.Comment{Author: factory, Body: "<!-- factory:wi v=1 id=wi_57 -->\n🏭 Tracked by CCF Factory"}
+	}
+	e.srv.AddObject(githubtest.Object{Repo: docs, Number: 57, Author: human, Comments: comments})
+	c := e.connect(t)
+	o, err := c.Observe(context.Background(), objRef(provider.KindIssue, docs+"#57"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Issue == nil || o.Issue.Comments != len(comments) {
+		t.Errorf("issue = %+v, want %d comments", o.Issue, len(comments))
+	}
+	var ops []string
+	for _, q := range e.srv.GraphQLRequests() {
+		ops = append(ops, q.Operation)
+	}
+	if !reflect.DeepEqual(ops, []string{"Observe"}) {
+		t.Errorf("GraphQL operations = %v, want one Observe", ops)
+	}
+	if strings.Contains(github.ObserveQuery, "body") {
+		t.Error("observeQuery selects a body: Observe reads no untrusted text")
+	}
+}
+
 func TestObserveErrors(t *testing.T) {
 	e := observeEnv(t)
 	e.srv.SetGraphQL("Observe", map[string]any{"owner": org, "name": "docs", "number": 404}, readGraphQL(t, "not-found"))
