@@ -170,6 +170,11 @@ func (b *GCSBucket) notFound(ctx context.Context, op, name string, err error) er
 // confirmBucket lists one object unless a request proved the bucket exists within the
 // confirmation window. One caller lists at a time; the others wait for it (or their ctx)
 // and then find the proof, so concurrent not-found requests send one list per window.
+//
+// "At most once per window" holds while lists succeed. A failed list proves nothing, so
+// during a GCS failure every not-found Get or Delete lists again (one at a time) and returns
+// the list's error, never ErrNotExist. That is deliberate (Gustavo, 2026-10-28): no cap, so
+// a store never reads an unconfirmed 404 as a current log tail.
 func (b *GCSBucket) confirmBucket(ctx context.Context) error {
 	if b.recentlyProven() {
 		return nil

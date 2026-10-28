@@ -335,13 +335,16 @@ func sentinel(err error) string {
 
 // gcsServer answers a GCS list (GET …/o) with list, and every other request with object,
 // and counts the lists.
-func gcsServer(t *testing.T, object, list func() (int, string)) (*httptest.Server, *atomic.Int32) {
+func gcsServer(t *testing.T, object, list func(*http.Request) (int, string)) (*httptest.Server, *atomic.Int32) {
 	var lists atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		status, body := object()
+		var status int
+		var body string
 		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/o") {
 			lists.Add(1)
-			status, body = list()
+			status, body = list(r)
+		} else {
+			status, body = object(r)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
@@ -360,10 +363,10 @@ func TestGCSErrorMapping(t *testing.T) {
 	gcsError := func(code int, msg string) string {
 		return fmt.Sprintf(`{"error":{"code":%d,"message":%q,"errors":[{"message":%q,"domain":"global","reason":"notFound"}]}}`, code, msg, msg)
 	}
-	reply := func(code int, msg string) func() (int, string) {
-		return func() (int, string) { return code, gcsError(code, msg) }
+	reply := func(code int, msg string) func(*http.Request) (int, string) {
+		return func(*http.Request) (int, string) { return code, gcsError(code, msg) }
 	}
-	listOK := func() (int, string) { return http.StatusOK, `{"kind":"storage#objects"}` }
+	listOK := func(*http.Request) (int, string) { return http.StatusOK, `{"kind":"storage#objects"}` }
 	const (
 		noObject = "No such object: b/p/log/1"
 		noBucket = "The specified bucket does not exist."
@@ -376,7 +379,7 @@ func TestGCSErrorMapping(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		op           func(b Bucket) error
-		object, list func() (int, string)
+		object, list func(*http.Request) (int, string)
 		want         string
 		lists        int32
 	}{
@@ -424,26 +427,51 @@ func TestGCSErrorMapping(t *testing.T) {
 }
 
 // TestGCSConfirmWindow: a not-found Get confirms the bucket with a list at most once per
-// window (on an injected clock): not within it after a proof (a confirmed 404 or a
-// successful request), once after it, and a bucket gone after the window is reported
-// missing, not ErrNotExist. Parallel not-found Gets send one list between them.
+// window (on an injected clock): not within it after a proof, once after it, and a bucket
+// gone after the window is reported missing, not ErrNotExist. Every proof counts: a
+// confirmed 404, and a successful Get, Create (200 or 412), List (an empty page, or an
+// object before fn stops it) and Delete. Parallel not-found Gets send one list between
+// them, and a Get waiting for another's list returns when its ctx ends.
 func TestGCSConfirmWindow(t *testing.T) {
 	gcsError := func(code int, msg string) string {
 		return fmt.Sprintf(`{"error":{"code":%d,"message":%q,"errors":[{"message":%q,"domain":"global","reason":"notFound"}]}}`, code, msg, msg)
 	}
-	var objectFound, bucketGone atomic.Bool
-	object := func() (int, string) {
-		switch {
-		case bucketGone.Load():
+	// mode decides the canned answers: "" is a missing object in an existing bucket.
+	var mode atomic.Value
+	mode.Store("")
+	var objectHits atomic.Int32
+	block := make(chan struct{}) // a list waits on it in mode "block"
+	release := sync.OnceFunc(func() { close(block) })
+	defer release() // before the server's cleanup, which waits for a blocked list
+	listEntered := make(chan struct{}, 1)
+	object := func(r *http.Request) (int, string) {
+		objectHits.Add(1)
+		switch m := mode.Load().(string); {
+		case m == "gone":
 			return 404, gcsError(404, "Not found.") // reworded: the message match misses it
-		case objectFound.Load():
+		case m == "found" && r.Method == http.MethodGet:
 			return 200, "data"
+		case m == "found" && r.Method == http.MethodPost:
+			return 200, `{"kind":"storage#object","name":"p/log/1","bucket":"b","generation":"1"}`
+		case m == "taken" && r.Method == http.MethodPost:
+			return 412, gcsError(412, "conditionNotMet")
+		case m == "found" && r.Method == http.MethodDelete:
+			return 204, ""
 		}
 		return 404, gcsError(404, "No such object: b/p/log/1")
 	}
-	list := func() (int, string) {
-		if bucketGone.Load() {
+	list := func(*http.Request) (int, string) {
+		switch mode.Load().(string) {
+		case "gone":
 			return 404, gcsError(404, "Not found.")
+		case "items":
+			return 200, `{"kind":"storage#objects","items":[{"kind":"storage#object","name":"p/log/1","bucket":"b","size":"4"}]}`
+		case "block":
+			select {
+			case listEntered <- struct{}{}:
+			default:
+			}
+			<-block
 		}
 		time.Sleep(20 * time.Millisecond) // long enough for parallel callers to pile up
 		return 200, `{"kind":"storage#objects"}`
@@ -477,15 +505,41 @@ func TestGCSConfirmWindow(t *testing.T) {
 	get("ErrNotExist", 1) // still within the window
 	clk.Advance(2 * time.Second)
 	get("ErrNotExist", 2) // past it: one list
+
+	// Each proof, after the window: the operation, then a not-found Get that sends no list.
+	stop := errors.New("stop")
+	for _, p := range []struct {
+		name, mode string
+		op         func() error
+		want       string
+	}{
+		{"a successful Get", "found", func() error { _, err := b.Get(t.Context(), "log/1"); return err }, "nil"},
+		{"a successful Create", "found", func() error { return b.Create(t.Context(), "log/1", []byte("data")) }, "nil"},
+		{"a Create answered 412", "taken", func() error { return b.Create(t.Context(), "log/1", []byte("data")) }, "ErrExists"},
+		{"a List of an empty page", "", func() error { return b.List(t.Context(), "log/", "", func(ObjectInfo) error { return nil }) }, "nil"},
+		{"a List stopped at its first object", "items", func() error {
+			err := b.List(t.Context(), "log/", "", func(ObjectInfo) error { return stop })
+			if errors.Is(err, stop) {
+				return nil
+			}
+			return fmt.Errorf("List = %w, want the fn's error", err)
+		}, "nil"},
+		{"a successful Delete", "found", func() error { return b.Delete(t.Context(), "log/1") }, "nil"},
+	} {
+		clk.Advance(2 * window)
+		mode.Store(p.mode)
+		if got := sentinel(p.op()); got != p.want {
+			t.Fatalf("%s = %s, want %s", p.name, got, p.want)
+		}
+		mode.Store("")
+		n := lists.Load()
+		get("ErrNotExist", n) // the operation was the proof: no list
+	}
+
 	clk.Advance(2 * window)
-	objectFound.Store(true)
-	get("nil", 2) // a successful Get proves the bucket
-	objectFound.Store(false)
-	get("ErrNotExist", 2) // so the next 404 needs no list
-	clk.Advance(2 * window)
-	bucketGone.Store(true)
-	get("no bucket", 3) // gone after the window: the list's 404 says so
-	bucketGone.Store(false)
+	mode.Store("gone")
+	get("no bucket", lists.Load()+1) // gone after the window: the list's 404 says so
+	mode.Store("")
 
 	// Parallel not-found Gets past the window: one list between them.
 	clk.Advance(2 * window)
@@ -503,6 +557,38 @@ func TestGCSConfirmWindow(t *testing.T) {
 	}
 	if n := lists.Load() - before; n != 1 {
 		t.Fatalf("parallel not-found Gets sent %d lists, want 1", n)
+	}
+
+	// A Get waiting for another's list returns when its ctx ends, not ErrNotExist.
+	clk.Advance(2 * window)
+	mode.Store("block")
+	first := make(chan error, 1)
+	go func() { _, err := b.Get(t.Context(), "log/1"); first <- err }()
+	select { // the first Get holds the token, its list blocked
+	case <-listEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first Get never listed")
+	}
+	hits := objectHits.Load()
+	ctx, cancel := context.WithCancel(t.Context())
+	second := make(chan error, 1)
+	go func() { _, err := b.Get(ctx, "log/1"); second <- err }()
+	for objectHits.Load() == hits { // its own 404 is in: it goes on to wait for the token
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-second:
+		if !errors.Is(err, context.Canceled) || errors.Is(err, ErrNotExist) {
+			t.Fatalf("the waiting Get = %v, want context.Canceled and not ErrNotExist", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the waiting Get didn't return when its ctx ended")
+	}
+	release()
+	if err := <-first; !errors.Is(err, ErrNotExist) {
+		t.Fatalf("the listing Get = %v, want ErrNotExist", err)
 	}
 }
 
