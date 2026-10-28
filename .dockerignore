@@ -1,0 +1,16 @@
+# The Dockerfile's build context: sources only, never credentials or build outputs.
+.git
+.github
+**/.env
+**/.env.*
+!**/.env.example
+deploy/poc/.env
+deploy/poc/logs/
+bin/
+dist/
+internal/webui/dist/
+web/node_modules/
+web/dist/
+go.work
+go.work.sum
+**/.DS_Store
