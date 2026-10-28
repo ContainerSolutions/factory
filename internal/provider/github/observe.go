@@ -23,7 +23,7 @@ const maxFollowPages = 10
 // observePerms are the read identity's permissions for Observe, exactly what observeQuery
 // reads: the issue or the PR with its reviews and threads (issues, pull_requests), the
 // commits it reaches (the head, the merge commit, each review's commit: contents) and the head
-// commit's check suites (checks). List, ReadContent and Project's reads share the set, so one
+// commit's check suites (checks). ReadContent and Project's reads share the set, so one
 // cached token per repo serves them all. No statuses: the head's statusCheckRollup also
 // covers commit statuses, which the factory's Apps aren't granted (see checksOf).
 var observePerms = map[string]string{"issues": "read", "pull_requests": "read", "contents": "read", "checks": "read"}
@@ -63,7 +63,6 @@ const observeQuery = `query Observe($owner: String!, $name: String!, $number: In
         reviews(last: 100) { nodes { author { __typename login } state commit { oid } } }
         reviewThreads(first: 100) { pageInfo { hasNextPage endCursor } nodes { isResolved } }
         commits(last: 1) { nodes { commit { oid checkSuites(first: 100) { nodes { status conclusion checkRuns(first: 1) { totalCount } } } } } }
-        comments { totalCount }
       }
     }
   }
@@ -115,10 +114,10 @@ type (
 				Name string `json:"name"`
 			} `json:"nodes"`
 		} `json:"labels"`
+		// Issue.
 		Comments struct {
 			TotalCount int `json:"totalCount"`
 		} `json:"comments"`
-		// Issue.
 		SubIssues struct {
 			Nodes []gqlNumbered `json:"nodes"`
 		} `json:"subIssues"`

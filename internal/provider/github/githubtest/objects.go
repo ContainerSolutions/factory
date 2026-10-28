@@ -721,7 +721,7 @@ func (s *Server) gqlObserve(repo string, n int) map[string]any {
 	}
 	obj := map[string]any{
 		"id": "obj:" + objectKey(o.Repo, o.Number), "number": o.Number, "updatedAt": o.UpdatedAt.UTC().Format(time.RFC3339),
-		"author": gqlActor(o.Author), "labels": map[string]any{"nodes": labels}, "comments": map[string]any{"totalCount": len(o.Comments)},
+		"author": gqlActor(o.Author), "labels": map[string]any{"nodes": labels},
 	}
 	if o.PR {
 		var mergedAt any
@@ -756,6 +756,7 @@ func (s *Server) gqlObserve(repo string, n int) map[string]any {
 		obj["commits"] = map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"oid": o.Head, "checkSuites": map[string]any{"nodes": suites}}}}}
 	} else {
 		obj["__typename"] = "Issue"
+		obj["comments"] = map[string]any{"totalCount": len(o.Comments)}
 		obj["state"] = strings.ToUpper(o.State)
 		obj["subIssues"] = map[string]any{"nodes": []any{}}
 		obj["closedByPullRequestsReferences"] = map[string]any{"nodes": []any{}}

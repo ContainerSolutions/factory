@@ -364,7 +364,7 @@ func TestHandler(t *testing.T) {
 		{name: "sink fails", method: http.MethodPost, body: body, sinkErr: errors.New("store down"), want: http.StatusServiceUnavailable, code: "unavailable"},
 		{name: "wrong method", method: http.MethodGet, want: http.StatusMethodNotAllowed, code: "method-not-allowed"},
 		{name: "bad body", method: http.MethodPost, body: `{"type":`, want: http.StatusBadRequest, code: "invalid-request"},
-		{name: "too large", method: http.MethodPost, body: `{"facts":{"x":"` + strings.Repeat("a", fake.MaxWebhookBytes) + `"}}`, want: http.StatusBadRequest, code: "invalid-request"},
+		{name: "too large", method: http.MethodPost, body: `{"facts":{"x":"` + strings.Repeat("a", fake.MaxWebhookBytes) + `"}}`, want: http.StatusRequestEntityTooLarge, code: "payload-too-large"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -19,8 +19,7 @@
         "labels": { "nodes": [ { "name": "wontfix" } ] },
         "reviews": { "nodes": [] },
         "reviewThreads": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] },
-        "commits": { "nodes": [ { "commit": { "oid": "feed000000000000000000000000000000000001", "checkSuites": { "nodes": [] } } } ] },
-        "comments": { "totalCount": 1 }
+        "commits": { "nodes": [ { "commit": { "oid": "feed000000000000000000000000000000000001", "checkSuites": { "nodes": [] } } } ] }
       }
     }
   }

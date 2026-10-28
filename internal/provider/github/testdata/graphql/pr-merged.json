@@ -23,8 +23,7 @@
           ]
         },
         "reviewThreads": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [ { "isResolved": true } ] },
-        "commits": { "nodes": [ { "commit": { "oid": "beef000000000000000000000000000000000002", "checkSuites": { "nodes": [ { "status": "COMPLETED", "conclusion": "SUCCESS", "checkRuns": { "totalCount": 4 } } ] } } } ] },
-        "comments": { "totalCount": 0 }
+        "commits": { "nodes": [ { "commit": { "oid": "beef000000000000000000000000000000000002", "checkSuites": { "nodes": [ { "status": "COMPLETED", "conclusion": "SUCCESS", "checkRuns": { "totalCount": 4 } } ] } } } ] }
       }
     }
   }
