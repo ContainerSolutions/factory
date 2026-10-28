@@ -238,9 +238,20 @@ type runEndStore struct {
 	onRunEnd func()
 	fired    bool
 	locking  chan string
+	// failTask, when set, fails the next Task update (once).
+	failTask error
 }
 
 func (s *runEndStore) Update(ctx context.Context, obj store.Object) error {
+	if _, ok := obj.(*v1alpha1.Task); ok {
+		s.mu.Lock()
+		err := s.failTask
+		s.failTask = nil
+		s.mu.Unlock()
+		if err != nil {
+			return err
+		}
+	}
 	if err := s.Store.Update(ctx, obj); err != nil {
 		return err
 	}
@@ -332,18 +343,18 @@ func TestOneRunPerAttempt(t *testing.T) {
 			name: "the finish failed after the run's end",
 			drive: func(t *testing.T, e *env, rc *RunController, s *runEndStore, id string) {
 				e.lease(id)
-				// The task's write lost to the lease's renewal: the run ended, the task is Leased.
+				// The task's write failed: the run ended, the task is Leased. (A lease renewal
+				// in between no longer fails it: the task is written on a fresh read.)
+				errTaskWrite := errors.New("injected: the task's write failed")
 				s.mu.Lock()
 				s.onRunEnd = func() {
-					tk := e.task(id)
-					tk.Status.LeaseExpiresAt = e.clk.Now().Add(4 * time.Minute)
-					if err := e.st.Update(e.ctx, tk); err != nil {
-						t.Error(err)
-					}
+					s.mu.Lock()
+					s.failTask = errTaskWrite
+					s.mu.Unlock()
 				}
 				s.mu.Unlock()
-				if _, err := rc.Complete(e.ctx, id, failedResult()); !errors.Is(err, store.ErrConflict) {
-					t.Fatalf("Complete = %v, want a conflict", err)
+				if _, err := rc.Complete(e.ctx, id, failedResult()); !errors.Is(err, errTaskWrite) {
+					t.Fatalf("Complete = %v, want the task's write to fail", err)
 				}
 				if res, err := rc.Reconcile(e.ctx, id); err != nil || res != (Result{}) {
 					t.Fatalf("Reconcile = %+v, %v", res, err)
