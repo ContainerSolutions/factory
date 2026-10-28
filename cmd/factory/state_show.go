@@ -53,7 +53,7 @@ func stateTask(ctx context.Context, r *stateRun, args []string) int {
 	if !ok {
 		return code
 	}
-	if code, ok := r.open(); !ok {
+	if code, ok := r.open(ctx); !ok {
 		return code
 	}
 	var tv taskView
@@ -210,7 +210,7 @@ func stateRunCmd(ctx context.Context, r *stateRun, args []string) int {
 	if !ok {
 		return code
 	}
-	if code, ok := r.open(); !ok {
+	if code, ok := r.open(ctx); !ok {
 		return code
 	}
 	var run v1alpha1.Run
@@ -341,7 +341,7 @@ func stateWorkItem(ctx context.Context, r *stateRun, args []string) int {
 	if !ok {
 		return code
 	}
-	if code, ok := r.open(); !ok {
+	if code, ok := r.open(ctx); !ok {
 		return code
 	}
 	var wv workItemView

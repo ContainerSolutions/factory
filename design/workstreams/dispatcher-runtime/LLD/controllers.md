@@ -107,7 +107,7 @@ The deliveries `Recover` brings back, and webhooks received meanwhile, are accep
 
 `Held` is true from a successful `Lock` or `Renew` until the lease that call set ends on this process's clock, so a holder paused past its lease stops reconciling before another instance can take over; a failed `Renew` ends the term. A clean shutdown releases the lock once the loops have stopped, so another instance takes over at its next try. With one dispatcher it is always the leader.
 
-**Overlapping leaders** (an old leader paused past its lease, still inside a reconcile) can't apply anything twice: every store write a leader-only loop makes is a create, a compare-and-swap, or runs under the store-wide work-item lock, which also guards the provider calls (`Apply`, `Project`). Under the lock, what a reconcile read before is read again: the rule controller checks the event's `EventStatus`, the debounce controller its record (deleted under the lock), and the work-item controller projects the item it reads there.
+**Overlapping leaders** (an old leader paused past its lease, still inside a reconcile) can't apply anything twice: every store write a leader-only loop makes is a create, a compare-and-swap, or runs under the store-wide work-item lock, which also guards the provider calls (`Apply`, `Project`); the rest are deletes of records whose purpose is over (a handled delivery, an aged-out mark, an expired token or login state, an orphan baseline), where a second delete finds nothing. Under the lock, what a reconcile read before is read again: the rule controller checks the event's `EventStatus`, the debounce controller its record (deleted under the lock), and the work-item controller projects the item it reads there.
 
 ## Tests
 

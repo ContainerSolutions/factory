@@ -442,8 +442,10 @@ func TestServeShutdownWithIdleConnection(t *testing.T) {
 	}
 	for _, conn := range conns {
 		_ = conn.SetReadDeadline(time.Now().Add(time.Second))
-		if _, err := conn.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
-			t.Errorf("the idle connection: read %v, want it closed (EOF)", err)
+		// Closed: EOF, or a reset when the listener closed before accepting it.
+		var ne net.Error
+		if _, err := conn.Read(make([]byte, 1)); err == nil || (errors.As(err, &ne) && ne.Timeout()) {
+			t.Errorf("the idle connection: read %v, want it closed", err)
 		}
 	}
 }
@@ -558,6 +560,12 @@ func TestParseServeConfig(t *testing.T) {
 		{name: "short previous session key", env: func() map[string]string { m := testEnv(); m[envSessionKeyPrevious] = "short"; return m }(),
 			wantErr: []string{envSessionKeyPrevious + " must be at least 32 bytes"}},
 		{name: "zero sync interval", args: []string{"--state-sync-interval", "0s"}, env: testEnv(), wantErr: []string{"--state-sync-interval must be positive"}},
+		{name: "sync interval without a state url", args: []string{"--state-sync-interval", "5s"}, env: testEnv(),
+			check: func(t *testing.T, _ serveConfig, w []string) {
+				if !strings.Contains(strings.Join(w, "\n"), "--state-sync-interval applies to --state-url only") {
+					t.Errorf("warnings %v", w)
+				}
+			}},
 		{name: "missing secrets", env: without(envOAuthClientSecret, envCLIToken),
 			wantErr: []string{"missing environment variables: FACTORY_OAUTH_CLIENT_SECRET, FACTORY_CLI_TOKEN"}},
 		{name: "all secrets missing", env: map[string]string{},

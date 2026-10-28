@@ -119,7 +119,7 @@ func (l *Leader) step(ctx context.Context) {
 			l.endTerm(lease)
 			return
 		}
-		l.held(lease, start)
+		l.held(lease, start, true)
 		return
 	}
 	u, err := l.s.Lock(tctx, LeaderLock, l.opts.TTL)
@@ -137,13 +137,17 @@ func (l *Leader) step(ctx context.Context) {
 		return
 	}
 	l.log.Info("leader: this instance holds the leader lock and runs the leader's loops", "ttl", l.opts.TTL.String())
-	l.held(u, start)
+	l.held(u, start, false)
 }
 
-// held records a successful Lock or Renew made at start.
-func (l *Leader) held(lease store.Unlock, start time.Time) {
+// held records a successful Lock, or a Renew of lease, made at start. A Renew of a lease the
+// term no longer holds (Release meanwhile) changes nothing.
+func (l *Leader) held(lease store.Unlock, start time.Time, renewed bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if renewed && l.lease != lease {
+		return
+	}
 	if l.lease == nil {
 		l.term = make(chan struct{})
 	}

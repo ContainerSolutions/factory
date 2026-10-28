@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -414,5 +415,65 @@ func TestServeStateURLRefusals(t *testing.T) {
 	cfg.StateURL, cfg.StateMemory = "gs://bucket/prefix?token=hunter2-secret", false
 	if err := runServe(ctx, cfg, serveDeps{Getenv: getenvOf(testEnv())}, log); err == nil || strings.Contains(err.Error(), "hunter2") {
 		t.Errorf("an unusable --state-url: %v", err)
+	}
+}
+
+// closingBucket is a bucket that counts its Close calls, as the GCS and S3 buckets hold
+// connections.
+type closingBucket struct {
+	objectstore.Bucket
+	closed int
+}
+
+func (b *closingBucket) Close() error {
+	b.closed++
+	return nil
+}
+
+// The shared store closes its bucket after itself.
+func TestSharedStoreClosesItsBucket(t *testing.T) {
+	ctx := context.Background()
+	b := &closingBucket{Bucket: objectstore.NewFakeBucket(nil)}
+	st, err := objectstore.Open(ctx, b, store.Options{Logger: slog.New(slog.DiscardHandler)}, objectStoreKinds()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := sharedStore{Store: st, bucket: b}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if b.closed != 1 {
+		t.Fatalf("the bucket was closed %d times, want once", b.closed)
+	}
+	if err := st.Ready(); !errors.Is(err, objectstore.ErrClosed) {
+		t.Fatalf("the store: %v, want it closed first", err)
+	}
+}
+
+// staticSweeper is a store.Sweeper with a fixed answer.
+type staticSweeper struct{ err error }
+
+func (s staticSweeper) Sweep(context.Context) (store.SweepResult, error) {
+	return store.SweepResult{}, s.err
+}
+
+// The leader's sweep runs the store's, then each record sweep, whatever fails.
+func TestLeaderSweeps(t *testing.T) {
+	var ran []string
+	sweep := func(what string, err error) recordSweep {
+		return recordSweep{what: what, sweep: func(context.Context) (int, error) {
+			ran = append(ran, what)
+			return 1, err
+		}}
+	}
+	l := leaderSweeps{st: staticSweeper{err: errors.New("store down")}, log: slog.New(slog.DiscardHandler), extra: []recordSweep{
+		sweep("used login states", errors.New("list failed")), sweep("resync baselines", nil),
+	}}
+	_, err := l.Sweep(context.Background())
+	if strings.Join(ran, ",") != "used login states,resync baselines" {
+		t.Fatalf("ran %v, want every sweep", ran)
+	}
+	if err == nil || !strings.Contains(err.Error(), "store down") || !strings.Contains(err.Error(), "sweep used login states: list failed") {
+		t.Fatalf("err = %v, want both failures", err)
 	}
 }

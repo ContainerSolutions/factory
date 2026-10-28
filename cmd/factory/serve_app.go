@@ -479,7 +479,10 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 
 	// The controllers (their reconciles wait for the leader lock) and the leader's sweep: the
 	// store's retention, then the records it can't age out on its own.
-	sweeps := leaderSweeps{st: st, authn: authn, wic: wic, log: log.With("component", "sweeper")}
+	sweeps := leaderSweeps{st: st, log: log.With("component", "sweeper"), extra: []recordSweep{
+		{"used login states", authn.SweepUsedStates},
+		{"resync baselines of deleted work items", wic.SweepObservations},
+	}}
 	group.Go(runCtx, "sweeper", func(ctx context.Context) error {
 		leader.While(ctx, "sweeper", func(ctx context.Context) error {
 			store.RunSweeper(ctx, sweeps, 0, sweeps.log)
@@ -512,26 +515,32 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 
 // leaderSweeps is the leader's sweep: the store's own (retention, and the object store's
 // compaction, lock records and transcript orphans), then the records nothing else ages out:
-// used login states past their expiry and resync baselines whose work item is gone.
+// used login states past their expiry and resync baselines whose work item is gone. A
+// failing step doesn't stop the others; their errors are joined.
 type leaderSweeps struct {
 	st    store.Sweeper
-	authn *auth.Authenticator
-	wic   *controllers.WorkItemController
+	extra []recordSweep
 	log   *slog.Logger
+}
+
+// recordSweep deletes what of one kind has aged out, and says how many.
+type recordSweep struct {
+	what  string
+	sweep func(context.Context) (int, error)
 }
 
 // Sweep implements store.Sweeper.
 func (l leaderSweeps) Sweep(ctx context.Context) (store.SweepResult, error) {
 	res, err := l.st.Sweep(ctx)
-	if n, uerr := l.authn.SweepUsedStates(ctx); uerr != nil {
-		err = errors.Join(err, uerr)
-	} else if n > 0 {
-		l.log.DebugContext(ctx, "swept used login states", "deleted", n)
-	}
-	if n, oerr := l.wic.SweepObservations(ctx); oerr != nil {
-		err = errors.Join(err, oerr)
-	} else if n > 0 {
-		l.log.InfoContext(ctx, "swept resync baselines of deleted work items", "deleted", n)
+	for _, x := range l.extra {
+		n, xerr := x.sweep(ctx)
+		if xerr != nil {
+			err = errors.Join(err, fmt.Errorf("sweep %s: %w", x.what, xerr))
+			continue
+		}
+		if n > 0 {
+			l.log.DebugContext(ctx, "swept "+x.what, "deleted", n)
+		}
 	}
 	return res, err
 }

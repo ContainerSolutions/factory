@@ -238,9 +238,9 @@ func (r *stateRun) noStateDir() int {
 }
 
 // open reads the state dir, or the --state-url's bucket; code is the exit code when it can't.
-func (r *stateRun) open() (code int, ok bool) {
+func (r *stateRun) open(ctx context.Context) (code int, ok bool) {
 	if r.urlFlag != "" {
-		return r.openURL()
+		return r.openURL(ctx)
 	}
 	if err := r.resolveDir(); err != nil {
 		fmt.Fprintf(r.stderr, "%s: %v\n", r.name, err)
@@ -263,13 +263,13 @@ func (r *stateRun) open() (code int, ok bool) {
 
 // openURL reads the --state-url's bucket, once and read-only: it writes nothing and takes no
 // lock, so it works while dispatchers run on it. Its errors never print the URL.
-func (r *stateRun) openURL() (code int, ok bool) {
+func (r *stateRun) openURL(ctx context.Context) (code int, ok bool) {
 	if r.dirFlag != "" {
 		fmt.Fprintf(r.stderr, "%s: --state-dir and --state-url are exclusive\n", r.name)
 		return exitUsage, false
 	}
 	r.dir, r.dirFrom = "the "+stateURLScheme(r.urlFlag)+" state", "--state-url"
-	ctx, cancel := context.WithTimeout(context.Background(), stateReadTimeout)
+	ctx, cancel := context.WithTimeout(ctx, stateReadTimeout)
 	defer cancel()
 	b, err := objectstore.ParseURL(ctx, r.urlFlag)
 	if err != nil {

@@ -40,7 +40,7 @@ func stateTasks(ctx context.Context, r *stateRun, args []string) int {
 		fmt.Fprintf(r.stderr, "%s: %v\n", r.name, err)
 		return exitUsage
 	}
-	if code, ok := r.open(); !ok {
+	if code, ok := r.open(ctx); !ok {
 		return code
 	}
 	tasks, err := listAll[v1alpha1.Task](ctx, r.view, v1alpha1.KindTask)
@@ -191,7 +191,7 @@ func stateEvents(ctx context.Context, r *stateRun, args []string) int {
 		fmt.Fprintf(r.stderr, "%s: %v\n", r.name, err)
 		return exitUsage
 	}
-	if code, ok := r.open(); !ok {
+	if code, ok := r.open(ctx); !ok {
 		return code
 	}
 	events, err := listAll[v1alpha1.Event](ctx, r.view, v1alpha1.KindEvent)
@@ -256,7 +256,7 @@ type logLine struct {
 	Obj  json.RawMessage `json:"obj,omitempty"`
 }
 
-func stateLog(_ context.Context, r *stateRun, args []string) int {
+func stateLog(ctx context.Context, r *stateRun, args []string) int {
 	fl := r.flags("[--since 10m]", true)
 	sinceFlag := fl.String("since", "", "only changes this recent (10m, 2h, 1d)")
 	if _, code, ok := r.parse(fl, args, 0); !ok {
@@ -267,7 +267,7 @@ func stateLog(_ context.Context, r *stateRun, args []string) int {
 		fmt.Fprintf(r.stderr, "%s: %v\n", r.name, err)
 		return exitUsage
 	}
-	if code, ok := r.open(); !ok {
+	if code, ok := r.open(ctx); !ok {
 		return code
 	}
 	journal := r.view.Journal()
