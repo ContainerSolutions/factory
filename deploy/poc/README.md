@@ -180,6 +180,50 @@ For each agent owner, on their machine (rollout.md §Agent onboarding). The disp
 
 The agent is `factory-agent supervise`: it runs each leased task in its own VM workspace behind a gateway that holds every credential, a tart VM on an Apple-silicon Mac ([supervise.md](../../design/workstreams/agent/LLD/supervise.md)) or a Kata microVM on Linux ([workspace-kata.md](../../design/workstreams/agent/LLD/workspace-kata.md)). Run every step from a checkout of this repository, as the owner's own user (not root; the workspaces are that user's).
 
+### The one-line install (from a release)
+
+Without a checkout, `install.sh` (attached to every release, §12) does steps 1 to 4 from the release's binaries, and writes the whole `agent.yaml` itself:
+
+```bash
+curl -fsSL https://github.com/ContainerSolutions/factory/releases/latest/download/install.sh | bash
+```
+
+It asks for each setting, showing its default (Enter takes it), then shows the `agent.yaml` and asks before writing it. With `--quiet` it asks nothing and takes every default; only the dispatcher's URL and the enrollment token have none, so they must be given:
+
+```bash
+curl -fsSL https://github.com/ContainerSolutions/factory/releases/latest/download/install.sh | bash -s -- --quiet --dispatcher https://factory.example.dev --enrollment-token-file ~/token
+```
+
+Every setting is a flag (after `bash -s --`) or an environment variable, the flag winning; the default mode asks only for the ones neither gives. Lists are comma-separated. `--help` lists them.
+
+| Flag | Environment | Default |
+|---|---|---|
+| `--dispatcher URL` | `FACTORY_DISPATCHER` | none: **required**. https, or http on a loopback host |
+| `--enrollment-token-file PATH` | `FACTORY_ENROLLMENT_TOKEN` (the token itself) | none: **required**, unless the host is already enrolled or `~/.config/factory-agent/enrollment-token` exists; the default mode asks for it (not echoed) |
+| `--pool NAME` | `FACTORY_POOL` | `local` |
+| `--host NAME` | `FACTORY_HOST` | the machine's short host name, lower-cased |
+| `--harnesses LIST` | `FACTORY_HARNESSES` | `codex,claude-code` (at least one of the two) |
+| `--codex-models LIST`, `--codex-default MODEL`, `--codex-efforts LIST` | `FACTORY_CODEX_MODELS`, `_DEFAULT`, `_EFFORTS` | `gpt-6.1-sol`, `gpt-6.1-sol`, `low,medium,high` |
+| `--claude-models LIST`, `--claude-default MODEL`, `--claude-efforts LIST` | `FACTORY_CLAUDE_MODELS`, `_DEFAULT`, `_EFFORTS` | `claude-sonnet-5-5,claude-opus-5-5`, `claude-sonnet-5-5`, `low,medium,high,max` |
+| `--max-concurrent N` | `FACTORY_MAX_CONCURRENT` | `1` (`lending: {unlimited: true, maxConcurrent: N}`) |
+| `--cpus N`, `--memory NGi`, `--disk NGi` | `FACTORY_CPUS`, `FACTORY_MEMORY`, `FACTORY_DISK` | `6`, `8Gi`, `60Gi` (each VM workspace's `workspace.size`: 1 to 16, 2Gi to 64Gi, 20Gi to 500Gi) |
+
+The defaults are `agent.yaml.example`'s, and the TaskSpecs' models match them. Change the codex model if your codex sign-in doesn't offer it (see `/model` in codex). Efforts are from `minimal`, `low`, `medium`, `high`, `max`, and a default model must be one of the models. Every value is checked before anything changes; a bad one is an error naming its flag. No flag takes the enrollment token itself (it would show in `ps` and the shell history), and the token is never printed.
+
+It runs as you, on an Apple-silicon Mac (tart) or a Linux x86-64 host (kata), and:
+
+1. checks the settings, and works out the enrollment token: none when the agent's state dir already holds a refresh token (the host is enrolled) or `~/.config/factory-agent/enrollment-token` exists; else `--enrollment-token-file`'s single line, `FACTORY_ENROLLMENT_TOKEN`, or a prompt, after printing the host's name and the `factory agent enroll --pool <pool> --owner <your GitHub login> --name <host>` command an admin runs to mint it;
+2. downloads `factory-agent-<os>-<arch>` (on a Mac also `factory-agent-linux-arm64`, the VMs' binary) of the latest release, or of `FACTORY_VERSION=vX.Y.Z`, and refuses them unless they match the release's `SHA256SUMS`;
+3. installs them to `~/.local/bin` (`FACTORY_PREFIX`), mode 0755;
+4. writes `~/.config/factory-agent/agent.yaml` (0600) and the enrollment token file (0600). **An existing `agent.yaml` is kept unless `--force`** (the default mode asks, default no; `--quiet` keeps it): replacing it first copies it to `agent.yaml.bak-<UTC time>` (0600). A kept one isn't rewritten, and the other steps still run;
+5. runs `factory-agent host init --driver tart --agent-linux …` or `--driver kata` (`--yes` with `--quiet`), which asks for sudo itself;
+6. offers `factory-agent login claude` (paste the `claude setup-token` token) and `factory-agent login codex` (after `codex login`), each skippable; `--quiet` skips both and prints the commands;
+7. installs supervise as a launchd user agent (`~/Library/LaunchAgents/com.containersolutions.factory-agent.plist`) or a systemd user service (`~/.config/systemd/user/factory-agent.service`; `loginctl enable-linger` keeps it running while you are logged out), logging to `supervise.log` in the agent's state dir.
+
+The other flags, which combine with both modes: `--dry-run` prints every step and command and changes nothing (it downloads nothing either); `--no-service` skips step 7; `--force` replaces an existing `agent.yaml`. (`--yes` is replaced by `--quiet`.) To undo it, it prints the commands at the end: `launchctl bootout gui/$UID/com.containersolutions.factory-agent` and remove the plist (Mac), or `systemctl --user disable --now factory-agent` and remove the unit (Linux); then remove the binaries from `~/.local/bin`, and `~/.config/factory-agent` and the state dir if you want them gone. `factory-agent host init`'s own changes stay ([workspace-host.md](../../design/workstreams/agent/LLD/workspace-host.md)).
+
+From a checkout instead:
+
 1. **The enrollment token.** An admin of the dispatcher mints one for your host, with the CLI token:
 
    ```bash
@@ -195,7 +239,7 @@ The agent is `factory-agent supervise`: it runs each leased task in its own VM w
    Paste the token, press Enter, then Ctrl-D. `<host>` must be the agent's `host` (default: the machine's short host name, lower-cased).
 2. **The config.** Copy `deploy/poc/agent.yaml.example` to `~/.config/factory-agent/agent.yaml`, then `chmod 600` it. Edit:
    - `dispatcher`: `$FACTORY_PUBLIC_URL`, or `http://127.0.0.1:8800` on the dispatcher's own machine;
-   - the harnesses and models your plans allow. The codex model in the example (`gpt-6.1-sol`) is a placeholder: put `<a gpt-5* or gpt-6* model your codex sign-in offers>` (see `/model` in codex) in `models` and `default`. A configured harness is offered when its login is stored (step 3);
+   - the harnesses and models your plans allow. Change the example's codex model (`gpt-6.1-sol`) if your codex sign-in doesn't offer it (see `/model` in codex): a `gpt-5*` or `gpt-6*` model, in `models` and `default`. A configured harness is offered when its login is stored (step 3);
    - `lending`;
    - `workspace`, whose driver defaults to tart on a Mac and kata on Linux.
 
@@ -281,3 +325,34 @@ The commands below go to `POST /api/v1/commands` with the CLI token. The UI show
 4. Stop ngrok.
 
 A dispatcher restart keeps its state (§6, State): agents stay registered and running tasks carry on. Started with an empty state dir, it keeps nothing but what GitHub holds: work items come back from their markers, and agents must be enrolled again: their refresh tokens are refused (supervise then drops its own and says so), so put a new token from `bin/factory agent enroll` in `enrollment-token` and restart.
+
+## 12. Releasing
+
+Nothing releases on its own: no bot tags, bumps versions or drafts releases. A person releases by hand:
+
+1. On GitHub, create a release (Releases → Draft a new release) with a new tag `vX.Y.Z` on the commit to release (`main`, usually), and publish it. The tag must be `vX.Y.Z` or `vX.Y.Z-<suffix>`; any other fails the workflows.
+2. Publishing starts each `release-*.yml` workflow in `.github/workflows/`. Each is standalone, runs only on `release: published` and builds from the release's tag:
+
+| Workflow | What it adds to the release |
+|---|---|
+| `release-binaries.yml` | the assets `make release-assets VERSION=<tag>` builds into `dist/`: `factory-<os>-<arch>` (the dispatcher and CLI, UI embedded) for linux/amd64, linux/arm64 and darwin/arm64; `factory-agent-<os>-<arch>` for darwin/arm64, linux/amd64 and linux/arm64 (linux/arm64 is also the Mac's VM binary, `host init --agent-linux`); `install.sh`, the agent host installer (§8); `SHA256SUMS` over them. |
+| `release-image.yml` | pushes the dispatcher image, the root `Dockerfile` (`factory` with the UI, on Alpine with `git` and the CA roots, as uid 65532), to `ghcr.io/containersolutions/factory:<tag>` and `:latest`, for linux/amd64 and linux/arm64. `make image` builds it locally (`IMAGE`, default `factory:dev`) and never pushes. |
+
+A workflow that fails can be re-run from its Actions page: the upload replaces the release's assets (`--clobber`). `make release-assets VERSION=v0.0.0-test` builds the same `dist/` locally (it needs Node, like `make build-release`); `cd dist && shasum -a 256 -c SHA256SUMS` checks it.
+
+### Run the image
+
+The image's entrypoint is `factory` and its default command `serve`; give `serve`'s flags after the image name, as `run.sh` does (§6). It holds no secret: every `FACTORY_*` variable of §3 comes from the environment at run time. Pass them by name from a shell that loaded `.env` (a PEM spans lines, which `docker run --env-file` can't carry). The state dir (§6, State) belongs on a volume at `/var/lib/factory`, owned by uid 65532 (a named volume is; a host directory must be `chown 65532` and mode 0700):
+
+```bash
+set -a; . deploy/poc/.env; set +a
+docker run --rm -p 127.0.0.1:8800:8800 -v factory-state:/var/lib/factory \
+  -e FACTORY_PUBLIC_URL -e FACTORY_OAUTH_CLIENT_ID -e FACTORY_OAUTH_CLIENT_SECRET \
+  -e FACTORY_SESSION_KEY -e FACTORY_CLI_TOKEN \
+  -e FACTORY_SECRET_GITHUB_PUBLIC_WEBHOOK_SECRET -e FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY \
+  -e FACTORY_SECRET_CCF_FACTORY_REVIEWER_APP_PRIVATE_KEY -e FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN \
+  ghcr.io/containersolutions/factory:<tag> \
+  serve --state-dir /var/lib/factory/state --log-format json
+```
+
+`--addr` defaults to `:8800`, the port the image exposes. The catalog defaults to `catalog/` of this repository at `main` (`--catalog-repo`, `--catalog-ref`, `--catalog-path`); `--catalog-dir` needs the directory mounted. The ops listener (`--ops-addr`, `/healthz`, `/readyz`, `/metrics`) must stay on loopback, so it is reachable only from inside the container.

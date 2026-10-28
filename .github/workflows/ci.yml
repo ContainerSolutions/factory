@@ -2,9 +2,9 @@
 # pinned to a release commit, and its shared golangci-lint config (the repo has none). Renovate
 # bumps the third-party deps (Go modules, npm, actions), but the compliance-framework/workflows
 # pins (ci-go-service.yml and notify-failure.yml, both at the same release commit) are still moved
-# by hand: factory is listed in workflows' repos.yaml with release: false, and ccf-bump only bumps
-# release: true repos. That changes when factory gets its release workflow and is switched to
-# release: true. The web app (web/) has its own local job.
+# by hand. Releases are manual: a person publishes a GitHub release, and the standalone
+# release-*.yml workflows attach or push its artifacts (deploy/poc/README.md §Releasing). The web
+# app (web/) has its own local job.
 # The kata job builds the kata driver's workspace image (internal/agent/host/provision/kata
 # with base.sh in its image mode) on an amd64 runner, so the script's amd64 form is tested for
 # real; the arm64 (tart) form is only bash -n'd, in the Go tests.
