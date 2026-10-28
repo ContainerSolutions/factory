@@ -13,8 +13,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/store/filestore"
 )
 
-// TestBuckets: the fake and the file bucket behave alike: create-only creates, listing in name
-// order after startAfter, deletes and not-exist errors.
+// TestBuckets: the fake and the file bucket pass the bucket conformance (testBucket).
 func TestBuckets(t *testing.T) {
 	for name, open := range map[string]func(t *testing.T) Bucket{
 		"fake": func(*testing.T) Bucket { return NewFakeBucket(nil) },
@@ -24,47 +23,65 @@ func TestBuckets(t *testing.T) {
 			return b
 		},
 	} {
-		t.Run(name, func(t *testing.T) {
-			b, ctx := open(t), t.Context()
-			if _, err := b.Get(ctx, "log/1"); !errors.Is(err, ErrNotExist) {
-				t.Fatalf("Get of nothing = %v", err)
-			}
-			must(t, b.Create(ctx, "log/1", []byte("one")))
-			if err := b.Create(ctx, "log/1", []byte("two")); !errors.Is(err, ErrExists) {
-				t.Fatalf("second Create = %v, want ErrExists", err)
-			}
-			if got, err := b.Get(ctx, "log/1"); err != nil || string(got) != "one" {
-				t.Fatalf("Get = %q, %v: the second Create changed it", got, err)
-			}
-			for _, n := range []string{"log/3", "log/2", "snapshots/9"} {
-				must(t, b.Create(ctx, n, []byte(n)))
-			}
-			var names []string
-			must(t, b.List(ctx, "log/", "log/1", func(o ObjectInfo) error {
-				names = append(names, o.Name)
-				if o.Size != int64(len(o.Name)) {
-					t.Errorf("%s size %d", o.Name, o.Size)
-				}
-				return nil
-			}))
-			if !slices.Equal(names, []string{"log/2", "log/3"}) {
-				t.Fatalf("List = %v", names)
-			}
-			stop := errors.New("stop")
-			if err := b.List(ctx, "", "", func(ObjectInfo) error { return stop }); !errors.Is(err, stop) {
-				t.Fatalf("List's fn error = %v", err)
-			}
-			must(t, b.List(ctx, "nothing/", "", func(o ObjectInfo) error { t.Fatalf("listed %s", o.Name); return nil }))
-			must(t, b.Delete(ctx, "log/1"))
-			if err := b.Delete(ctx, "log/1"); !errors.Is(err, ErrNotExist) {
-				t.Fatalf("second Delete = %v", err)
-			}
-			cancelled, cancel := context.WithCancel(ctx)
-			cancel()
-			if _, err := b.Get(cancelled, "log/2"); !errors.Is(err, context.Canceled) {
-				t.Fatalf("Get with a cancelled context = %v", err)
-			}
-		})
+		t.Run(name, func(t *testing.T) { testBucket(t, open(t)) })
+	}
+}
+
+// testBucket is the bucket conformance every Bucket passes, on an empty bucket: create-only
+// creates, listing in name order after startAfter with sizes and times,
+// deletes and not-exist errors, and a cancelled context's error. The GCS and S3 buckets run
+// it against their emulators (emulator_test.go).
+func testBucket(t *testing.T, b Bucket) {
+	t.Helper()
+	ctx := t.Context()
+	if _, err := b.Get(ctx, "log/1"); !errors.Is(err, ErrNotExist) {
+		t.Fatalf("Get of nothing = %v", err)
+	}
+	must(t, b.Create(ctx, "log/1", []byte("one")))
+	if err := b.Create(ctx, "log/1", []byte("two")); !errors.Is(err, ErrExists) {
+		t.Fatalf("second Create = %v, want ErrExists", err)
+	}
+	if got, err := b.Get(ctx, "log/1"); err != nil || string(got) != "one" {
+		t.Fatalf("Get = %q, %v: the second Create changed it", got, err)
+	}
+	for _, n := range []string{"log/3", "log/2", "snapshots/9", "transcripts/r.jsonl.gz"} {
+		must(t, b.Create(ctx, n, []byte(n)))
+	}
+	var names []string
+	must(t, b.List(ctx, "log/", "log/1", func(o ObjectInfo) error {
+		names = append(names, o.Name)
+		if o.Size != int64(len(o.Name)) {
+			t.Errorf("%s size %d", o.Name, o.Size)
+		}
+		if o.Updated.IsZero() {
+			t.Errorf("%s has no Updated time", o.Name)
+		}
+		return nil
+	}))
+	if !slices.Equal(names, []string{"log/2", "log/3"}) {
+		t.Fatalf("List = %v", names)
+	}
+	names = nil
+	must(t, b.List(ctx, "", "", func(o ObjectInfo) error { names = append(names, o.Name); return nil }))
+	if want := []string{"log/1", "log/2", "log/3", "snapshots/9", "transcripts/r.jsonl.gz"}; !slices.Equal(names, want) {
+		t.Fatalf("List of everything = %v, want %v", names, want)
+	}
+	stop := errors.New("stop")
+	if err := b.List(ctx, "", "", func(ObjectInfo) error { return stop }); !errors.Is(err, stop) {
+		t.Fatalf("List's fn error = %v", err)
+	}
+	must(t, b.List(ctx, "nothing/", "", func(o ObjectInfo) error { t.Fatalf("listed %s", o.Name); return nil }))
+	must(t, b.Delete(ctx, "log/1"))
+	if err := b.Delete(ctx, "log/1"); !errors.Is(err, ErrNotExist) {
+		t.Fatalf("second Delete = %v", err)
+	}
+	if _, err := b.Get(ctx, "log/1"); !errors.Is(err, ErrNotExist) {
+		t.Fatalf("Get after Delete = %v", err)
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := b.Get(cancelled, "log/2"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Get with a cancelled context = %v", err)
 	}
 }
 
@@ -123,7 +140,7 @@ func TestFileBucketGuards(t *testing.T) {
 func TestParseURL(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "bucket")
 	for _, u := range []string{"file://" + dir, "file://localhost" + dir} {
-		b, err := ParseURL(u)
+		b, err := ParseURL(t.Context(), u)
 		must(t, err)
 		if fb, ok := b.(*FileBucket); !ok || fb.Dir() != dir {
 			t.Fatalf("ParseURL(%s) = %#v", u, b)
@@ -140,7 +157,7 @@ func TestParseURL(t *testing.T) {
 		"::":                       "the state URL doesn't parse",
 		"nope://b/p":               `unknown scheme "nope" (known: file://`,
 	} {
-		if _, err := ParseURL(u); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := ParseURL(t.Context(), u); err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("ParseURL(%q) = %v, want an error saying %q", u, err, want)
 		}
 	}
@@ -163,7 +180,7 @@ func TestParseURL(t *testing.T) {
 		"file://hunter2@host" + dir,              // and with a host file:// refuses
 		"file://localhost/" + dir + "?hunter2",   // in the query
 	} {
-		_, err := ParseURL(u)
+		_, err := ParseURL(t.Context(), u)
 		if err == nil {
 			t.Fatalf("ParseURL(%q) was accepted", u)
 		}
@@ -179,8 +196,8 @@ func TestParseURL(t *testing.T) {
 	}
 
 	fake := NewFakeBucket(nil)
-	RegisterScheme("memtest", func(*url.URL) (Bucket, error) { return fake, nil })
-	if b, err := ParseURL("memtest://bucket/prefix"); err != nil || b != fake {
+	RegisterScheme("memtest", func(context.Context, *url.URL) (Bucket, error) { return fake, nil })
+	if b, err := ParseURL(t.Context(), "memtest://bucket/prefix"); err != nil || b != fake {
 		t.Fatalf("registered scheme = %v, %v", b, err)
 	}
 }
