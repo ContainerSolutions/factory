@@ -264,6 +264,7 @@ func TestStateGolden(t *testing.T) {
 		{"workitem", []string{"workitem", "wi_docs4"}, 0},
 		{"events", []string{"events"}, 0},
 		{"events-filtered", []string{"events", "--type", "issue.labeled", "--since", "1h", "--workitem", "wi_docs4"}, 0},
+		{"events-help", []string{"events", "--help"}, 0}, // says dropped events aren't stored, and the way back
 		{"log", []string{"log"}, 0},
 		{"log-since", []string{"log", "--since", "1m"}, 0},
 		{"task-not-found", []string{"task", "tsk_01JB7X"}, 1},

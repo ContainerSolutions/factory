@@ -122,6 +122,11 @@ type Deps struct {
 	Skills controllers.SkillResolver
 }
 
+// DropCounter counts the events the intake filter dropped (*controllers.ProviderController).
+type DropCounter interface {
+	Drops() []controllers.DropCount
+}
+
 // Options configure the server. Zero fields take the defaults.
 type Options struct {
 	// PublicURL is the dispatcher's public base URL; its origin is the only one cookie-
@@ -135,6 +140,9 @@ type Options struct {
 	Ready <-chan struct{}
 	// Controllers are reported on /metrics (factory_controller_panics_total).
 	Controllers []*controllers.Controller
+	// Intake reports the events the provider controller's intake filter dropped, on /metrics
+	// (factory_events_dropped_total). Nil: none reported.
+	Intake DropCounter
 	// MaxSubscribers bounds the SSE streams (default 100).
 	MaxSubscribers int
 	// KeepAlive is the SSE keep-alive interval (default 15 s).

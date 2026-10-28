@@ -106,6 +106,13 @@ func (s *Server) metrics(c echo.Context) error {
 		fmt.Fprintf(&b, "factory_controller_panics_total{controller=%q} %d\n", ctrl.Name(), ctrl.Panics())
 	}
 
+	counter("factory_events_dropped_total", "Provider events the intake filter dropped (no work item links their object and no rule could fire), by provider, type and reason.")
+	if s.opts.Intake != nil {
+		for _, d := range s.opts.Intake.Drops() {
+			fmt.Fprintf(&b, "factory_events_dropped_total{provider=%q,type=%q,reason=%q} %d\n", d.Provider, d.Type, d.Reason, d.Count)
+		}
+	}
+
 	counter("factory_http_requests_total", "HTTP requests by status code.")
 	var codes []int
 	s.requests.Range(func(k, _ any) bool {
