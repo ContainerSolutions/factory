@@ -2,6 +2,8 @@ package server
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +12,19 @@ import (
 
 	"github.com/ContainerSolutions/factory/internal/apiclient"
 	"github.com/ContainerSolutions/factory/internal/controllers"
+	"github.com/ContainerSolutions/factory/internal/store"
 )
+
+// TestStoreReadOnlyProblem: a write the store refuses because it stopped writing answers 503
+// store-read-only, with no Retry-After (nothing knows when a newer release replaces it).
+func TestStoreReadOnlyProblem(t *testing.T) {
+	err := fmt.Errorf("create task: %w", store.Errorf("create", store.Key{Kind: "Task", Name: "t"},
+		fmt.Errorf("%w: schema 2", store.ErrReadOnly), ""))
+	p := toProblem(err)
+	if p.status != http.StatusServiceUnavailable || p.code != CodeStoreReadOnly || p.retryAfter != 0 {
+		t.Fatalf("toProblem = %d %s retry %s, want 503 %s", p.status, p.code, p.retryAfter, CodeStoreReadOnly)
+	}
+}
 
 func get(t *testing.T, h http.Handler, path string) (int, string, http.Header) {
 	t.Helper()
@@ -19,28 +33,66 @@ func get(t *testing.T, h http.Handler, path string) (int, string, http.Header) {
 	return rec.Code, rec.Body.String(), rec.Header()
 }
 
+// staticDrops is a DropCounter with fixed counts.
+type staticDrops []controllers.DropCount
+
+func (d staticDrops) Drops() []controllers.DropCount { return d }
+
+// readinessStore is a store that reports its readiness, as the object store does.
+type readinessStore struct {
+	store.Store
+	err error
+}
+
+func (r *readinessStore) Ready() error { return r.err }
+
 func TestOps(t *testing.T) {
-	ready := make(chan struct{})
-	e := newEnv(t, func(o *Options) { o.Ready = ready })
+	e := newEnv(t, func(o *Options) {
+		o.Intake = staticDrops{
+			{Provider: "github-public", Type: "issue.commented", Reason: controllers.DropNoRule, Count: 3},
+			{Provider: "github-public", Type: "pr.opened", Reason: controllers.DropOutOfScope, Count: 1},
+		}
+	})
 	ops := e.srv.OpsHandler()
 
 	if code, body, _ := get(t, ops, "/healthz"); code != http.StatusOK || body != "ok\n" {
 		t.Errorf("healthz %d %q", code, body)
 	}
+	readyz := func(what string, want int, code string) {
+		t.Helper()
+		got, body, h := get(t, ops, "/readyz")
+		if got != want {
+			t.Errorf("readyz %s: %d %s, want %d", what, got, body, want)
+		}
+		if code == "" {
+			return
+		}
+		if !strings.HasPrefix(h.Get("Content-Type"), ProblemContentType) || !strings.Contains(body, `"code":"`+code+`"`) {
+			t.Errorf("readyz %s: %s %q, want the problem %s", what, h.Get("Content-Type"), body, code)
+		}
+		_, metrics, _ := get(t, ops, "/metrics")
+		if !strings.Contains(metrics, "factory_ready 0") {
+			t.Errorf("factory_ready isn't 0 %s", what)
+		}
+	}
 	// Not ready: the catalog isn't loaded.
 	e.status.set(func(s *controllers.CatalogStatus) { s.Ready = false })
-	if code, _, h := get(t, ops, "/readyz"); code != http.StatusServiceUnavailable || !strings.HasPrefix(h.Get("Content-Type"), ProblemContentType) {
-		t.Errorf("readyz before the catalog: %d", code)
-	}
-	// Loaded, but the startup rebuild isn't done.
+	readyz("before the catalog", http.StatusServiceUnavailable, CodeCatalogNotLoaded)
+	// The memory store has nothing to sync: ready once the catalog is.
 	e.status.set(func(s *controllers.CatalogStatus) { s.Ready = true })
-	if code, _, _ := get(t, ops, "/readyz"); code != http.StatusServiceUnavailable {
-		t.Errorf("readyz before startup: %d", code)
-	}
-	close(ready)
+	readyz("with the catalog and the memory store", http.StatusOK, "")
+	// A store that isn't synced, or has stopped writing, isn't ready; the same on any
+	// instance, leader or not.
+	rs := &readinessStore{Store: e.st, err: errors.New("objectstore: not synced with the bucket yet")}
+	e.srv.d.Store = rs
+	readyz("before the store's first sync", http.StatusServiceUnavailable, CodeUnavailable)
+	rs.err = fmt.Errorf("%w: log/00000000000000000007.json was written with schema 2", store.ErrReadOnly)
+	readyz("once the store stopped writing", http.StatusServiceUnavailable, CodeStoreReadOnly)
+	rs.err = nil
 	if code, body, _ := get(t, ops, "/readyz"); code != http.StatusOK || body != "ready\n" {
 		t.Errorf("readyz: %d %q", code, body)
 	}
+	e.srv.d.Store = e.st
 
 	e.task("tsk_1", nil)
 	if r, _ := e.c.ListTasksWithResponse(e.ctx, &apiclient.ListTasksParams{}, bearer(cliToken)); r.StatusCode() != http.StatusOK {
@@ -53,6 +105,9 @@ func TestOps(t *testing.T) {
 	for _, want := range []string{
 		"# TYPE factory_tasks gauge", `factory_tasks{phase="Pending"} 1`, `factory_tasks{phase="Running"} 0`,
 		`factory_ready 1`, `factory_sse_subscribers 0`, `factory_http_requests_total{code="200"}`,
+		"# TYPE factory_events_dropped_total counter",
+		`factory_events_dropped_total{provider="github-public",type="issue.commented",reason="no-rule"} 3`,
+		`factory_events_dropped_total{provider="github-public",type="pr.opened",reason="out-of-scope"} 1`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics miss %q:\n%s", want, body)

@@ -124,9 +124,9 @@ The JSON log goes to the terminal and to `deploy/poc/logs/factory-serve-<UTC tim
 
 ### State
 
-The dispatcher keeps its store in `FACTORY_STATE_DIR` (default `~/.factory/state`, created 0700): `snapshot.json`, `journal.jsonl` (every change since the snapshot, fsync'd), `transcripts/` and a `LOCK`. Tasks, runs, transcripts, events, decisions, budgets, agent registrations and leases survive a restart, and an agent that keeps heartbeating across one finishes its run. The start-up log line `store: loaded the state dir` says what was loaded. The work-item rebuild from the GitHub markers still runs, and adds only the work items the state doesn't hold.
+The dispatcher keeps its store in `FACTORY_STATE_DIR` (default `~/.factory/state`, created 0700): `snapshot.json`, `journal.jsonl` (every change since the snapshot, fsync'd), `transcripts/` and a `LOCK`. Tasks, runs, transcripts, events, decisions, budgets, agent registrations and leases survive a restart, and an agent that keeps heartbeating across one finishes its run. The start-up log line `store: loaded the state dir` says what was loaded. The state dir is the authority: nothing is read back from the GitHub markers, which are for people to read.
 
-`factory serve` refuses to start when the dir or a file in it can be read by others (it names the `chmod`), when another dispatcher has it open, or when it can't load it (an unknown format, or a corrupt journal line, with its number). To start clean, stop the dispatcher (§11) and move the dir aside, keeping it as evidence: `bin/factory state reset --yes` (it refuses while a dispatcher has the dir open, and prints where it moved it: `<dir>.<UTC time>`). The next start creates an empty one, and work items come back from the markers.
+`factory serve` refuses to start when the dir or a file in it can be read by others (it names the `chmod`), when another dispatcher has it open, or when it can't load it (an unknown format, or a corrupt journal line, with its number). To start clean, stop the dispatcher (§11) and move the dir aside, keeping it as evidence: `bin/factory state reset --yes` (it refuses while a dispatcher has the dir open, and prints where it moved it: `<dir>.<UTC time>`). The next start creates an empty one, and **nothing comes back from GitHub**: open work items restart with no state and no run counters (the per-item run cap included) on their next event, and no stored event survives to replay. To recover what you want: redeliver webhooks from the GitHub App's delivery log (GitHub keeps them about 3 days: App settings → Advanced → Recent Deliveries → Redeliver), reopen issues, or re-apply labels. The same holds for a deleted or corrupt state dir.
 
 `factory state` answers "why did this run fail?" from the state dir, with no server, API or token: it reads the files read-only and takes no lock, so it works while the dispatcher runs, and on a copy of the dir. `--state-dir` defaults to `$FACTORY_STATE_DIR`, else `~/.factory/state`, as for `run.sh` (it doesn't read `.env`: if `.env` sets `FACTORY_STATE_DIR`, pass that dir with `--state-dir`). Tables by default; `--json` prints the stored objects.
 
@@ -139,6 +139,8 @@ bin/factory state events [--since 1h] [--type pr.opened] [--workitem W]   # with
 bin/factory state log [--since 10m]          # the journal (changes since the last snapshot) as a timeline, with task phase changes and run ends
 ```
 
+`state events` lists only the events the dispatcher stored. An event is stored when a rule could fire for it (its type in a rule's `on`, from a provider and an object its RuleSet scopes; `where` aside), when a work item links its object, or when the factory's own App caused it. Any other event is dropped when it arrives: it isn't in `state events`, and `factory events replay` answers 404 for it. Its delivery is deleted at once, so the way back, once a rule or link covers it, is to redeliver the webhook from the App's delivery log (§7, "Webhook"; GitHub keeps about 3 days). The redelivery is filtered again against the catalog as it is then.
+
 An unknown id prints the ids nearest to it by prefix. Nothing it prints is secret (the store holds no credential, and transcripts are redacted by the agent), so its output can be pasted into an issue. `jq` on `snapshot.json` (one object per line) and `journal.jsonl` works too.
 
 ## 7. Check it
@@ -150,6 +152,8 @@ Log lines to look for:
 - `provider health` without `degraded`. A degraded provider means a wrong App ID or key.
 
 `catalog rejected; keeping the live catalog` means an invalid catalog: `factory validate --dir` the directory.
+
+`event dropped: no work item links its object and no rule could fire for it` (Info) is where "why didn't my rule fire?" starts for an event that isn't in `factory state events` (§6). It names the event's `type`, its object's `ref` and a `reason`: `no-rule` (no rule's `on` has that type for the provider) or `out-of-scope` (a rule's does, but its RuleSet's `scope` doesn't hold the object: the most common misconfiguration). `factory_events_dropped_total{provider,type,reason}` on `/metrics` counts them. To get a dropped event back after fixing the catalog, redeliver it from Recent Deliveries (below).
 
 The ops listener answers on the dispatcher host only, with no auth:
 
@@ -280,4 +284,4 @@ The commands below go to `POST /api/v1/commands` with the CLI token. The UI show
 3. Stop the dispatcher with Ctrl-C in the `make poc-up` terminal. It shuts down gracefully (`--shutdown-timeout`, 30 s by default), and the log ends with `shutdown complete`.
 4. Stop ngrok.
 
-A dispatcher restart keeps its state (§6, State): agents stay registered and running tasks carry on. Started with an empty state dir, it keeps nothing but what GitHub holds: work items come back from their markers, and agents must be enrolled again: their refresh tokens are refused (supervise then drops its own and says so), so put a new token from `bin/factory agent enroll` in `enrollment-token` and restart.
+A dispatcher restart keeps its state (§6, State): agents stay registered and running tasks carry on. Started with an empty state dir, it keeps nothing: open work items restart with no state and no run counters (§6, State, says how to recover them), and agents must be enrolled again: their refresh tokens are refused (supervise then drops its own and says so), so put a new token from `bin/factory agent enroll` in `enrollment-token` and restart.

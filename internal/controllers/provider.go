@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,6 +18,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/catalog"
 	"github.com/ContainerSolutions/factory/internal/clock"
 	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/rules"
 	"github.com/ContainerSolutions/factory/internal/store"
 )
 
@@ -32,9 +34,28 @@ const (
 	DeliveryFailed = "failed"
 )
 
-// DefaultDeliveryRetention is how long a handled Delivery record is kept. Duplicates arriving
-// later are still deduped by their Events' ids.
+// DefaultDeliveryRetention is how long a handled Delivery record that keeps an Event, or that
+// failed, is kept. Duplicates arriving later are still deduped by their Events' ids. A
+// delivery none of whose events was stored is deleted at once.
 const DefaultDeliveryRetention = 24 * time.Hour
+
+// Why the intake filter dropped an event (the reason label of factory_events_dropped_total).
+// It drops an event only when no work item links its object, no rule could fire for it and
+// the factory didn't cause it.
+const (
+	// DropNoRule: no rule's on has the event's type for its provider (the rule's providers
+	// included).
+	DropNoRule = "no-rule"
+	// DropOutOfScope: some rule's on and providers take the event, but none of their
+	// RuleSets' scope (repos, exclude, branches, channels) holds its object.
+	DropOutOfScope = "out-of-scope"
+)
+
+// DropCount is how many events of one provider and type the intake filter dropped, and why.
+type DropCount struct {
+	Provider, Type, Reason string
+	Count                  uint64
+}
 
 // Delivery is the internal Delivery record: the RawEvent as received, then its outcome. Once
 // handled, the body and headers are dropped (they are untrusted and may be large).
@@ -48,7 +69,7 @@ type Delivery struct {
 // DeliveryStatus is what became of a delivery.
 type DeliveryStatus struct {
 	Phase string `json:"phase"`
-	// Events are the ids of the Events it was normalised into.
+	// Events are the ids of the Events stored from it: the intake filter drops the others.
 	Events []string `json:"events,omitzero"`
 	// Reason is why it failed.
 	Reason    string    `json:"reason,omitzero"`
@@ -86,7 +107,8 @@ type ProviderOptions struct {
 // (reconnecting a Provider whose definition changed, dropping a removed one), is the
 // ConnSource of the other controllers and the API server, and is the webhooks' IngressSink:
 // Accept stores a Delivery record, and its reconcile normalises the Delivery into Events with
-// the Provider's Conn. Its key is the delivery id.
+// the Provider's Conn, storing only the Events that can matter (the intake filter). Its key is
+// the delivery id.
 type ProviderController struct {
 	s    store.Store
 	cat  CatalogSnapshotter
@@ -97,7 +119,12 @@ type ProviderController struct {
 
 	mu    sync.RWMutex
 	conns map[string]connEntry
+
+	dropMu sync.Mutex
+	drops  map[dropKey]uint64
 }
+
+type dropKey struct{ provider, typ, reason string }
 
 type connEntry struct {
 	conn   provider.Conn
@@ -132,6 +159,7 @@ func NewProviderController(s store.Store, cat CatalogSnapshotter, reg *provider.
 		s: s, cat: cat, reg: reg, opts: opts,
 		log:   opts.Logger.With("controller", "provider"),
 		conns: map[string]connEntry{},
+		drops: map[dropKey]uint64{},
 	}
 	p.ctrl = NewController("provider", p, Options{Workers: opts.Workers, Clock: opts.Clock, Logger: opts.Logger})
 	if err := p.ctrl.Watch(s, KindDelivery, nil, InformerOptions{}); err != nil {
@@ -302,7 +330,9 @@ func (p *ProviderController) Accept(ctx context.Context, ev provider.RawEvent) e
 }
 
 // Reconcile implements Reconciler for one delivery id: it normalises a received delivery
-// into Events (each created once), marks it handled, and deletes it after the retention.
+// into Events, stores the ones that can matter (each created once), marks it handled, and
+// deletes it after the retention. A delivery none of whose events was stored (all dropped, or
+// a type the adapter doesn't map) is deleted at once.
 func (p *ProviderController) Reconcile(ctx context.Context, id string) (Result, error) {
 	var d Delivery
 	err := p.s.Get(ctx, store.Key{Kind: KindDelivery, Name: id}, &d)
@@ -320,6 +350,7 @@ func (p *ProviderController) Reconcile(ctx context.Context, id string) (Result, 
 		return Result{}, fmt.Errorf("delivery %s: no connection for provider %q", id, d.Spec.Provider)
 	}
 	evs, err := conn.Normalise(ctx, d.Spec)
+	var dropped []droppedEvent
 	switch {
 	case errors.Is(err, provider.ErrInvalid), errors.Is(err, provider.ErrUnsupported):
 		p.log.Warn("delivery rejected", "delivery", id, "provider", d.Spec.Provider, "err", err)
@@ -327,14 +358,33 @@ func (p *ProviderController) Reconcile(ctx context.Context, id string) (Result, 
 	case err != nil:
 		return Result{}, fmt.Errorf("normalise delivery %s: %w", id, err)
 	default:
+		cat := p.cat.Current()
+		if cat == nil {
+			return Result{}, fmt.Errorf("delivery %s: %w", id, ErrNoCatalog)
+		}
 		ids := make([]string, 0, len(evs))
 		for i := range evs {
+			reason, err := p.intake(ctx, cat, evs[i])
+			if err != nil {
+				return Result{}, fmt.Errorf("delivery %s: %w", id, err)
+			}
+			if reason != "" {
+				dropped = append(dropped, droppedEvent{ev: &evs[i], reason: reason})
+				continue
+			}
 			if err := p.s.Create(ctx, &evs[i]); err != nil && !errors.Is(err, store.ErrAlreadyExists) {
 				return Result{}, fmt.Errorf("store event %s: %w", evs[i].ID, err)
 			}
 			ids = append(ids, evs[i].ID)
 		}
-		p.log.Debug("delivery normalised", "delivery", id, "provider", d.Spec.Provider, "events", len(ids))
+		p.log.Debug("delivery normalised", "delivery", id, "provider", d.Spec.Provider, "events", len(ids), "dropped", len(dropped))
+		if len(ids) == 0 {
+			if err := p.deleteDelivery(ctx, &d); err != nil {
+				return Result{}, err
+			}
+			p.recordDrops(ctx, d.Spec.Provider, id, dropped)
+			return Result{}, nil
+		}
 		d.Status = DeliveryStatus{Phase: DeliveryNormalised, Events: ids}
 	}
 	d.Status.HandledAt = p.opts.Clock.Now()
@@ -342,7 +392,90 @@ func (p *ProviderController) Reconcile(ctx context.Context, id string) (Result, 
 	if err := p.s.Update(ctx, &d); err != nil {
 		return Result{}, fmt.Errorf("mark delivery %s %s: %w", id, d.Status.Phase, err)
 	}
+	p.recordDrops(ctx, d.Spec.Provider, id, dropped)
 	return Result{RequeueAfter: p.opts.DeliveryRetention}, nil
+}
+
+// intake decides whether an event is stored (P3 §Only events that can matter are stored): it
+// is kept when a rule could fire for it, when the factory caused it, or when a work item links
+// its object (the rule controller then adds it to that item's timeline). It returns "" to keep
+// it, else why it is dropped. The link lookup, made only before a drop, syncs the store when it
+// finds nothing.
+func (p *ProviderController) intake(ctx context.Context, cat *catalog.Catalog, ev v1alpha1.Event) (string, error) {
+	// The empty view is exact: scope reads a work item's links only for factory.* events, which
+	// are created in the store directly and never come through here.
+	if rules.CouldFire(cat, ev, rules.WorkItemView{}) {
+		return "", nil
+	}
+	// An event the factory's own App caused is kept even unlinked: the Effector links the
+	// object it created only after the provider call returns (linkCreated), and the webhook may
+	// be normalised before that. Stored, the rule controller finds the link when it processes
+	// the event, or logs it at Info if it is still unlinked (skipped). They are few.
+	if a := ev.Data.Actor; a != nil && a.IsFactory {
+		return "", nil
+	}
+	if link, ok := eventLink(ev); ok {
+		wi, err := linkedWorkItem(ctx, p.s, link)
+		if err != nil {
+			return "", err
+		}
+		if wi != "" {
+			return "", nil
+		}
+	}
+	return dropReason(cat, ev), nil
+}
+
+// dropReason says why no rule could fire for ev: no rule takes its type from its provider, or
+// the RuleSets of the rules that do don't scope its object. It mirrors the per-rule half of
+// rules.candidates (the predicate rules.CouldFire uses): a rule is a candidate when its on has
+// ev.Type and its providers have ev.Source, and its RuleSet is in scope (rules.inScope). Keep
+// the on/providers test here in step with candidates, or a reason would be wrong.
+func dropReason(cat *catalog.Catalog, ev v1alpha1.Event) string {
+	for _, rs := range cat.RuleSets {
+		for _, r := range rs.Rules {
+			if slices.Contains(r.Rule.Spec.On, ev.Type) && slices.Contains(r.Providers, ev.Source) {
+				return DropOutOfScope
+			}
+		}
+	}
+	return DropNoRule
+}
+
+type droppedEvent struct {
+	ev     *v1alpha1.Event
+	reason string
+}
+
+// recordDrops logs each dropped event at Info (its type, its object and the reason, no
+// provider text) and counts it, once the delivery's outcome is written.
+func (p *ProviderController) recordDrops(ctx context.Context, prov, delivery string, dropped []droppedEvent) {
+	for _, dr := range dropped {
+		ref := ""
+		if link, ok := eventLink(*dr.ev); ok {
+			ref = link.Ref
+		}
+		p.log.InfoContext(ctx, "event dropped: no work item links its object and no rule could fire for it",
+			"delivery", delivery, "event", dr.ev.ID, "provider", prov, "type", dr.ev.Type, "ref", ref, "reason", dr.reason)
+		p.dropMu.Lock()
+		p.drops[dropKey{provider: prov, typ: string(dr.ev.Type), reason: dr.reason}]++
+		p.dropMu.Unlock()
+	}
+}
+
+// Drops returns how many events the intake filter dropped since the process started, by
+// provider, type and reason, sorted (factory_events_dropped_total).
+func (p *ProviderController) Drops() []DropCount {
+	p.dropMu.Lock()
+	out := make([]DropCount, 0, len(p.drops))
+	for k, n := range p.drops {
+		out = append(out, DropCount{Provider: k.provider, Type: k.typ, Reason: k.reason, Count: n})
+	}
+	p.dropMu.Unlock()
+	slices.SortFunc(out, func(a, b DropCount) int {
+		return cmp.Or(cmp.Compare(a.Provider, b.Provider), cmp.Compare(a.Type, b.Type), cmp.Compare(a.Reason, b.Reason))
+	})
+	return out
 }
 
 // expire deletes a handled delivery once it is older than the retention, else requeues it
@@ -356,8 +489,22 @@ func (p *ProviderController) expire(ctx context.Context, d *Delivery) (Result, e
 	if left > 0 {
 		return Result{RequeueAfter: left}, nil
 	}
-	if err := p.s.Delete(ctx, store.Key{Kind: KindDelivery, Name: d.Metadata.Name}); err != nil && !errors.Is(err, store.ErrNotFound) {
-		return Result{}, fmt.Errorf("delete delivery %s: %w", d.Metadata.Name, err)
+	return Result{}, p.deleteDelivery(ctx, d)
+}
+
+// deleteDelivery deletes d only at the version this reconcile read
+// (store.DeleteIfUnchanged): a delivery redelivered under the same id since another leader
+// deleted it (P3 §Several dispatchers: overlapping leaders) is a new record, and stays to be
+// normalised; its own watch event reconciles it. Gone already is done.
+func (p *ProviderController) deleteDelivery(ctx context.Context, d *Delivery) error {
+	err := store.DeleteIfUnchanged(ctx, p.s, store.Key{Kind: KindDelivery, Name: d.Metadata.Name}, d.Metadata.ResourceVersion)
+	switch {
+	case err == nil, errors.Is(err, store.ErrNotFound):
+		return nil
+	case errors.Is(err, store.ErrConflict):
+		p.log.DebugContext(ctx, "delivery changed since it was read (redelivered); kept", "delivery", d.Metadata.Name)
+		p.ctrl.Enqueue(d.Metadata.Name)
+		return nil
 	}
-	return Result{}, nil
+	return fmt.Errorf("delete delivery %s: %w", d.Metadata.Name, err)
 }

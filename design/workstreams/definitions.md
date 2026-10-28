@@ -194,7 +194,7 @@ Every PR gets `/ccf-review:review <PR URL>` before merge, and `--again` after ne
 **Spec.** A contract gap: [contracts.md §Provider interface](foundation/LLD/contracts.md#provider-interface) defines `internal/provider` and `provider/fake`, but no task built them, and RT-S2-T01 (controllers) and GH-S1 (the GitHub adapter) both code against them.
 
 - `internal/provider`: `Adapter`, `Conn`, `IngressSink`, `Projection` exactly as in contracts.md, every type they reference (v1alpha1 types wherever they fit), and a `Registry` from Provider type to adapter.
-- `internal/provider/fake`: in memory and concurrency-safe; seeded objects for `Observe` and `List`, recorded `Project` and `Apply` calls (idempotency-key replay), scripted deliveries into an `IngressSink` normalised into Events, `ResolveGroup` from configured membership, fake git tokens, health, a webhook `Handler` and `Recover`.
+- `internal/provider/fake`: in memory and concurrency-safe; seeded objects for `Observe`, recorded `Project` and `Apply` calls (and the projections on each object, `ProjectionsOn`) (idempotency-key replay), scripted deliveries into an `IngressSink` normalised into Events, `ResolveGroup` from configured membership, fake git tokens, health, a webhook `Handler` and `Recover`.
 - Record each refinement in [contracts.md §Refinements](foundation/LLD/contracts.md#refinements-fnd-s1-t03).
 
 **Done when:** `go test -race ./internal/provider/...` passes, the interface matches contracts.md with its documented refinements, and the GH LLD's adapter can implement it as written.
@@ -303,7 +303,7 @@ Every PR gets `/ccf-review:review <PR URL>` before merge, and `--again` after ne
 **Spec.** Per [controllers.md](dispatcher-runtime/LLD/controllers.md):
 
 - **rule:** Events → engine → apply decisions to the store (Tasks, state, links), notifications through the Provider interface, and the built-in `factory` provider emitting `factory.*` events.
-- **work-item:** projection writes, `Observe` merge, periodic resync, rebuild on start from `List` plus marker parsing.
+- **work-item:** projection writes, `Observe` merge, periodic resync, rebuild on start from `List` plus marker parsing. *(The rebuild was removed with durable state: [P3 §No rebuild from markers](../proposals/P3-dispatcher-state-in-object-storage.md#no-rebuild-from-markers).)*
 - **run:** results, timeouts, cancellation, and `factory.run.completed`/`failed`.
 
 Use the `fake` provider from contracts.md in tests.
@@ -381,7 +381,7 @@ Use the `fake` provider from contracts.md in tests.
 
 - **Branch:** `fx/gh-s1-t03-observe` · **Base:** `fx/gh-s1-t02-ingress` · **Stack:** `gh`
 
-**Spec.** `Observe` (GraphQL: PR state, reviews with commit, unresolved threads, checks, labels, sub-issues), `List` over a scope, and projection writes (factory labels plus one upserted hidden marker comment per work item), per [§Observe](provider-github/LLD/github-provider.md#observe-list-and-projection).
+**Spec.** `Observe` (GraphQL: PR state, reviews with commit, unresolved threads, checks, labels, sub-issues), `List` over a scope (removed with P3 §No rebuild from markers, stack 5 PR 6), and projection writes (factory labels plus one upserted hidden marker comment per work item), per [§Observe and projection](provider-github/LLD/github-provider.md#observe-and-projection).
 
 **Done when:** golden tests cover observation parsing, and marker upsert is idempotent.
 

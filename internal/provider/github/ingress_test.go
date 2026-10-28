@@ -19,9 +19,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ContainerSolutions/factory/internal/apiserver/gen"
 	"github.com/ContainerSolutions/factory/internal/provider"
 	"github.com/ContainerSolutions/factory/internal/provider/github"
 	"github.com/ContainerSolutions/factory/internal/provider/github/githubtest"
+	"github.com/ContainerSolutions/factory/internal/server"
 )
 
 func sign(secret string, body []byte) string {
@@ -83,7 +85,9 @@ func TestHandler(t *testing.T) {
 		event    string
 		sink     func() provider.IngressSink
 		want     int
-		stored   bool
+		// code is the problem's code of a refusal (application/problem+json).
+		code   string
+		stored bool
 	}{
 		{name: "accepted", sig: good, want: http.StatusAccepted, stored: true},
 		{name: "duplicate", sig: good, sink: func() provider.IngressSink { return newSink("gh-" + guid) }, want: http.StatusOK},
@@ -91,19 +95,19 @@ func TestHandler(t *testing.T) {
 			s := newSink()
 			s.fail = errors.New("store full")
 			return s
-		}, want: http.StatusServiceUnavailable},
-		{name: "no sink", sig: good, sink: func() provider.IngressSink { return nil }, want: http.StatusServiceUnavailable},
-		{name: "missing signature", want: http.StatusUnauthorized},
-		{name: "wrong secret", sig: sign("not-the-secret", body), want: http.StatusUnauthorized},
-		{name: "tampered body", sig: good, body: append(slices.Clone(body), ' '), want: http.StatusUnauthorized},
-		{name: "sha1 signature", sig: "sha1=" + strings.Repeat("0", 40), want: http.StatusUnauthorized},
-		{name: "not hex", sig: "sha256=" + strings.Repeat("z", 64), want: http.StatusUnauthorized},
-		{name: "short", sig: good[:20], want: http.StatusUnauthorized},
-		{name: "GET", method: http.MethodGet, sig: good, want: http.StatusMethodNotAllowed},
-		{name: "no delivery id", sig: good, delivery: "-", want: http.StatusBadRequest},
-		{name: "bad delivery id", sig: good, delivery: "../etc", want: http.StatusBadRequest},
-		{name: "no event", sig: good, event: "-", want: http.StatusBadRequest},
-		{name: "too large", body: bytes.Repeat([]byte("x"), github.MaxWebhookBytes+1), want: http.StatusRequestEntityTooLarge},
+		}, want: http.StatusServiceUnavailable, code: server.CodeUnavailable},
+		{name: "no sink", sig: good, sink: func() provider.IngressSink { return nil }, want: http.StatusServiceUnavailable, code: server.CodeUnavailable},
+		{name: "missing signature", want: http.StatusUnauthorized, code: server.CodeUnauthenticated},
+		{name: "wrong secret", sig: sign("not-the-secret", body), want: http.StatusUnauthorized, code: server.CodeUnauthenticated},
+		{name: "tampered body", sig: good, body: append(slices.Clone(body), ' '), want: http.StatusUnauthorized, code: server.CodeUnauthenticated},
+		{name: "sha1 signature", sig: "sha1=" + strings.Repeat("0", 40), want: http.StatusUnauthorized, code: server.CodeUnauthenticated},
+		{name: "not hex", sig: "sha256=" + strings.Repeat("z", 64), want: http.StatusUnauthorized, code: server.CodeUnauthenticated},
+		{name: "short", sig: good[:20], want: http.StatusUnauthorized, code: server.CodeUnauthenticated},
+		{name: "GET", method: http.MethodGet, sig: good, want: http.StatusMethodNotAllowed, code: "method-not-allowed"},
+		{name: "no delivery id", sig: good, delivery: "-", want: http.StatusBadRequest, code: server.CodeInvalid},
+		{name: "bad delivery id", sig: good, delivery: "../etc", want: http.StatusBadRequest, code: server.CodeInvalid},
+		{name: "no event", sig: good, event: "-", want: http.StatusBadRequest, code: server.CodeInvalid},
+		{name: "too large", body: bytes.Repeat([]byte("x"), github.MaxWebhookBytes+1), want: http.StatusRequestEntityTooLarge, code: server.CodeTooLarge},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -144,10 +148,12 @@ func TestHandler(t *testing.T) {
 				s = tt.sink()
 			}
 			rec := httptest.NewRecorder()
+			rec.Header().Set("X-Request-Id", "req-1") // as the API server's middleware sets it
 			c.Handler(s).ServeHTTP(rec, req)
 			if rec.Code != tt.want {
 				t.Fatalf("status = %d, want %d (%s)", rec.Code, tt.want, rec.Body.String())
 			}
+			checkProblem(t, rec, tt.code)
 			got := sink.accepted()
 			if !tt.stored {
 				if len(got) != 0 {
@@ -167,6 +173,33 @@ func TestHandler(t *testing.T) {
 				t.Errorf("logs leak the payload or the secret:\n%s", logs.String())
 			}
 		})
+	}
+}
+
+// checkProblem checks a webhook answer's body: a problem with code for a refusal (the API
+// server's shape: status, title, code, the request id as instance, no detail on a 5xx), else
+// none.
+func checkProblem(t *testing.T, rec *httptest.ResponseRecorder, code string) {
+	t.Helper()
+	if code == "" {
+		if rec.Body.Len() != 0 {
+			t.Errorf("body %q, want none", rec.Body.String())
+		}
+		return
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != server.ProblemContentType {
+		t.Errorf("Content-Type = %q, want %q", ct, server.ProblemContentType)
+	}
+	var p gen.Problem
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+		t.Fatalf("body %q: %v", rec.Body.String(), err)
+	}
+	if p.Status != rec.Code || p.Title != http.StatusText(rec.Code) || p.Code == nil || *p.Code != code ||
+		p.Instance == nil || *p.Instance != "req-1" {
+		t.Errorf("problem = %s, want status %d and code %s", rec.Body.String(), rec.Code, code)
+	}
+	if (p.Detail == nil) != (rec.Code >= http.StatusInternalServerError) {
+		t.Errorf("problem = %s: a detail on each 4xx, none on a 5xx", rec.Body.String())
 	}
 }
 

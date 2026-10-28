@@ -109,9 +109,15 @@ func TestCascadeRunningControllers(t *testing.T) {
 		return false
 	})
 	eventually(t, "the projection on docs#42", func() bool {
-		o, _ := e.gh.Object(docsRepo + "#42")
-		return len(o.Projections) == 1 && o.Projections[0].WorkItemID == wi.Metadata.Name &&
-			o.Projections[0].State["stackTotal"] == float64(2) && o.Projections[0].Counters["plan-epic"] == 1
+		// The fake's log of Project calls: the last projection written onto docs#42.
+		var last *provider.Projection
+		for _, p := range e.gh.Projections() {
+			if p.Err == nil && p.Ref.Ref == docsRepo+"#42" {
+				last = &p.Projection
+			}
+		}
+		return last != nil && last.WorkItemID == wi.Metadata.Name &&
+			last.State["stackTotal"] == float64(2) && last.Counters["plan-epic"] == 1
 	})
 }
 

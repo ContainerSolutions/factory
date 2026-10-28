@@ -93,6 +93,7 @@ type Controller struct {
 	mu        sync.Mutex
 	started   bool
 	informers []*Informer
+	gate      Gate
 
 	panics atomic.Uint64
 }
@@ -166,6 +167,19 @@ func (c *Controller) Watch(s store.Store, kind string, keyFn KeyFunc, opts Infor
 	return nil
 }
 
+// SetGate makes every reconcile wait for g first (the leader lock: P3 §Several dispatchers).
+// The informers run regardless, so the queue holds every key once g opens. SetGate must be
+// called before Run.
+func (c *Controller) SetGate(g Gate) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.started {
+		return fmt.Errorf("controller %s: SetGate after Run", c.name)
+	}
+	c.gate = g
+	return nil
+}
+
 // Run starts the informers and the workers and blocks until ctx is done; then it shuts the
 // queue down, waits for in-flight reconciles and informers to return, and returns nil. Run
 // may be called once.
@@ -176,7 +190,7 @@ func (c *Controller) Run(ctx context.Context) error {
 		return fmt.Errorf("controller %s: already started", c.name)
 	}
 	c.started = true
-	informers := c.informers
+	informers, gate := c.informers, c.gate
 	c.mu.Unlock()
 
 	var wg sync.WaitGroup
@@ -185,7 +199,7 @@ func (c *Controller) Run(ctx context.Context) error {
 	}
 	for range c.workers {
 		wg.Go(func() {
-			for c.processNext(ctx) {
+			for c.processNext(ctx, gate) {
 			}
 		})
 	}
@@ -197,13 +211,17 @@ func (c *Controller) Run(ctx context.Context) error {
 	return nil
 }
 
-// processNext reconciles one key; false once the queue is shut down.
-func (c *Controller) processNext(ctx context.Context) bool {
+// processNext reconciles one key, once gate (when set) is held; false once the queue is shut
+// down.
+func (c *Controller) processNext(ctx context.Context, gate Gate) bool {
 	key, shutdown := c.queue.Get()
 	if shutdown {
 		return false
 	}
 	defer c.queue.Done(key)
+	if gate != nil && gate.Wait(ctx) != nil {
+		return true // stopping; the queue shuts down next
+	}
 
 	res, err := c.reconcile(ctx, key)
 	switch {

@@ -1,0 +1,20 @@
+--- stderr
+usage: factory state events [--since 1h] [--type T] [--workitem W] [--state-dir DIR | --state-url URL] [--json]
+  -json
+    	print the objects as JSON instead of tables
+  -since string
+    	only events this recent (by their time: 30m, 24h, 7d)
+  -state-dir string
+    	the dispatcher's state dir (default $FACTORY_STATE_DIR, else ~/.factory/state)
+  -state-url string
+    	the dispatchers' shared state: gs://bucket/prefix, s3://bucket/prefix or file:///dir (instead of --state-dir)
+  -type string
+    	only events of this type (issue.opened, pr.merged, factory.run.completed…)
+  -workitem string
+    	only the events of this work item
+
+Only stored events are listed. An event no work item links, no rule could fire for and the
+factory didn't cause is dropped when it arrives (logged at info as "event dropped", counted in
+factory_events_dropped_total): it is not here and can't be replayed (404). Its delivery is
+deleted, so to get it back once a rule or link covers it, redeliver the webhook from the
+App's delivery log (Settings > Advanced > Recent Deliveries).

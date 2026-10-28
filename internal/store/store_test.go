@@ -199,3 +199,30 @@ func TestOptionsDefaults(t *testing.T) {
 		t.Fatalf("defaults = %+v", o)
 	}
 }
+
+// TestSchemaVersions: a release reads what it writes, and at most one schema ahead
+// (expand-then-write, schema.go).
+func TestSchemaVersions(t *testing.T) {
+	if SchemaVersion < 1 || ReadableSchema < SchemaVersion || ReadableSchema > SchemaVersion+1 {
+		t.Fatalf("SchemaVersion %d, ReadableSchema %d: want SchemaVersion <= ReadableSchema <= SchemaVersion+1 (bump ReadableSchema in the release that adds a field, SchemaVersion in the next)",
+			SchemaVersion, ReadableSchema)
+	}
+}
+
+type syncingStore struct {
+	Store
+	n int
+}
+
+func (s *syncingStore) Sync(context.Context) error { s.n++; return nil }
+
+func TestSyncIfSupported(t *testing.T) {
+	s := &syncingStore{}
+	if err := SyncIfSupported(t.Context(), s); err != nil || s.n != 1 {
+		t.Fatalf("SyncIfSupported on a Syncer = %v, %d syncs", err, s.n)
+	}
+	var plain struct{ Store }
+	if err := SyncIfSupported(t.Context(), plain); err != nil {
+		t.Fatalf("SyncIfSupported on a store without Sync = %v", err)
+	}
+}

@@ -296,7 +296,7 @@ stateDiagram-v2
 ## Conventions and tooling
 
 - **State keys** are free-form, one per task spec by convention. RuleSets declare `stateKeys` so CI catches typos.
-- **Labels are effects, not state.** If humans should see a state on GitHub, a rule adds the label. The marker comment always carries the full state for rebuild ([02](02-architecture.md#db-and-queue)).
+- **Labels are effects, not state.** If humans should see a state on GitHub, a rule adds the label. The marker comment carries the full state for people to read; nothing reads it back into the store, which is the authority ([02](02-architecture.md#db-and-queue), [P3](proposals/P3-dispatcher-state-in-object-storage.md#no-rebuild-from-markers)).
 - **Groups and templates** are catalog kinds ([03](03-domain-model.md#group)). `maintainers` is defined once and used by trust tiers, notifications and approvals.
 - **Engine invariants** (kill switches, budgets, per-item run cap, single active run, dedupe, credentials, effects allow-list) are in [02](02-architecture.md#safety-rails-the-only-engine-invariants). Rules can't disable them.
 - **Testing:** `factory rules test` replays recorded events from `catalog/testdata/` and prints which RuleSets and rules match and which actions would run. CI runs it on every catalog PR and **diffs the decisions** against `main`.

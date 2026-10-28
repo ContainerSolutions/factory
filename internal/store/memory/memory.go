@@ -2,7 +2,8 @@
 // scale: thousands of objects), JSON deep copies on the way in and out, field indexes, watch
 // fan-out with bounded buffers and a replay history, leased locks, retention and the
 // transcript blobs. A commit hook (WithCommitHook) sees every write before it is applied,
-// which is how store/filestore makes it durable.
+// which is how store/filestore (and an object store, P3) make it durable; Apply, DeleteAt and
+// Replace (apply.go) serve a store on a shared log.
 package memory
 
 import (
@@ -60,9 +61,10 @@ type Store struct {
 }
 
 var (
-	_ store.Store           = (*Store)(nil)
-	_ store.Sweeper         = (*Store)(nil)
-	_ store.TranscriptStore = (*Store)(nil)
+	_ store.Store            = (*Store)(nil)
+	_ store.Sweeper          = (*Store)(nil)
+	_ store.TranscriptStore  = (*Store)(nil)
+	_ store.UnchangedDeleter = (*Store)(nil)
 )
 
 // New returns an empty store.
@@ -229,7 +231,7 @@ func (s *Store) Create(ctx context.Context, obj store.Object) error {
 	if err != nil {
 		return err
 	}
-	if err := s.commit("create", Change{Op: OpCreate, Key: k, Version: rec.rv, At: now, Data: rec.data}); err != nil {
+	if err := s.commit(ctx, "create", Change{Op: OpCreate, Key: k, Version: rec.rv, At: now, Data: rec.data}); err != nil {
 		store.SetResourceVersion(obj, oldRV)
 		store.SetCreatedAt(obj, oldCreated)
 		return err
@@ -268,7 +270,7 @@ func (s *Store) Update(ctx context.Context, obj store.Object) error {
 	if err != nil {
 		return err
 	}
-	if err := s.commit("update", Change{Op: OpUpdate, Key: k, Version: rec.rv, At: rec.updated, Data: rec.data}); err != nil {
+	if err := s.commit(ctx, "update", Change{Op: OpUpdate, Key: k, Version: rec.rv, At: rec.updated, Data: rec.data}); err != nil {
 		store.SetResourceVersion(obj, oldRV)
 		store.SetCreatedAt(obj, oldCreated)
 		return err
@@ -294,13 +296,13 @@ func (s *Store) Delete(ctx context.Context, k store.Key) error {
 	if rec == nil {
 		return store.Errorf("delete", k, store.ErrNotFound, "")
 	}
-	return s.deleteLocked("delete", rec)
+	return s.deleteLocked(ctx, "delete", rec)
 }
 
 // deleteLocked removes rec, tells the watchers and drops a Run's transcript, once the hook
 // accepted the change. The caller holds s.mu.
-func (s *Store) deleteLocked(op string, rec *record) error {
-	if err := s.commit(op, Change{Op: OpDelete, Key: rec.key, Version: s.rv + 1, At: s.clk.Now()}); err != nil {
+func (s *Store) deleteLocked(ctx context.Context, op string, rec *record) error {
+	if err := s.commit(ctx, op, Change{Op: OpDelete, Key: rec.key, Version: s.rv + 1, At: s.clk.Now()}); err != nil {
 		return err
 	}
 	s.rv++

@@ -12,6 +12,8 @@ deploy/poc/logs/
 /bin/
 /cmd/factory/factory
 /cmd/factory-agent/factory-agent
+/factory
+/factory-agent
 /dist/
 internal/webui/dist/
 /coverage*.out

@@ -124,6 +124,16 @@ func (s *Scheduler) loadSnapshot(ctx context.Context) (*snapshot, error) {
 	return sn, nil
 }
 
+// pendingTask is the pending task id, or nil when it isn't pending in the snapshot.
+func (sn *snapshot) pendingTask(id string) *v1alpha1.Task {
+	for _, t := range sn.pending {
+		if t.Metadata.ID == id {
+			return t
+		}
+	}
+	return nil
+}
+
 func (sn *snapshot) priority(t *v1alpha1.Task) int {
 	if q := sn.cat.Queues[t.Spec.Queue]; q != nil {
 		return q.Spec.Priority

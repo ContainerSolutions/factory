@@ -119,7 +119,7 @@ The model is deliberately **Kubernetes-shaped**: `metadata`, `spec`, `status`, l
 | **catalog-sync** | git (`main` of this repo) | Loads `catalog/` at a SHA. Validates schemas, CEL expressions, references and harness configs (against adapter capability descriptors). Applies the config resources atomically. A bad catalog is rejected whole, and the previous SHA stays live. |
 | **provider** | `Provider` | Runs one adapter instance per Provider object: opens the webhook route or Socket Mode connection, verifies and dedupes inbound calls, and normalises them into `Event` resources. Resolves the actor's tier with that provider's trust config. Reports health in `Provider.status`. |
 | **rule** | `Event` (provider and `factory.*`), schedule ticks | Finds the work item for the event (or creates one). Finds the RuleSets in scope: for provider events by bound provider and scope; for `factory.*` events by the work item's linked objects. Evaluates their selected rules (`on` → `where`, `priority`/`final`), dedupes per (event, rule), checks the **safety rails**, and runs the actions. `dispatch` creates a `Task` (`Pending`) in its queue. `requestApproval` creates an `Approval`. `notify` renders a Template and sends it through the providers. |
-| **work-item** | `WorkItem`, provider observations | Calls `Observe` on linked objects to merge in out-of-band human actions, and writes the **projection** (labels, marker comment, Slack metadata). It runs the periodic **resync** (re-observe, then emit `workitem.resynced` events so rules can react) and the **rebuild** on startup. |
+| **work-item** | `WorkItem`, provider observations | Calls `Observe` on linked objects to merge in out-of-band human actions, and writes the **projection** (labels, marker comment, Slack metadata). It runs the periodic **resync** (re-observe against the stored baselines, then emit `workitem.resynced` events so rules can react). No rebuild on startup: the store is the authority (P3). |
 | **scheduler** | `Task` (Pending), `Queue` | Orders tasks by priority, applies the queue's concurrency and budget, and offers it to the queue's pool; a matched task becomes `Leased`. This is the same idea as Kubernetes pod scheduling. Details: [scheduler-and-pools.md](workstreams/dispatcher-runtime/LLD/scheduler-and-pools.md). |
 | **pool** | `Task` (Pending), `Pool`, `Agent` | **Registered pool (PoC):** matches tasks to connected agents by capability. That includes **resolving harness config patterns** against what the agent offers ([03](03-domain-model.md#patterns-in-harness-config)), respecting consent, hours and throttling. It then grants **leases**, and handles heartbeats and expired leases. **Ephemeral pool (later):** launches an agent through the pool's backend within `scaling.max`. |
 | **run** | `Run` | Tracks progress, enforces wall-clock limits, cancels runs whose work item moved on (e.g. a review of a stale commit), and ingests the Result. Emits **`factory.run.completed`** / **`factory.run.failed`** from the built-in `factory` provider, which loops back into the rule controller. |
@@ -137,15 +137,13 @@ The model is deliberately **Kubernetes-shaped**: `metadata`, `spec`, `status`, l
 ### DB and queue
 
 - **DB:** a resource store behind a `Store` interface with get, list, watch, a compare-and-swap update, and per-(work item, task spec) locks. It starts **in-memory**. Postgres replaces it later behind the same interface.
-- **Rebuild on startup:** the in-memory store starts empty. The catalog is re-synced from git, the provider controller reconnects, and the work-item controller calls `List` on each Provider's bound scope and reads each object's **projection**:
+- **Durable state, no rebuild:** `factory serve` keeps the store durable: in files with `--state-dir` (one dispatcher; [store.md §Serving](workstreams/dispatcher-runtime/LLD/store.md#serving-factory-serve---state-dir), on in the PoC run kit) or in object storage with `--state-url` (shared by several dispatchers, one of which leads; [P3](proposals/P3-dispatcher-state-in-object-storage.md)). The store is the authority: nothing is rebuilt from the GitHub markers at start ([P3 §No rebuild from markers](proposals/P3-dispatcher-state-in-object-storage.md#no-rebuild-from-markers), which supersedes [ADR-0001](adr/0001-factory-owns-work-state.md)'s start-up rebuild). The factory still writes each work item's **projection**, for people to read:
 
   ```markdown
   <!-- factory:wi v=1 id=wi_01JA… state=release:drafting,train:compliance-framework%2Fworkflows%23123 runs=release-docs:1 links=github-public:compliance-framework%2Fdocs%2357 -->
   ```
 
-  The format (versioned, URL-encoded values, `b64:` for structured values) is defined once in [github-provider.md §Observe, list and projection](workstreams/provider-github/LLD/github-provider.md#observe-list-and-projection).
-
-  **Rule:** anything rules need to continue must be in the projection. With the in-memory store, history (old runs, transcripts, cost) is lost on restart; `factory serve --state-dir` (the file store, [store.md §Serving](workstreams/dispatcher-runtime/LLD/store.md#serving-factory-serve---state-dir), on in the PoC run kit) keeps it, and the rebuild then only brings back the work items the state dir lacks. Runs that finish while the dispatcher is down report back with their full task (the runner keeps a copy), so they're adopted after the rebuild.
+  The format (versioned, URL-encoded values, `b64:` for structured values) is defined once in [github-provider.md §Observe and projection](workstreams/provider-github/LLD/github-provider.md#observe-and-projection). An event handled wrongly is replayed from the stored events. When the state itself is lost (a deleted bucket or dir, a reset), open items start fresh on their next event, with no rule state and no run counters (P3 Decision 7). `--state-memory` keeps the store in memory, for tests and quick local runs. Runs that finish while the dispatcher is down report back with their full task (the runner keeps a copy).
 - **Queue:** one logical queue per `Queue` resource, implemented on the store at first. Tasks are `Task` resources with a phase (`Pending → Leased → Running → Succeeded / Failed / Cancelled`, plus `Cancelling`; a task waiting on budget or capacity stays `Pending` with a reason). That gives leases, retries and visibility in the UI for free. Postgres with SKIP LOCKED (e.g. River) comes when the store goes durable.
 
 ### Factory UI
@@ -181,7 +179,7 @@ type Conn interface {
     Normalise(ctx context.Context, ev RawEvent) ([]Event, error)  // one delivery → 0..n events, actor tier resolved
     // Observation
     Observe(ctx context.Context, ref ObjectRef) (Observation, error)
-    List(ctx context.Context, scope Scope) ([]ObjectRef, error)    // for resync / rebuild
+    List(ctx context.Context, scope Scope) ([]ObjectRef, error)    // no caller since P3: removed with the rebuild (P3 PR 6)
     ResolveGroup(ctx context.Context, g GroupSource) ([]string, error)
     // Projection + effects
     Project(ctx context.Context, ref ObjectRef, p Projection) error
@@ -367,7 +365,7 @@ All dispatcher components (API, DB, queue, controllers and the UI's static asset
 
 | Shape | Dispatcher | DB / queue | Pools | When |
 |---|---|---|---|---|
-| **A. PoC** | Single replica; GitHub App webhook only (Slack is future, Q1); plain Go binary, not Kubernetes ([10](10-poc.md#build-on-kubernetes-for-the-poc)) | In-memory, rebuilt from projections | **Registered only**: `maintainer-agents`, Codex on owners' plans (default), Claude Code on API keys (validation) ([10](10-poc.md#registered-agents-codex-on-subscriptions-claude-on-api-keys)) | `docs`, first weeks |
+| **A. PoC** | Single replica; GitHub App webhook only (Slack is future, Q1); plain Go binary, not Kubernetes ([10](10-poc.md#build-on-kubernetes-for-the-poc)) | In-memory at first, rebuilt from projections; then a state dir (P2) and object storage (P3), with no rebuild | **Registered only**: `maintainer-agents`, Codex on owners' plans (default), Claude Code on API keys (validation) ([10](10-poc.md#registered-agents-codex-on-subscriptions-claude-on-api-keys)) | `docs`, first weeks |
 | **B. Durable** *(future, not planned)* | Same | Postgres behind `Store` (queue on SKIP LOCKED); history survives; HA possible | + ephemeral pools (`actions-ephemeral`, API-key auth) for capacity that doesn't depend on someone's machine | More repos, budgets and reporting |
 | **C. Scale** *(future, not planned)* | HA | Postgres, or config kinds as CRDs on a cluster | k8s / Agent Sandbox ephemeral pools with warm pools; optional kagent / agent-orca backends | Volume or cost demands it |
 

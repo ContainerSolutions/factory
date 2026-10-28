@@ -979,7 +979,7 @@ type PoolView struct {
 
 // Problem An RFC 9457 problem detail.
 type Problem struct {
-	// Code A stable machine-readable code: `idempotency-key-required`, `effect-not-allowed`, `lease-expired`, ….
+	// Code A stable machine-readable code: `idempotency-key-required`, `effect-not-allowed`, `lease-gone`, `store-read-only`, ….
 	Code *string `json:"code,omitempty"`
 
 	// Detail This occurrence's explanation.
@@ -3064,7 +3064,14 @@ type NotFoundApplicationProblemPlusJSONResponse Problem
 
 type PayloadTooLargeApplicationProblemPlusJSONResponse Problem
 
-type ServiceUnavailableApplicationProblemPlusJSONResponse Problem
+type ServiceUnavailableResponseHeaders struct {
+	RetryAfter *int
+}
+type ServiceUnavailableApplicationProblemPlusJSONResponse struct {
+	Body Problem
+
+	Headers ServiceUnavailableResponseHeaders
+}
 
 type TooManyRequestsResponseHeaders struct {
 	RetryAfter *int
@@ -3218,6 +3225,25 @@ func (response RegisterAgent403ApplicationProblemPlusJSONResponse) VisitRegister
 	return err
 }
 
+type RegisterAgent503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response RegisterAgent503ApplicationProblemPlusJSONResponse) VisitRegisterAgentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RegisterAgentdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -3295,6 +3321,25 @@ func (response DeregisterAgent404ApplicationProblemPlusJSONResponse) VisitDeregi
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeregisterAgent503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response DeregisterAgent503ApplicationProblemPlusJSONResponse) VisitDeregisterAgentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3399,6 +3444,25 @@ func (response UpdateAgent404ApplicationProblemPlusJSONResponse) VisitUpdateAgen
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateAgent503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateAgent503ApplicationProblemPlusJSONResponse) VisitUpdateAgentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3515,6 +3579,25 @@ func (response LeaseTask404ApplicationProblemPlusJSONResponse) VisitLeaseTaskRes
 	return err
 }
 
+type LeaseTask503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response LeaseTask503ApplicationProblemPlusJSONResponse) VisitLeaseTaskResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type LeaseTaskdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -3588,6 +3671,25 @@ func (response AuthCallback403ApplicationProblemPlusJSONResponse) VisitAuthCallb
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AuthCallback503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response AuthCallback503ApplicationProblemPlusJSONResponse) VisitAuthCallbackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3709,6 +3811,25 @@ func (response Logout204Response) VisitLogoutResponse(w http.ResponseWriter) err
 	}
 	w.WriteHeader(204)
 	return nil
+}
+
+type Logout503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response Logout503ApplicationProblemPlusJSONResponse) VisitLogoutResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type LogoutdefaultApplicationProblemPlusJSONResponse struct {
@@ -4230,6 +4351,25 @@ func (response PostCommand404ApplicationProblemPlusJSONResponse) VisitPostComman
 	return err
 }
 
+type PostCommand503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response PostCommand503ApplicationProblemPlusJSONResponse) VisitPostCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PostCommanddefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -4404,6 +4544,25 @@ func (response CreateEnrollment403ApplicationProblemPlusJSONResponse) VisitCreat
 	return err
 }
 
+type CreateEnrollment503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEnrollment503ApplicationProblemPlusJSONResponse) VisitCreateEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateEnrollmentdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -4481,6 +4640,25 @@ func (response DeleteEnrollment404ApplicationProblemPlusJSONResponse) VisitDelet
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteEnrollment503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteEnrollment503ApplicationProblemPlusJSONResponse) VisitDeleteEnrollmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -4595,10 +4773,13 @@ type ReplayEvent503ApplicationProblemPlusJSONResponse struct {
 func (response ReplayEvent503ApplicationProblemPlusJSONResponse) VisitReplayEventResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
 	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
@@ -4718,6 +4899,25 @@ func (response AbandonLease409ApplicationProblemPlusJSONResponse) VisitAbandonLe
 	return err
 }
 
+type AbandonLease503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response AbandonLease503ApplicationProblemPlusJSONResponse) VisitAbandonLeaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type AbandonLeasedefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -4828,6 +5028,25 @@ func (response CompleteLease409ApplicationProblemPlusJSONResponse) VisitComplete
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteLease503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response CompleteLease503ApplicationProblemPlusJSONResponse) VisitCompleteLeaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -4948,6 +5167,25 @@ func (response HeartbeatLease409ApplicationProblemPlusJSONResponse) VisitHeartbe
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type HeartbeatLease503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response HeartbeatLease503ApplicationProblemPlusJSONResponse) VisitHeartbeatLeaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5424,6 +5662,25 @@ func (response UploadEnvironmentLog413ApplicationProblemPlusJSONResponse) VisitU
 	return err
 }
 
+type UploadEnvironmentLog503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response UploadEnvironmentLog503ApplicationProblemPlusJSONResponse) VisitUploadEnvironmentLogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type UploadEnvironmentLogdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -5637,6 +5894,25 @@ func (response UploadTranscript413ApplicationProblemPlusJSONResponse) VisitUploa
 	return err
 }
 
+type UploadTranscript503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response UploadTranscript503ApplicationProblemPlusJSONResponse) VisitUploadTranscriptResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type UploadTranscriptdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -5744,10 +6020,13 @@ type StreamEvents503ApplicationProblemPlusJSONResponse struct {
 func (response StreamEvents503ApplicationProblemPlusJSONResponse) VisitStreamEventsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
 	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
@@ -6122,6 +6401,25 @@ func (response CreateEffect429ApplicationProblemPlusJSONResponse) VisitCreateEff
 	return err
 }
 
+type CreateEffect503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response CreateEffect503ApplicationProblemPlusJSONResponse) VisitCreateEffectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateEffectdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -6478,6 +6776,25 @@ func (response DeleteWorkItem409ApplicationProblemPlusJSONResponse) VisitDeleteW
 	return err
 }
 
+type DeleteWorkItem503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteWorkItem503ApplicationProblemPlusJSONResponse) VisitDeleteWorkItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteWorkItemdefaultApplicationProblemPlusJSONResponse struct {
 	Body       Problem
 	StatusCode int
@@ -6649,6 +6966,25 @@ func (response CloseWorkItem404ApplicationProblemPlusJSONResponse) VisitCloseWor
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloseWorkItem503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response CloseWorkItem503ApplicationProblemPlusJSONResponse) VisitCloseWorkItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }

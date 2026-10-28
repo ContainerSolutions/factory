@@ -53,21 +53,64 @@ func sessionKey(id string) store.Key {
 	return store.Key{Kind: KindSession, Name: "ses_" + hex.EncodeToString(sum[:])}
 }
 
-// sign returns the cookie value of a session id: "<id>.<HMAC-SHA256(key, id)>".
-func (a *Authenticator) sign(id string) string {
-	m := hmac.New(sha256.New, a.key)
-	m.Write([]byte(id))
-	return id + "." + base64.RawURLEncoding.EncodeToString(m.Sum(nil))
+// KindUsedLoginState records a finished UI login (internal store kind, no API, no schema), so
+// its OAuth state is used once on every dispatcher of the store. It is named by the SHA-256 of
+// the state's id and holds nothing else but the state's expiry; the leader's sweep deletes it
+// once the state has expired.
+const KindUsedLoginState = "UsedLoginState"
+
+// UsedLoginState is a stored KindUsedLoginState.
+type UsedLoginState struct {
+	v1alpha1.TypeMeta
+	Metadata  v1alpha1.ObjectMeta `json:"metadata"`
+	ExpiresAt time.Time           `json:"expiresAt"`
 }
 
-// verify returns the session id of a cookie value, if its signature is right.
+var _ store.MetaObject = (*UsedLoginState)(nil)
+
+// GetName returns metadata.name (the hash of the state's id).
+func (u *UsedLoginState) GetName() string { return u.Metadata.Name }
+
+// GetObjectMeta implements store.MetaObject.
+func (u *UsedLoginState) GetObjectMeta() *v1alpha1.ObjectMeta { return &u.Metadata }
+
+func usedStateName(id string) string {
+	sum := sha256.Sum256([]byte(id))
+	return "uls_" + hex.EncodeToString(sum[:])
+}
+
+// mac is HMAC-SHA256(key, msg).
+func mac(key []byte, msg string) []byte {
+	m := hmac.New(sha256.New, key)
+	m.Write([]byte(msg))
+	return m.Sum(nil)
+}
+
+// anyKey reports whether ok holds for the session key or the previous one (rotation).
+func (a *Authenticator) anyKey(ok func(key []byte) bool) bool {
+	if ok(a.key) {
+		return true
+	}
+	return len(a.cfg.PreviousSessionKey) > 0 && ok(a.cfg.PreviousSessionKey)
+}
+
+// sign returns the cookie value of a session id: "<id>.<HMAC-SHA256(key, id)>".
+func (a *Authenticator) sign(id string) string {
+	return id + "." + base64.RawURLEncoding.EncodeToString(mac(a.key, id))
+}
+
+// verify returns the session id of a cookie value, if its signature is right under the
+// session key or the previous one.
 func (a *Authenticator) verify(v string) (string, bool) {
 	id, sig, ok := strings.Cut(v, ".")
 	if !ok || id == "" {
 		return "", false
 	}
-	want := a.sign(id)
-	return id, hmac.Equal([]byte(want), []byte(id+"."+sig))
+	got, err := base64.RawURLEncoding.DecodeString(sig)
+	if err != nil {
+		return "", false
+	}
+	return id, a.anyKey(func(key []byte) bool { return hmac.Equal(got, mac(key, id)) })
 }
 
 // newSession stores a session for u and returns its cookie.

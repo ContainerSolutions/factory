@@ -155,8 +155,21 @@ type frame struct {
 	data      any
 }
 
+// open watches kind from since. A since this store's history no longer has starts from now; a
+// since ahead of the store (a Last-Event-ID from a dispatcher that has seen more of the shared
+// state) syncs the store and tries again once, then starts from now too.
 func (sub *subscription) open(ctx context.Context, kind, since string) (*watch, error) {
 	w, err := sub.s.d.Store.Watch(ctx, kind, store.WatchOptions{SinceVersion: since})
+	if errors.Is(err, store.ErrInvalid) && since != "" {
+		if serr := store.SyncIfSupported(ctx, sub.s.d.Store); serr != nil && !errors.Is(serr, store.ErrReadOnly) {
+			return nil, fmt.Errorf("watch %s: sync the store: %w", kind, serr)
+		}
+		w, err = sub.s.d.Store.Watch(ctx, kind, store.WatchOptions{SinceVersion: since})
+		if errors.Is(err, store.ErrInvalid) {
+			sub.s.log.DebugContext(ctx, "stream resume ahead of the store; starting from now", "kind", kind, "since", since)
+			err = store.ErrWatchExpired
+		}
+	}
 	if errors.Is(err, store.ErrWatchExpired) && since != "" {
 		// Too old to replay: start from now (the client missed some changes; the next
 		// updates carry the full objects).

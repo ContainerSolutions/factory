@@ -190,6 +190,37 @@ func eventLink(ev v1alpha1.Event) (v1alpha1.Link, bool) {
 	return v1alpha1.Link{}, false
 }
 
+// linkedWorkItem returns the work item whose links have link, from the spec.links index ("" for
+// none; in name order, the oldest id wins if two claim it). Its empty answer leads to a create
+// (workItemFor) or a drop (the provider controller's intake filter), so a lookup that finds
+// nothing syncs the store once, when the store can, and asks again: a link another dispatcher
+// recorded since this one's last sync counts (P3 §Reads and freshness).
+func linkedWorkItem(ctx context.Context, s store.Store, link v1alpha1.Link) (string, error) {
+	find := func() (string, error) {
+		var found []*v1alpha1.WorkItem
+		if _, err := s.List(ctx, v1alpha1.KindWorkItem, store.ListOptions{
+			Field: map[string]string{store.FieldWorkItemLink: store.LinkFieldValue(link.Provider, link.Ref)},
+		}, &found); err != nil {
+			return "", fmt.Errorf("find work item of %s: %w", link.Ref, err)
+		}
+		if len(found) == 0 {
+			return "", nil
+		}
+		return found[0].Metadata.Name, nil
+	}
+	id, err := find()
+	if err != nil || id != "" {
+		return id, err
+	}
+	if _, ok := s.(store.Syncer); !ok {
+		return "", nil
+	}
+	if err := store.SyncIfSupported(ctx, s); err != nil {
+		return "", fmt.Errorf("find work item of %s: sync the store: %w", link.Ref, err)
+	}
+	return find()
+}
+
 // workItemFor finds the event's work item, or creates one when at least one rule would fire
 // for the event (asked with the new item's view: no state, its object observed, permissive
 // rails). "" means no work item: the event changes nothing.
@@ -215,14 +246,12 @@ func (r *RuleController) workItemFor(ctx context.Context, cat *catalog.Catalog, 
 	}
 	link, hasLink := eventLink(ev)
 	if hasLink {
-		var found []*v1alpha1.WorkItem
-		if _, err := r.s.List(ctx, v1alpha1.KindWorkItem, store.ListOptions{
-			Field: map[string]string{store.FieldWorkItemLink: store.LinkFieldValue(link.Provider, link.Ref)},
-		}, &found); err != nil {
-			return "", fmt.Errorf("find work item of %s: %w", link.Ref, err)
+		id, err := linkedWorkItem(ctx, r.s, link)
+		if err != nil {
+			return "", err
 		}
-		if len(found) > 0 {
-			return found[0].Metadata.Name, nil // name order: the oldest id wins if two claim it
+		if id != "" {
+			return id, nil
 		}
 	}
 	// A deterministic id: two events about the same new object create one work item.
@@ -334,6 +363,13 @@ func (r *RuleController) processLocked(ctx context.Context, cat *catalog.Catalog
 		return nil, r.markProcessed(ctx, ev.ID, "", 0) // deleted (retention) since it was found
 	case err != nil:
 		return nil, fmt.Errorf("get work item %s: %w", wiID, err)
+	}
+	if !replay {
+		// Read again under the lock: a second leader whose reconcile saw the event unprocessed
+		// (P3 §Several dispatchers: overlapping leaders) finds it done and applies nothing.
+		if done, err := r.processed(ctx, ev.ID); err != nil || done {
+			return nil, err
+		}
 	}
 	if Closed(&wi) {
 		return r.closedLocked(ctx, &wi, ev, replay)

@@ -16,13 +16,14 @@ Work items live for hours or days and can span providers: a Slack thread, then a
   - Slack: message metadata.
 - The projection must carry everything rules need to continue: id, state keys, run counters and links.
 - On startup, and on resync, the dispatcher **rebuilds and reconciles** by listing the bound scopes and reading the projections plus the current provider state. Human actions (relabel, approve, merge by hand, reply) are observed and merged in. This is level-triggered reconciliation.
+  - *Superseded (P3, PR 5):* with durable state (a state dir, then object storage) the store is the authority, and the start-up rebuild is removed. The resync stays: it observes each open link against baselines it stores, and emits `factory.workitem.resynced` for out-of-band changes. An event handled wrongly is replayed from the stored events; lost state is not reconstructed from markers (P3 Decision 7).
 
 ## Consequences
 - No database is needed for the PoC, and state is never "lost" in a way that stalls work.
 - History (past runs, transcripts, cost) is lost on restart until a durable store (Postgres) replaces the in-memory one. The UI shows only what has happened since the last start.
 - The dispatcher is single-replica while the store is in-memory.
 - The projection format is an API. Version it (a `v=` field in the marker) and keep it backward-compatible.
-- Every provider adapter must implement `List` and `Observe` well enough to rebuild from scratch.
+- Every provider adapter must implement `List` and `Observe` well enough to rebuild from scratch. *Superseded (P3): the rebuild was `List`'s only caller; it goes from the interface (P3's PR 6). `Observe` stays, for the resync.*
 
 ## Alternatives considered
 - **GitHub labels as the only state** (the first draft of this ADR): no own store, but it locks the factory to GitHub, doesn't fit Slack, and has no home for cross-provider links or run history.

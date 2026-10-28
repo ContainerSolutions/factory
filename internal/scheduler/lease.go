@@ -18,8 +18,25 @@ import (
 const maxProgress = 200
 
 // errSkip makes the matcher try the next task: this one couldn't be committed (its
-// credential failed, or it changed under the snapshot).
+// credential failed, or it changed under the snapshot, or it failed the re-check under the
+// sched lock).
 var errSkip = errors.New("skip task")
+
+// errSchedBusy ends a matching pass: the wait for the sched lock timed out. The poll parks
+// until the next wake or tick, and passes that start within SchedWait end at once.
+var errSchedBusy = errors.New("the sched lock is busy")
+
+// errSchedStale ends a matching pass too: a candidate failed the re-check under the sched lock,
+// so the pass's snapshot is stale. Matching the next candidate against it would mint and lock
+// once per pending task; instead the poll parks, and the next pass reloads. The lock's sync
+// usually wakes it (the re-check failed on a change it brought in); otherwise (a catalog
+// swap, a time-based reason) the next tick does. Unlike errSchedBusy it sets no busy window.
+var errSchedStale = errors.New("the matching snapshot is stale")
+
+// SchedLock is the store lock every lease commit, on every dispatcher, re-checks and writes
+// under (P3 §Locks and leases): one lock, not one per pool, since lending lets a queue's tasks
+// run in other pools.
+const SchedLock = "sched"
 
 func leaseKey(id string) store.Key { return store.Key{Kind: KindLease, Name: id} }
 
@@ -73,10 +90,15 @@ func (s *Scheduler) Lease(ctx context.Context, agentID string, wait time.Duratio
 	}
 }
 
-// tryLease runs one matching pass for agentID and commits the first task it may take.
+// tryLease runs one matching pass for agentID and commits the first task it may take. A pass
+// that meets a busy sched lock ends without a grant; one that starts while the lock is known
+// busy ends at once.
 func (s *Scheduler) tryLease(ctx context.Context, agentID string) (*Grant, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.clk.Now().Before(s.schedBusyUntil) {
+		return nil, nil
+	}
 	sn, err := s.loadSnapshot(ctx)
 	if errors.Is(err, errNoCatalog) {
 		return nil, nil
@@ -111,20 +133,24 @@ func (s *Scheduler) tryLease(ctx context.Context, agentID string) (*Grant, error
 			return nil, err
 		}
 		g, err := s.commit(ctx, sn, t, a, v)
-		if errors.Is(err, errSkip) {
+		switch {
+		case errors.Is(err, errSkip):
 			continue
+		case errors.Is(err, errSchedBusy), errors.Is(err, errSchedStale):
+			return nil, nil
 		}
 		return g, err
 	}
 	return nil, nil
 }
 
-// commit leases t to a: mint the git credentials, move the task to Leased (compare-and-swap
-// on the version the snapshot read), record the lease, charge the budgets and the agent's
-// day, and tell the run controller. The caller holds s.mu.
+// commit leases t to a: mint the git credentials, then, under the sched lock, check t and a
+// again against fresh state, move the task to Leased (compare-and-swap on the version just
+// read), record the lease, charge the budgets and the agent's day, and tell the run
+// controller. A candidate that fails the re-check is errSchedStale (the pass ends: at most
+// one mint and one lock per pass), and its credentials are left to expire; a wait for the
+// lock that times out is errSchedBusy. The caller holds s.mu.
 func (s *Scheduler) commit(ctx context.Context, sn *snapshot, t *v1alpha1.Task, a *v1alpha1.Agent, v verdict) (*Grant, error) {
-	_, pool := sn.pool(t)
-	ttl, heartbeat := leaseTimes(pool)
 	now := s.clk.Now()
 	agentID, taskID := a.Metadata.Name, t.Metadata.ID
 
@@ -142,6 +168,55 @@ func (s *Scheduler) commit(ctx context.Context, sn *snapshot, t *v1alpha1.Task, 
 		return nil, errSkip
 	}
 	delete(s.mintBackoff, taskID)
+
+	// The minting is done: now the sched lock, held for the re-check and the writes only.
+	lctx, cancel := context.WithTimeout(ctx, s.opts.SchedWait)
+	unlock, err := s.d.Store.Lock(lctx, SchedLock, s.opts.SchedTTL)
+	cancel()
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			s.schedBusyUntil = s.clk.Now().Add(s.opts.SchedWait)
+			s.log.InfoContext(ctx, "sched lock busy; the matching pass ends", "task", taskID, "agent", agentID,
+				"busyFor", s.opts.SchedWait.String())
+			return nil, errSchedBusy
+		}
+		return nil, fmt.Errorf("take the sched lock: %w", err)
+	}
+	defer unlock.Unlock()
+	// The section ends well inside the lock's lease, so no other instance can take the lock
+	// while it runs.
+	sctx, cancelSection := context.WithTimeout(ctx, s.opts.SchedTTL/2)
+	defer cancelSection()
+	fresh, err := s.loadSnapshot(sctx)
+	if errors.Is(err, errNoCatalog) {
+		return nil, errSkip
+	}
+	if err != nil {
+		return nil, err
+	}
+	t, a = fresh.pendingTask(taskID), fresh.agents[agentID]
+	if t == nil || a == nil {
+		return nil, errSchedStale // leased, cancelled or gone, or the agent left, since the pass read them
+	}
+	if v, err = fresh.check(t, a); err != nil {
+		return nil, err
+	}
+	if !v.ok() {
+		s.log.DebugContext(ctx, "candidate failed the re-check under the sched lock; the pass ends", "task", taskID, "agent", agentID, "reason", v.reason)
+		return nil, errSchedStale
+	}
+	return s.commitLocked(sctx, fresh, t, a, v, creds)
+}
+
+// commitLocked is commit's writes, under the sched lock.
+func (s *Scheduler) commitLocked(ctx context.Context, sn *snapshot, t *v1alpha1.Task, a *v1alpha1.Agent, v verdict, creds credentials) (*Grant, error) {
+	_, pool := sn.pool(t)
+	ttl, heartbeat := leaseTimes(pool)
+	now := s.clk.Now()
+	agentID, taskID := a.Metadata.Name, t.Metadata.ID
 	leaseID, err := s.newLeaseID()
 	if err != nil {
 		return nil, err

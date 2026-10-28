@@ -24,6 +24,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/apiclient"
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/clock"
 	"github.com/ContainerSolutions/factory/internal/provider"
 	"github.com/ContainerSolutions/factory/internal/provider/fake"
 	"github.com/ContainerSolutions/factory/internal/store"
@@ -36,8 +37,9 @@ const repoRoot = "../.."
 // store.MetaObject accessor, anywhere under internal/) is registered with serve's file store,
 // and nothing else is. A new kind that isn't fails here, rather than at the first write of a
 // dispatcher started with --state-dir (the file store refuses kinds it can't load back). Add
-// it to internalKinds, and to the file store's kind audit (internal/store/filestore
-// fixtures_test.go and store.md §File store).
+// it to internalKinds, and to the stores' secrets audit (internal/store/storeaudit, with a
+// fixture, and store.md §File store); TestStoredSchema then asks for a store.ReadableSchema
+// bump.
 func TestServeStoreKinds(t *testing.T) {
 	mod := modulePath(t)
 	found := map[string]string{} // pkgpath.Type → file
@@ -93,7 +95,7 @@ func TestServeStoreKinds(t *testing.T) {
 	}
 	for typ, file := range found {
 		if _, ok := registered[typ]; !ok {
-			t.Errorf("%s (%s) is a stored kind that factory serve's file store doesn't register: add it to internalKinds (cmd/factory/serve_store.go) and to the file store's kind audit", typ, file)
+			t.Errorf("%s (%s) is a stored kind that factory serve's stores don't register: add it to internalKinds (cmd/factory/serve_store.go) and to the stores' secrets audit (internal/store/storeaudit)", typ, file)
 		}
 	}
 	for typ, kind := range registered {
@@ -178,9 +180,8 @@ func providerDecisions(wi apiclient.WorkItem) []string {
 
 // TestServeStateDirRestart: with --state-dir, a restart keeps everything. A fake agent leases
 // the plan-epic task and heartbeats; the dispatcher stops (its store compacts) and starts again
-// on the same dir and the same GitHub. The rebuild finds the stored work item and leaves it as
-// the file has it, though the marker on GitHub differs; the agent's token and lease still
-// work, so it heartbeats, uploads its transcript and completes; the task succeeds, its run's
+// on the same dir and the same GitHub. The stored work item is as the file has it (nothing is
+// read back from the markers); the agent's token and lease still work, so it heartbeats, uploads its transcript and completes; the task succeeds, its run's
 // Result and transcript are readable, and factory.run.completed dispatches implement. No
 // event is processed twice: the webhook's decisions and tasks are the same across both
 // restarts, and the third start still serves the run and its transcript.
@@ -279,10 +280,15 @@ func TestServeStateDirRestart(t *testing.T) {
 		}
 	}
 	heartbeat(s, "planning")
-	// The work-item controller projects the marker onto the issue.
+	// The work-item controller projects the marker onto the issue (the fake's log of
+	// Project calls).
 	eventuallyT(t, "the marker on the issue", func() bool {
-		o, _ := s.gh.Object(docsIssue)
-		return len(o.Projections) == 1 && o.Projections[0].WorkItemID == wiID
+		for _, p := range s.gh.Projections() {
+			if p.Err == nil && p.Ref.Ref == docsIssue && p.Projection.WorkItemID == wiID {
+				return true
+			}
+		}
+		return false
 	})
 	wiBefore := getWorkItem(s, wiID)
 	decisions := providerDecisions(wiBefore)
@@ -299,15 +305,8 @@ func TestServeStateDirRestart(t *testing.T) {
 		t.Fatalf("no snapshot after shutdown: %v", err)
 	}
 
-	// While the dispatcher is down, the marker on GitHub changes: the file stays
-	// authoritative for the work items it holds.
-	if err := adapter.Conn(ghProvider).Update(docsIssue, func(o *provider.Observation) {
-		o.Projections[0].State = map[string]any{"from-marker": "yes"}
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	// 2. Restart on the same dir: the agent carries on.
+	// 2. Restart on the same dir: the agent carries on. Nothing is rebuilt from the markers:
+	// the state dir is the authority.
 	s = start()
 	logs := s.logs.String()
 	for _, want := range []string{`"msg":"store: loaded the state dir"`, `"Lease":1`, `"AgentToken":1`, `"EventStatus":1`, `"tornLineDropped":false`} {
@@ -315,11 +314,8 @@ func TestServeStateDirRestart(t *testing.T) {
 			t.Errorf("start-up log has no %s:\n%s", want, logs)
 		}
 	}
-	if !strings.Contains(logs, `"msg":"work items rebuilt"`) || !strings.Contains(logs, `"created":0,"existing":1`) {
-		t.Errorf("the rebuild didn't find the stored work item:\n%s", logs)
-	}
 	if wi := getWorkItem(s, wiID); !reflect.DeepEqual(wi.Status.State, wiBefore.Status.State) {
-		t.Errorf("work item state after the restart = %v, want the stored %v (the file wins over the marker)", wi.Status.State, wiBefore.Status.State)
+		t.Errorf("work item state after the restart = %v, want the stored %v", wi.Status.State, wiBefore.Status.State)
 	}
 	c = s.client(t)
 	heartbeat(s, "still planning, across the restart")
@@ -426,10 +422,11 @@ func grepDir(t *testing.T, dir, s string) bool {
 	return hit
 }
 
-// Without --state-dir serve keeps its store in memory, as before.
+// With --dev-fake-providers (or --state-memory) serve keeps its store in memory, and says what
+// a restart loses.
 func TestServeMemoryStore(t *testing.T) {
 	s := startServe(t, testConfig(t, fakeGitHubUsers(t).URL))
-	if !strings.Contains(s.logs.String(), `"msg":"store: in memory; state is lost on restart (--state-dir keeps it)"`) {
+	if !strings.Contains(s.logs.String(), `"msg":"store: in memory; every work item starts fresh on a restart, with no state and no run counters (--state-dir or --state-url keeps them)"`) {
 		t.Errorf("no in-memory store log:\n%s", s.logs)
 	}
 	if err := s.stop(); err != nil {
@@ -490,6 +487,35 @@ func writePrivate(t *testing.T, dir, name, data string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Every instance recovers, at its start, the deliveries GitHub made from 10 s before that start
+// (GitHub's timeout), so one that timed out while the instance started is taken.
+func TestServeRecoversFromBeforeItsStart(t *testing.T) {
+	// The provider's clock is 5 s behind: the delivery is from before the process started.
+	adapter := fake.NewAdapter(fake.Options{Clock: clock.NewFake(time.Now().Add(-5 * time.Second))})
+	gh := adapter.Conn(ghProvider)
+	if err := gh.Seed(provider.Observation{Ref: v1alpha1.ObjectRef{Kind: provider.KindIssue, Ref: docsIssue}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gh.Undelivered(fake.Webhook{Delivery: "77", Type: v1alpha1.EventIssueOpened,
+		Sender: fake.Sender{Login: "gus"}, Object: &v1alpha1.ObjectRef{Kind: provider.KindIssue, Ref: docsIssue}}); err != nil {
+		t.Fatal(err)
+	}
+	gh.SetOrgRole("compliance-framework", "admin", "gus")
+	s := runServed(t, testConfig(t, fakeGitHubUsers(t).URL), serveDeps{Getenv: getenvOf(testEnv()), Fake: adapter})
+	eventuallyT(t, "the recovered delivery normalised", func() bool {
+		for line := range strings.Lines(s.logs.String()) {
+			var rec map[string]any
+			if json.Unmarshal([]byte(line), &rec) == nil && rec["msg"] == "delivery normalised" && rec["delivery"] == "fake-77" {
+				return true
+			}
+		}
+		return false
+	})
+	if err := s.stop(); err != nil {
 		t.Fatal(err)
 	}
 }

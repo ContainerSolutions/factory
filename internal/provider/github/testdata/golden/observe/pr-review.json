@@ -39,31 +39,5 @@
       }
     ],
     "unresolvedThreads": 3
-  },
-  "projections": [
-    {
-      "workItemID": "wi_train123",
-      "state": {
-        "release": "review",
-        "train": "compliance-framework/workflows#123"
-      },
-      "counters": {
-        "docs-review": 1,
-        "release-docs": 1
-      },
-      "links": [
-        {
-          "provider": "github-public",
-          "ref": "compliance-framework/workflows#123",
-          "kind": "issue",
-          "primary": true
-        },
-        {
-          "provider": "github-public",
-          "ref": "compliance-framework/docs#90",
-          "kind": "pr"
-        }
-      ]
-    }
-  ]
+  }
 }
