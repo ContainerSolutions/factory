@@ -322,7 +322,11 @@ func (w *WorkItemController) resyncInterval(wi *v1alpha1.WorkItem) time.Duration
 }
 
 // observationDigest digests what an out-of-band change can move: not the timestamp, nor the
-// projections the factory itself writes, should an adapter report them.
+// projections the factory itself writes. Observe reports those until P3's PR 6 removes
+// Observation.Projections; after that the "projections" key is never there and its deletion
+// is a no-op. It is deleted by its JSON name, not the Go field, so that removal doesn't touch
+// this file. No deployed baseline depends on the encoding: LinkObservations is new in the
+// same release.
 func observationDigest(o provider.Observation) string {
 	o.UpdatedAt = time.Time{}
 	b, err := json.Marshal(o)
