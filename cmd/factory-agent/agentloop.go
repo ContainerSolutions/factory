@@ -115,6 +115,7 @@ func runAgentLoop(ctx context.Context, stderr io.Writer, d workerDeps, l agentLo
 		Dispatcher: cfg.Dispatcher, Pool: cfg.Pool, Host: cfg.Host,
 		AgentVersion: version.Version, Capabilities: rep.Capabilities, Lending: l.lending(cfg.Lending),
 		Runner: rn, HTTPClient: d.HTTPClient, Logger: log,
+		Poll: worker.Poll{Wait: cfg.Poll.WaitDuration(), Interval: cfg.Poll.IntervalDuration()},
 	}
 	// Enrolled (P1 §6): the refresh token in the state dir, else the enrollment token to
 	// exchange.
@@ -136,7 +137,8 @@ func runAgentLoop(ctx context.Context, stderr io.Writer, d workerDeps, l agentLo
 	defer abort()
 	go handleSignals(runCtx, sigs, w, abort, l, co, log)
 
-	log.Info("factory-agent "+l.name+" starting", "version", version.Version, "dispatcher", cfg.Dispatcher, "pool", cfg.Pool, "host", cfg.Host)
+	log.Info("factory-agent "+l.name+" starting", "version", version.Version, "dispatcher", cfg.Dispatcher, "pool", cfg.Pool, "host", cfg.Host,
+		"pollWait", cfg.Poll.Wait, "pollInterval", cfg.Poll.Interval)
 	if err := w.Run(runCtx); err != nil {
 		log.Error(l.name+" stopped", "err", err)
 		return 1

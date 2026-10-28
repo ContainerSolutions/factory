@@ -1,7 +1,8 @@
 // Package worker is factory-agent's worker loop (supervise.md §The worker loop): it registers
-// with the dispatcher (its refresh token, else the one-time enrollment token), long-polls for
-// leases, runs each leased task through a runner.Runner while heartbeating, reports the
-// Outcome (complete, abandon, throttle), and drains on SIGTERM.
+// with the dispatcher (its refresh token, else the one-time enrollment token), polls for leases
+// (a long poll by default, or a brief poll and a sleep: Poll), runs each leased task through a
+// runner.Runner while heartbeating, reports the Outcome (complete, abandon, throttle), and
+// drains on SIGTERM.
 //
 // The agent token lives in memory only: a restart registers again with the refresh token, which
 // rotates on each registration. Tokens are never logged.
@@ -27,6 +28,11 @@ import (
 const (
 	// DefaultLeaseWait is the long poll's wait (the dispatcher caps it at 60 s).
 	DefaultLeaseWait = 30 * time.Second
+	// MaxLeaseWait is the longest wait the dispatcher takes.
+	MaxLeaseWait = 60 * time.Second
+	// MinPollInterval is the shortest interval a zero wait may have: shorter would poll in a
+	// hot loop.
+	MinPollInterval = time.Second
 	// DefaultHeartbeat is used when a lease doesn't say (pool.lease.heartbeat is 30 s).
 	DefaultHeartbeat = 30 * time.Second
 	// DefaultWallClock bounds a drain for a task whose TaskSpec sets no maxWallClock.
@@ -53,8 +59,49 @@ type Enrollment interface {
 	Forget() error
 }
 
-// Options configure a Worker. Pool, Host, AgentVersion, Capabilities, Enrollment and Runner
-// are required.
+// Poll is how the lease loop asks for tasks (P3 §Agents poll briefly). A zero Wait means zero:
+// the dispatcher runs one matching pass and answers at once. The zero Poll is invalid (it would
+// poll in a hot loop); DefaultPoll is today's long poll.
+type Poll struct {
+	// Wait is how long each LeaseTask asks the dispatcher to hold the request: whole seconds
+	// from 0s to MaxLeaseWait.
+	Wait time.Duration
+	// Interval is how long the loop sleeps after a 204 before it polls again; 0 polls again at
+	// once. A poll that gets a task polls again at once whatever the interval. At least
+	// MinPollInterval when Wait is zero.
+	Interval time.Duration
+}
+
+// DefaultPoll is the long poll: wait 30 s, and after a 204 poll again at once.
+func DefaultPoll() Poll { return Poll{Wait: DefaultLeaseWait} }
+
+// PollError is a Poll that Validate refuses: Field is "wait" or "interval" (agent.yaml's
+// poll keys), Value the refused duration.
+type PollError struct {
+	Field  string
+	Value  time.Duration
+	Reason string
+}
+
+func (e *PollError) Error() string { return fmt.Sprintf("poll %s %s %s", e.Field, e.Value, e.Reason) }
+
+// Validate checks the wait's range and whole seconds, a non-negative interval, and that a zero
+// wait has an interval of at least MinPollInterval. It is the one place these rules live:
+// agent.yaml's poll block is checked with it too. The error is a *PollError.
+func (p Poll) Validate() error {
+	switch {
+	case p.Wait < 0 || p.Wait > MaxLeaseWait || p.Wait%time.Second != 0:
+		return &PollError{"wait", p.Wait, fmt.Sprintf("must be whole seconds from 0s to %ds", int(MaxLeaseWait/time.Second))}
+	case p.Interval < 0:
+		return &PollError{"interval", p.Interval, "must not be negative"}
+	case p.Wait == 0 && p.Interval < MinPollInterval:
+		return &PollError{"interval", p.Interval, fmt.Sprintf("must be at least %s with a wait of 0s, or the agent polls in a hot loop", MinPollInterval)}
+	}
+	return nil
+}
+
+// Options configure a Worker. Pool, Host, AgentVersion, Capabilities, Enrollment, Runner and
+// a valid Poll are required.
 type Options struct {
 	// Dispatcher is the dispatcher's base URL (the API is under BasePath).
 	Dispatcher   string
@@ -76,8 +123,9 @@ type Options struct {
 	Clock      clock.Clock
 	Logger     *slog.Logger
 
-	// LeaseWait is the long poll's wait, whole seconds in [1s, 60s]. Default 30 s.
-	LeaseWait time.Duration
+	// Poll is how the lease loop asks for tasks; DefaultPoll is the long poll. It has no
+	// default: its zero Wait means zero.
+	Poll Poll
 	// DefaultWallClock bounds a drain for tasks without limits.maxWallClock. Default 1 h.
 	DefaultWallClock time.Duration
 	// MinBackoff and MaxBackoff bound retries. Defaults 1 s and 1 min.
@@ -134,11 +182,8 @@ func New(o Options) (*Worker, error) {
 	if o.Logger == nil {
 		o.Logger = slog.New(slog.DiscardHandler)
 	}
-	if o.LeaseWait == 0 {
-		o.LeaseWait = DefaultLeaseWait
-	}
-	if o.LeaseWait < time.Second || o.LeaseWait > 60*time.Second || o.LeaseWait%time.Second != 0 {
-		return nil, fmt.Errorf("worker: LeaseWait %s must be whole seconds between 1s and 60s", o.LeaseWait)
+	if err := o.Poll.Validate(); err != nil {
+		return nil, fmt.Errorf("worker: %w", err)
 	}
 	if o.DefaultWallClock <= 0 {
 		o.DefaultWallClock = DefaultWallClock
@@ -298,7 +343,12 @@ func (w *Worker) Run(ctx context.Context) error {
 		}
 		b.reset()
 		if l == nil {
+			// A 204: sleep the interval (none for the long poll). Only a 204 sleeps, so a
+			// lease polls again at once and free slots fill.
 			w.slots.release()
+			if w.o.Poll.Interval > 0 {
+				w.sleep(loopCtx, w.o.Poll.Interval)
+			}
 			continue
 		}
 		if loopCtx.Err() != nil {
@@ -479,12 +529,13 @@ func (w *Worker) authed(ctx context.Context, call func(context.Context) error) e
 	return call(ctx)
 }
 
-// lease long-polls for a task: nil, nil when none came in time (204).
+// lease polls for a task, asking the dispatcher to hold the request for Poll.Wait: nil, nil
+// when none came in time (204).
 func (w *Worker) lease(ctx context.Context) (*apiclient.Lease, error) {
-	wait := fmt.Sprintf("%ds", int(w.o.LeaseWait/time.Second))
+	wait := fmt.Sprintf("%ds", int(w.o.Poll.Wait/time.Second))
 	var out *apiclient.Lease
 	err := w.authed(ctx, func(ctx context.Context) error {
-		cctx, cancel := context.WithTimeout(ctx, w.o.LeaseWait+callTimeout)
+		cctx, cancel := context.WithTimeout(ctx, w.o.Poll.Wait+callTimeout)
 		defer cancel()
 		res, err := w.api.LeaseTaskWithResponse(cctx, w.AgentID(), &apiclient.LeaseTaskParams{Wait: &wait})
 		if err != nil {

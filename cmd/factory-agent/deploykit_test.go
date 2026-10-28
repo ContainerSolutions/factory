@@ -37,6 +37,10 @@ func TestDeployAgentExample(t *testing.T) {
 	if cfg.Pool != "local" || cfg.EnrollmentTokenFile != "/home/owner/.config/factory-agent/enrollment-token" || cfg.Host != "mymac" {
 		t.Errorf("pool %q, enrollmentTokenFile %q, host %q", cfg.Pool, cfg.EnrollmentTokenFile, cfg.Host)
 	}
+	// The poll block is commented out: an older agent refuses the key.
+	if cfg.Poll != (config.Poll{Wait: config.DefaultPollWait, Interval: config.DefaultPollInterval}) {
+		t.Errorf("poll %+v, want the long poll's defaults", cfg.Poll)
+	}
 	for _, h := range config.Harnesses() {
 		if _, ok := cfg.Harnesses[h]; !ok {
 			t.Errorf("no %s harness", h)
@@ -50,7 +54,7 @@ func TestDeployAgentExample(t *testing.T) {
 	}
 
 	// Every key the loader knows appears in the example, set or commented out.
-	for _, typ := range []reflect.Type{reflect.TypeFor[config.Config](), reflect.TypeFor[config.Harness](), reflect.TypeFor[v1alpha1.Lending]()} {
+	for _, typ := range []reflect.Type{reflect.TypeFor[config.Config](), reflect.TypeFor[config.Harness](), reflect.TypeFor[v1alpha1.Lending](), reflect.TypeFor[config.Poll]()} {
 		for f := range typ.Fields() {
 			key, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 			if key == "" || key == "-" {

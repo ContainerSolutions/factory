@@ -56,7 +56,7 @@ func TestEffectorAgainstRealDispatcher(t *testing.T) {
 		Lending:    v1alpha1.Lending{Queues: []string{"poc"}, MaxConcurrent: 1},
 		Enrollment: enr,
 		Runner:     stub,
-		LeaseWait:  5 * time.Second,
+		Poll:       worker.Poll{Wait: 5 * time.Second},
 		Logger:     slog.New(slog.NewJSONHandler(&logBuffer{}, nil)),
 	})
 	if err != nil {

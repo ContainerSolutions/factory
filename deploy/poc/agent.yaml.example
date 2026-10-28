@@ -59,6 +59,16 @@ lending:
   # maxTokensPerDay: 2000000
   # hours: "Mon-Fri 08:00-20:00 Europe/Lisbon"   # [days] HH:MM-HH:MM [zone]; default zone UTC
 
+# Optional: how the agent asks the dispatcher for tasks. The defaults keep the long poll (each
+# request held up to 30s, and asked again at once), right for a dispatcher on a laptop or a VM.
+# For a dispatcher where idle time must cost nothing (Cloud Run or Lambda, billed per request),
+# poll briefly: wait: 0s and an interval such as 30s, so a task waits up to one interval.
+# Agents older than this key refuse it (the config is strict): to roll an agent back, remove
+# the block.
+# poll:
+#   wait: 0s                        # how long each poll asks to be held: whole seconds, 0s-60s; default 30s
+#   interval: 30s                   # the sleep after a poll that got no task; default 0s; at least 1s with wait: 0s
+
 # The VM workspaces (P1): `factory-agent host check|init` and `factory-agent supervise` read this
 # block.
 # workspace:

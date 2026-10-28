@@ -50,7 +50,7 @@ Output a VM produces for the driver itself (the `ip` reads, stderr in errors) is
 factory-agent supervise [--config <agent.yaml>] [--log-level info] [--log-format text] [--driver tart|kata] [--warm-base factory-agent-warm] [--keep-workspace] [--state-dir <dir>]
 ```
 
-[The worker loop](#the-worker-loop-internalagentworker-internalagentconfig-internalagentenroll) (`cmd/factory-agent/agentloop.go`'s `runAgentLoop`: registration by enrollment and refresh token, the lease long-poll, heartbeats, lending and its SIGHUP reload, drain on the first SIGTERM, abort on the second) with the workspace runner. In order:
+[The worker loop](#the-worker-loop-internalagentworker-internalagentconfig-internalagentenroll) (`cmd/factory-agent/agentloop.go`'s `runAgentLoop`: registration by enrollment and refresh token, the lease poll (long by default, or brief: [Polling](#polling)), heartbeats, lending and its SIGHUP reload, drain on the first SIGTERM, abort on the second) with the workspace runner. In order:
 
 1. **The config and the probe.** The harnesses run in the VM, so the host has nothing of theirs to probe: a configured harness is offered when its login is in `<state-dir>/logins` (else it's dropped with "run `factory-agent login codex`", and with none left supervise exits 1). Labels are advertised as configured; there's no host tooling check.
 2. **`host check`** (`internal/agent/host`, the config's `workspace` block; the driver is `--driver`, else `workspace.driver`, which defaults to tart on a Mac and kata on Linux). When a step isn't ok or skipped, supervise prints those steps and exits 1 with "run `factory-agent host init --driver <driver>`". It never runs init. `--warm-base` is tart's: a usage error with `--driver kata`, and a start error when the config's driver is kata.
@@ -86,10 +86,11 @@ harnesses:
 lending:
   unlimited: true                            # or: queues, ruleSets, harnesses, maxConcurrent, maxRunsPerDay, maxTokensPerDay, hours
 workspace: { driver: tart }                  # supervise's and host's (above; workspace-kata.md)
+# poll: { wait: 0s, interval: 30s }          # brief polling (below); default: the long poll, wait 30s, interval 0s
 ```
 
 - **Decoding.** `--config` overrides the path. YAML 1.2, strictly, like v1alpha1 (YAML node → JSON → `DisallowUnknownFields`; v1alpha1's converter is unexported, so the package has its own copy): an unknown or misspelt key is an error. Paths take `~/`. `deploy/poc/agent.yaml.example` mentions every key, and `cmd/factory-agent/deploykit_test.go` loads it.
-- **Validation.** `dispatcher` absolute http(s) without credentials, query or fragment, plain http only on loopback (the agent token travels on every call); `pool` required; `enrollmentTokenFile` absolute when set (it's needed only until the state dir has a refresh token, so a missing one is a registration error, not a config one); `joinTokenFile` and `githubURL` (the removed device flow's) are unknown keys, refused like any other; `host` reduced to the dispatcher's `^[a-z0-9][a-z0-9-]*$`; labels lower-case words joined by `-`, none twice; harnesses only `codex` and `claude-code` (their logins are `factory-agent login`'s, not config), at least one model, efforts from `minimal, low, medium, high, max`, `default` among the models; `lending` must lend something (`unlimited: true` or `queues`), and `unlimited` with lists or daily caps is refused rather than silently ignored (`maxConcurrent` still applies; default 1). `lending.hours` is left to the dispatcher's validation.
+- **Validation.** `dispatcher` absolute http(s) without credentials, query or fragment, plain http only on loopback (the agent token travels on every call); `pool` required; `enrollmentTokenFile` absolute when set (it's needed only until the state dir has a refresh token, so a missing one is a registration error, not a config one); `joinTokenFile` and `githubURL` (the removed device flow's) are unknown keys, refused like any other; `host` reduced to the dispatcher's `^[a-z0-9][a-z0-9-]*$`; labels lower-case words joined by `-`, none twice; harnesses only `codex` and `claude-code` (their logins are `factory-agent login`'s, not config), at least one model, efforts from `minimal, low, medium, high, max`, `default` among the models; `lending` must lend something (`unlimited: true` or `queues`), and `unlimited` with lists or daily caps is refused rather than silently ignored (`maxConcurrent` still applies; default 1). `lending.hours` is left to the dispatcher's validation. `poll.wait` whole seconds from `0s` to `60s` (`500ms` and `1.5s` are refused), `poll.interval` a duration that isn't negative, both with a unit (a bare `0` is refused), and `wait: 0s` needs an interval of at least `1s` ([Polling](#polling)): the config parses the strings and checks them with the worker's `worker.Poll.Validate`, reporting under the key.
 - **Permissions.** The config file must not be writable by group or others (whoever can write it can send the owner's login to another dispatcher; readable is only warned about), and the enrollment and refresh token files must not be accessible to group or others at all (0600 or stricter), checked when read. Errors never carry a token.
 
 ### Registration
@@ -103,8 +104,8 @@ workspace: { driver: tart }                  # supervise's and host's (above; wo
 ```text
 for !draining:
     if running < lending.maxConcurrent (supervise's cap: 1 for tart, kata's slots and memory):
-        resp := GET /agents/{id}/lease?wait=30s
-        if 204: continue
+        resp := GET /agents/{id}/lease?wait=<poll.wait>     // 30s by default
+        if 204: sleep poll.interval; continue               // 0s by default: poll again at once
         go execute(resp)                      // the Runner: the workspace runner (above)
     else: wait for a slot
 execute(lease):
@@ -120,11 +121,28 @@ execute(lease):
 
 - **The `Runner` seam** is `runner.Runner.Run(ctx, *Job, Sink) (Outcome, error)`. `Job.Lease` is the lease response passed through unchanged, `Job.Git` the current git credential, `Job.API` the dispatcher client already authenticated as the agent, and `Job.AgentToken` the agent token; the workspace runner hands `Git` and the lease's `runToken` (or, without one, `AgentToken`) to the task's gateway, never to the VM, and redacts the transcript with all of them. `Job.Git` is redacted in `String`, `Format`, `LogValue` and JSON. `Sink` takes progress and usage deltas.
 - **Heartbeats.** The first one goes at once (the task turns Running and a lost lease shows up immediately), then every `lease.heartbeatEvery` on the injected clock. Progress and usage deltas are batched between beats (at most 200 events; the oldest are dropped with a note); a failed heartbeat keeps its batch for the next. Before reporting, a last heartbeat flushes what the run sent since the previous one. `cancel: true` cancels the run, which is then **abandoned with `agent-error`** ("cancelled by the dispatcher"): the run controller takes an abandon of a Cancelling task as the acknowledgement (Cancelled). `404`, `409` or `403` on a heartbeat means the lease is gone: the run is cancelled and nothing is reported.
-- **Reports.** Throttled → `abandon {throttled, until}` and `PATCH {Throttled, until}`, `until` defaulting to now + 15 min, and the agent doesn't poll again before `until`. A runner error or an Outcome without a Result → `complete` with `Result{status: failed, summary: "<reason>[: <error>]"}` (≤ 500 characters): the Result has no reason field. Otherwise `complete {result, transcriptRef}`, with `result.task` filled in. `complete` and `abandon` retry transient failures 5 times; registration and the long poll back off exponentially (1 s doubling to 1 min, no jitter: a handful of agents per pool).
+- **Reports.** Throttled → `abandon {throttled, until}` and `PATCH {Throttled, until}`, `until` defaulting to now + 15 min, and the agent doesn't poll again before `until`. A runner error or an Outcome without a Result → `complete` with `Result{status: failed, summary: "<reason>[: <error>]"}` (≤ 500 characters): the Result has no reason field. Otherwise `complete {result, transcriptRef}`, with `result.task` filled in. `complete` and `abandon` retry transient failures 5 times; registration and the lease poll back off exponentially (1 s doubling to 1 min, no jitter: a handful of agents per pool).
+
+### Polling
+
+`agent.yaml`'s `poll` block (P3 §Agents poll briefly) sets how the lease loop asks for tasks:
+
+```yaml
+poll:
+  wait: 0s       # how long each LeaseTask asks the dispatcher to hold it: whole seconds, 0s–60s (default 30s)
+  interval: 30s  # how long an idle agent sleeps after a 204 before asking again (default 0s)
+```
+
+- **The defaults keep the long poll** (`wait: 30s`, `interval: 0s`): one request is always open, and a task is leased the moment it is ready. Right for a dispatcher on a laptop or a VM.
+- **Poll briefly** (`wait: 0s` and an interval such as `30s`) when the dispatcher runs where idle time must cost nothing: Cloud Run with CPU only during requests, or Lambda. Each poll is a short request (the dispatcher runs one matching pass and answers), and a task waits up to one interval before an agent sees it. On such a host the dispatcher's own work advances only while some request is in flight (P3 §Agents poll briefly).
+- **`wait: 0s` needs an interval of at least `1s`**, or the agent would poll in a hot loop. The rules live once, in `worker.Poll.Validate`: `worker.New` calls it, and so does the config, under `poll.wait` / `poll.interval`.
+- **Only a 204 sleeps the interval.** A poll that gets a task polls again at once, so free slots fill. Throttling and the failure backoff are unchanged, and so are heartbeats, completes and abandons.
+- **A zero wait reaches the wire:** the worker's `Options.Poll` is a struct whose zero `Wait` means zero (`worker.DefaultPoll()` is the long poll, and the zero `Poll` is refused as a hot loop); the config fills `30s` only when `poll.wait` is absent.
+- **Older agents refuse the key** (the config is strict), so rolling an agent back means removing the block; `deploy/poc/agent.yaml.example` shows it commented out. The dispatcher needs no change: `LeaseTask` already takes any `wait` from `0s` to `60s`.
 
 ### Drain and SIGHUP
 
-- **Drain.** The first SIGTERM/SIGINT stops leasing at once: the parked long poll is cancelled (a lease that still arrives is abandoned with `shutdown`), then `PATCH {Draining}`. Each running task may finish until its start + `limits.maxWallClock` (1 h when the TaskSpec sets none); then it is cancelled and abandoned with `shutdown`. The second signal cancels every run at once (abandon `shutdown`). A run that produced its Result just as the shutdown hit is still completed.
+- **Drain.** The first SIGTERM/SIGINT stops leasing at once: the parked long poll, or the interval's sleep, is cancelled (a lease that still arrives is abandoned with `shutdown`), then `PATCH {Draining}`. Each running task may finish until its start + `limits.maxWallClock` (1 h when the TaskSpec sets none); then it is cancelled and abandoned with `shutdown`. The second signal cancels every run at once (abandon `shutdown`). A run that produced its Result just as the shutdown hit is still completed.
 - **SIGHUP** re-reads the config and re-sends only `lending` (`PATCH /agents/{id}`, through supervise's cap, for kata with the physical memory re-read too), with the local concurrency; other changes need a restart.
 
 ### `factory-agent probe`
@@ -134,7 +152,8 @@ execute(lease):
 ### The loop's tests
 
 - `internal/agent/worker` against `factory-mock` built by the test (`go build ./cmd/factory-mock`, skipped with `-short`): the enrollment token from its file and the example's refresh token saved, register → lease the canned task → heartbeat → complete, drain, deregister. The same flow runs against the real dispatcher (`factory serve --dev-fake-providers` as a subprocess, an enrollment minted with the CLI token, the recorded webhook posted to `/hooks/github-public`, the plan-epic task checked through the API), also skipped with `-short`. Throttle, drain deadlines, heartbeat timing and backoff run on `clock.Fake`; every test that logs greps the logs for the enrollment, refresh, agent and git tokens.
-- `internal/agent/config`: the validation table and the permission checks.
+- Brief polling: on `clock.Fake`, a 204 sleeps the interval and a lease polls again at once; `wait: 0s` sends `wait=0s` and the defaults `wait=30s`; against the real dispatcher, a task created while the agent sleeps is leased on its next poll; supervise passes the config's block through.
+- `internal/agent/config`: the validation table (the poll block's included) and the permission checks.
 
 ## Tests
 

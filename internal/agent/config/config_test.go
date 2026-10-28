@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 const validYAML = `# the LLD's example
@@ -67,6 +68,41 @@ lending: {queues: [poc], maxConcurrent: 2}
 	if c.Dispatcher != "http://127.0.0.1:8081" || c.Host != "e2e" || c.WorkRoot != "/home/owner/.factory-agent/work" || c.MaxConcurrent() != 2 {
 		t.Errorf("config %+v", c)
 	}
+	// No poll block: the long poll (wait 30s, poll again at once after a 204).
+	if c.Poll != (Poll{Wait: "30s", Interval: "0s"}) || c.Poll.WaitDuration() != 30*time.Second || c.Poll.IntervalDuration() != 0 {
+		t.Errorf("poll %+v, want the long poll's defaults", c.Poll)
+	}
+}
+
+// The poll block (P3 §Agents poll briefly): each key defaults on its own, and a zero wait
+// stays zero.
+func TestParsePoll(t *testing.T) {
+	tests := []struct {
+		name           string
+		block          string
+		wait, interval time.Duration
+	}{
+		{"absent: the long poll", "", 30 * time.Second, 0},
+		{"empty block", "poll: {}\n", 30 * time.Second, 0},
+		{"a brief poll", "poll: {wait: 0s, interval: 30s}\n", 0, 30 * time.Second},
+		{"only an interval: the long poll's wait", "poll: {interval: 5s}\n", 30 * time.Second, 5 * time.Second},
+		{"only a wait", "poll: {wait: 10s}\n", 10 * time.Second, 0},
+		{"the dispatcher's longest wait", "poll: {wait: 60s}\n", 60 * time.Second, 0},
+		{"a wait in minutes", "poll: {wait: 1m}\n", time.Minute, 0},
+		{"the shortest interval for a zero wait", "poll:\n  wait: 0s\n  interval: 1s\n", 0, time.Second},
+		{"a sub-second interval with a long poll", "poll: {wait: 5s, interval: 500ms}\n", 5 * time.Second, 500 * time.Millisecond},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, err := Parse([]byte(validYAML+tt.block), opts())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Poll.WaitDuration() != tt.wait || c.Poll.IntervalDuration() != tt.interval {
+				t.Errorf("poll %+v: wait %s interval %s, want %s and %s", c.Poll, c.Poll.WaitDuration(), c.Poll.IntervalDuration(), tt.wait, tt.interval)
+			}
+		})
+	}
 }
 
 func TestParseInvalid(t *testing.T) {
@@ -108,6 +144,20 @@ func TestParseInvalid(t *testing.T) {
 		{"unlimited with lists", base("  unlimited: true\n", "  unlimited: true\n  queues: [poc]\n  hours: 09:00-17:00\n"), []string{"lending: unlimited lends everything; drop queues, hours"}},
 		{"negative concurrency", base("  unlimited: true\n", "  unlimited: true\n  maxConcurrent: -1\n"), []string{"lending.maxConcurrent: must not be negative"}},
 		{"unknown lending harness", base("  unlimited: true\n", "  queues: [poc]\n  harnesses: [aider]\n"), []string{"lending.harnesses[0]: \"aider\""}},
+		{"poll wait over 60s", validYAML + "poll: {wait: 61s}\n", []string{`poll.wait: "61s" must be whole seconds from 0s to 60s`}},
+		{"poll wait negative", validYAML + "poll: {wait: -1s}\n", []string{`poll.wait: "-1s" must be whole seconds`}},
+		{"poll wait in milliseconds", validYAML + "poll: {wait: 500ms, interval: 1s}\n", []string{`poll.wait: "500ms" must be whole seconds`}},
+		{"poll wait not whole seconds", validYAML + "poll: {wait: 1.5s}\n", []string{`poll.wait: "1.5s" must be whole seconds`}},
+		{"poll wait not a duration", validYAML + "poll: {wait: soon}\n", []string{`poll.wait: "soon" is not a duration with a unit`}},
+		{"poll wait a number", validYAML + "poll: {wait: 30}\n", []string{"cannot unmarshal number"}},
+		{"poll wait without a unit", validYAML + "poll: {wait: \"0\", interval: 30s}\n", []string{`poll.wait: "0" is not a duration with a unit`}},
+		{"poll interval without a unit", validYAML + "poll: {interval: \"0\"}\n", []string{`poll.interval: "0" is not a duration with a unit`}},
+		{"poll both without a unit", validYAML + "poll: {wait: \"0\", interval: \"0\"}\n", []string{`poll.wait: "0" is not`, `poll.interval: "0" is not`}},
+		{"poll interval negative", validYAML + "poll: {interval: -5s}\n", []string{`poll.interval: "-5s" must not be negative`}},
+		{"poll interval not a duration", validYAML + "poll: {interval: often}\n", []string{`poll.interval: "often" is not a duration with a unit`}},
+		{"poll zero wait, no interval", validYAML + "poll: {wait: 0s}\n", []string{`poll.interval: "0s" must be at least 1s with a wait of 0s`}},
+		{"poll zero wait, a short interval", validYAML + "poll: {wait: 0s, interval: 500ms}\n", []string{`poll.interval: "500ms" must be at least 1s with a wait of 0s`}},
+		{"unknown poll key", validYAML + "poll: {wait: 0s, interval: 30s, jitter: 5s}\n", []string{`unknown field "jitter"`}},
 		{"unknown lending key", base("  unlimited: true\n", "  unlimited: true\n  forever: true\n"), []string{`unknown field "forever"`}},
 	}
 	for _, tt := range tests {
