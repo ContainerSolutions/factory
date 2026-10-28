@@ -159,13 +159,14 @@ image: ## Build the dispatcher image locally with docker build (Dockerfile; IMAG
 # The assets a published GitHub release carries (.github/workflows/release-binaries.yml uploads
 # them; deploy/poc/README.md §Releasing). Every build is static (CGO_ENABLED=0), darwin too: the
 # code needs no cgo. factory-agent-linux-arm64 is also what a Mac host's tart VMs run
-# (host init --agent-linux). SHA256SUMS is in sha256sum's format, file names only.
+# (host init --agent-linux). deploy/install.sh goes along, so releases/latest/download/install.sh
+# is the agent host installer. SHA256SUMS is in sha256sum's format, file names only.
 RELEASE_DIR := dist
 RELEASE_FACTORY_PLATFORMS := linux/amd64 linux/arm64 darwin/arm64
 RELEASE_AGENT_PLATFORMS := darwin/arm64 linux/amd64 linux/arm64
 
 .PHONY: release-assets
-release-assets: web ## Build a release's assets into dist/ (VERSION=vX.Y.Z): factory and factory-agent per platform, then SHA256SUMS
+release-assets: web ## Build a release's assets into dist/ (VERSION=vX.Y.Z): factory and factory-agent per platform, install.sh, then SHA256SUMS
 	rm -rf $(RELEASE_DIR)
 	mkdir -p $(RELEASE_DIR)
 	@set -e; for p in $(RELEASE_FACTORY_PLATFORMS); do \
@@ -176,6 +177,7 @@ release-assets: web ## Build a release's assets into dist/ (VERSION=vX.Y.Z): fac
 		os=$${p%/*}; arch=$${p#*/}; echo "factory-agent-$$os-$$arch"; \
 		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(RELEASE_DIR)/factory-agent-$$os-$$arch ./cmd/factory-agent; \
 	done
+	install -m 0755 deploy/install.sh $(RELEASE_DIR)/install.sh
 	@set -e; cd $(RELEASE_DIR); \
 	if command -v sha256sum >/dev/null 2>&1; then sum="sha256sum"; else sum="shasum -a 256"; fi; \
 	$$sum * > ../$(RELEASE_DIR).SHA256SUMS.tmp; mv ../$(RELEASE_DIR).SHA256SUMS.tmp SHA256SUMS; cat SHA256SUMS

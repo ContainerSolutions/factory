@@ -13,7 +13,7 @@ make openapi-lint               # vacuum on api/openapi.yaml (ruleset api/vacuum
 go test ./internal/webui -run TestHandler   # one test
 go run ./cmd/factory rules test --catalog catalog [--update | --base-catalog <dir>] [--coverage]   # replay catalog/testdata against the rules
 make build-release              # web/ build + go build -tags webui
-make release-assets VERSION=v0.1.0   # a release's assets into dist/ (factory, factory-agent per platform, SHA256SUMS); release-binaries.yml uploads them
+make release-assets VERSION=v0.1.0   # a release's assets into dist/ (factory, factory-agent per platform, install.sh, SHA256SUMS); release-binaries.yml uploads them
 make image [IMAGE=factory:dev]  # the dispatcher image (Dockerfile) with docker build, locally; release-image.yml pushes it to ghcr.io
 make e2e-run-container          # opt-in, needs docker: factory-agent run (linux) in a plain container as root, fake harnesses, no network; CI runs it too, advisory (not in ci / required)
 make kata-context KATA_CONTEXT_DIR=dir && docker build dir   # the kata image's build context (provision/kata + base.sh), what CI's kata job builds
