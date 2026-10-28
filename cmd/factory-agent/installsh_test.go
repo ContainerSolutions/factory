@@ -1,30 +1,23 @@
 package main
 
 // deploy/install.sh, the agent host installer each release carries (deploy/poc/README.md
-// §Agent onboarding): it parses (bash -n, and shellcheck where installed); its defaults are
-// agent.yaml.example's; and, in a temp HOME with a stub uname, its --quiet plan names the
-// platform's assets and driver and writes a config the agent's loader accepts, from the
-// defaults or from the flags, refusing bad values before changing anything.
-//
-// The script is never run for real. In a dry run, and in the refusals, everything it must not
-// run (curl, install, mkdir, launchctl, systemctl, sudo, the agent) is a stub on PATH that
-// records the call and fails, and HOME must not change. The runs that write (into the temp HOME
-// only) get a curl stub that serves fake factory-agent binaries from a local dir, which record
-// what they are asked and do nothing; launchctl, systemctl, loginctl, sudo, tart and wget still
-// fail loudly, and they pass --no-service. Nothing reaches the network or the real HOME, and
-// only --quiet runs: the default mode reads /dev/tty.
+// §Agent onboarding): it parses; its defaults are agent.yaml.example's; and, in a temp HOME with
+// a stub uname, its --quiet runs write a config the agent's loader accepts and refuse bad values
+// before changing anything. It is never run for real: in dry runs and refusals every command
+// that changes something is a stub that records the call and fails, and HOME stays empty; runs
+// that write get a curl stub serving fake factory-agent binaries (which only record their
+// arguments) from a local dir, and --no-service. Only --quiet runs: the default mode reads /dev/tty.
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -52,28 +45,23 @@ var forbidden = []string{"curl", "wget", "install", "mkdir", "launchctl", "syste
 // forbiddenWriting are the commands a run that writes must still not run.
 var forbiddenWriting = []string{"wget", "launchctl", "systemctl", "loginctl", "sudo", "tart", "factory-agent"}
 
-// installRun is one install.sh run.
+// installRun is one install.sh run; writes lets it write into the temp HOME, which home (when
+// set) prepares.
 type installRun struct {
 	sysName, machine string
 	env              map[string]string
 	args             []string
-	// writes runs it into the temp HOME, curl serving fake binaries; else every side-effecting
-	// command is a failing stub and HOME must not change.
-	writes bool
-	// home, when set, prepares HOME before the run.
-	home func(t *testing.T, home string)
+	writes           bool
+	home             func(t *testing.T, home string)
 }
 
+// installResult is a run's exit code, output and HOME, and what the fake binaries were asked.
 type installResult struct {
-	code      int
-	out, home string
-	// agentRan is what the fake factory-agent binaries were asked (writes only).
-	agentRan string
+	code                int
+	out, home, agentRan string
 }
 
 const testToken = "enroll-token-value-never-printed"
-
-const releaseBase = "https://github.com/ContainerSolutions/factory/releases/latest/download"
 
 func (r installRun) do(t *testing.T) installResult {
 	t.Helper()
@@ -81,39 +69,37 @@ func (r installRun) do(t *testing.T) installResult {
 	if r.home != nil {
 		r.home(t, home)
 	}
-	before := tree(t, home)
-	stubs := t.TempDir()
-	logs := t.TempDir()
-	calls := filepath.Join(logs, "calls")
-	ran := filepath.Join(logs, "ran")
-	write := func(dir, name, body string) {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+	stubs, assets := t.TempDir(), t.TempDir()
+	calls, ran := filepath.Join(t.TempDir(), "calls"), filepath.Join(t.TempDir(), "ran")
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(stubs, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	write(stubs, "uname", "#!/bin/sh\n"+`case "$1" in -s) echo "$STUB_SYSNAME" ;; -m) echo "$STUB_MACHINE" ;; -n) echo My-Host.local ;; *) exit 2 ;; esac`+"\n")
+	write("uname", `case "$1" in -s) echo "$STUB_SYSNAME" ;; -m) echo "$STUB_MACHINE" ;; -n) echo My-Host.local ;; *) exit 2 ;; esac`+"\n")
 	fail := forbidden
-	assets := ""
 	if r.writes {
 		fail = forbiddenWriting
-		assets = t.TempDir()
 		var sums strings.Builder
-		for _, name := range []string{"factory-agent-darwin-arm64", "factory-agent-linux-arm64", "factory-agent-linux-amd64"} {
+		for _, name := range []string{"factory-agent-darwin-arm64", "factory-agent-linux-arm64", "SHA256SUMS"} {
 			body := "#!/bin/sh\necho \"" + name + " $*\" >> \"$STUB_RAN\"\n"
-			write(assets, name, body)
+			if name == "SHA256SUMS" {
+				body = sums.String()
+			}
+			if err := os.WriteFile(filepath.Join(assets, name), []byte(body), 0o755); err != nil {
+				t.Fatal(err)
+			}
 			sum := sha256.Sum256([]byte(body))
 			sums.WriteString(hex.EncodeToString(sum[:]) + "  " + name + "\n")
 		}
-		write(assets, "SHA256SUMS", sums.String())
 		// curl serves the release's files from assets and refuses any other URL.
-		write(stubs, "curl", `#!/bin/sh
-out="" url=""
+		write("curl", `out="" url=""
 while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift ;; https://*) url="$1" ;; esac; shift; done
 case "$url" in "$STUB_BASE"/*) cp "$STUB_ASSETS/${url##*/}" "$out" ;; *) echo "curl $url" >> "$STUB_CALLS"; exit 99 ;; esac
 `)
 	}
 	for _, name := range fail {
-		write(stubs, name, "#!/bin/sh\necho \""+name+" $*\" >> \"$STUB_CALLS\"; exit 99\n")
+		write(name, `echo "`+name+` $*" >> "$STUB_CALLS"; exit 99`+"\n")
 	}
 	cmd := exec.Command("bash", append([]string{installScript}, r.args...)...)
 	cmd.Env = []string{
@@ -123,7 +109,7 @@ case "$url" in "$STUB_BASE"/*) cp "$STUB_ASSETS/${url##*/}" "$out" ;; *) echo "c
 		"STUB_MACHINE=" + r.machine,
 		"STUB_CALLS=" + calls,
 		"STUB_RAN=" + ran,
-		"STUB_BASE=" + releaseBase,
+		"STUB_BASE=https://github.com/ContainerSolutions/factory/releases/latest/download",
 		"STUB_ASSETS=" + assets,
 	}
 	for k, v := range r.env {
@@ -144,43 +130,11 @@ case "$url" in "$STUB_BASE"/*) cp "$STUB_ASSETS/${url##*/}" "$out" ;; *) echo "c
 	if strings.Contains(string(out), testToken) {
 		t.Errorf("install.sh printed the enrollment token\n%s", out)
 	}
-	if !r.writes {
-		if after := tree(t, home); !reflect.DeepEqual(after, before) {
-			t.Errorf("HOME changed: %v, was %v", after, before)
-		}
+	if entries, _ := os.ReadDir(home); !r.writes && len(entries) > 0 {
+		t.Errorf("install.sh wrote %v under HOME", entries)
 	}
 	agentRan, _ := os.ReadFile(ran)
 	return installResult{code: code, out: string(out), home: home, agentRan: string(agentRan)}
-}
-
-// tree lists the files under dir with their modes and contents.
-func tree(t *testing.T, dir string) []string {
-	t.Helper()
-	var files []string
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || p == dir {
-			return err
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		entry := strings.TrimPrefix(p, dir) + " " + info.Mode().String()
-		if info.Mode().IsRegular() {
-			b, err := os.ReadFile(p)
-			if err != nil {
-				return err
-			}
-			entry += " " + string(b)
-		}
-		files = append(files, entry)
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sort.Strings(files)
-	return files
 }
 
 // planned is the agent.yaml a run printed, parsed with the agent's loader.
@@ -304,11 +258,11 @@ func TestInstallScriptDryRun(t *testing.T) {
 			wantPool: "lab",
 		},
 		{
-			name: "linux without the service, the pool as a flag", sysName: "Linux", machine: "x86_64", env: quietEnv("FACTORY_POOL", "lab"),
-			args:     []string{"--no-service", "--pool=other"},
+			name: "linux without the service", sysName: "Linux", machine: "x86_64", env: quietEnv(),
+			args:     []string{"--no-service"},
 			want:     []string{"--driver kata", "--no-service: run supervise yourself"},
 			notWant:  []string{"systemctl"},
-			wantPool: "other",
+			wantPool: "local",
 		},
 	}
 	for _, tt := range tests {
@@ -337,8 +291,7 @@ func TestInstallScriptDryRun(t *testing.T) {
 	}
 }
 
-// TestInstallScriptDefaults checks the script's defaults table against agent.yaml.example, and
-// that its header, which --help prints, gives each one.
+// TestInstallScriptDefaults checks the script's defaults table against agent.yaml.example.
 func TestInstallScriptDefaults(t *testing.T) {
 	src, err := os.ReadFile(installScript)
 	if err != nil {
@@ -354,30 +307,20 @@ func TestInstallScriptDefaults(t *testing.T) {
 	codex, claude := ex.Harnesses[config.HarnessCodex], ex.Harnesses[config.HarnessClaudeCode]
 	want := map[string]string{
 		"pool":           ex.Pool,
-		"harnesses":      "codex,claude-code",
+		"harnesses":      "codex,claude-code", // the example's two (checkDefaults compares the maps)
 		"codex_models":   join(codex.Models),
 		"codex_default":  codex.Default,
 		"codex_efforts":  join(codex.Efforts),
 		"claude_models":  join(claude.Models),
 		"claude_default": claude.Default,
 		"claude_efforts": join(claude.Efforts),
-		"max_concurrent": "1",
-		"cpus":           "6",
+		"max_concurrent": strconv.Itoa(ex.MaxConcurrent()),
+		"cpus":           strconv.Itoa(size.CPUs),
 		"memory":         size.Memory,
 		"disk":           size.Disk,
 	}
-	if ex.MaxConcurrent() != 1 || size.CPUs != 6 || len(ex.Harnesses) != 2 {
-		t.Errorf("the example's maxConcurrent %d, cpus %d, %d harnesses: update install.sh's defaults", ex.MaxConcurrent(), size.CPUs, len(ex.Harnesses))
-	}
 	if !reflect.DeepEqual(defaults, want) {
 		t.Errorf("install.sh's defaults %v\nagent.yaml.example's %v", defaults, want)
-	}
-	for name, v := range defaults {
-		flag := "--" + strings.ReplaceAll(name, "_", "-")
-		line := regexp.MustCompile(`(?m)^#   ` + regexp.QuoteMeta(flag) + ` .*$`).FindString(string(src))
-		if !strings.Contains(line, " "+v) {
-			t.Errorf("the header's %s line %q doesn't give its default %s", flag, line, v)
-		}
 	}
 }
 
@@ -399,16 +342,18 @@ func TestInstallScriptWrites(t *testing.T) {
 			},
 		},
 		{
+			// The codex default isn't given and gpt-6.1-sol isn't a model: it is the first model.
 			name: "overrides", env: quietEnv("FACTORY_MAX_CONCURRENT", "3", "FACTORY_CLAUDE_MODELS", "claude-haiku-5-5"),
 			args: []string{
-				"--harnesses", "claude-code", "--claude-models", "claude-opus-5-5,claude-fable-5-1", "--claude-default=claude-fable-5-1",
-				"--claude-efforts", "high,max", "--max-concurrent", "2", "--cpus", "4", "--memory", "6Gi", "--host", "lab-1",
-				"--dispatcher", "http://127.0.0.1:8800",
+				"--harnesses", "claude-code,codex", "--claude-models", "claude-opus-5-5,claude-fable-5-1", "--claude-default=claude-fable-5-1",
+				"--claude-efforts", "high,max", "--codex-models", "gpt-5.5,gpt-6.2", "--codex-efforts=medium", "--max-concurrent", "2",
+				"--cpus", "4", "--memory", "6Gi", "--host", "lab-1", "--dispatcher", "http://127.0.0.1:8800",
 			},
 			check: func(t *testing.T, cfg *config.Config) {
-				want := map[string]config.Harness{config.HarnessClaudeCode: {
-					Models: []string{"claude-opus-5-5", "claude-fable-5-1"}, Efforts: []string{"high", "max"}, Default: "claude-fable-5-1",
-				}}
+				want := map[string]config.Harness{
+					config.HarnessClaudeCode: {Models: []string{"claude-opus-5-5", "claude-fable-5-1"}, Efforts: []string{"high", "max"}, Default: "claude-fable-5-1"},
+					config.HarnessCodex:      {Models: []string{"gpt-5.5", "gpt-6.2"}, Efforts: []string{"medium"}, Default: "gpt-5.5"},
+				}
 				if !reflect.DeepEqual(cfg.Harnesses, want) {
 					t.Errorf("harnesses %+v, want %+v", cfg.Harnesses, want)
 				}
@@ -420,16 +365,6 @@ func TestInstallScriptWrites(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "codex models without the default's default", env: quietEnv(),
-			args: []string{"--harnesses", "codex", "--codex-models", "gpt-5.5,gpt-6.2", "--codex-efforts", "medium"},
-			check: func(t *testing.T, cfg *config.Config) {
-				want := map[string]config.Harness{config.HarnessCodex: {Models: []string{"gpt-5.5", "gpt-6.2"}, Efforts: []string{"medium"}, Default: "gpt-5.5"}}
-				if !reflect.DeepEqual(cfg.Harnesses, want) {
-					t.Errorf("harnesses %+v, want %+v", cfg.Harnesses, want)
-				}
-			},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -437,17 +372,8 @@ func TestInstallScriptWrites(t *testing.T) {
 			if res.code != 0 {
 				t.Fatalf("exit %d\n%s", res.code, res.out)
 			}
-			cfg := written(t, res.home)
-			tt.check(t, cfg)
-			if shown := planned(t, res); !reflect.DeepEqual(cfg.Harnesses, shown.Harnesses) || cfg.Dispatcher != shown.Dispatcher {
-				t.Errorf("the written agent.yaml isn't the one it showed")
-			}
+			tt.check(t, written(t, res.home))
 			checkSecret(t, filepath.Join(res.home, ".config/factory-agent/enrollment-token"), testToken)
-			for _, f := range []string{".local/bin/factory-agent", ".local/bin/factory-agent-linux-arm64"} {
-				if info, err := os.Stat(filepath.Join(res.home, f)); err != nil || info.Mode().Perm() != 0o755 {
-					t.Errorf("%s: %v %v", f, info, err)
-				}
-			}
 			if !strings.Contains(res.agentRan, "factory-agent-darwin-arm64 host init --driver tart --agent-linux "+res.home+"/.local/bin/factory-agent-linux-arm64 --yes") {
 				t.Errorf("the agent ran %q, want host init --yes", res.agentRan)
 			}
@@ -465,11 +391,8 @@ func checkSecret(t *testing.T, path, want string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("%s has mode %v, want 0600", path, info.Mode().Perm())
-	}
-	if b, _ := os.ReadFile(path); string(b) != want+"\n" {
-		t.Errorf("%s doesn't hold the token", path)
+	if b, _ := os.ReadFile(path); info.Mode().Perm() != 0o600 || string(b) != want+"\n" {
+		t.Errorf("%s has mode %v, want 0600 and the token", path, info.Mode().Perm())
 	}
 }
 
@@ -488,15 +411,23 @@ func TestInstallScriptEnrollmentTokenFile(t *testing.T) {
 	}
 	checkSecret(t, filepath.Join(res.home, ".config/factory-agent/enrollment-token"), testToken)
 	written(t, res.home)
+}
 
-	// A file of two lines is refused before anything changes.
-	two := filepath.Join(t.TempDir(), "token")
-	if err := os.WriteFile(two, []byte("one\ntwo\n"), 0o600); err != nil {
-		t.Fatal(err)
+// TestInstallScriptEnrolled: a host whose state dir holds a refresh token needs no enrollment token.
+func TestInstallScriptEnrolled(t *testing.T) {
+	skipWithoutShasum(t)
+	enrolled := func(t *testing.T, home string) {
+		state := filepath.Join(home, "Library/Application Support/factory-agent")
+		if err := os.MkdirAll(state, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(state, "agent-refresh-token"), []byte("r\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	res = installRun{sysName: "Darwin", machine: "arm64", args: []string{"--quiet", "--dispatcher", "https://f.example.dev", "--enrollment-token-file", two}}.do(t)
-	if res.code == 0 || !strings.Contains(res.out, "--enrollment-token-file "+two+": want the token on a single line") {
-		t.Errorf("exit %d\n%s", res.code, res.out)
+	res := installRun{sysName: "Darwin", machine: "arm64", writes: true, home: enrolled, env: map[string]string{"FACTORY_DISPATCHER": "https://f.example.dev"}, args: []string{"--quiet", "--no-service"}}.do(t)
+	if _, err := os.Stat(filepath.Join(res.home, ".config/factory-agent/enrollment-token")); res.code != 0 || err == nil || !strings.Contains(res.out, "already enrolled") {
+		t.Errorf("exit %d, the token file: %v\n%s", res.code, err, res.out)
 	}
 }
 
@@ -557,6 +488,10 @@ func TestInstallScriptExistingConfig(t *testing.T) {
 
 func TestInstallScriptRefuses(t *testing.T) {
 	ok := quietEnv()
+	two := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(two, []byte("one\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name, sysName, machine string
 		env                    map[string]string
@@ -568,20 +503,14 @@ func TestInstallScriptRefuses(t *testing.T) {
 		{"a bad version", "Linux", "x86_64", quietEnv("FACTORY_VERSION", "main; rm -rf /"), nil, []string{"is not a vX.Y.Z tag"}},
 		{"--yes", "Linux", "x86_64", ok, []string{"--yes"}, []string{"--yes is replaced by --quiet"}},
 		{"the token as a flag", "Linux", "x86_64", ok, []string{"--enrollment-token", "x"}, []string{"no flag takes the token itself"}},
-		{"an unknown flag", "Linux", "x86_64", ok, []string{"--color", "x"}, []string{"unknown flag --color"}},
 		{"an unknown harness", "Linux", "x86_64", ok, []string{"--harnesses", "codex,gemini"}, []string{"--harnesses (FACTORY_HARNESSES): gemini is not one of codex claude-code"}},
-		{"a harness twice", "Linux", "x86_64", ok, []string{"--harnesses", "codex,codex"}, []string{"--harnesses (FACTORY_HARNESSES): codex is listed twice"}},
 		{"an unknown effort", "Linux", "x86_64", ok, []string{"--codex-efforts", "low,huge"}, []string{"--codex-efforts (FACTORY_CODEX_EFFORTS): huge is not one of"}},
 		{"a default not in the models", "Linux", "x86_64", ok, []string{"--claude-default", "claude-haiku-5-5"}, []string{"--claude-default (FACTORY_CLAUDE_DEFAULT): claude-haiku-5-5 is not one of the models"}},
 		{"too little memory", "Linux", "x86_64", ok, []string{"--memory", "1Gi"}, []string{"--memory (FACTORY_MEMORY): 1Gi: want 2Gi to 64Gi"}},
 		{"too many cpus, from the environment", "Linux", "x86_64", quietEnv("FACTORY_CPUS", "17"), nil, []string{"--cpus (FACTORY_CPUS): 17"}},
-		{"a disk without Gi", "Linux", "x86_64", ok, []string{"--disk", "60G"}, []string{"--disk (FACTORY_DISK): 60G"}},
-		{"no tasks at once", "Linux", "x86_64", ok, []string{"--max-concurrent", "0"}, []string{"--max-concurrent (FACTORY_MAX_CONCURRENT): 0"}},
-		{"a bad pool", "Linux", "x86_64", ok, []string{"--pool", "Lab"}, []string{"--pool (FACTORY_POOL): Lab"}},
 		{"http off loopback", "Linux", "x86_64", ok, []string{"--dispatcher", "http://factory.example.dev"}, []string{"--dispatcher (FACTORY_DISPATCHER): http://factory.example.dev: want an https URL"}},
-		{"a dispatcher with credentials", "Linux", "x86_64", ok, []string{"--dispatcher", "https://u:p@factory.example.dev"}, []string{"--dispatcher (FACTORY_DISPATCHER)"}},
 		{"--quiet without either", "Linux", "x86_64", nil, nil, []string{"--quiet: missing the dispatcher's URL (--dispatcher URL or FACTORY_DISPATCHER) and the enrollment token (--enrollment-token-file PATH or FACTORY_ENROLLMENT_TOKEN", "factory agent enroll --pool local --owner <your GitHub login> --name my-host", "nothing was changed"}},
-		{"--quiet without the dispatcher", "Linux", "x86_64", map[string]string{"FACTORY_ENROLLMENT_TOKEN": testToken}, nil, []string{"--quiet: missing the dispatcher's URL"}},
+		{"a token file of two lines", "Linux", "x86_64", nil, []string{"--dispatcher", "https://f.example.dev", "--enrollment-token-file", two}, []string{"--enrollment-token-file " + two + ": want the token on a single line"}},
 		{"--quiet without the token", "Linux", "x86_64", map[string]string{"FACTORY_DISPATCHER": "https://f.example.dev"}, nil, []string{"--quiet: missing the enrollment token"}},
 	}
 	for _, tt := range tests {

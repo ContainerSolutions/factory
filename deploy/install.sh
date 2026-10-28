@@ -14,17 +14,15 @@
 # /dev/tty: under curl | bash, stdin is this script.
 #
 # Modes:
-#   (default)     ask for each setting no flag or environment variable gives, showing its
-#                 default (Enter takes it), then show agent.yaml and ask before writing it
-#   --quiet       ask nothing: each setting is its flag, its environment variable or its default.
-#                 The dispatcher's URL and the enrollment token have no default: without them it
-#                 fails before changing anything. The model logins are left for later (it prints
-#                 the commands), and host init gets --yes.
+#   (default)     ask for each setting no flag or variable gives (Enter takes the default
+#                 shown), then show agent.yaml and ask before writing it
+#   --quiet       ask nothing, taking the defaults; without the dispatcher's URL or the
+#                 enrollment token, which have none, fail before changing anything. The model
+#                 logins are left for later (it prints the commands); host init gets --yes.
 #   --dry-run     print every step and command; change nothing, download nothing
 #   --no-service  don't install supervise as a service
-#   --force       replace an existing agent.yaml (copied to agent.yaml.bak-<UTC time> first).
-#                 Without it, --quiet keeps the file and the default mode asks (default: keep).
-#                 A kept agent.yaml is not rewritten; the other steps still run.
+#   --force       replace an existing agent.yaml, after a copy to agent.yaml.bak-<UTC time>.
+#                 Else --quiet keeps it and the default mode asks; the other steps still run.
 #
 # Settings: a flag (--name VALUE or --name=VALUE), else its environment variable, else the
 # default. Lists are comma-separated. They make agent.yaml (deploy/poc/agent.yaml.example has
@@ -43,8 +41,8 @@
 #   --cpus N                FACTORY_CPUS            6 (each VM workspace's, 1 to 16)
 #   --memory NGi            FACTORY_MEMORY          8Gi (2Gi to 64Gi)
 #   --disk NGi              FACTORY_DISK            60Gi (20Gi to 500Gi)
-# Efforts are from minimal, low, medium, high, max. A default model must be one of the models;
-# when the default's default isn't, it is the list's first.
+# Efforts: minimal, low, medium, high or max. A default must be one of the models (unset: the
+# one above, or the first model when the list lacks it).
 #
 # The enrollment token, which an admin mints for this pool and host with `factory agent enroll`
 # (it prints the command). Not needed when the host is already enrolled (the state dir holds a
@@ -52,8 +50,7 @@
 #   --enrollment-token-file PATH   a file holding it (one line); it is copied, 0600
 #   FACTORY_ENROLLMENT_TOKEN       the token itself
 #   (default mode)                 asked for, not echoed
-# No flag takes the token itself: it would show in ps and in the shell history. It is never
-# printed.
+# No flag takes the token itself (it would show in ps and the shell history); it is never printed.
 #
 # Other environment:
 #   FACTORY_VERSION  the release tag to install (default: the latest release)
@@ -101,10 +98,7 @@ usage() {
 	if [ -f "${BASH_SOURCE[0]:-}" ]; then
 		sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed -e '/^set -euo/d' -e 's/^# \{0,1\}//'
 	else
-		echo "usage: install.sh [--quiet] [--dry-run] [--no-service] [--force] [--dispatcher URL] [--enrollment-token-file PATH]"
-		echo "  [--pool NAME] [--host NAME] [--harnesses LIST] [--codex-models LIST] [--codex-default MODEL] [--codex-efforts LIST]"
-		echo "  [--claude-models LIST] [--claude-default MODEL] [--claude-efforts LIST] [--max-concurrent N] [--cpus N] [--memory NGi] [--disk NGi]"
-		echo "Each flag's default and environment variable: deploy/install.sh's header. No flag takes the enrollment token itself."
+		echo "usage: install.sh [--quiet] [--dry-run] [--no-service] [--force] [--<setting> VALUE]... (deploy/install.sh's header lists them)"
 	fi
 }
 
@@ -187,15 +181,11 @@ ask() {
 
 # confirm PROMPT DEFAULT: y or n from the terminal, DEFAULT (y or n) on Enter; no with --quiet.
 confirm() {
-	local answer=""
+	local answer="" hint="[y/N]"
 	[ "$quiet" = 0 ] || return 1
-	if [ "$2" = y ]; then
-		ask answer "$1 [Y/n] "
-		answer="${answer:-y}"
-	else
-		ask answer "$1 [y/N] "
-	fi
-	case "$answer" in y | Y | yes | YES) return 0 ;; *) return 1 ;; esac
+	[ "$2" = n ] || hint="[Y/n]"
+	ask answer "$1 $hint "
+	case "${answer:-$2}" in y | Y | yes | YES) return 0 ;; *) return 1 ;; esac
 }
 
 # The checks. invalid NAME VALUE prints what is wrong with VALUE for the setting NAME, or nothing.
@@ -210,12 +200,8 @@ list_problem() {
 	case "$v" in "" | ,* | *, | *,,*) echo "want a comma-separated list, without empty items" && return 0 ;; esac
 	IFS=, read -r -a items <<<"$v"
 	for item in "${items[@]}"; do
-		if ! [[ "$item" =~ $re ]]; then
-			echo "$item is not a valid name" && return 0
-		fi
-		if [ -n "$allowed" ]; then
-			case " $allowed " in *" $item "*) ;; *) echo "$item is not one of $allowed" && return 0 ;; esac
-		fi
+		[[ "$item" =~ $re ]] || { echo "$item is not a valid name" && return 0; }
+		case " ${allowed:-$item} " in *" $item "*) ;; *) echo "$item is not one of $allowed" && return 0 ;; esac
 		case "$seen" in *" $item "*) echo "$item is listed twice" && return 0 ;; esac
 		seen="$seen$item "
 	done
@@ -230,8 +216,6 @@ invalid() {
 	local name="$1" v="$2" n lo=2 hi=64
 	case "$name" in
 	dispatcher)
-		# The loader's rule: an absolute URL without credentials, query or fragment; plain http
-		# only on a loopback host.
 		[[ "$v" =~ ^https://([A-Za-z0-9][A-Za-z0-9.-]*|\[[0-9A-Fa-f:]+\])(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$ ]] && return 0
 		[[ "$v" =~ ^http://(localhost|127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|\[::1\])(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$ ]] && return 0
 		echo "$v: want an https URL without credentials, query or fragment, or http on a loopback host (localhost, 127.x.x.x, [::1])"
@@ -263,11 +247,7 @@ flag_of() { printf -- '--%s' "${1//_/-}"; }
 given() {
 	local f="flag_$1" e
 	e="$(env_of "$1")"
-	if [ -n "${!f:-}" ]; then
-		printf '%s' "${!f}"
-	else
-		printf '%s' "${!e:-}"
-	fi
+	if [ -n "${!f:-}" ]; then printf '%s' "${!f}"; else printf '%s' "${!e:-}"; fi
 }
 
 # setting NAME DEFAULT PROMPT sets v_NAME: the flag's or the environment's value, else (in the
@@ -284,12 +264,8 @@ setting() {
 		v="$def"
 	else
 		while :; do
-			if [ -n "$def" ]; then
-				ask v "$prompt [$def]: "
-				v="${v:-$def}"
-			else
-				ask v "$prompt: "
-			fi
+			ask v "$prompt${def:+ [$def]}: "
+			v="${v:-$def}"
 			v="${v// /}"
 			[ -n "$v" ] || continue
 			problem="$(invalid "$name" "$v")"
@@ -378,7 +354,7 @@ elif [ "$quiet" = 0 ]; then
 else
 	token_from=missing
 fi
-case "$token_from" in enrolled | tokenfile) [ -z "$token_path" ] || say "--enrollment-token-file is not used: no enrollment token is needed" ;; esac
+case "$token_from" in enrolled | tokenfile) [ -z "$token_path" ] || say "--enrollment-token-file is not used: no token is needed" ;; esac
 
 if [ "$quiet" = 1 ]; then
 	missing=""
@@ -409,7 +385,6 @@ if [ "$write_config" = 1 ]; then
 		setting codex_efforts "$default_codex_efforts" "codex efforts (from minimal, low, medium, high, max)"
 		yaml_harnesses="$yaml_harnesses
   codex:
-    # Change the model if your codex sign-in doesn't offer it (see /model in codex).
     models: $(yaml_list "$v_codex_models")
     efforts: $(yaml_list "$v_codex_efforts")
     default: $v_codex_default"
@@ -434,7 +409,8 @@ dispatcher: $v_dispatcher
 pool: $v_pool
 host: $v_host
 enrollmentTokenFile: ~/.config/factory-agent/enrollment-token
-# A harness is offered when its login is stored (factory-agent login).
+# A harness is offered when its login is stored (factory-agent login). Change the codex model
+# if your codex sign-in doesn't offer it (see /model in codex).
 harnesses:$yaml_harnesses
 lending:
   unlimited: true
@@ -454,7 +430,7 @@ tokenfile) say "$token_file exists: using it" ;;
 path)
 	[ -f "$token_path" ] && [ -r "$token_path" ] || die "--enrollment-token-file $token_path: not a readable file"
 	[ "$(grep -c '[^[:space:]]' "$token_path" || true)" = 1 ] || die "--enrollment-token-file $token_path: want the token on a single line"
-	token="$(grep '[^[:space:]]' "$token_path" | tr -d '[:space:]')"
+	token="$(grep '[^[:space:]]' "$token_path" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
 	;;
 environment) token="$FACTORY_ENROLLMENT_TOKEN" ;;
 ask)
