@@ -563,12 +563,6 @@ type Decision = v1alpha1.Decision
 // Destination Destination is one recipient of a notification.
 type Destination = v1alpha1.Destination
 
-// DeviceConfig The dispatcher's OAuth client, for a device-flow login.
-type DeviceConfig struct {
-	ClientId string   `json:"clientId"`
-	Scopes   []string `json:"scopes"`
-}
-
 // DispatchAction DispatchAction creates a Task (Pending) in a queue.
 type DispatchAction = v1alpha1.DispatchAction
 
@@ -1991,9 +1985,6 @@ type ClientInterface interface {
 	// AuthCallback request
 	AuthCallback(ctx context.Context, params *AuthCallbackParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetDeviceConfig request
-	GetDeviceConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// Login request
 	Login(ctx context.Context, params *LoginParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -2204,18 +2195,6 @@ func (c *Client) LeaseTask(ctx context.Context, id AgentID, params *LeaseTaskPar
 
 func (c *Client) AuthCallback(ctx context.Context, params *AuthCallbackParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAuthCallbackRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetDeviceConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetDeviceConfigRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -3062,33 +3041,6 @@ func NewAuthCallbackRequest(server string, params *AuthCallbackParams) (*http.Re
 			rawQueryFragments = append(rawQueryFragments, encoded)
 		}
 		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetDeviceConfigRequest generates requests for GetDeviceConfig
-func NewGetDeviceConfigRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/auth/device-config")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
@@ -4788,9 +4740,6 @@ type ClientWithResponsesInterface interface {
 	// AuthCallbackWithResponse request
 	AuthCallbackWithResponse(ctx context.Context, params *AuthCallbackParams, reqEditors ...RequestEditorFn) (*AuthCallbackResponse, error)
 
-	// GetDeviceConfigWithResponse request
-	GetDeviceConfigWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetDeviceConfigResponse, error)
-
 	// LoginWithResponse request
 	LoginWithResponse(ctx context.Context, params *LoginParams, reqEditors ...RequestEditorFn) (*LoginResponse, error)
 
@@ -5111,37 +5060,6 @@ func (r AuthCallbackResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r AuthCallbackResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetDeviceConfigResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	JSON200                       *DeviceConfig
-	ApplicationproblemJSONDefault *Error
-}
-
-// Status returns HTTPResponse.Status
-func (r GetDeviceConfigResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetDeviceConfigResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetDeviceConfigResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -6395,15 +6313,6 @@ func (c *ClientWithResponses) AuthCallbackWithResponse(ctx context.Context, para
 	return ParseAuthCallbackResponse(rsp)
 }
 
-// GetDeviceConfigWithResponse request returning *GetDeviceConfigResponse
-func (c *ClientWithResponses) GetDeviceConfigWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetDeviceConfigResponse, error) {
-	rsp, err := c.GetDeviceConfig(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetDeviceConfigResponse(rsp)
-}
-
 // LoginWithResponse request returning *LoginResponse
 func (c *ClientWithResponses) LoginWithResponse(ctx context.Context, params *LoginParams, reqEditors ...RequestEditorFn) (*LoginResponse, error) {
 	rsp, err := c.Login(ctx, params, reqEditors...)
@@ -7088,39 +6997,6 @@ func ParseAuthCallbackResponse(rsp *http.Response) (*AuthCallbackResponse, error
 			return nil, err
 		}
 		response.ApplicationproblemJSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.ApplicationproblemJSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetDeviceConfigResponse parses an HTTP response from a GetDeviceConfigWithResponse call
-func ParseGetDeviceConfigResponse(rsp *http.Response) (*GetDeviceConfigResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetDeviceConfigResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest DeviceConfig
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error

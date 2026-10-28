@@ -877,27 +877,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auth/device-config": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The OAuth client's device-flow configuration
-         * @description The dispatcher's OAuth client ID and scopes for a GitHub device-flow login. Agents no
-         *     longer use it (they are enrolled, P1 §6); it stays for the UI's sign-in.
-         */
-        get: operations["getDeviceConfig"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/hooks/{provider}": {
         parameters: {
             query?: never;
@@ -1518,11 +1497,6 @@ export interface components {
             avatarUrl?: string;
             /** @description Member of the `maintainers` Group; may send commands. */
             isAdmin: boolean;
-        };
-        /** @description The dispatcher's OAuth client, for a device-flow login. */
-        DeviceConfig: {
-            clientId: string;
-            scopes: string[];
         };
         /** @description Action is a tagged union: exactly one member is set. */
         Action: {
@@ -3932,27 +3906,6 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            default: components["responses"]["Error"];
-        };
-    };
-    getDeviceConfig: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The device-flow configuration. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeviceConfig"];
-                };
-            };
             default: components["responses"]["Error"];
         };
     };

@@ -64,7 +64,7 @@ func TestOps(t *testing.T) {
 		res, b := e.do(http.MethodGet, p, nil)
 		wantProblemReply(t, "public "+p, res, b, http.StatusNotFound, CodeNotFound)
 	}
-	if code, _, _ := get(t, ops, BasePath+"/auth/device-config"); code != http.StatusNotFound {
+	if code, _, _ := get(t, ops, BasePath+"/auth/me"); code != http.StatusNotFound {
 		t.Errorf("the API on the ops handler: %d", code)
 	}
 }
