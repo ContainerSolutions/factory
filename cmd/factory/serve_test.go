@@ -354,13 +354,14 @@ func TestServeOpsListenerOnly(t *testing.T) {
 			t.Errorf("public %s served the ops route: %d %q", p, code, body)
 		}
 	}
-	if code, _ := get(s.ops + server.BasePath + "/auth/device-config"); code != http.StatusNotFound {
+	if code, _ := get(s.ops + server.BasePath + "/auth/me"); code != http.StatusNotFound {
 		t.Errorf("ops listener serves the API: %d", code)
 	}
 	if code, body := get(s.public + "/"); code != http.StatusOK || !strings.Contains(strings.ToLower(body), "<html") {
 		t.Errorf("public / (UI): %d %q", code, body)
 	}
-	if code, _ := get(s.public + server.BasePath + "/auth/device-config"); code != http.StatusOK {
+	// No session: getMe answers 401, which only the API does (an unknown route is a 404).
+	if code, _ := get(s.public + server.BasePath + "/auth/me"); code != http.StatusUnauthorized {
 		t.Errorf("public API: %d", code)
 	}
 }

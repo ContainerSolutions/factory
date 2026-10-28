@@ -562,12 +562,6 @@ type Decision = v1alpha1.Decision
 // Destination Destination is one recipient of a notification.
 type Destination = v1alpha1.Destination
 
-// DeviceConfig The dispatcher's OAuth client, for a device-flow login.
-type DeviceConfig struct {
-	ClientId string   `json:"clientId"`
-	Scopes   []string `json:"scopes"`
-}
-
 // DispatchAction DispatchAction creates a Task (Pending) in a queue.
 type DispatchAction = v1alpha1.DispatchAction
 
@@ -1915,9 +1909,6 @@ type ServerInterface interface {
 	// Finish the GitHub OAuth login
 	// (GET /auth/callback)
 	AuthCallback(ctx echo.Context, params AuthCallbackParams) error
-	// The OAuth client's device-flow configuration
-	// (GET /auth/device-config)
-	GetDeviceConfig(ctx echo.Context) error
 	// Start the GitHub OAuth login
 	// (GET /auth/login)
 	Login(ctx echo.Context, params LoginParams) error
@@ -2168,15 +2159,6 @@ func (w *ServerInterfaceWrapper) AuthCallback(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.AuthCallback(ctx, params)
-	return err
-}
-
-// GetDeviceConfig converts echo context to params.
-func (w *ServerInterfaceWrapper) GetDeviceConfig(ctx echo.Context) error {
-	var err error
-
-	// Invoke the callback with all the unmarshaled arguments
-	err = w.Handler.GetDeviceConfig(ctx)
 	return err
 }
 
@@ -3013,7 +2995,6 @@ func RegisterHandlersWithOptions(router EchoRouter, si ServerInterface, options 
 	router.PATCH(options.BaseURL+"/agents/:id", wrapper.UpdateAgent, options.OperationMiddlewares["updateAgent"]...)
 	router.GET(options.BaseURL+"/agents/:id/lease", wrapper.LeaseTask, options.OperationMiddlewares["leaseTask"]...)
 	router.GET(options.BaseURL+"/auth/callback", wrapper.AuthCallback, options.OperationMiddlewares["authCallback"]...)
-	router.GET(options.BaseURL+"/auth/device-config", wrapper.GetDeviceConfig, options.OperationMiddlewares["getDeviceConfig"]...)
 	router.GET(options.BaseURL+"/auth/login", wrapper.Login, options.OperationMiddlewares["login"]...)
 	router.POST(options.BaseURL+"/auth/logout", wrapper.Logout, options.OperationMiddlewares["logout"]...)
 	router.GET(options.BaseURL+"/auth/me", wrapper.GetMe, options.OperationMiddlewares["getMe"]...)
@@ -3700,44 +3681,6 @@ type AuthCallbackdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response AuthCallbackdefaultApplicationProblemPlusJSONResponse) VisitAuthCallbackResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetDeviceConfigRequestObject struct {
-}
-
-type GetDeviceConfigResponseObject interface {
-	VisitGetDeviceConfigResponse(w http.ResponseWriter) error
-}
-
-type GetDeviceConfig200JSONResponse DeviceConfig
-
-func (response GetDeviceConfig200JSONResponse) VisitGetDeviceConfigResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetDeviceConfigdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response GetDeviceConfigdefaultApplicationProblemPlusJSONResponse) VisitGetDeviceConfigResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -7026,9 +6969,6 @@ type StrictServerInterface interface {
 	// Finish the GitHub OAuth login
 	// (GET /auth/callback)
 	AuthCallback(ctx context.Context, request AuthCallbackRequestObject) (AuthCallbackResponseObject, error)
-	// The OAuth client's device-flow configuration
-	// (GET /auth/device-config)
-	GetDeviceConfig(ctx context.Context, request GetDeviceConfigRequestObject) (GetDeviceConfigResponseObject, error)
 	// Start the GitHub OAuth login
 	// (GET /auth/login)
 	Login(ctx context.Context, request LoginRequestObject) (LoginResponseObject, error)
@@ -7303,29 +7243,6 @@ func (sh *strictHandler) AuthCallback(ctx echo.Context, params AuthCallbackParam
 		return err
 	} else if validResponse, ok := response.(AuthCallbackResponseObject); ok {
 		return validResponse.VisitAuthCallbackResponse(ctx.Response())
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// GetDeviceConfig operation middleware
-func (sh *strictHandler) GetDeviceConfig(ctx echo.Context) error {
-	var request GetDeviceConfigRequestObject
-
-	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
-		return sh.ssi.GetDeviceConfig(ctx.Request().Context(), request.(GetDeviceConfigRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetDeviceConfig")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(GetDeviceConfigResponseObject); ok {
-		return validResponse.VisitGetDeviceConfigResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}
