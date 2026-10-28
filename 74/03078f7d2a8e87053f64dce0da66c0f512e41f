@@ -9,3 +9,13 @@ lisa-design:
 - Readiness: the server checks any Deps.Store implementing Ready() (server.StoreReadiness); Options.Ready removed.
 - Overlap audit fixes: rule processLocked re-checks EventStatus, debounce re-reads and deletes its record under the wi lock, Project runs under the wi lock on the item re-read there.
 - factory state --state-url uses a new objectstore.Read/View (read-only, no sync, no writes); reset refuses --state-url.
+
+lisa-selfreview:
+pass 1:
+- [should-fix GO-CTX-001] factory state --state-url read under context.Background(), not the command's ctx (cmd/factory/state.go openURL) -> fix
+- [must-fix CORE-TEST-001] sharedStore.Close closing the bucket, leaderSweeps, and the --state-sync-interval-without---state-url warning had no test -> fix
+- [must-fix CORE-TEST-002] TestServeShutdownWithIdleConnection asserted io.EOF; a connection closed before Accept reads a reset -> fix (any non-timeout error)
+- [should-fix CORE-DOC-001] controllers.md said every leader-only write is a create, CAS or under the wi lock; the idempotent deletes were left out -> fix
+- [must-fix CORE-CONC-001] Leader.held after a Renew raced with Release could start a new term on a released lease -> fix (a renew only refreshes the current lease)
+- [blocker CORE-SIZE-001] ~3,100 added lines: over the 1,000-line rule; the spec says the PR is large: exception stated in the PR body
+- [question CORE-REL-001] serve now refuses to start without a durable store (and Options.Ready is gone): is the mandated title's missing '!' intended?
