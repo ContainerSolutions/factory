@@ -28,8 +28,9 @@ var errSchedBusy = errors.New("the sched lock is busy")
 
 // errSchedStale ends a matching pass too: a candidate failed the re-check under the sched lock,
 // so the pass's snapshot is stale. Matching the next candidate against it would mint and lock
-// once per pending task; instead the poll parks, and the sync the lock made has already woken
-// it, so the next pass reloads. Unlike errSchedBusy it sets no busy window.
+// once per pending task; instead the poll parks, and the next pass reloads. The lock's sync
+// usually wakes it (the re-check failed on a change it brought in); otherwise (a catalog
+// swap, a time-based reason) the next tick does. Unlike errSchedBusy it sets no busy window.
 var errSchedStale = errors.New("the matching snapshot is stale")
 
 // SchedLock is the store lock every lease commit, on every dispatcher, re-checks and writes
