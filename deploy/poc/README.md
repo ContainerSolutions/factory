@@ -139,6 +139,8 @@ bin/factory state events [--since 1h] [--type pr.opened] [--workitem W]   # with
 bin/factory state log [--since 10m]          # the journal (changes since the last snapshot) as a timeline, with task phase changes and run ends
 ```
 
+`state events` lists only the events the dispatcher stored. An event is stored when a rule could fire for it (its type in a rule's `on`, from a provider and an object its RuleSet scopes; `where` aside), when a work item links its object, or when the factory's own App caused it. Any other event is dropped when it arrives: it isn't in `state events`, and `factory events replay` answers 404 for it. Its delivery is deleted at once, so the way back, once a rule or link covers it, is to redeliver the webhook from the App's delivery log (§7, "Webhook"; GitHub keeps about 3 days). The redelivery is filtered again against the catalog as it is then.
+
 An unknown id prints the ids nearest to it by prefix. Nothing it prints is secret (the store holds no credential, and transcripts are redacted by the agent), so its output can be pasted into an issue. `jq` on `snapshot.json` (one object per line) and `journal.jsonl` works too.
 
 ## 7. Check it
@@ -150,6 +152,8 @@ Log lines to look for:
 - `provider health` without `degraded`. A degraded provider means a wrong App ID or key.
 
 `catalog rejected; keeping the live catalog` means an invalid catalog: `factory validate --dir` the directory.
+
+`event dropped: no work item links its object and no rule could fire for it` (Info) is where "why didn't my rule fire?" starts for an event that isn't in `factory state events` (§6). It names the event's `type`, its object's `ref` and a `reason`: `no-rule` (no rule's `on` has that type for the provider) or `out-of-scope` (a rule's does, but its RuleSet's `scope` doesn't hold the object: the most common misconfiguration). `factory_events_dropped_total{provider,type,reason}` on `/metrics` counts them. To get a dropped event back after fixing the catalog, redeliver it from Recent Deliveries (below).
 
 The ops listener answers on the dispatcher host only, with no auth:
 

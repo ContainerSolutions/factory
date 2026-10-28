@@ -183,8 +183,9 @@ func (g *runGroup) Go(ctx context.Context, name string, f func(context.Context) 
 
 // runServe runs the dispatcher until ctx is done, then shuts it down gracefully. Startup order
 // (controllers.md §Ordering and startup): store → catalog-sync (wait for the first good catalog)
-// → providers (connect, recover) → listeners (webhooks are stored from now on) → work-item
-// rebuild → rule, debounce, work-item, run controllers and the scheduler → ready.
+// → providers (connect, recover) → listeners (webhooks are stored as Deliveries from now on) →
+// work-item rebuild → provider (normalise), rule, debounce, work-item, run controllers and the
+// scheduler → ready.
 func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logger) error {
 	if d.Getenv == nil {
 		d.Getenv = func(string) string { return "" }
@@ -278,7 +279,6 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		log.Info("provider connected", "provider", name, "type", cat.Providers[name].Spec.Type,
 			"webhook", cfg.PublicURL+"/hooks/"+name)
 	}
-	group.Go(runCtx, "provider", pc.Run)
 	group.Go(runCtx, "provider-health", func(ctx context.Context) error { return followHealth(ctx, cs, pc, log) })
 	installs := controllers.NewInstallationCheck(pc, controllers.InstallationCheckOptions{SkillsBase: cfg.SkillsBase, Logger: log})
 	group.Go(runCtx, "installations", func(ctx context.Context) error { return installs.Follow(ctx, cs) })
@@ -360,7 +360,8 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 			cs.Controller(), pc.Controller(), rule.Controller(), dbn.Controller(),
 			wic.Controller(), runs.Controller(), sched.Controller(),
 		},
-		Clock: clk, Logger: log,
+		Intake: pc,
+		Clock:  clk, Logger: log,
 	})
 	if err != nil {
 		return err
@@ -440,11 +441,14 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 		return nil
 	}
 
-	// Rebuild, then the controllers.
+	// Rebuild, then the controllers. The provider controller normalises deliveries only from
+	// here: its intake filter keeps an event about a linked object, so it must see the links
+	// the rebuild restores. Deliveries accepted (or recovered) before wait as Deliveries.
 	if _, err := wic.Rebuild(ctx); err != nil {
 		_ = shutdown("rebuild failed")
 		return fmt.Errorf("work-item rebuild: %w", err)
 	}
+	group.Go(runCtx, "provider", pc.Run)
 	group.Go(runCtx, "rule", rule.Run)
 	group.Go(runCtx, "debounce", dbn.Run)
 	group.Go(runCtx, "work-item", wic.Run)

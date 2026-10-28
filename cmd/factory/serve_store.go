@@ -11,6 +11,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/store"
 	"github.com/ContainerSolutions/factory/internal/store/filestore"
 	"github.com/ContainerSolutions/factory/internal/store/memory"
+	"github.com/ContainerSolutions/factory/internal/store/objectstore"
 )
 
 // serveStore is the dispatcher's store: the records, retention and transcripts, and Close,
@@ -23,9 +24,10 @@ type serveStore interface {
 }
 
 // internalKinds are the kinds outside v1alpha1 the dispatcher stores, with their Go types: the
-// file store needs each one's type to load it back, and refuses to write a kind it lacks.
+// durable stores need each one's type to load it back, and refuse to write a kind they lack.
 // TestServeStoreKinds fails when a package adds a stored kind (a store.MetaObject) that isn't
-// here.
+// here, or when this table and the secrets audit's (storeaudit.InternalKinds) differ; and
+// TestStoredSchema when a stored type changes without a store.ReadableSchema bump.
 func internalKinds() map[string]store.Object {
 	return map[string]store.Object{
 		auth.KindSession:            &auth.Session{},
@@ -38,6 +40,10 @@ func internalKinds() map[string]store.Object {
 		controllers.KindDebounce:    &controllers.DebounceRecord{},
 		controllers.KindTaskPrompt:  &controllers.TaskPrompt{},
 		controllers.KindKillSwitch:  &controllers.KillSwitch{},
+		// The object store's own: its lock records and transcript index (store.md §Object
+		// store). The file store registers them too, and never writes them.
+		objectstore.KindStoreLock:      &objectstore.StoreLock{},
+		objectstore.KindTranscriptBlob: &objectstore.TranscriptBlob{},
 	}
 }
 

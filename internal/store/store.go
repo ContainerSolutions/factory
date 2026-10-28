@@ -4,7 +4,8 @@
 // retention and the transcript blobs.
 //
 // Config kinds live in the catalog snapshot, never here. The in-memory implementation is in
-// store/memory, the file-backed one (memory plus a snapshot and journal) in store/filestore;
+// store/memory, the file-backed one (memory plus a snapshot and journal) in store/filestore,
+// and P3's shared one (memory plus a log of create-only objects in a bucket) in an object store;
 // store/storetest is the conformance suite every implementation must pass.
 //
 // Design: design/workstreams/dispatcher-runtime/LLD/store.md.
@@ -134,6 +135,24 @@ type Unlock interface {
 	Unlock()
 	// Renew extends the lease to now+ttl. ErrLockLost when the lease expired or was released.
 	Renew(ctx context.Context, ttl time.Duration) error
+}
+
+// Syncer is a store that shares its state with other processes (an object store, P3): it may
+// lag the shared state by up to its sync interval. Sync brings it up to the shared state's
+// latest change. A caller whose decision rests on an empty answer (a lookup that found
+// nothing, after which it creates or drops something) syncs once and asks again before acting:
+// SyncIfSupported.
+type Syncer interface {
+	Sync(ctx context.Context) error
+}
+
+// SyncIfSupported syncs s if it is a Syncer, and is a no-op for a store that has nothing to
+// sync (memory, the file store).
+func SyncIfSupported(ctx context.Context, s Store) error {
+	if sy, ok := s.(Syncer); ok {
+		return sy.Sync(ctx)
+	}
+	return nil
 }
 
 // Sweeper deletes what is past retention (see Retention). Deletions are sent to watchers.

@@ -1,6 +1,7 @@
 package memory_test
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"reflect"
@@ -19,7 +20,7 @@ import (
 // The conformance suite also passes with a hook that accepts everything.
 func TestConformanceWithHook(t *testing.T) {
 	storetest.Run(t, func(o store.Options) storetest.Subject {
-		return memory.New(o, memory.WithCommitHook(func(memory.Change) error { return nil }))
+		return memory.New(o, memory.WithCommitHook(func(context.Context, memory.Change) error { return nil }))
 	})
 }
 
@@ -40,7 +41,7 @@ func run(name string) *v1alpha1.Run {
 func TestCommitHookSeesEveryWrite(t *testing.T) {
 	ctx := t.Context()
 	var got []memory.Change
-	s := memory.New(opts(), memory.WithCommitHook(func(c memory.Change) error {
+	s := memory.New(opts(), memory.WithCommitHook(func(_ context.Context, c memory.Change) error {
 		got = append(got, c)
 		return nil
 	}))
@@ -160,7 +161,7 @@ func TestCommitHookFailureLeavesNoTrace(t *testing.T) {
 			ctx := t.Context()
 			fail := false
 			o := opts()
-			s := memory.New(o, memory.WithCommitHook(func(memory.Change) error {
+			s := memory.New(o, memory.WithCommitHook(func(context.Context, memory.Change) error {
 				if fail {
 					return boom
 				}

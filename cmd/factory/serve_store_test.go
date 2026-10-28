@@ -24,6 +24,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/apiclient"
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/clock"
 	"github.com/ContainerSolutions/factory/internal/provider"
 	"github.com/ContainerSolutions/factory/internal/provider/fake"
 	"github.com/ContainerSolutions/factory/internal/store"
@@ -36,8 +37,9 @@ const repoRoot = "../.."
 // store.MetaObject accessor, anywhere under internal/) is registered with serve's file store,
 // and nothing else is. A new kind that isn't fails here, rather than at the first write of a
 // dispatcher started with --state-dir (the file store refuses kinds it can't load back). Add
-// it to internalKinds, and to the file store's kind audit (internal/store/filestore
-// fixtures_test.go and store.md §File store).
+// it to internalKinds, and to the stores' secrets audit (internal/store/storeaudit, with a
+// fixture, and store.md §File store); TestStoredSchema then asks for a store.ReadableSchema
+// bump.
 func TestServeStoreKinds(t *testing.T) {
 	mod := modulePath(t)
 	found := map[string]string{} // pkgpath.Type → file
@@ -93,7 +95,7 @@ func TestServeStoreKinds(t *testing.T) {
 	}
 	for typ, file := range found {
 		if _, ok := registered[typ]; !ok {
-			t.Errorf("%s (%s) is a stored kind that factory serve's file store doesn't register: add it to internalKinds (cmd/factory/serve_store.go) and to the file store's kind audit", typ, file)
+			t.Errorf("%s (%s) is a stored kind that factory serve's stores don't register: add it to internalKinds (cmd/factory/serve_store.go) and to the stores' secrets audit (internal/store/storeaudit)", typ, file)
 		}
 	}
 	for typ, kind := range registered {
@@ -490,6 +492,51 @@ func writePrivate(t *testing.T, dir, name, data string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The provider controller normalises deliveries only after the work-item rebuild: a delivery
+// recovered at start, about an object only the rebuild links, passes the intake filter (no rule
+// is on issue.commented, but a work item links the issue) instead of being dropped before the
+// link is back.
+func TestServeNormalisesAfterRebuild(t *testing.T) {
+	c, errs := catalog.LoadDir(os.DirFS(pocDir), catalog.Options{})
+	if c == nil || catalog.HasErrors(errs) {
+		t.Fatalf("load PoC catalog: %v", errs)
+	}
+	// The provider's clock is ahead, so Recover (since the process start) takes the delivery.
+	adapter := fake.NewAdapter(fake.Options{Clock: clock.NewFake(time.Now().Add(time.Hour))})
+	gh := adapter.Conn(ghProvider)
+	// The marker of a work item the memory store lost: the rebuild restores it, linking the issue.
+	if err := gh.Seed(provider.Observation{
+		Ref: v1alpha1.ObjectRef{Kind: provider.KindIssue, Ref: docsIssue},
+		Projections: []provider.Projection{{WorkItemID: "wi_rebuilt", Links: []v1alpha1.Link{
+			{Provider: ghProvider, Kind: provider.KindIssue, Ref: docsIssue, Primary: true},
+		}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gh.Undelivered(fake.Webhook{Delivery: "77", Type: v1alpha1.EventIssueCommented,
+		Sender: fake.Sender{Login: "alice"}, Object: &v1alpha1.ObjectRef{Kind: provider.KindIssue, Ref: docsIssue}}); err != nil {
+		t.Fatal(err)
+	}
+	s := runServed(t, testConfig(t, fakeGitHubUsers(t).URL), serveDeps{Getenv: getenvOf(testEnv()), Fake: adapter})
+	normalised := func() (map[string]any, bool) {
+		for line := range strings.Lines(s.logs.String()) {
+			var rec map[string]any
+			if json.Unmarshal([]byte(line), &rec) == nil && rec["msg"] == "delivery normalised" && rec["delivery"] == "fake-77" {
+				return rec, true
+			}
+		}
+		return nil, false
+	}
+	eventuallyT(t, "the recovered delivery normalised", func() bool { _, ok := normalised(); return ok })
+	rec, _ := normalised()
+	if rec["events"] != float64(1) || rec["dropped"] != float64(0) {
+		t.Fatalf("recovered delivery: %v, want its event stored\n%s", rec, s.logs)
+	}
+	if err := s.stop(); err != nil {
 		t.Fatal(err)
 	}
 }

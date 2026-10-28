@@ -163,8 +163,23 @@ func runOutcome(run *v1alpha1.Run) string {
 
 // ---- events ------------------------------------------------------------------------------------
 
+// eventsDroppedNote ends factory state events --help: the events the intake filter dropped are
+// not stored (P3 §Only events that can matter are stored).
+const eventsDroppedNote = `
+Only stored events are listed. An event no work item links, no rule could fire for and the
+factory didn't cause is dropped when it arrives (logged at info as "event dropped", counted in
+factory_events_dropped_total): it is not here and can't be replayed (404). Its delivery is
+deleted, so to get it back once a rule or link covers it, redeliver the webhook from the
+App's delivery log (Settings > Advanced > Recent Deliveries).
+`
+
 func stateEvents(ctx context.Context, r *stateRun, args []string) int {
 	fl := r.flags("[--since 1h] [--type T] [--workitem W]", true)
+	usage := fl.Usage
+	fl.Usage = func() {
+		usage()
+		fmt.Fprint(r.stderr, eventsDroppedNote)
+	}
 	sinceFlag := fl.String("since", "", "only events this recent (by their time: 30m, 24h, 7d)")
 	typ := fl.String("type", "", "only events of this type (issue.opened, pr.merged, factory.run.completed…)")
 	workItem := fl.String("workitem", "", "only the events of this work item")

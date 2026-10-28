@@ -19,9 +19,20 @@ func get(t *testing.T, h http.Handler, path string) (int, string, http.Header) {
 	return rec.Code, rec.Body.String(), rec.Header()
 }
 
+// staticDrops is a DropCounter with fixed counts.
+type staticDrops []controllers.DropCount
+
+func (d staticDrops) Drops() []controllers.DropCount { return d }
+
 func TestOps(t *testing.T) {
 	ready := make(chan struct{})
-	e := newEnv(t, func(o *Options) { o.Ready = ready })
+	e := newEnv(t, func(o *Options) {
+		o.Ready = ready
+		o.Intake = staticDrops{
+			{Provider: "github-public", Type: "issue.commented", Reason: controllers.DropNoRule, Count: 3},
+			{Provider: "github-public", Type: "pr.opened", Reason: controllers.DropOutOfScope, Count: 1},
+		}
+	})
 	ops := e.srv.OpsHandler()
 
 	if code, body, _ := get(t, ops, "/healthz"); code != http.StatusOK || body != "ok\n" {
@@ -53,6 +64,9 @@ func TestOps(t *testing.T) {
 	for _, want := range []string{
 		"# TYPE factory_tasks gauge", `factory_tasks{phase="Pending"} 1`, `factory_tasks{phase="Running"} 0`,
 		`factory_ready 1`, `factory_sse_subscribers 0`, `factory_http_requests_total{code="200"}`,
+		"# TYPE factory_events_dropped_total counter",
+		`factory_events_dropped_total{provider="github-public",type="issue.commented",reason="no-rule"} 3`,
+		`factory_events_dropped_total{provider="github-public",type="pr.opened",reason="out-of-scope"} 1`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics miss %q:\n%s", want, body)
