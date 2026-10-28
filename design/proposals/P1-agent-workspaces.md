@@ -385,7 +385,8 @@ Every credential is added by the workspace's gateway, so none enters a VM. Where
   - the join-token file. `Pool.admission` marks a pool that takes enrollments; phase 6 reads
     neither of its fields (`tokenRef`, `owners`), which stay in the contract for now (the UI
     shows `owners`).
-  - `GET /auth/device-config` stays only for the UI's sign-in.
+  - `GET /auth/device-config` (`getDeviceConfig`): nothing calls it once agents enroll (the UI
+    signs in with the OAuth web flow), so it is removed too.
 
 ### 7. Setting up the Mac (the `tart` agent host)
 

@@ -1,7 +1,0 @@
-{
-  "clientId": "Iv23liExampleClient01",
-  "scopes": [
-    "read:user",
-    "read:org"
-  ]
-}
