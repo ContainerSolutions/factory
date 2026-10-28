@@ -3,13 +3,16 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -620,5 +623,88 @@ func TestStateURL(t *testing.T) {
 	code, _, errOut = f.state(t, "tasks", "--state-url", secret)
 	if code != 1 || strings.Contains(errOut, "hunter2") {
 		t.Fatalf("a bad URL: exit %d, stderr carries the URL:\n%s", code, errOut)
+	}
+}
+
+// strictBucket is a bucket that fails the test when used after Close, as a closed GCS client
+// may panic.
+type strictBucket struct {
+	objectstore.Bucket
+	t      *testing.T
+	closed atomic.Bool
+}
+
+func (b *strictBucket) check(op string) {
+	if b.closed.Load() {
+		b.t.Errorf("bucket %s after Close", op)
+	}
+}
+
+func (b *strictBucket) Get(ctx context.Context, name string) ([]byte, error) {
+	b.check("Get")
+	return b.Bucket.Get(ctx, name)
+}
+
+func (b *strictBucket) List(ctx context.Context, prefix, startAfter string, fn func(objectstore.ObjectInfo) error) error {
+	b.check("List")
+	return b.Bucket.List(ctx, prefix, startAfter, fn)
+}
+
+func (b *strictBucket) Close() error {
+	b.closed.Store(true)
+	return nil
+}
+
+// factory state --state-url keeps the bucket open while the subcommand reads through it (a
+// run's transcript), and closes it once the command is done.
+func TestStateURLBucketLifetime(t *testing.T) {
+	ctx := t.Context()
+	dir := filepath.Join(t.TempDir(), "bucket")
+	fb, err := objectstore.NewFileBucket(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clk := clock.NewFake(stateEpoch)
+	st, err := objectstore.Open(ctx, fb, store.Options{Clock: clk, Logger: slog.New(slog.DiscardHandler)}, objectStoreKinds()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := &v1alpha1.Run{
+		TypeMeta: v1alpha1.TypeMeta{Kind: v1alpha1.KindRun},
+		Metadata: v1alpha1.ObjectMeta{Name: "run_strict-1"},
+		Spec:     v1alpha1.RunSpec{Task: "tsk_strict", Attempt: 1, Agent: "agt_1"},
+	}
+	if err := st.Create(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutTranscript(ctx, run.Metadata.Name, gzipped(t, "{\"text\":\"strict\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var opened []*strictBucket
+	objectstore.RegisterScheme("strictfile", func(context.Context, *url.URL) (objectstore.Bucket, error) {
+		b := &strictBucket{Bucket: fb, t: t}
+		opened = append(opened, b)
+		return b, nil
+	})
+	f := &stateFixture{dir: filepath.Join(t.TempDir(), "state"), clk: clk}
+	for _, args := range [][]string{
+		{"run", "run_strict-1", "--state-url", "strictfile:///bucket"},
+		{"run", "run_strict-1", "--transcript", "--state-url", "strictfile:///bucket"},
+	} {
+		code, out, errOut := f.state(t, args...)
+		if code != 0 || errOut != "" || !strings.Contains(out, "strict") && !strings.Contains(out, "run_strict-1") {
+			t.Fatalf("%v: exit %d\nstdout:\n%s\nstderr:\n%s", args, code, out, errOut)
+		}
+	}
+	if len(opened) != 2 {
+		t.Fatalf("%d buckets opened, want one per command", len(opened))
+	}
+	for i, b := range opened {
+		if !b.closed.Load() {
+			t.Errorf("command %d left its bucket open", i)
+		}
 	}
 }

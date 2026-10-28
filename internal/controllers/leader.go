@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ContainerSolutions/factory/internal/clock"
@@ -214,9 +215,10 @@ func (l *Leader) Wait(ctx context.Context) error {
 	}
 }
 
-// While runs fn for each term this process leads, under a context that ends with the term
-// (a failed Renew, or Release), until ctx ends. fn's error is logged; the next term runs it
-// again.
+// While runs fn for each term this process leads, under a context that ends with the term (a
+// failed Renew, or Release) or as soon as the lease lapses on this process's clock (a holder
+// paused past it), whichever comes first, until ctx ends. fn runs again once this process
+// holds the lock again. fn's error is logged; the next term runs it again.
 func (l *Leader) While(ctx context.Context, name string, fn func(ctx context.Context) error) {
 	for {
 		if l.Wait(ctx) != nil {
@@ -229,22 +231,55 @@ func (l *Leader) While(ctx context.Context, name string, fn func(ctx context.Con
 			continue
 		}
 		tctx, cancel := context.WithCancel(ctx)
+		var lapsed atomic.Bool
+		watched := make(chan struct{})
 		go func() {
-			select {
-			case <-term:
-				cancel()
-			case <-tctx.Done():
-			}
+			defer close(watched)
+			l.watchTerm(tctx, cancel, term, &lapsed)
 		}()
 		if err := fn(tctx); err != nil && tctx.Err() == nil {
 			l.log.Warn("leader: a leader's loop failed; it runs again at the next term", "loop", name, "err", err)
 		}
 		cancel()
-		// Wait for this term to end before the next one starts fn again.
+		<-watched
+		if lapsed.Load() {
+			continue // the lease lapsed here: run fn again once it is held again
+		}
+		// fn returned on its own, or the term ended: wait for the term to end before fn
+		// runs again.
 		select {
 		case <-ctx.Done():
 			return
 		case <-term:
+		}
+	}
+}
+
+// watchTerm cancels a While term's context when the term ends, or when the lease lapses on
+// this process's clock with no renewal (lapsed is then set). Its timer is re-armed on every
+// successful Renew.
+func (l *Leader) watchTerm(ctx context.Context, cancel context.CancelFunc, term <-chan struct{}, lapsed *atomic.Bool) {
+	for {
+		l.mu.Lock()
+		until, wake := l.until, l.wake
+		l.mu.Unlock()
+		t := l.opts.Clock.NewTimerAt(until)
+		select {
+		case <-term:
+			t.Stop()
+			cancel()
+			return
+		case <-ctx.Done():
+			t.Stop()
+			return
+		case <-wake: // renewed: re-arm at the new lease end
+			t.Stop()
+		case <-t.C():
+			if !l.Held() {
+				lapsed.Store(true)
+				cancel()
+				return
+			}
 		}
 	}
 }

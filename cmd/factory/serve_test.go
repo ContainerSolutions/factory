@@ -414,11 +414,11 @@ func TestServeShutdownWithOpenStream(t *testing.T) {
 }
 
 // A client connection that never sends a request doesn't hold shutdown up: once the listeners
-// stop, it is closed (http.Server.Shutdown would count it as busy for 5 s, past a shorter
-// --shutdown-timeout).
+// stop, it is closed after a 1 s grace (http.Server.Shutdown would count it as busy for 5 s,
+// past a shorter --shutdown-timeout).
 func TestServeShutdownWithIdleConnection(t *testing.T) {
 	cfg := testConfig(t, fakeGitHubUsers(t).URL)
-	cfg.ShutdownTimeout = 2 * time.Second
+	cfg.ShutdownTimeout = 3 * time.Second // above the 1 s grace a fresh connection gets
 	s := startServe(t, cfg)
 	var conns []net.Conn
 	for _, addr := range []string{s.public, s.ops} {
@@ -684,5 +684,39 @@ func enrolled(t *testing.T, ctx context.Context, c *apiclient.ClientWithResponse
 	return func(_ context.Context, r *http.Request) error {
 		r.Header.Set(server.HeaderEnrollmentToken, tok)
 		return nil
+	}
+}
+
+// The tracker closes a connection that hasn't sent a request only after its grace, and not
+// one that started a request in it.
+func TestConnTrackerGrace(t *testing.T) {
+	tr := newConnTracker()
+	tr.grace = 100 * time.Millisecond
+	idle, idlePeer := net.Pipe()
+	busy, busyPeer := net.Pipe()
+	defer func() {
+		for _, c := range []net.Conn{idle, idlePeer, busy, busyPeer} {
+			_ = c.Close()
+		}
+	}()
+	tr.track(idle, http.StateNew)
+	tr.track(busy, http.StateNew)
+	tr.closeFresh()
+	tr.track(busy, http.StateActive) // its request arrives within the grace
+	closed := func(peer net.Conn) bool {
+		_ = peer.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
+		_, err := peer.Read(make([]byte, 1))
+		var ne net.Error
+		return err != nil && (!errors.As(err, &ne) || !ne.Timeout())
+	}
+	if closed(idlePeer) {
+		t.Fatal("the idle connection was closed before its grace")
+	}
+	time.Sleep(300 * time.Millisecond)
+	if !closed(idlePeer) {
+		t.Error("the idle connection is open after its grace")
+	}
+	if closed(busyPeer) {
+		t.Error("a connection that started a request in its grace was closed")
 	}
 }

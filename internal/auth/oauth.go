@@ -71,11 +71,19 @@ func (a *Authenticator) verifyState(state string) (loginState, bool) {
 	return st, true
 }
 
-// SafeReturnTo validates a returnTo: it must be a same-origin absolute path ("/board?x=1"),
-// not a URL, a scheme-relative "//host" or a backslash trick ("/\host"). "" is "/".
+// MaxReturnTo bounds a returnTo, which the signed OAuth state carries in its cookie: cookies
+// over about 4 KB are dropped by browsers.
+const MaxReturnTo = 1024
+
+// SafeReturnTo validates a returnTo: it must be a same-origin absolute path ("/board?x=1") of
+// at most MaxReturnTo bytes, not a URL, a scheme-relative "//host" or a backslash trick
+// ("/\host"). "" is "/".
 func SafeReturnTo(s string) (string, error) {
 	if s == "" {
 		return "/", nil
+	}
+	if len(s) > MaxReturnTo {
+		return "", ErrBadReturnTo
 	}
 	if !strings.HasPrefix(s, "/") || strings.HasPrefix(s, "//") || strings.ContainsAny(s, "\\\r\n\t") {
 		return "", ErrBadReturnTo
@@ -143,10 +151,10 @@ type Login struct {
 
 // FinishLogin is the OAuth callback. The state must equal the state cookie of r (constant
 // time), carry a valid signature under the session key (or the previous one) and not have
-// expired (ErrStateMismatch). Each state is used once: finishing a login creates its
-// UsedLoginState, so a second use, on any dispatcher of the store, is ErrStateMismatch. The
-// code is exchanged for a user token, the token for the login (GET /user), and the token is
-// dropped. A user in neither the readers nor the admin Group is ErrNotMember and gets no
+// expired (ErrStateMismatch). The code is exchanged for a user token first, so a callback
+// without a real OAuth round trip writes nothing. Each state is used once: then the login
+// creates its UsedLoginState, so a second use, on any dispatcher of the store, is
+// ErrStateMismatch. The token is exchanged for the login (GET /user) and dropped. A user in neither the readers nor the admin Group is ErrNotMember and gets no
 // session.
 func (a *Authenticator) FinishLogin(ctx context.Context, r *http.Request, code, state string) (*Login, error) {
 	c, err := r.Cookie(StateCookie)
@@ -162,14 +170,16 @@ func (a *Authenticator) FinishLogin(ctx context.Context, r *http.Request, code, 
 	if !a.clk.Now().Before(exp) {
 		return nil, fmt.Errorf("expired login state: %w", ErrStateMismatch)
 	}
-	if err := a.useState(ctx, p.ID, exp); err != nil {
-		return nil, err
-	}
+	// The code first: GitHub's codes need a user's authorization and are single-use, so only
+	// a real OAuth round trip reaches the store write below.
 	if code == "" {
 		return nil, fmt.Errorf("no code: %w", ErrUnauthenticated)
 	}
 	token, err := a.exchange(ctx, code)
 	if err != nil {
+		return nil, err
+	}
+	if err := a.useState(ctx, p.ID, exp); err != nil {
 		return nil, err
 	}
 	gu, err := a.users.user(ctx, token) // the token goes no further: the session holds none

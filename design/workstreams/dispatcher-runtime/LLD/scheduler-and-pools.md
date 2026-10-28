@@ -60,7 +60,7 @@ On match:
 
 - **The credentials are minted before the lock** (minting is the slow call to GitHub). A credential minted for a candidate that then fails the re-check is left to expire (an hour at most).
 - **The lock is taken with a `SchedWait` context (2 s).** A timeout is `errSchedBusy`, which **ends the pass** with no grant (the poll parks until the next wake or tick), and records "busy until now + 2 s": a pass that starts before then ends at once, with no wait and no mint. So a pass waits for the lock at most once and mints at most once, and the other polls, `Refresh` and `Explain` are held up by at most one 2 s wait at a time, even while a dead holder keeps the lock for its TTL.
-- **The lock's TTL is 30 s (`SchedTTL`) and the section runs under a 15 s deadline**: taking the lock (which syncs), reloading the snapshot, checking the candidate again (`check`: it must still be pending, its agent still there, and every row still pass) and the commit's writes. A candidate that fails the re-check is skipped, as a task that changed under the snapshot is. A section that hits its deadline fails like a commit error: the task is unleased, or its lease expires.
+- **The lock's TTL is 30 s (`SchedTTL`) and the section runs under a 15 s deadline**: taking the lock (which syncs), reloading the snapshot, checking the candidate again (`check`: it must still be pending, its agent still there, and every row still pass) and the commit's writes. A candidate that fails the re-check **ends the pass** (`errSchedStale`, with no busy window): the pass's snapshot is stale, and matching the next candidate against it would mint and lock once per pending task. The lock's sync has already woken the parked poll, so the next pass reloads. So a pass mints at most once and takes the lock at most once. A section that hits its deadline fails like a commit error: the task is unleased, or its lease expires.
 - Heartbeats, completes and abandons take neither `Scheduler.mu` nor the lock. The scheduler's other in-process state (`waiting`, `heldSince`, `mintBackoff`) is per instance and only affects preference, never a limit.
 
 **Leader-only work.** With `Options.Leader` (serve's leader lock), the lease controller's reconciles and `Refresh` run on the leader only; matching, heartbeats, completes and the tick's wake of parked polls run on every instance.
@@ -88,7 +88,7 @@ Counters live in a dedicated runtime kind, **`BudgetCounter`**, one object per (
 - Lease expiry and retry attempts; throttled abandon doesn't consume attempts.
 - Anti-affinity soft fallback after 10 min with fake clock; a different harness isn't held; wait 0 is off.
 - Credential is minted per lease and never persisted (store inspected).
-- The `sched` lock, on two object stores over one bucket (`sched_test.go`): two schedulers with `concurrency: 1`, each behind the other, lease exactly one task; a dead holder: a pass mints once, waits once and ends, passes within 2 s neither wait nor mint, and once its lease ends the task is leased once; `Refresh` runs on the leader only.
+- The `sched` lock, on two object stores over one bucket (`sched_test.go`): two schedulers with `concurrency: 1`, each behind the other, lease exactly one task; a stale instance's pass over five pending tasks makes one mint and one lock round trip; a dead holder: a pass mints once, waits once and ends, passes within 2 s neither wait nor mint, and once its lease ends the task is leased once; `Refresh` runs on the leader only.
 
 ## Decisions taken in RT-S2-T02
 
