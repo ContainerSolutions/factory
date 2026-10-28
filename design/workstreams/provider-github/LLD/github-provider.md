@@ -66,8 +66,6 @@ Actor (`event.actor`):
 
 Untrusted text (issue/PR bodies, comments) is stored as **content refs** (`github://owner/repo/issues/42#body`, `…#comment-123`), not inline; CEL gets `event.text`/`issue.body` only for **trusted** sources needed by rules (the train issue in `workflows`) — the normaliser inlines bodies only when the actor tier is `maintainer` or `bot` from the allow-list; otherwise the field is the ref string.
 
-<a id="observe-list-and-projection"></a>
-
 ## Observe and projection
 
 `Observe(ref)` — one GraphQL query per object:
