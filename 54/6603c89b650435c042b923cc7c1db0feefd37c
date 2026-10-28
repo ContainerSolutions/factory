@@ -1,0 +1,2 @@
+lisa-addressed:
+- ccf-review 5682090415 nits: observePerms comment (no List); PR fragment's comments { totalCount } dropped (query, PR fixtures, githubtest model now issue-only); fake 413 payload-too-large via errors.As *http.MaxBytesError (fake_test too large case, contracts.md).
