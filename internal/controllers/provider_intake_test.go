@@ -59,8 +59,8 @@ func (l *attrRecorder) dropLogs() []loggedRecord {
 	return slices.DeleteFunc(slices.Clone(l.recs), func(r loggedRecord) bool { return r.attrs["reason"] == "" })
 }
 
-// syncStore is a store that implements the object store's Sync: it counts the syncs and runs
-// onSync (another dispatcher's writes arriving) on each.
+// syncStore is a store.Syncer, like the object store: it counts the syncs and runs onSync
+// (another dispatcher's writes arriving) on each.
 type syncStore struct {
 	*memory.Store
 	mu     sync.Mutex
@@ -78,6 +78,8 @@ func (s *syncStore) Sync(ctx context.Context) error {
 	}
 	return f(ctx)
 }
+
+var _ store.Syncer = (*syncStore)(nil)
 
 func (s *syncStore) count() int {
 	s.mu.Lock()

@@ -212,12 +212,11 @@ func linkedWorkItem(ctx context.Context, s store.Store, link v1alpha1.Link) (str
 	if err != nil || id != "" {
 		return id, err
 	}
-	synced, err := syncIfSupported(ctx, s)
-	if err != nil {
-		return "", fmt.Errorf("find work item of %s: %w", link.Ref, err)
-	}
-	if !synced {
+	if _, ok := s.(store.Syncer); !ok {
 		return "", nil
+	}
+	if err := store.SyncIfSupported(ctx, s); err != nil {
+		return "", fmt.Errorf("find work item of %s: sync the store: %w", link.Ref, err)
 	}
 	return find()
 }
