@@ -95,12 +95,3 @@ func (s *Server) GetMe(ctx context.Context, _ gen.GetMeRequestObject) (gen.GetMe
 	}
 	return gen.GetMe200JSONResponse(me), nil
 }
-
-// GetDeviceConfig implements gen.StrictServerInterface.
-func (s *Server) GetDeviceConfig(_ context.Context, _ gen.GetDeviceConfigRequestObject) (gen.GetDeviceConfigResponseObject, error) {
-	id, scopes := s.d.Auth.DeviceConfig()
-	if id == "" {
-		return nil, problemf(http.StatusServiceUnavailable, CodeUnavailable, "no OAuth client is configured")
-	}
-	return gen.GetDeviceConfig200JSONResponse{ClientId: id, Scopes: scopes}, nil
-}

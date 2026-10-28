@@ -152,14 +152,6 @@ func TestContract(t *testing.T) {
 	sh := &shapes{t: t, ops: spec(t), seen: map[string]bool{}}
 
 	// auth
-	dc, err := e.c.GetDeviceConfigWithResponse(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sh.check("getDeviceConfig", dc.HTTPResponse, dc.Body, http.StatusOK)
-	if dc.JSON200.ClientId != "client-1" || !slices.Equal(dc.JSON200.Scopes, []string{"read:user"}) {
-		t.Errorf("device config %+v", dc.JSON200)
-	}
 	lg, err := e.c.LoginWithResponse(ctx, &apiclient.LoginParams{ReturnTo: ptr("/board?view=all")})
 	if err != nil {
 		t.Fatal(err)

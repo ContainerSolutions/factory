@@ -23,7 +23,7 @@ import (
 type access int
 
 const (
-	// public: no credential (the OAuth routes, device config).
+	// public: no credential (the OAuth routes).
 	public access = iota
 	// registration: exactly one credential, checked by the scheduler: the enrollment token
 	// header or the agent refresh token header. The join and owner token headers are refused.
@@ -91,7 +91,6 @@ var operations = map[string]access{
 	"authCallback":         public,
 	"logout":               public,
 	"getMe":                sessionOnly,
-	"getDeviceConfig":      public,
 }
 
 // Registration headers: the enrollmentToken and agentRefreshToken security schemes, and the
