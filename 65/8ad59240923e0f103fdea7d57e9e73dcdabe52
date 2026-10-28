@@ -3,3 +3,11 @@ self-review pass 1: GO-CTX-001 (state ctx), CORE-TEST-001 (bucket close, leaderS
 
 lisa-selfreview:
 pass 2 (lenient): approve. No new findings. Carried to the PR body: CORE-SIZE-001 (size exception), CORE-REL-001 (question: '!' in the title), and the For-triage items (delivery delete vs redelivery window, installation gaps on non-leaders, objectstore Read).
+
+lisa-design:
+- Observe reads only comments.totalCount: with no marker read-back, comment bodies and the ObserveComments follow-up pages have no reader, so Observe reads no untrusted comment text and makes fewer calls. The recorded GraphQL fixtures keep only the count.
+- Project keeps reading the App's own markers (markers, mine, othersOwn), moved from observe.go to project.go; TestProjectReadsOnlyItsMarkers carries over Observe's golden marker cases (forged, reviewer App, deleted account, v2, duplicate, past the first page).
+- The fake keeps per-object projections in its own map (marks) for ProjectCall.Changed and exposes them via ProjectionsOn(ref); Seed of an object clears them (as replacing the Observation did).
+- Webhook refusals use provider.WriteProblem (FND), since the fake cannot import internal/server (server's package tests import the fake: cycle). The GitHub adapter passes internal/server's Code* constants; the fake uses the same strings as literals. 5xx carry no detail, as the server's errorHandler.
+- github.Conn drops the orgs field: Provider scope.orgs bounded only List. The contract field stays (contracts in their own PR); raised for triage.
+- github-provider.md renames its section to "Observe and projection" with an explicit <a id="observe-list-and-projection"> so 02-architecture.md's link keeps working without editing a file outside GH/FND.
