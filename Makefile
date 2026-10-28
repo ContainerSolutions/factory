@@ -90,6 +90,55 @@ e2e-run-container: ## Opt-in, needs docker (E2E_CONTAINER_CLI) and pulls E2E_CON
 		echo "e2e-run-container: TestRunInContainer didn't run and pass (see $(E2E_LOG)): does -test.run still match its name?"; exit 1; \
 	fi
 
+# The object store's emulator tests (P3 §Tests, "Real buckets"): the bucket conformance, a race
+# of conditional creates, the SDKs' retry of a create that landed, and storetest.Run through the
+# object store, on gs:// against fake-gcs-server and on s3:// against MinIO, each in a container
+# on a loopback port the runtime picks. The images are pinned by their multi-arch index digests
+# (refresh them as for E2E_CONTAINER_IMAGE). minio/minio's images are no longer published:
+# pgsty/minio is the community build of the same server. The MinIO user is a test value, not a
+# credential. The opt-in variables are envObjectStore & co in
+# internal/store/objectstore/emulator_test.go: change them together. As for e2e-run-container,
+# the target fails unless TestEmulators ran and passed with nothing skipped.
+E2E_GCS_IMAGE ?= docker.io/fsouza/fake-gcs-server:1.56.1@sha256:797ce226d62f947c009dc40246b30cfb456b8473d8241407f9d6f2c04e4d69ef
+E2E_MINIO_IMAGE ?= docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
+E2E_MINIO_USER := factorytest
+E2E_MINIO_PASSWORD := factorytest-not-a-secret
+E2E_OBJECTSTORE_LOG := bin/e2e-objectstore.log
+
+.PHONY: e2e-objectstore
+e2e-objectstore: ## Opt-in, needs docker (E2E_CONTAINER_CLI) and pulls E2E_GCS_IMAGE and E2E_MINIO_IMAGE: the gs:// and s3:// buckets and the object store against fake-gcs-server and MinIO
+	@mkdir -p bin
+	@rm -f $(E2E_OBJECTSTORE_LOG) $(E2E_OBJECTSTORE_LOG).status
+	@cli='$(E2E_CONTAINER_CLI)'; gcs=factory-e2e-gcs-$$$$; s3=factory-e2e-minio-$$$$; \
+	trap '$$cli rm -f $$gcs $$s3 >/dev/null 2>&1' EXIT; \
+	$$cli run -d --rm --name $$gcs -p 127.0.0.1::4443 $(E2E_GCS_IMAGE) -scheme http -port 4443 >/dev/null || exit 1; \
+	$$cli run -d --rm --name $$s3 -p 127.0.0.1::9000 -e MINIO_ROOT_USER=$(E2E_MINIO_USER) -e MINIO_ROOT_PASSWORD=$(E2E_MINIO_PASSWORD) \
+		$(E2E_MINIO_IMAGE) server /data >/dev/null || exit 1; \
+	gcs_addr=$$($$cli port $$gcs 4443/tcp | head -n1); s3_addr=$$($$cli port $$s3 9000/tcp | head -n1); \
+	echo "fake-gcs-server on $$gcs_addr, MinIO on $$s3_addr"; \
+	up=""; for i in $$(seq 1 60); do \
+		if curl -fs -o /dev/null "http://$$gcs_addr/storage/v1/b?project=factory-e2e" && curl -fs -o /dev/null "http://$$s3_addr/minio/health/ready"; then up=1; break; fi; \
+		sleep 1; \
+	done; \
+	if [ -z "$$up" ]; then echo "e2e-objectstore: the emulators didn't come up in 60s"; $$cli logs $$gcs; $$cli logs $$s3; exit 1; fi; \
+	{ FACTORY_E2E_OBJECTSTORE=1 STORAGE_EMULATOR_HOST="$$gcs_addr" FACTORY_S3_ENDPOINT="http://$$s3_addr" \
+		AWS_ACCESS_KEY_ID=$(E2E_MINIO_USER) AWS_SECRET_ACCESS_KEY=$(E2E_MINIO_PASSWORD) AWS_SESSION_TOKEN= AWS_PROFILE= AWS_REGION=us-east-1 \
+		AWS_CONFIG_FILE=/dev/null AWS_SHARED_CREDENTIALS_FILE=/dev/null AWS_EC2_METADATA_DISABLED=true AWS_ENDPOINT_URL= AWS_ENDPOINT_URL_S3= \
+		go test -race -count=1 -run '^TestEmulators$$' -v ./internal/store/objectstore 2>&1; \
+		echo $$? > $(E2E_OBJECTSTORE_LOG).status; } | tee $(E2E_OBJECTSTORE_LOG) | grep -E '^(=== RUN|--- |[[:space:]]+--- (FAIL|SKIP)|ok|FAIL|PASS|panic)|_test\.go:[0-9]+:' | grep -v '^=== RUN.*/store/'; \
+	status=$$(cat $(E2E_OBJECTSTORE_LOG).status 2>/dev/null); \
+	case "$$status" in \
+	0) ;; \
+	''|*[!0-9]*) echo "e2e-objectstore: no exit status for the run"; exit 1 ;; \
+	*) echo "e2e-objectstore: the run exited $$status (see $(E2E_OBJECTSTORE_LOG))"; exit "$$status" ;; \
+	esac; \
+	if grep -q -e '--- SKIP' $(E2E_OBJECTSTORE_LOG); then \
+		echo "e2e-objectstore: a test was skipped (see $(E2E_OBJECTSTORE_LOG)): is the opt-in variable still FACTORY_E2E_OBJECTSTORE?"; exit 1; \
+	fi; \
+	if ! grep -q '^--- PASS: TestEmulators ' $(E2E_OBJECTSTORE_LOG); then \
+		echo "e2e-objectstore: TestEmulators didn't run and pass (see $(E2E_OBJECTSTORE_LOG)): does -run still match its name?"; exit 1; \
+	fi
+
 # POC_ADDR is the PoC dispatcher's public listener (what ngrok forwards to). Not 8080 or 8000:
 # local-dev's CCF stack binds those.
 POC_ADDR ?= 127.0.0.1:8800

@@ -3,7 +3,6 @@ package filestore
 import (
 	"cmp"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -14,15 +13,13 @@ import (
 
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 	"github.com/ContainerSolutions/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store/journal"
 )
 
 const (
-	transcriptSuffix = ".jsonl.gz"
-	// encodedPrefix marks a file name holding a run name that isn't safe as a file name, in
-	// base64url. It is outside the safe set, so the two never collide.
+	transcriptSuffix = journal.TranscriptSuffix
+	// encodedPrefix starts a transcript file name that encodes an unsafe run name.
 	encodedPrefix = "~"
-	// maxFileName keeps file names under the 255-byte limit of the file systems we run on.
-	maxFileName = 240
 )
 
 // tblob is one transcript file's index entry; the bytes live in the file.
@@ -32,50 +29,12 @@ type tblob struct {
 	seq     uint64    // put order: the lowest is the oldest
 }
 
-// transcriptFile returns run's file name, or "" when run is too long for one.
-func transcriptFile(run string) string {
-	name := run
-	if !safeName(run) {
-		name = encodedPrefix + base64.RawURLEncoding.EncodeToString([]byte(run))
-	}
-	name += transcriptSuffix
-	if len(name) > maxFileName {
-		return ""
-	}
-	return name
-}
+// transcriptFile returns run's file name, or "" when run is too long for one (P2's naming,
+// shared with the object store's blobs).
+func transcriptFile(run string) string { return journal.TranscriptName(run) }
 
 // runOfFile is transcriptFile's inverse; ok is false for a name it never returns.
-func runOfFile(name string) (run string, ok bool) {
-	base, ok := strings.CutSuffix(name, transcriptSuffix)
-	if !ok || base == "" {
-		return "", false
-	}
-	if enc, isEnc := strings.CutPrefix(base, encodedPrefix); isEnc {
-		b, err := base64.RawURLEncoding.DecodeString(enc)
-		if err != nil || len(b) == 0 || safeName(string(b)) {
-			return "", false
-		}
-		return string(b), true
-	}
-	return base, safeName(base)
-}
-
-// safeName reports whether a run name is used as its file name as is: letters, digits, '.',
-// '_' and '-', not starting with '.' or '-'.
-func safeName(s string) bool {
-	if s == "" || s[0] == '.' || s[0] == '-' {
-		return false
-	}
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
-		default:
-			return false
-		}
-	}
-	return true
-}
+func runOfFile(name string) (string, bool) { return journal.RunOfTranscript(name) }
 
 func (s *Store) transcriptPath(file string) string {
 	return filepath.Join(s.dir, transcriptDir, file)
