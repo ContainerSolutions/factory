@@ -7,3 +7,12 @@ lisa-design:
 - The defaults are one default_* table; installsh_test.go checks it against agent.yaml.example (harnesses, pool) and the loader's defaults (maxConcurrent 1, workspace.size) and that the header lists each.
 - Tests that write use a curl stub serving fake binaries from a local dir (and real install/mkdir/shasum into the temp HOME); every other side-effecting command stays a fail-loud stub. Runs use the Mac path (shasum exists on macOS and ubuntu runners).
 - Must stay bash 3.2 compatible (macOS /bin/bash under curl | bash): no associative arrays, no ${x,,}, no mapfile.
+
+lisa-selfreview:
+Pass 1 (final, lenient):
+- must-fix CORE-TEST-001: the already-enrolled path (refresh token in the state dir) had no test -> fixed (TestInstallScriptEnrolled).
+- must-fix CORE-INPUT-001: --enrollment-token-file stripped every space, so "a b" became "ab" silently -> fixed: only leading/trailing whitespace is trimmed, an inner space is refused.
+- should-fix: an --enrollment-token-file given while the token file exists or the host is enrolled was ignored silently -> fixed: it says it's not used.
+- must-fix CORE-SIZE-001: the diff was over 1000 lines -> compacted (tests and helpers) to under the limit.
+- must-fix CORE-TEST-001 (default mode): the interactive prompts read /dev/tty and have no go test -> dropped: a pty needs a dependency off the allow-list; checked by hand with expect in a dry run against stubs (re-asks a bad value, Enter takes defaults, per-harness prompts).
+- should-fix CORE-DUP-001: the defaults also appear in the --help header and README's table, which no test compares -> dropped: the test guards the table the script uses (against agent.yaml.example); the header and README are prose and the size limit leaves no room.
