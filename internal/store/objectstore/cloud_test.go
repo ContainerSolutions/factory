@@ -12,8 +12,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"google.golang.org/api/googleapi"
+
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // TestParseCloudURL: gs:// and s3:// take a bucket and an optional prefix, and refuse
@@ -417,6 +420,89 @@ func TestGCSErrorMapping(t *testing.T) {
 				t.Fatalf("%s: %d lists, want %d", tc.name, n, tc.lists)
 			}
 		})
+	}
+}
+
+// TestGCSConfirmWindow: a not-found Get confirms the bucket with a list at most once per
+// window (on an injected clock): not within it after a proof (a confirmed 404 or a
+// successful request), once after it, and a bucket gone after the window is reported
+// missing, not ErrNotExist. Parallel not-found Gets send one list between them.
+func TestGCSConfirmWindow(t *testing.T) {
+	gcsError := func(code int, msg string) string {
+		return fmt.Sprintf(`{"error":{"code":%d,"message":%q,"errors":[{"message":%q,"domain":"global","reason":"notFound"}]}}`, code, msg, msg)
+	}
+	var objectFound, bucketGone atomic.Bool
+	object := func() (int, string) {
+		switch {
+		case bucketGone.Load():
+			return 404, gcsError(404, "Not found.") // reworded: the message match misses it
+		case objectFound.Load():
+			return 200, "data"
+		}
+		return 404, gcsError(404, "No such object: b/p/log/1")
+	}
+	list := func() (int, string) {
+		if bucketGone.Load() {
+			return 404, gcsError(404, "Not found.")
+		}
+		time.Sleep(20 * time.Millisecond) // long enough for parallel callers to pile up
+		return 200, `{"kind":"storage#objects"}`
+	}
+	srv, lists := gcsServer(t, object, list)
+	t.Setenv("STORAGE_EMULATOR_HOST", srv.URL)
+	clk := clock.NewFake(epoch)
+	const window = time.Minute
+	b, err := newGCSBucket(t.Context(), cloudLocation{bucket: "b", prefix: "p/"}, nil, withGCSClock(clk), withGCSConfirmEvery(window))
+	must(t, err)
+	defer func() { _ = b.Close() }()
+
+	get := func(want string, wantLists int32) {
+		t.Helper()
+		_, err := b.Get(t.Context(), "log/1")
+		got := sentinel(err)
+		if want == "no bucket" {
+			if got != "other" || !strings.Contains(err.Error(), "the bucket does not exist") {
+				t.Fatalf("Get = %v, want the bucket reported missing", err)
+			}
+		} else if got != want {
+			t.Fatalf("Get = %s (%v), want %s", got, err, want)
+		}
+		if n := lists.Load(); n != wantLists {
+			t.Fatalf("%d lists so far, want %d", n, wantLists)
+		}
+	}
+	get("ErrNotExist", 1) // never proven: one list
+	get("ErrNotExist", 1) // the confirmed 404 is the proof
+	clk.Advance(window - time.Second)
+	get("ErrNotExist", 1) // still within the window
+	clk.Advance(2 * time.Second)
+	get("ErrNotExist", 2) // past it: one list
+	clk.Advance(2 * window)
+	objectFound.Store(true)
+	get("nil", 2) // a successful Get proves the bucket
+	objectFound.Store(false)
+	get("ErrNotExist", 2) // so the next 404 needs no list
+	clk.Advance(2 * window)
+	bucketGone.Store(true)
+	get("no bucket", 3) // gone after the window: the list's 404 says so
+	bucketGone.Store(false)
+
+	// Parallel not-found Gets past the window: one list between them.
+	clk.Advance(2 * window)
+	before := lists.Load()
+	var wg sync.WaitGroup
+	errs := make([]error, 16)
+	for i := range errs {
+		wg.Go(func() { _, errs[i] = b.Get(t.Context(), "log/1") })
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if !errors.Is(err, ErrNotExist) {
+			t.Fatalf("parallel Get %d = %v, want ErrNotExist", i, err)
+		}
+	}
+	if n := lists.Load() - before; n != 1 {
+		t.Fatalf("parallel not-found Gets sent %d lists, want 1", n)
 	}
 }
 

@@ -9,12 +9,20 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
+
+// DefaultGCSConfirmEvery is how long a request that proved a GCS bucket exists lets a
+// not-found Get or Delete skip its confirming list (GCSBucket).
+const DefaultGCSConfirmEvery = time.Minute
 
 // GCSBucket is a Bucket on Google Cloud Storage (gs://bucket/prefix). Credentials are
 // Application Default Credentials (Cloud Run's service account); none come from a flag or the
@@ -26,10 +34,13 @@ import (
 //     retries it on a 408, 429, 5xx or a broken connection (a conditional upload is
 //     idempotent), so a retry whose first attempt landed answers ErrExists, which the
 //     store's nonce check resolves.
-//   - Get and Delete answer ErrNotExist on a missing object's 404, confirmed by a one-object
-//     list of the prefix (notFound). A missing bucket is not ErrNotExist (gcsBucketMissing's
-//     message match, then the list), and ParseURL lists the prefix once at open, so a bucket
-//     that doesn't exist fails the start rather than reading as an empty, current log.
+//   - Get and Delete answer ErrNotExist on a missing object's 404. A missing bucket is not
+//     ErrNotExist: gcsBucketMissing's message match is the fast path, and otherwise a
+//     one-object list of the prefix confirms the bucket (notFound), at most once per
+//     DefaultGCSConfirmEvery: a request that proved the bucket exists within it (a
+//     successful Get, Create, List or Delete, a 412 on a create, or a confirmed 404) skips
+//     the list. ParseURL lists the prefix once at open, so a bucket that doesn't exist fails
+//     the start rather than reading as an empty, current log.
 //   - List lists from startOffset, in name order, skipping startAfter itself.
 //
 // Each request's deadline is its context's: the store gives each one DefaultRequestTimeout.
@@ -37,6 +48,28 @@ type GCSBucket struct {
 	client *storage.Client
 	bucket *storage.BucketHandle
 	loc    cloudLocation
+
+	// clk and confirmEvery time the confirming list (gcsOption).
+	clk          clock.Clock
+	confirmEvery time.Duration
+	// confirming holds one token: one confirming list at a time, so callers that find the
+	// bucket unproven together send one list between them.
+	confirming chan struct{}
+
+	mu sync.Mutex
+	// provenAt is when a request last proved the bucket exists (zero: never).
+	provenAt time.Time
+}
+
+// gcsOption sets a GCSBucket's confirmation timing (tests; ParseURL uses the defaults).
+type gcsOption func(*GCSBucket)
+
+// withGCSClock times the confirmation window on clk (default clock.Real).
+func withGCSClock(clk clock.Clock) gcsOption { return func(b *GCSBucket) { b.clk = clk } }
+
+// withGCSConfirmEvery sets the confirmation window (default DefaultGCSConfirmEvery).
+func withGCSConfirmEvery(d time.Duration) gcsOption {
+	return func(b *GCSBucket) { b.confirmEvery = d }
 }
 
 var _ Bucket = (*GCSBucket)(nil)
@@ -61,7 +94,7 @@ func openGCSURL(ctx context.Context, u *url.URL) (Bucket, error) {
 
 // newGCSBucket opens loc; hc, when set, is the client's HTTP client (tests wrap the transport
 // to fail a request after it landed).
-func newGCSBucket(ctx context.Context, loc cloudLocation, hc *http.Client) (*GCSBucket, error) {
+func newGCSBucket(ctx context.Context, loc cloudLocation, hc *http.Client, options ...gcsOption) (*GCSBucket, error) {
 	opts := []option.ClientOption{storage.WithJSONReads()}
 	if hc != nil {
 		opts = append(opts, option.WithHTTPClient(hc))
@@ -73,7 +106,30 @@ func newGCSBucket(ctx context.Context, loc cloudLocation, hc *http.Client) (*GCS
 	if err != nil {
 		return nil, fmt.Errorf("objectstore: gs://%s: %w", loc.bucket, err)
 	}
-	return &GCSBucket{client: client, bucket: client.Bucket(loc.bucket), loc: loc}, nil
+	b := &GCSBucket{
+		client: client, bucket: client.Bucket(loc.bucket), loc: loc,
+		clk: clock.Real{}, confirmEvery: DefaultGCSConfirmEvery, confirming: make(chan struct{}, 1),
+	}
+	for _, o := range options {
+		o(b)
+	}
+	return b, nil
+}
+
+// proven notes that a request just proved the bucket exists.
+func (b *GCSBucket) proven() {
+	now := b.clk.Now()
+	b.mu.Lock()
+	b.provenAt = now
+	b.mu.Unlock()
+}
+
+// recentlyProven reports a proof within the confirmation window.
+func (b *GCSBucket) recentlyProven() bool {
+	now := b.clk.Now()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return !b.provenAt.IsZero() && now.Sub(b.provenAt) < b.confirmEvery
 }
 
 // probe lists at most one object under the prefix, at open.
@@ -93,22 +149,41 @@ func (b *GCSBucket) listOne(ctx context.Context) error {
 	if _, err := it.Next(); err != nil && !errors.Is(err, iterator.Done) {
 		return b.err(ctx, "list", "", err)
 	}
+	b.proven()
 	return nil
 }
 
-// notFound maps a Get's or a Delete's error. An object 404 is confirmed with a one-object
-// list of the prefix before it is ErrNotExist: the SDK gives a missing bucket the same
-// ErrObjectNotExist, and gcsBucketMissing's message match is only the fast path, so a
-// bucket that vanishes mid-run fails loudly even if GCS rewords its message. The list costs
-// one request per not-found Get or Delete; when it fails, the outcome is that error, not
-// ErrNotExist.
+// notFound maps a Get's or a Delete's error. An object 404 is ErrNotExist only once the
+// bucket is known to exist: the SDK gives a missing bucket the same ErrObjectNotExist, and
+// gcsBucketMissing's message match is only the fast path, so a bucket that vanishes mid-run
+// fails loudly, within the confirmation window, even if GCS rewords its message. When the
+// confirming list fails, the outcome is that error, not ErrNotExist.
 func (b *GCSBucket) notFound(ctx context.Context, op, name string, err error) error {
 	if errors.Is(gcsSentinel(err), ErrNotExist) {
-		if lerr := b.listOne(ctx); lerr != nil {
+		if lerr := b.confirmBucket(ctx); lerr != nil {
 			return fmt.Errorf("gs://%s/%s%s: %s: not found, and the bucket check failed: %w", b.loc.bucket, b.loc.prefix, name, op, lerr)
 		}
 	}
 	return b.err(ctx, op, name, err)
+}
+
+// confirmBucket lists one object unless a request proved the bucket exists within the
+// confirmation window. One caller lists at a time; the others wait for it (or their ctx)
+// and then find the proof, so concurrent not-found requests send one list per window.
+func (b *GCSBucket) confirmBucket(ctx context.Context) error {
+	if b.recentlyProven() {
+		return nil
+	}
+	select {
+	case b.confirming <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-b.confirming }()
+	if b.recentlyProven() {
+		return nil
+	}
+	return b.listOne(ctx)
 }
 
 // Close releases the client's connections.
@@ -128,6 +203,7 @@ func (b *GCSBucket) Get(ctx context.Context, name string) ([]byte, error) {
 	if err != nil {
 		return nil, b.err(ctx, "get", name, err)
 	}
+	b.proven()
 	return data, nil
 }
 
@@ -153,8 +229,13 @@ func (b *GCSBucket) Create(ctx context.Context, name string, data []byte) error 
 		return b.err(ctx, "create", name, err)
 	}
 	if err := w.Close(); err != nil {
-		return b.err(ctx, "create", name, err)
+		err = b.err(ctx, "create", name, err)
+		if errors.Is(err, ErrExists) {
+			b.proven() // the object exists, so the bucket does
+		}
+		return err
 	}
+	b.proven()
 	return nil
 }
 
@@ -171,11 +252,13 @@ func (b *GCSBucket) List(ctx context.Context, prefix, startAfter string, fn func
 	for {
 		attrs, err := it.Next()
 		if errors.Is(err, iterator.Done) {
+			b.proven()
 			return nil
 		}
 		if err != nil {
 			return b.err(ctx, "list", prefix, err)
 		}
+		b.proven()
 		name, ok := strings.CutPrefix(attrs.Name, b.loc.prefix)
 		if !ok {
 			return fmt.Errorf("gs://%s: list %s: object %q is outside the prefix", b.loc.bucket, prefix, attrs.Name)
@@ -194,6 +277,7 @@ func (b *GCSBucket) Delete(ctx context.Context, name string) error {
 	if err := b.bucket.Object(b.loc.prefix + name).Delete(ctx); err != nil {
 		return b.notFound(ctx, "delete", name, err)
 	}
+	b.proven()
 	return nil
 }
 
