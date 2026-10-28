@@ -162,21 +162,32 @@ run() {
 	[ "$dry_run" = 1 ] || "$@"
 }
 
-# have_tty reports whether there is a terminal to ask on.
-have_tty() { { : </dev/tty; } 2>/dev/null; }
+# The terminal the prompts read: /dev/tty. FACTORY_INSTALL_TTY, a file of answers (one per
+# line), is for installsh_test.go. ask opens it once, on fd 9, so a file is read line by line.
+tty="${FACTORY_INSTALL_TTY:-/dev/tty}"
+tty_open=0
 
-# ask VAR PROMPT [silent]: reads a line from the terminal into VAR.
+# have_tty reports whether there is a terminal to ask on.
+have_tty() { [ "$tty_open" = 1 ] || { : <"$tty"; } 2>/dev/null; }
+
+# ask VAR PROMPT [silent]: reads a line from the terminal into VAR. Its locals are _ask_*, names
+# no caller's VAR uses: printf -v on a name ask declares would set ask's local, not the caller's.
 ask() {
-	local var="$1" prompt="$2" silent="${3:-}" answer=""
-	[ "$quiet" = 0 ] || die "--quiet: nothing may be asked ($prompt)"
+	local _ask_var="$1" _ask_prompt="$2" _ask_silent="${3:-}" _ask_reply=""
+	[ "$quiet" = 0 ] || die "--quiet: nothing may be asked ($_ask_prompt)"
 	have_tty || die "no terminal to ask on: pass --quiet, with the settings as flags or environment variables"
-	if [ -n "$silent" ]; then
-		read -rs -p "$prompt" answer </dev/tty || die "no answer (the terminal closed)"
-		echo >/dev/tty
-	else
-		read -r -p "$prompt" answer </dev/tty || die "no answer (the terminal closed)"
+	if [ "$tty_open" = 0 ]; then
+		exec 9<"$tty"
+		tty_open=1
 	fi
-	printf -v "$var" '%s' "$answer"
+	if [ -n "$_ask_silent" ]; then
+		read -rs -p "$_ask_prompt" _ask_reply <&9 || die "no answer (the terminal closed)"
+		# The newline the silent read didn't echo, where read printed the prompt.
+		echo >&2
+	else
+		read -r -p "$_ask_prompt" _ask_reply <&9 || die "no answer (the terminal closed)"
+	fi
+	printf -v "$_ask_var" '%s' "$_ask_reply"
 }
 
 # confirm PROMPT DEFAULT: y or n from the terminal, DEFAULT (y or n) on Enter; no with --quiet.
@@ -523,7 +534,7 @@ say "host init (it asks for sudo once; the VM images take a while)"
 if [ "$dry_run" = 1 ]; then
 	run "${init[@]}"
 elif have_tty; then
-	run "${init[@]}" </dev/tty
+	run "${init[@]}" <"$tty"
 else
 	run "${init[@]}" </dev/null
 fi

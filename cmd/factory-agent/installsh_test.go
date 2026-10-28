@@ -6,7 +6,8 @@ package main
 // before changing anything. It is never run for real: in dry runs and refusals every command
 // that changes something is a stub that records the call and fails, and HOME stays empty; runs
 // that write get a curl stub serving fake factory-agent binaries (which only record their
-// arguments) from a local dir, and --no-service. Only --quiet runs: the default mode reads /dev/tty.
+// arguments) from a local dir, and --no-service. The default mode's runs answer from a file
+// (FACTORY_INSTALL_TTY, the script's test seam for /dev/tty).
 
 import (
 	"crypto/sha256"
@@ -46,13 +47,14 @@ var forbidden = []string{"curl", "wget", "install", "mkdir", "launchctl", "syste
 var forbiddenWriting = []string{"wget", "launchctl", "systemctl", "loginctl", "sudo", "tart", "factory-agent"}
 
 // installRun is one install.sh run; writes lets it write into the temp HOME, which home (when
-// set) prepares.
+// set) prepares. answers, when set, are what the terminal answers, one per line.
 type installRun struct {
 	sysName, machine string
 	env              map[string]string
 	args             []string
 	writes           bool
 	home             func(t *testing.T, home string)
+	answers          []string
 }
 
 // installResult is a run's exit code, output and HOME, and what the fake binaries were asked.
@@ -114,6 +116,13 @@ case "$url" in "$STUB_BASE"/*) cp "$STUB_ASSETS/${url##*/}" "$out" ;; *) echo "c
 	}
 	for k, v := range r.env {
 		cmd.Env = append(cmd.Env, k+"="+v)
+	}
+	if r.answers != nil {
+		tty := filepath.Join(t.TempDir(), "tty")
+		if err := os.WriteFile(tty, []byte(strings.Join(r.answers, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cmd.Env = append(cmd.Env, "FACTORY_INSTALL_TTY="+tty)
 	}
 	out, err := cmd.CombinedOutput()
 	code := 0
@@ -525,6 +534,95 @@ func TestInstallScriptRefuses(t *testing.T) {
 				if !strings.Contains(res.out, w) {
 					t.Errorf("the output doesn't say %q\n%s", w, res.out)
 				}
+			}
+		})
+	}
+}
+
+// TestInstallScriptAsks: the default mode, on a host that is enrolled and has an agent.yaml,
+// takes the y/n answers typed (the terminal is a file of answers).
+func TestInstallScriptAsks(t *testing.T) {
+	skipWithoutShasum(t)
+	const mine = "# my own agent.yaml\n"
+	dir := func(home string) string { return filepath.Join(home, ".config/factory-agent") }
+	existing := func(t *testing.T, home string) {
+		state := filepath.Join(home, "Library/Application Support/factory-agent")
+		for _, d := range []string{dir(home), state} {
+			if err := os.MkdirAll(d, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(dir(home), "agent.yaml"), []byte(mine), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(state, "agent-refresh-token"), []byte("r\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// settings answers the dispatcher's prompt and takes the default (Enter) for the 13 others.
+	settings := append([]string{"https://factory.example.dev"}, make([]string, 13)...)
+	answers := func(parts ...[]string) []string {
+		var all []string
+		for _, p := range parts {
+			all = append(all, p...)
+		}
+		return all
+	}
+	tests := []struct {
+		name     string
+		args     []string
+		answers  []string
+		wantCode int
+		want     string
+		replaced bool
+	}{
+		{
+			// Replace: y; the settings; Write it: y; both model logins: Enter (no).
+			name: "replaced", answers: answers([]string{"y"}, settings, []string{"y", "", ""}),
+			want: "writing ", replaced: true,
+		},
+		{
+			name: "kept", args: []string{"--dry-run"}, answers: []string{"n"},
+			want: "keeping it",
+		},
+		{
+			name: "kept on Enter", args: []string{"--dry-run"}, answers: []string{""},
+			want: "keeping it",
+		},
+		{
+			name: "not written", answers: answers([]string{"y"}, settings, []string{"n"}),
+			wantCode: 1, want: "not written; nothing was changed",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := installRun{
+				sysName: "Darwin", machine: "arm64", writes: true, home: existing, answers: tt.answers,
+				args: append([]string{"--no-service"}, tt.args...),
+			}.do(t)
+			if res.code != tt.wantCode || !strings.Contains(res.out, tt.want) {
+				t.Fatalf("exit %d, want %d and %q\n%s", res.code, tt.wantCode, tt.want, res.out)
+			}
+			baks, _ := filepath.Glob(filepath.Join(dir(res.home), "agent.yaml.bak-*"))
+			if !tt.replaced {
+				if b, _ := os.ReadFile(filepath.Join(dir(res.home), "agent.yaml")); string(b) != mine || len(baks) != 0 {
+					t.Errorf("agent.yaml is now %q, backups %v", b, baks)
+				}
+				return
+			}
+			cfg := written(t, res.home)
+			if cfg.Dispatcher != "https://factory.example.dev" || cfg.Pool != "local" || cfg.Host != "my-host" {
+				t.Errorf("dispatcher %q, pool %q, host %q", cfg.Dispatcher, cfg.Pool, cfg.Host)
+			}
+			checkDefaults(t, cfg)
+			if len(baks) != 1 {
+				t.Fatalf("backups %v", baks)
+			}
+			if b, _ := os.ReadFile(baks[0]); string(b) != mine {
+				t.Errorf("the backup holds %q", b)
+			}
+			if !strings.Contains(res.agentRan, "host init") || strings.Contains(res.agentRan, "--yes") || strings.Contains(res.agentRan, "login") {
+				t.Errorf("the agent ran %q, want host init without --yes and no login", res.agentRan)
 			}
 		})
 	}
