@@ -1,0 +1,2 @@
+lisa-addressed:
+Gustavo's triage decisions (2026-10-28): 1 conditional delivery delete (store.UnchangedDeleter), 2 installation check on every instance, 4 rebuild mentions in README/06/09/10-poc/rules-engine/rollout updated. 3 (title '!') and 6 (body) are PR-metadata edits.
