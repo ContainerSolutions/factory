@@ -1,2 +1,5 @@
 lisa-addressed:
 self-review pass 1: GO-CTX-001 (state ctx), CORE-TEST-001 (bucket close, leaderSweeps, sync-interval warning tests), CORE-TEST-002 (idle-conn assertion), CORE-DOC-001 (deletes in controllers.md), CORE-CONC-001 (renew after release) fixed.
+
+lisa-selfreview:
+pass 2 (lenient): approve. No new findings. Carried to the PR body: CORE-SIZE-001 (size exception), CORE-REL-001 (question: '!' in the title), and the For-triage items (delivery delete vs redelivery window, installation gaps on non-leaders, objectstore Read).
