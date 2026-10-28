@@ -931,7 +931,11 @@ export interface paths {
         };
         /**
          * Readiness
-         * @description The catalog is loaded and the startup rebuild is done.
+         * @description Whether this instance is ready, the same on every instance, leader or not. `200` once the
+         *     catalog and the store are loaded and the store's first sync has succeeded (a store with
+         *     nothing to sync, in memory or a state dir, has synced once it is loaded). `503` when the
+         *     store has stopped writing (it met an entry newer than it can read: `store-read-only`) or
+         *     its last successful sync is older than its maximum lag.
          */
         get: operations["getReadyz"];
         put?: never;
@@ -982,7 +986,7 @@ export interface components {
             detail?: string;
             /** @description The request id of this occurrence. */
             instance?: string;
-            /** @description A stable machine-readable code: `idempotency-key-required`, `effect-not-allowed`, `lease-expired`, …. */
+            /** @description A stable machine-readable code: `idempotency-key-required`, `effect-not-allowed`, `lease-gone`, `store-read-only`, …. */
             code?: string;
             /** @description Field-level validation errors. */
             errors?: components["schemas"]["FieldError"][];
@@ -2679,9 +2683,17 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Not ready, or at capacity (e.g. the SSE subscriber limit). */
+        /**
+         * @description Not ready (e.g. `catalog-not-loaded`), at capacity (e.g. `too-many-subscribers`, the SSE
+         *     subscriber limit), or `store-read-only`: the dispatcher's store has stopped writing,
+         *     because it met an entry written by a newer release than it can read. That instance
+         *     refuses writes, and keeps answering reads, until a release that can read the entry
+         *     replaces it.
+         */
         ServiceUnavailable: {
             headers: {
+                /** @description Seconds to wait before retrying; set when the server knows. */
+                "Retry-After"?: number;
                 [name: string]: unknown;
             };
             content: {
@@ -2782,6 +2794,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -2807,6 +2820,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -2840,6 +2854,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -2898,6 +2913,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -2923,6 +2939,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -2961,6 +2978,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -2995,6 +3013,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -3027,6 +3046,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -3059,6 +3079,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -3262,6 +3283,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             413: components["responses"]["PayloadTooLarge"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -3322,6 +3344,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             413: components["responses"]["PayloadTooLarge"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -3356,6 +3379,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -3443,6 +3467,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -3717,6 +3742,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -3779,6 +3805,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -3863,6 +3890,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -3884,6 +3912,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
@@ -3928,6 +3957,13 @@ export interface operations {
             };
         };
         responses: {
+            /** @description A duplicate delivery, already stored (redelivered or recovered); nothing more is done. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Verified and persisted. */
             202: {
                 headers: {
@@ -3938,6 +3974,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
             default: components["responses"]["Error"];
         };
     };
