@@ -1,0 +1,4 @@
+lisa-addressed:
+- CORE-TEST-001 observeQuery: TestObserveReadsNoComments (150 comments, one Observe request, count 150, no body selected).
+- provider-doc-plain-types: the package doc names WriteProblem.
+- CORE-SIZE-001: not a code change; asked as an open question (size-exception label is Gustavo's call).
