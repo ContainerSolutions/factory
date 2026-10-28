@@ -55,6 +55,9 @@ const (
 	CodeNotCompilable          = "not-compilable"
 	CodeInternal               = "internal"
 	CodeNotImplemented         = "not-implemented"
+	// CodeStoreReadOnly: the store has stopped writing (it met an entry written by a newer
+	// release than this one reads); reads go on (503).
+	CodeStoreReadOnly = "store-read-only"
 )
 
 // apiError is an error with its problem: what a handler returns for a known failure.
@@ -123,6 +126,9 @@ func toProblem(err error) *apiError {
 	}
 	var re *provider.RetryableError
 	switch {
+	case errors.Is(err, store.ErrReadOnly):
+		return &apiError{status: http.StatusServiceUnavailable, code: CodeStoreReadOnly,
+			detail: "the dispatcher's store has stopped writing: it met a change from a newer release; reads go on", err: err}
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return &apiError{status: http.StatusServiceUnavailable, code: CodeUnavailable, err: err}
 	case errors.Is(err, auth.ErrStateMismatch):

@@ -41,6 +41,8 @@ func TestSafeReturnTo(t *testing.T) {
 		{"/tab\there", "", false},
 		{"/\x00", "", false},
 		{"http:/evil.example", "", false},
+		{"/" + strings.Repeat("a", MaxReturnTo-1), "/" + strings.Repeat("a", MaxReturnTo-1), true},
+		{"/" + strings.Repeat("a", MaxReturnTo), "", false},
 	}
 	for _, tt := range tests {
 		got, err := SafeReturnTo(tt.in)
@@ -193,16 +195,130 @@ func TestBeginLoginBounds(t *testing.T) {
 		t.Errorf("no client id: %v", err)
 	}
 	a.cfg.OAuth.ClientID = "c"
-	a.mu.Lock()
-	for i := range MaxPendingLogins {
-		a.pending[string(rune(i))] = pendingLogin{expires: clk.Now().Add(time.Minute)}
+	// No process holds the logins in progress, so nothing bounds them: each state is
+	// self-contained and its own.
+	seen := map[string]bool{}
+	for range 3 {
+		_, c, err := a.BeginLogin(context.Background(), "/")
+		if err != nil || c.Path != "/api/v1/auth" || !c.HttpOnly || !c.Secure {
+			t.Fatalf("login: %+v %v", c, err)
+		}
+		if seen[c.Value] {
+			t.Fatalf("two logins share the state %q", c.Value)
+		}
+		seen[c.Value] = true
 	}
-	a.mu.Unlock()
-	if _, _, err := a.BeginLogin(context.Background(), "/"); !errors.Is(err, ErrOAuth) {
-		t.Errorf("too many logins: %v", err)
+}
+
+// TestLoginState: the OAuth state is signed under its own label with the session key (or the
+// previous one), carries its return URL and expiry, and is used once through UsedLoginState.
+func TestLoginState(t *testing.T) {
+	ctx := context.Background()
+	clk := clock.NewFake(time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC))
+	a, _ := newAuth(t, clk)
+	a.cfg.OAuth.ClientID = "c"
+	_, c, err := a.BeginLogin(ctx, "/board?x=1")
+	if err != nil {
+		t.Fatal(err)
 	}
-	clk.Advance(time.Minute)
-	if _, c, err := a.BeginLogin(context.Background(), "/"); err != nil || c.Path != "/api/v1/auth" || !c.HttpOnly || !c.Secure {
-		t.Errorf("after the pending ones expired: %+v %v", c, err)
+	st, ok := a.verifyState(c.Value)
+	if !ok || st.ReturnTo != "/board?x=1" || time.Unix(st.Expires, 0).Sub(clk.Now()) != DefaultStateTTL {
+		t.Fatalf("verifyState = %+v, %v", st, ok)
+	}
+
+	// Another dispatcher with the same key verifies it; one with another key doesn't.
+	other, _ := newAuth(t, clk)
+	other.key = a.key
+	if _, ok := other.verifyState(c.Value); !ok {
+		t.Error("a dispatcher with the same session key refused the state")
+	}
+	stranger, _ := newAuth(t, clk)
+	if _, ok := stranger.verifyState(c.Value); ok {
+		t.Error("a dispatcher with another session key accepted the state")
+	}
+	// Rotation: the old key, now the previous one, still verifies the state.
+	rotated, _ := newAuth(t, clk)
+	rotated.cfg.PreviousSessionKey = a.key
+	if _, ok := rotated.verifyState(c.Value); !ok {
+		t.Error("the previous session key didn't verify a state signed before the rotation")
+	}
+	// The labels keep a state and a session cookie apart under one key.
+	if _, ok := a.verify(c.Value); ok {
+		t.Error("a state passed for a session cookie")
+	}
+	if _, ok := a.verifyState(a.sign("ses-id")); ok {
+		t.Error("a session cookie passed for a state")
+	}
+	// A changed payload breaks the signature.
+	payload, sig, _ := strings.Cut(c.Value, ".")
+	if _, ok := a.verifyState(payload[:len(payload)-1] + "A." + sig); ok {
+		t.Error("a tampered state verified")
+	}
+
+	// Single use, on any dispatcher of the store.
+	exp := time.Unix(st.Expires, 0)
+	if err := a.useState(ctx, st.ID, exp); err != nil {
+		t.Fatal(err)
+	}
+	other.d.Store = a.d.Store
+	if err := other.useState(ctx, st.ID, exp); !errors.Is(err, ErrStateMismatch) {
+		t.Fatalf("a state used twice: %v, want ErrStateMismatch", err)
+	}
+	// The sweep keeps the record until the state expires, then deletes it.
+	if n, err := a.SweepUsedStates(ctx); err != nil || n != 0 {
+		t.Fatalf("sweep before the expiry = %d, %v", n, err)
+	}
+	clk.Advance(DefaultStateTTL)
+	if n, err := a.SweepUsedStates(ctx); err != nil || n != 1 {
+		t.Fatalf("sweep after the expiry = %d, %v", n, err)
+	}
+}
+
+func TestSessionKeyRotation(t *testing.T) {
+	clk := clock.NewFake(time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC))
+	a, _ := newAuth(t, clk)
+	cookie := a.sign("ses-id")
+	b, _ := newAuth(t, clk)
+	if _, ok := b.verify(cookie); ok {
+		t.Fatal("another key verified the session cookie")
+	}
+	b.cfg.PreviousSessionKey = a.key
+	if id, ok := b.verify(cookie); !ok || id != "ses-id" {
+		t.Fatalf("the previous key didn't verify the session cookie: %q %v", id, ok)
+	}
+	if _, ok := b.verify("ses-id." + strings.Repeat("A", 43)); ok {
+		t.Fatal("a forged signature verified")
+	}
+}
+
+// TestFinishLoginWritesNothingWithoutACode: a callback with a valid state but no code (or a
+// code GitHub refuses) creates no UsedLoginState, so an anonymous client can't make the
+// store write; the state stays usable for the real callback.
+func TestFinishLoginWritesNothingWithoutACode(t *testing.T) {
+	ctx := context.Background()
+	clk := clock.NewFake(time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC))
+	a, _ := newAuth(t, clk)
+	a.cfg.OAuth.ClientID = "c"
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"bad_verification_code"}`, http.StatusOK)
+	}))
+	defer gh.Close()
+	a.cfg.OAuth.TokenURL = gh.URL
+	a.cfg.HTTPClient = gh.Client()
+	_, cookie, err := a.BeginLogin(ctx, "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/callback", nil)
+	r.AddCookie(cookie)
+	if _, err := a.FinishLogin(ctx, r, "", cookie.Value); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("no code: %v, want ErrUnauthenticated", err)
+	}
+	if _, err := a.FinishLogin(ctx, r, "forged", cookie.Value); err == nil {
+		t.Fatal("a code GitHub refuses finished the login")
+	}
+	var used []*UsedLoginState
+	if _, err := a.d.Store.List(ctx, KindUsedLoginState, store.ListOptions{}, &used); err != nil || len(used) != 0 {
+		t.Fatalf("UsedLoginStates after callbacks with no valid code: %d (%v), want none", len(used), err)
 	}
 }

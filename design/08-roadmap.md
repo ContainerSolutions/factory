@@ -31,7 +31,7 @@ flowchart LR
 **Dispatcher (one binary)**
 
 - In-memory `Store` with watch and **90-day retention** for runs and transcripts (Q13).
-- Controllers: catalog-sync, provider (GitHub), rule, work-item (projection plus rebuild), scheduler, pool (registered), run.
+- Controllers: catalog-sync, provider (GitHub), rule, work-item (projection plus resync; the start-up rebuild it had first went with durable state, [P3](proposals/P3-dispatcher-state-in-object-storage.md#no-rebuild-from-markers)), scheduler, pool (registered), run.
 - API: runner and lease, Effector, resources, commands (including `factory dispatch` to inject a fake event).
 - Minimal UI: board, run view, and the "why" view for decisions.
 

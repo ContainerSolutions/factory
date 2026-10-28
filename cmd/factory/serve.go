@@ -16,6 +16,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/controllers"
 	"github.com/ContainerSolutions/factory/internal/provider/github"
 	"github.com/ContainerSolutions/factory/internal/scheduler"
+	"github.com/ContainerSolutions/factory/internal/store/objectstore"
 )
 
 // Environment variables `factory serve` reads (api-server.md §factory serve). Secrets come from
@@ -25,7 +26,10 @@ const (
 	envOAuthClientID     = "FACTORY_OAUTH_CLIENT_ID"
 	envOAuthClientSecret = "FACTORY_OAUTH_CLIENT_SECRET"
 	envSessionKey        = "FACTORY_SESSION_KEY"
-	envCLIToken          = "FACTORY_CLI_TOKEN"
+	// envSessionKeyPrevious is the key before the last rotation, still accepted when
+	// verifying sessions and OAuth states.
+	envSessionKeyPrevious = "FACTORY_SESSION_KEY_PREVIOUS"
+	envCLIToken           = "FACTORY_CLI_TOKEN"
 	// envSecretPrefix starts the variable of a catalog secretRef: FACTORY_SECRET_<NAME>_<KEY>.
 	envSecretPrefix = "FACTORY_SECRET_"
 )
@@ -62,9 +66,14 @@ type serveConfig struct {
 	Retention       time.Duration
 	ShutdownTimeout time.Duration
 
-	// StateDir keeps the store in files there (the file store), so the state survives a
-	// restart; empty keeps it in memory.
-	StateDir string
+	// The store: one of StateDir (the file store, one dispatcher), StateURL (the object store,
+	// shared by every dispatcher on it: gs://, s3:// or file://) and StateMemory (in memory,
+	// lost on restart). --dev-fake-providers alone is StateMemory too.
+	StateDir    string
+	StateURL    string
+	StateMemory bool
+	// StateSyncInterval is the object store's sync interval (--state-url only).
+	StateSyncInterval time.Duration
 
 	// DevFakeProviders registers the in-memory fake adapter for the github type, for
 	// development and tests only.
@@ -94,7 +103,9 @@ type serveConfig struct {
 	OAuthClientID     string
 	OAuthClientSecret string
 	SessionKey        string
-	CLIToken          string
+	// SessionKeyPrevious is FACTORY_SESSION_KEY_PREVIOUS: accepted for verifying (rotation).
+	SessionKeyPrevious string
+	CLIToken           string
 }
 
 // errHelp is returned by parseServeConfig for -h.
@@ -117,7 +128,10 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 	fl.DurationVar(&cfg.CatalogTimeout, "catalog-timeout", defaultCatalogTimeout, "how long startup waits for the first valid catalog")
 	fl.DurationVar(&cfg.Retention, "retention", defaultRetention, "how long runs, events, effects and finished tasks (and closed work items) are kept")
 	fl.DurationVar(&cfg.ShutdownTimeout, "shutdown-timeout", defaultShutdownTimeout, "how long shutdown waits for in-flight requests")
-	fl.StringVar(&cfg.StateDir, "state-dir", "", "keep the dispatcher's state in this directory (0700, created if missing), so it survives restarts; empty: in memory")
+	fl.StringVar(&cfg.StateDir, "state-dir", "", "keep the dispatcher's state in this directory (0700, created if missing), so it survives restarts; one dispatcher only")
+	fl.StringVar(&cfg.StateURL, "state-url", "", "keep the dispatcher's state in object storage, shared by every dispatcher on it: gs://bucket/prefix, s3://bucket/prefix or file:///dir (never logged)")
+	fl.BoolVar(&cfg.StateMemory, "state-memory", false, "keep the state in memory: every work item starts fresh on a restart, with no state and no run counters (tests and quick local runs)")
+	fl.DurationVar(&cfg.StateSyncInterval, "state-sync-interval", objectstore.DefaultSyncInterval, "with --state-url: how stale a read may be before it syncs with the shared state, and the background sync's period")
 	fl.BoolVar(&cfg.DevFakeProviders, "dev-fake-providers", false, "DEVELOPMENT ONLY: connect github Providers to the in-memory fake adapter (no GitHub calls)")
 	fl.StringVar(&cfg.AuthProvider, "auth-provider", "", "catalog Provider of the UI and agent-owner logins (default: the catalog's only github Provider)")
 	fl.StringVar(&cfg.GitHubURL, "github-url", defaultGitHubURL, "GitHub web URL for the OAuth flow")
@@ -143,6 +157,7 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 	cfg.OAuthClientID = getenv(envOAuthClientID)
 	cfg.OAuthClientSecret = getenv(envOAuthClientSecret)
 	cfg.SessionKey = getenv(envSessionKey)
+	cfg.SessionKeyPrevious = getenv(envSessionKeyPrevious)
 	cfg.CLIToken = getenv(envCLIToken)
 
 	var errs, warnings []string
@@ -202,10 +217,26 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 		}
 	}
 
+	// The store: a durable one, unless asked otherwise (P3 §No rebuild from markers).
+	switch {
+	case cfg.StateDir != "" && cfg.StateURL != "":
+		bad("--state-dir and --state-url are exclusive: the state is in a directory (one dispatcher) or in object storage (shared)")
+	case cfg.StateMemory && (cfg.StateDir != "" || cfg.StateURL != ""):
+		bad("--state-memory and --state-dir or --state-url are exclusive")
+	case cfg.StateDir == "" && cfg.StateURL == "" && !cfg.StateMemory && !cfg.DevFakeProviders:
+		bad("serve needs a durable store: --state-dir DIR, or --state-url URL for several dispatchers (--state-memory keeps it in memory, " +
+			"for tests and quick local runs: every work item then starts fresh on a restart)")
+	}
 	if cfg.StateDir != "" {
 		if info, err := os.Stat(cfg.StateDir); err == nil && !info.IsDir() {
 			bad("--state-dir %q is not a directory", cfg.StateDir)
 		}
+	}
+	if cfg.StateSyncInterval <= 0 {
+		bad("--state-sync-interval must be positive")
+	}
+	if set["state-sync-interval"] && cfg.StateURL == "" {
+		warnings = append(warnings, "--state-sync-interval applies to --state-url only; ignored")
 	}
 
 	if strings.TrimSpace(cfg.DeployEnvironment) == "" {
@@ -250,15 +281,21 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 		{envOAuthClientID, cfg.OAuthClientID}, {envOAuthClientSecret, cfg.OAuthClientSecret},
 		{envSessionKey, cfg.SessionKey}, {envCLIToken, cfg.CLIToken},
 	} {
-		if s.v == "" {
+		if s.v == "" && (s.env != envSessionKey || cfg.StateURL == "") {
 			missing = append(missing, s.env)
 		}
 	}
 	if len(missing) > 0 {
 		bad("missing environment variables: %s", strings.Join(missing, ", "))
 	}
+	if cfg.StateURL != "" && cfg.SessionKey == "" {
+		bad("--state-url needs %s: every dispatcher on the shared state must sign and verify the session cookies and the login states with the same key", envSessionKey)
+	}
 	if cfg.SessionKey != "" && len(cfg.SessionKey) < minSecretLen {
 		bad("%s must be at least %d bytes (openssl rand -hex 32)", envSessionKey, minSecretLen)
+	}
+	if cfg.SessionKeyPrevious != "" && len(cfg.SessionKeyPrevious) < minSecretLen {
+		bad("%s must be at least %d bytes (openssl rand -hex 32)", envSessionKeyPrevious, minSecretLen)
 	}
 	if cfg.CLIToken != "" && len(cfg.CLIToken) < minSecretLen {
 		bad("%s must be at least %d characters (openssl rand -hex 32)", envCLIToken, minSecretLen)
@@ -266,6 +303,9 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 
 	if cfg.DevFakeProviders {
 		warnings = append(warnings, "--dev-fake-providers: github Providers are connected to the in-memory fake adapter; nothing reaches GitHub (development only)")
+		if cfg.StateDir == "" && cfg.StateURL == "" {
+			cfg.StateMemory = true
+		}
 	}
 	if len(errs) > 0 {
 		return cfg, warnings, errors.New(strings.Join(errs, "; "))
@@ -286,18 +326,23 @@ func isLoopback(host string) bool {
 func serveUsage(w io.Writer, fl *flag.FlagSet) {
 	fmt.Fprintln(w, `usage: factory serve [--addr :8800] [--ops-addr 127.0.0.1:9090] [--public-url URL]
                      [--catalog-repo URL --catalog-ref main --catalog-path catalog | --catalog-dir DIR]
-                     [--retention 2160h] [--state-dir DIR] [--deploy-environment github-pages]
+                     [--retention 2160h] [--state-dir DIR | --state-url URL | --state-memory]
+                     [--deploy-environment github-pages]
                      [--anti-affinity-wait 10m]
                      [--log-level info] [--log-format json|text] [--dev-fake-providers]
 
 Runs the dispatcher: the store, catalog-sync, the provider connections, the controllers, the
 scheduler, the API server with the embedded UI on --addr, and the ops routes on --ops-addr.
-With --state-dir the store is kept in files there and survives restarts; without it the
-store is in memory.
+The store is durable: --state-dir keeps it in files there (one dispatcher), --state-url in
+object storage that every dispatcher on it shares (one of them, the leader, runs the
+controllers). --state-memory keeps it in memory, where every work item starts fresh on a
+restart; --dev-fake-providers implies it.
 
 environment (secrets come from the environment only and are never logged):
   `+envOAuthClientID+`, `+envOAuthClientSecret+`   UI login (GitHub OAuth App)
-  `+envSessionKey+`   session cookie signing key (at least 32 bytes)
+  `+envSessionKey+`   session cookie and login state signing key (at least 32 bytes; the
+      same on every dispatcher of a --state-url)
+  `+envSessionKeyPrevious+`   the key before a rotation, still accepted (optional)
   `+envCLIToken+`   CLI admin token, for factory dispatch (at least 32 characters)
   `+envPublicURL+`   public base URL (not a secret), same as --public-url
   `+envSecretPrefix+`<NAME>_<KEY>   a catalog secretRef {name, key}, upper-cased with

@@ -1,76 +1,14 @@
 package controllers
 
 import (
-	"reflect"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 	"github.com/ContainerSolutions/factory/internal/provider"
-	"github.com/ContainerSolutions/factory/internal/provider/fake"
 	"github.com/ContainerSolutions/factory/internal/store"
 )
-
-func TestRestartRebuildsFromProjections(t *testing.T) {
-	e := newEnv(t)
-	wi, plan := e.startPlan()
-	e.completePlan(plan.Metadata.ID)
-	// The implement task opened a PR through the Effector, which links it with LinkObject; the
-	// projection then reaches the new link and lists it, so the link survives the restart.
-	e.seed(provider.KindPR, docsRepo+"#57", nil)
-	prRef := v1alpha1.ObjectRef{Provider: ghProvider, Kind: provider.KindPR, Ref: docsRepo + "#57"}
-	if added, err := LinkObject(e.ctx, e.st, wi.Metadata.Name, prRef, ghProvider); err != nil || !added {
-		t.Fatalf("LinkObject = %v, %v", added, err)
-	}
-	before := e.getWorkItem(wi.Metadata.Name)
-	if _, err := e.wic.Reconcile(e.ctx, wi.Metadata.Name); err != nil {
-		t.Fatal(err)
-	}
-	prLink := v1alpha1.Link{Provider: ghProvider, Ref: prRef.Ref, Kind: provider.KindPR}
-	for _, ref := range []string{docsRepo + "#42", docsRepo + "#57"} {
-		o, _ := e.gh.Object(ref)
-		if len(o.Projections) != 1 || !slices.Contains(o.Projections[0].Links, prLink) {
-			t.Fatalf("%s projections = %+v, want one listing %+v", ref, o.Projections, prLink)
-		}
-	}
-	// The issue closes once the PR exists; the marker on it still lists the item.
-	if err := e.gh.Update(docsRepo+"#42", func(o *provider.Observation) { o.State = provider.StateClosed }); err != nil {
-		t.Fatal(err)
-	}
-
-	// Restart: a new, empty store; only GitHub remembers.
-	e.start()
-	res, err := e.wic.Rebuild(e.ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(res.Created) != 1 || res.Created[0] != wi.Metadata.Name || res.Objects != 2 {
-		t.Fatalf("rebuild = %+v", res)
-	}
-	after := e.getWorkItem(wi.Metadata.Name)
-	if !reflect.DeepEqual(after.Spec.Links, before.Spec.Links) {
-		t.Errorf("links = %+v, want %+v", after.Spec.Links, before.Spec.Links)
-	}
-	if !reflect.DeepEqual(jsonValue(after.Status.State), jsonValue(before.Status.State)) {
-		t.Errorf("state = %v, want %v", after.Status.State, before.Status.State)
-	}
-	if !reflect.DeepEqual(after.Status.Counters, before.Status.Counters) || after.Status.Counters["plan-epic"] != 1 {
-		t.Errorf("counters = %v, want %v", after.Status.Counters, before.Status.Counters)
-	}
-	// A second rebuild finds the item stored.
-	if res, err := e.wic.Rebuild(e.ctx); err != nil || len(res.Created) != 0 || res.Existing != 1 {
-		t.Errorf("second rebuild = %+v, %v", res, err)
-	}
-
-	// Rules continue from the rebuilt state: an event on the PR finds the rebuilt item.
-	e.deliver(fake.Webhook{Type: v1alpha1.EventPRLabeled, Sender: fake.Sender{Login: maintainer}, Object: &v1alpha1.ObjectRef{Kind: provider.KindPR, Ref: docsRepo + "#57"}})
-	e.processEvents()
-	var wis []*v1alpha1.WorkItem
-	if _, err := e.st.List(e.ctx, v1alpha1.KindWorkItem, store.ListOptions{}, &wis); err != nil || len(wis) != 1 {
-		t.Fatalf("work items after the event = %d (%v), want the rebuilt one", len(wis), err)
-	}
-}
 
 func TestProjectionOnlyWhenChanged(t *testing.T) {
 	e := newEnv(t)
@@ -171,5 +109,123 @@ func TestWorkItemRetention(t *testing.T) {
 	}
 	if !exists(recent) {
 		t.Error("the recently active item was deleted")
+	}
+}
+
+// TestResyncBaselinesAcrossLeaders: the baselines are stored, so a new leader (a new
+// controller on the same store) reports a change made on GitHub while the last one led. Its
+// first resync of an item with stored baselines is spread over the interval.
+func TestResyncBaselinesAcrossLeaders(t *testing.T) {
+	e := newEnv(t)
+	wi, _ := e.startPlan()
+	id := wi.Metadata.Name
+	if _, err := e.wic.Reconcile(e.ctx, id); err != nil { // the first leader's baseline
+		t.Fatal(err)
+	}
+	var base LinkObservations
+	if err := e.st.Get(e.ctx, observationsKey(id), &base); err != nil || len(base.Digests) != 1 {
+		t.Fatalf("stored baselines = %+v, %v", base, err)
+	}
+	stored := base.Metadata.ResourceVersion
+	// Unchanged: the next resync writes nothing.
+	e.clk.Advance(DefaultResyncInterval)
+	if _, err := e.wic.Reconcile(e.ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.Get(e.ctx, observationsKey(id), &base); err != nil || base.Metadata.ResourceVersion != stored {
+		t.Fatalf("baselines rewritten without a change: %s -> %s (%v)", stored, base.Metadata.ResourceVersion, err)
+	}
+
+	// The leader goes; a human labels the issue; another instance leads.
+	if err := e.gh.Update(docsRepo+"#42", func(o *provider.Observation) { o.Labels = append(o.Labels, "help-wanted") }); err != nil {
+		t.Fatal(err)
+	}
+	const delay = 3 * time.Minute
+	next, err := NewWorkItemController(e.st, staticCatalog{e.cat}, e.conns, e.factory, WorkItemOptions{
+		Clock: e.clk, Logger: discardLogger(), Cache: NewObservationCache(e.conns, e.clk, 0),
+		Jitter: func(d time.Duration) time.Duration {
+			if d != DefaultResyncInterval {
+				t.Errorf("jitter over %s, want the resync interval", d)
+			}
+			return delay
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, err := next.Reconcile(e.ctx, id); err != nil || res.RequeueAfter != delay {
+		t.Fatalf("the new leader's first reconcile = %+v, %v; want a resync in %s", res, err, delay)
+	}
+	if n := len(e.events(v1alpha1.EventFactoryWorkItemResynced)); n != 0 {
+		t.Fatalf("resynced events before the jittered resync = %d", n)
+	}
+	e.clk.Advance(delay)
+	if res, err := next.Reconcile(e.ctx, id); err != nil || res.RequeueAfter != DefaultResyncInterval {
+		t.Fatalf("the new leader's first resync = %+v, %v", res, err)
+	}
+	if evs := e.events(v1alpha1.EventFactoryWorkItemResynced); len(evs) != 1 || evs[0].WorkItem != id {
+		t.Fatalf("resynced events = %+v, want the change made while the other led", evs)
+	}
+}
+
+// TestResyncBaselinesDeleted: a work item's baselines go with it, a removed link's entry goes
+// at the next resync, and the sweep deletes the ones whose item is gone.
+func TestResyncBaselinesDeleted(t *testing.T) {
+	e := newEnv(t)
+	wi, _ := e.startPlan()
+	id := wi.Metadata.Name
+	e.seed(provider.KindPR, docsRepo+"#57", nil)
+	prRef := v1alpha1.ObjectRef{Provider: ghProvider, Kind: provider.KindPR, Ref: docsRepo + "#57"}
+	if _, err := LinkObject(e.ctx, e.st, id, prRef, ghProvider); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.wic.Reconcile(e.ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	var base LinkObservations
+	if err := e.st.Get(e.ctx, observationsKey(id), &base); err != nil || len(base.Digests) != 2 {
+		t.Fatalf("baselines = %+v, %v; want two links", base.Digests, err)
+	}
+	// The PR's link is removed: its entry goes at the next resync.
+	cur := e.getWorkItem(id)
+	cur.Spec.Links = slices.DeleteFunc(cur.Spec.Links, func(l v1alpha1.Link) bool { return l.Ref == prRef.Ref })
+	if err := e.st.Update(e.ctx, cur); err != nil {
+		t.Fatal(err)
+	}
+	e.clk.Advance(DefaultResyncInterval)
+	if _, err := e.wic.Reconcile(e.ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.Get(e.ctx, observationsKey(id), &base); err != nil || len(base.Digests) != 1 || base.Digests[ghProvider+"/"+prRef.Ref] != "" {
+		t.Fatalf("baselines after the link went = %+v, %v", base.Digests, err)
+	}
+	// The item is deleted: the next reconcile deletes its baselines.
+	if err := e.st.Delete(e.ctx, store.Key{Kind: v1alpha1.KindWorkItem, Name: id}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.wic.Reconcile(e.ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.Get(e.ctx, observationsKey(id), &base); !isNotFoundErr(err) {
+		t.Fatalf("baselines of a deleted item: %v", err)
+	}
+	// An orphan (a delete that failed) is swept; one whose item exists is kept.
+	live := &v1alpha1.WorkItem{TypeMeta: v1alpha1.TypeMeta{Kind: v1alpha1.KindWorkItem}, Metadata: v1alpha1.ObjectMeta{Name: "wi_live"}}
+	if err := e.st.Create(e.ctx, live); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"wi_gone", live.Metadata.Name} {
+		if err := e.st.Create(e.ctx, &LinkObservations{
+			TypeMeta: v1alpha1.TypeMeta{Kind: KindLinkObservations}, Metadata: v1alpha1.ObjectMeta{Name: name},
+			Digests: map[string]string{"x": "y"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := e.wic.SweepObservations(e.ctx); err != nil || n != 1 {
+		t.Fatalf("SweepObservations = %d, %v; want the orphan", n, err)
+	}
+	if err := e.st.Get(e.ctx, observationsKey(live.Metadata.Name), &base); err != nil {
+		t.Fatalf("the sweep deleted a live item's baselines: %v", err)
 	}
 }

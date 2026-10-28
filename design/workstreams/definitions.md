@@ -303,7 +303,7 @@ Every PR gets `/ccf-review:review <PR URL>` before merge, and `--again` after ne
 **Spec.** Per [controllers.md](dispatcher-runtime/LLD/controllers.md):
 
 - **rule:** Events → engine → apply decisions to the store (Tasks, state, links), notifications through the Provider interface, and the built-in `factory` provider emitting `factory.*` events.
-- **work-item:** projection writes, `Observe` merge, periodic resync, rebuild on start from `List` plus marker parsing.
+- **work-item:** projection writes, `Observe` merge, periodic resync, rebuild on start from `List` plus marker parsing. *(The rebuild was removed with durable state: [P3 §No rebuild from markers](../proposals/P3-dispatcher-state-in-object-storage.md#no-rebuild-from-markers).)*
 - **run:** results, timeouts, cancellation, and `factory.run.completed`/`failed`.
 
 Use the `fake` provider from contracts.md in tests.

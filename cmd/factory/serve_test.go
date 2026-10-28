@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -24,6 +25,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/provider/fake"
 	"github.com/ContainerSolutions/factory/internal/scheduler"
 	"github.com/ContainerSolutions/factory/internal/server"
+	"github.com/ContainerSolutions/factory/internal/store/objectstore"
 )
 
 const (
@@ -412,11 +414,48 @@ func TestServeShutdownWithOpenStream(t *testing.T) {
 	}
 }
 
+// A client connection that never sends a request doesn't hold shutdown up: once the listeners
+// stop, it is closed after a 1 s grace (http.Server.Shutdown would count it as busy for 5 s,
+// past a shorter --shutdown-timeout).
+func TestServeShutdownWithIdleConnection(t *testing.T) {
+	cfg := testConfig(t, fakeGitHubUsers(t).URL)
+	cfg.ShutdownTimeout = 3 * time.Second // above the 1 s grace a fresh connection gets
+	s := startServe(t, cfg)
+	var conns []net.Conn
+	for _, addr := range []string{s.public, s.ops} {
+		conn, err := net.Dial("tcp", strings.TrimPrefix(addr, "http://"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = conn.Close() }()
+		conns = append(conns, conn)
+	}
+	time.Sleep(100 * time.Millisecond) // accepted: both are StateNew
+	start := time.Now()
+	if err := s.stop(); err != nil {
+		t.Fatalf("shutdown with idle connections: %v\n%s", err, s.logs)
+	}
+	if d := time.Since(start); d >= cfg.ShutdownTimeout {
+		t.Errorf("shutdown took %s with idle connections", d)
+	}
+	if !strings.Contains(s.logs.String(), `"msg":"shutdown complete"`) {
+		t.Errorf("no shutdown complete log:\n%s", s.logs)
+	}
+	for _, conn := range conns {
+		_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+		// Closed: EOF, or a reset when the listener closed before accepting it.
+		var ne net.Error
+		if _, err := conn.Read(make([]byte, 1)); err == nil || (errors.As(err, &ne) && ne.Timeout()) {
+			t.Errorf("the idle connection: read %v, want it closed", err)
+		}
+	}
+}
+
 // Without --dev-fake-providers the GitHub adapter connects the catalog's github Provider:
 // without its secrets startup fails clearly, naming the variable (never a value).
 func TestServeGitHubProviderNeedsSecrets(t *testing.T) {
 	cfg := testConfig(t, "http://127.0.0.1:1")
-	cfg.DevFakeProviders = false
+	cfg.DevFakeProviders, cfg.StateMemory = false, true // --state-memory, as a run without the fake must say
 	err := runServe(context.Background(), cfg, serveDeps{Getenv: getenvOf(testEnv())}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil || !strings.Contains(err.Error(), "connect providers") || !strings.Contains(err.Error(), `"github-public"`) ||
 		!strings.Contains(err.Error(), "FACTORY_SECRET_GITHUB_PUBLIC_WEBHOOK_SECRET is not set") {
@@ -452,8 +491,11 @@ func TestParseServeConfig(t *testing.T) {
 		return m
 	}
 	tests := []struct {
-		name    string
-		args    []string
+		name string
+		args []string
+		// bare: the args go as they are; otherwise a case with no store flag gets
+		// --state-memory, so it checks what it is about rather than the durable-store refusal.
+		bare    bool
 		env     map[string]string
 		wantErr []string // substrings; nil: valid
 		check   func(*testing.T, serveConfig, []string)
@@ -462,7 +504,8 @@ func TestParseServeConfig(t *testing.T) {
 			if c.Addr != ":8800" || c.OpsAddr != "127.0.0.1:9090" || c.Retention != 2160*time.Hour || c.LogFormat != "json" ||
 				c.CatalogRepo != "https://github.com/ContainerSolutions/factory" || c.CatalogRef != "main" || c.CatalogPath != "catalog" ||
 				c.DevFakeProviders || c.PublicURL != "http://localhost:8800" || c.DeployEnvironment != "github-pages" || c.StateDir != "" ||
-				c.AntiAffinityWait != scheduler.DefaultAntiAffinityWait {
+				c.AntiAffinityWait != scheduler.DefaultAntiAffinityWait || !c.StateMemory || c.StateURL != "" ||
+				c.StateSyncInterval != objectstore.DefaultSyncInterval {
 				t.Errorf("defaults %+v", c)
 			}
 			if len(w) != 1 || !strings.Contains(w[0], "no --public-url") {
@@ -480,11 +523,50 @@ func TestParseServeConfig(t *testing.T) {
 				t.Errorf("secrets not read from the environment")
 			}
 		}},
-		{name: "dev flag warns", args: []string{"--dev-fake-providers"}, env: testEnv(), check: func(t *testing.T, c serveConfig, w []string) {
+		{name: "dev flag warns", args: []string{"--dev-fake-providers"}, bare: true, env: testEnv(), check: func(t *testing.T, c serveConfig, w []string) {
 			if !c.DevFakeProviders || !strings.Contains(strings.Join(w, "\n"), "development only") {
 				t.Errorf("dev %v %v", c.DevFakeProviders, w)
 			}
+			if !c.StateMemory {
+				t.Error("--dev-fake-providers alone isn't --state-memory")
+			}
 		}},
+		{name: "no store", bare: true, env: testEnv(), wantErr: []string{"serve needs a durable store", "--state-dir", "--state-url", "--state-memory"}},
+		{name: "dev flag with a state dir", args: []string{"--dev-fake-providers", "--state-dir", filepath.Join(dir, "state")}, bare: true, env: testEnv(),
+			check: func(t *testing.T, c serveConfig, _ []string) {
+				if c.StateMemory || c.StateDir == "" {
+					t.Errorf("state memory %v, dir %q", c.StateMemory, c.StateDir)
+				}
+			}},
+		{name: "state url", args: []string{"--state-url", "file://" + filepath.Join(dir, "bucket"), "--state-sync-interval", "5s"}, bare: true, env: testEnv(),
+			check: func(t *testing.T, c serveConfig, _ []string) {
+				if c.StateURL != "file://"+filepath.Join(dir, "bucket") || c.StateSyncInterval != 5*time.Second || c.StateMemory {
+					t.Errorf("state url %q, sync %s, memory %v", c.StateURL, c.StateSyncInterval, c.StateMemory)
+				}
+			}},
+		{name: "state dir and url", args: []string{"--state-dir", dir, "--state-url", "gs://b/p"}, bare: true, env: testEnv(),
+			wantErr: []string{"--state-dir and --state-url are exclusive"}},
+		{name: "state memory and dir", args: []string{"--state-memory", "--state-dir", dir}, bare: true, env: testEnv(),
+			wantErr: []string{"--state-memory and --state-dir or --state-url are exclusive"}},
+		{name: "state url without a session key", args: []string{"--state-url", "gs://b/p"}, bare: true, env: without(envSessionKey),
+			wantErr: []string{"--state-url needs " + envSessionKey}},
+		{name: "state url, all secrets missing", args: []string{"--state-url", "gs://b/p"}, bare: true, env: map[string]string{},
+			wantErr: []string{"missing environment variables: FACTORY_OAUTH_CLIENT_ID, FACTORY_OAUTH_CLIENT_SECRET, FACTORY_CLI_TOKEN", "--state-url needs " + envSessionKey}},
+		{name: "previous session key", env: func() map[string]string { m := testEnv(); m[envSessionKeyPrevious] = strings.Repeat("p", 64); return m }(),
+			check: func(t *testing.T, c serveConfig, _ []string) {
+				if c.SessionKeyPrevious != strings.Repeat("p", 64) {
+					t.Error("FACTORY_SESSION_KEY_PREVIOUS not read")
+				}
+			}},
+		{name: "short previous session key", env: func() map[string]string { m := testEnv(); m[envSessionKeyPrevious] = "short"; return m }(),
+			wantErr: []string{envSessionKeyPrevious + " must be at least 32 bytes"}},
+		{name: "zero sync interval", args: []string{"--state-sync-interval", "0s"}, env: testEnv(), wantErr: []string{"--state-sync-interval must be positive"}},
+		{name: "sync interval without a state url", args: []string{"--state-sync-interval", "5s"}, env: testEnv(),
+			check: func(t *testing.T, _ serveConfig, w []string) {
+				if !strings.Contains(strings.Join(w, "\n"), "--state-sync-interval applies to --state-url only") {
+					t.Errorf("warnings %v", w)
+				}
+			}},
 		{name: "missing secrets", env: without(envOAuthClientSecret, envCLIToken),
 			wantErr: []string{"missing environment variables: FACTORY_OAUTH_CLIENT_SECRET, FACTORY_CLI_TOKEN"}},
 		{name: "all secrets missing", env: map[string]string{},
@@ -519,12 +601,12 @@ func TestParseServeConfig(t *testing.T) {
 				t.Errorf("deploy environment %q", c.DeployEnvironment)
 			}
 		}},
-		{name: "state dir", args: []string{"--state-dir", filepath.Join(dir, "state")}, env: testEnv(), check: func(t *testing.T, c serveConfig, _ []string) {
+		{name: "state dir", args: []string{"--state-dir", filepath.Join(dir, "state")}, bare: true, env: testEnv(), check: func(t *testing.T, c serveConfig, _ []string) {
 			if c.StateDir != filepath.Join(dir, "state") {
 				t.Errorf("state dir %q", c.StateDir)
 			}
 		}},
-		{name: "state dir is a file", args: []string{"--state-dir", file}, env: testEnv(), wantErr: []string{"--state-dir", "is not a directory"}},
+		{name: "state dir is a file", args: []string{"--state-dir", file}, bare: true, env: testEnv(), wantErr: []string{"--state-dir", "is not a directory"}},
 		{name: "anti-affinity wait", args: []string{"--anti-affinity-wait", "3m"}, env: testEnv(), check: func(t *testing.T, c serveConfig, _ []string) {
 			if c.AntiAffinityWait != 3*time.Minute {
 				t.Errorf("anti-affinity wait %v", c.AntiAffinityWait)
@@ -540,7 +622,11 @@ func TestParseServeConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, warnings, err := parseServeConfig(tt.args, getenvOf(tt.env), io.Discard)
+			args := tt.args
+			if !tt.bare {
+				args = append([]string{"--state-memory"}, args...)
+			}
+			cfg, warnings, err := parseServeConfig(args, getenvOf(tt.env), io.Discard)
 			if tt.wantErr == nil {
 				if err != nil {
 					t.Fatalf("err = %v", err)
@@ -599,5 +685,39 @@ func enrolled(t *testing.T, ctx context.Context, c *apiclient.ClientWithResponse
 	return func(_ context.Context, r *http.Request) error {
 		r.Header.Set(server.HeaderEnrollmentToken, tok)
 		return nil
+	}
+}
+
+// The tracker closes a connection that hasn't sent a request only after its grace, and not
+// one that started a request in it.
+func TestConnTrackerGrace(t *testing.T) {
+	tr := newConnTracker()
+	tr.grace = 100 * time.Millisecond
+	idle, idlePeer := net.Pipe()
+	busy, busyPeer := net.Pipe()
+	defer func() {
+		for _, c := range []net.Conn{idle, idlePeer, busy, busyPeer} {
+			_ = c.Close()
+		}
+	}()
+	tr.track(idle, http.StateNew)
+	tr.track(busy, http.StateNew)
+	tr.closeFresh()
+	tr.track(busy, http.StateActive) // its request arrives within the grace
+	closed := func(peer net.Conn) bool {
+		_ = peer.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
+		_, err := peer.Read(make([]byte, 1))
+		var ne net.Error
+		return err != nil && (!errors.As(err, &ne) || !ne.Timeout())
+	}
+	if closed(idlePeer) {
+		t.Fatal("the idle connection was closed before its grace")
+	}
+	time.Sleep(300 * time.Millisecond)
+	if !closed(idlePeer) {
+		t.Error("the idle connection is open after its grace")
+	}
+	if closed(busyPeer) {
+		t.Error("a connection that started a request in its grace was closed")
 	}
 }

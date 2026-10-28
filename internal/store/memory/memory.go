@@ -61,9 +61,10 @@ type Store struct {
 }
 
 var (
-	_ store.Store           = (*Store)(nil)
-	_ store.Sweeper         = (*Store)(nil)
-	_ store.TranscriptStore = (*Store)(nil)
+	_ store.Store            = (*Store)(nil)
+	_ store.Sweeper          = (*Store)(nil)
+	_ store.TranscriptStore  = (*Store)(nil)
+	_ store.UnchangedDeleter = (*Store)(nil)
 )
 
 // New returns an empty store.

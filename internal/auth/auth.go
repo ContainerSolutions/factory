@@ -21,7 +21,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ContainerSolutions/factory/internal/clock"
@@ -40,8 +39,6 @@ const (
 	DefaultAuthorizeURL  = "https://github.com/login/oauth/authorize"
 	DefaultTokenURL      = "https://github.com/login/oauth/access_token"
 	DefaultAPIBase       = "https://api.github.com"
-	// MaxPendingLogins bounds the logins started and not finished (one state each).
-	MaxPendingLogins = 10_000
 )
 
 // Cookie names.
@@ -104,11 +101,16 @@ type Config struct {
 	// only admins can sign in (fail closed).
 	AdminGroup   string
 	ReadersGroup string
-	// SessionKey (FACTORY_SESSION_KEY, 32 bytes) signs the session cookie; when empty a random
-	// key is used, so sessions don't survive a restart (nor does the memory store).
+	// SessionKey (FACTORY_SESSION_KEY, 32 bytes) signs the session cookie and the OAuth state;
+	// when empty a random key is used, so sessions don't survive a restart (nor does the
+	// memory store) and no other dispatcher accepts them.
 	SessionKey []byte
-	SessionTTL time.Duration
-	StateTTL   time.Duration
+	// PreviousSessionKey (FACTORY_SESSION_KEY_PREVIOUS), when set, is also accepted when
+	// verifying, so rotating the key ends no session or login in flight. Drop it after the
+	// session lifetime.
+	PreviousSessionKey []byte
+	SessionTTL         time.Duration
+	StateTTL           time.Duration
 	// GroupCacheTTL caches Conn.ResolveGroup per member source (default 10 min, the LLD's).
 	GroupCacheTTL time.Duration
 	// HTTPClient calls GitHub (default http.DefaultClient).
@@ -190,9 +192,6 @@ type Authenticator struct {
 	key    []byte
 	groups *groupCache
 	users  *userClient
-
-	mu      sync.Mutex
-	pending map[string]pendingLogin // state → login in progress
 }
 
 // New returns an Authenticator.
@@ -209,14 +208,13 @@ func New(cfg Config, d Deps) (*Authenticator, error) {
 	}
 	cfg = cfg.withDefaults()
 	a := &Authenticator{
-		cfg:     cfg,
-		d:       d,
-		clk:     cfg.Clock,
-		log:     cfg.Logger.With("component", "auth"),
-		key:     cfg.SessionKey,
-		groups:  newGroupCache(d.Conns, cfg.Clock, cfg.GroupCacheTTL),
-		users:   &userClient{http: cfg.HTTPClient, apiBase: cfg.OAuth.APIBase},
-		pending: map[string]pendingLogin{},
+		cfg:    cfg,
+		d:      d,
+		clk:    cfg.Clock,
+		log:    cfg.Logger.With("component", "auth"),
+		key:    cfg.SessionKey,
+		groups: newGroupCache(d.Conns, cfg.Clock, cfg.GroupCacheTTL),
+		users:  &userClient{http: cfg.HTTPClient, apiBase: cfg.OAuth.APIBase},
 	}
 	if len(a.key) == 0 {
 		k, err := randomBytes(cfg.Rand, 32)

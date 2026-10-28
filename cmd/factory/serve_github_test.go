@@ -107,7 +107,7 @@ func TestServeGitHubEndToEnd(t *testing.T) {
 	gh, env := fakeGitHub(t)
 	users := fakeGitHubUsers(t)
 	cfg, warnings, err := parseServeConfig([]string{
-		"--catalog-dir", githubCatalog(t, gh.URL),
+		"--state-memory", "--catalog-dir", githubCatalog(t, gh.URL),
 		"--addr", "127.0.0.1:0", "--ops-addr", "localhost:0", "--public-url", "https://factory.test",
 		"--github-api-url", users.URL, "--skills-base", "", "--shutdown-timeout", "5s", "--log-level", "debug",
 	}, getenvOf(env), io.Discard)

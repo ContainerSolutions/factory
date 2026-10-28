@@ -64,7 +64,7 @@ PoC: Gustavo's machine (or a small VM) running `factory serve` (built with `make
 | 1 | `factory dispatch --event deploy/poc/events/mock-train.json` (dev RuleSet, mock-docs) | `release-docs` task leased by an agent (its local-dev stack comes up in the task's VM); PR on mock-docs; `docs-review` runs on the **other harness** |
 | 2 | Seed a wrong default in a fixture train's docs (or let the review find a real one) | review requests changes citing `DOCS-ACC-001`; `implement address-review` fixes; re-review approves |
 | 3 | Run a real **mock train** in `workflows` (`workflow_dispatch`, manifest `repos.mock.yaml`, not dry run) | train closes `train:done` → dev flow runs end to end on mock-docs |
-| 4 | Restart the dispatcher mid-flow | UI shows the same work item/state after rebuild; flow continues (criterion 6) |
+| 4 | Restart the dispatcher mid-flow | UI shows the same work item/state after the restart (from the state dir; nothing is rebuilt from markers); flow continues (criterion 6) |
 | 5 | Switch on prod (`poc-release-docs` already loaded); wait for the monthly train | one docs PR on `docs`, reviewed and approved; humans merge (merge rule excluded) |
 
 ## Human-PR review

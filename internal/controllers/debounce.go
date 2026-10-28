@@ -57,22 +57,33 @@ func (d *DebounceController) Reconcile(ctx context.Context, name string) (Result
 	if cat == nil {
 		return Result{}, errors.New("no catalog loaded yet")
 	}
-	if err := d.fire(ctx, cat, &rec); err != nil {
-		return Result{}, err
-	}
-	if err := r.s.Delete(ctx, store.Key{Kind: KindDebounce, Name: name}); err != nil && !errors.Is(err, store.ErrNotFound) {
-		return Result{}, fmt.Errorf("delete debounce %s: %w", name, err)
-	}
-	return Result{}, nil
+	return Result{}, d.fire(ctx, cat, &rec)
 }
 
+// fire applies the held actions and deletes the record, under the work item's lock. The record
+// is read again under the lock, and deleted there: a second leader whose reconcile read it
+// before (P3 §Several dispatchers: overlapping leaders) finds it gone and fires nothing.
 func (d *DebounceController) fire(ctx context.Context, cat *catalog.Catalog, rec *DebounceRecord) error {
 	return withItemLock(ctx, d.rule.s, rec.Spec.WorkItem, d.rule.opts.LockTTL, func(ctx context.Context) error {
-		return d.fireLocked(ctx, cat, rec)
+		k := store.Key{Kind: KindDebounce, Name: rec.Metadata.Name}
+		var cur DebounceRecord
+		switch err := d.rule.s.Get(ctx, k, &cur); {
+		case errors.Is(err, store.ErrNotFound):
+			return nil // fired already
+		case err != nil:
+			return fmt.Errorf("get debounce %s: %w", rec.Metadata.Name, err)
+		}
+		if err := d.fireLocked(ctx, cat, &cur); err != nil {
+			return err
+		}
+		if err := d.rule.s.Delete(ctx, k); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("delete debounce %s: %w", rec.Metadata.Name, err)
+		}
+		return nil
 	})
 }
 
-// fireLocked is fire with the work item's lock held.
+// fireLocked applies the held actions, with the work item's lock held.
 func (d *DebounceController) fireLocked(ctx context.Context, cat *catalog.Catalog, rec *DebounceRecord) error {
 	r := d.rule
 	var wi v1alpha1.WorkItem

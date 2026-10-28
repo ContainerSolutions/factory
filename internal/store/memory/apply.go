@@ -101,6 +101,15 @@ func (s *Store) DeleteAt(ctx context.Context, k store.Key, version uint64) error
 	return s.deleteLocked(ctx, "delete", rec)
 }
 
+// DeleteIfUnchanged implements store.UnchangedDeleter: DeleteAt at the resourceVersion read.
+func (s *Store) DeleteIfUnchanged(ctx context.Context, k store.Key, resourceVersion string) error {
+	v, err := store.ParseVersion("delete", k, resourceVersion)
+	if err != nil {
+		return err
+	}
+	return s.DeleteAt(ctx, k, v)
+}
+
 // Replace swaps the whole state for recs at version, which must not be below the store's: a
 // store that fell too far behind a shared log starts again from a snapshot. Every watcher is
 // expired (ErrWatchExpired: it re-lists), and the history starts empty at version, as after

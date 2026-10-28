@@ -364,6 +364,13 @@ func (r *RuleController) processLocked(ctx context.Context, cat *catalog.Catalog
 	case err != nil:
 		return nil, fmt.Errorf("get work item %s: %w", wiID, err)
 	}
+	if !replay {
+		// Read again under the lock: a second leader whose reconcile saw the event unprocessed
+		// (P3 §Several dispatchers: overlapping leaders) finds it done and applies nothing.
+		if done, err := r.processed(ctx, ev.ID); err != nil || done {
+			return nil, err
+		}
+	}
 	if Closed(&wi) {
 		return r.closedLocked(ctx, &wi, ev, replay)
 	}

@@ -1,2 +1,3 @@
 moved <tmp>/state to <tmp>/state.20261021T091038Z
-the next factory serve on it starts with an empty state; work items come back from the GitHub markers
+the next factory serve on it starts with an empty state: open work items restart with no state and no run counters (the per-item run cap included), and no stored event survives to replay
+to recover: redeliver webhooks from the GitHub App's delivery log (GitHub keeps about 3 days), reopen issues, or re-apply labels

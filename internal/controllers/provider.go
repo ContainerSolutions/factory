@@ -379,8 +379,8 @@ func (p *ProviderController) Reconcile(ctx context.Context, id string) (Result, 
 		}
 		p.log.Debug("delivery normalised", "delivery", id, "provider", d.Spec.Provider, "events", len(ids), "dropped", len(dropped))
 		if len(ids) == 0 {
-			if err := p.s.Delete(ctx, store.Key{Kind: KindDelivery, Name: id}); err != nil && !errors.Is(err, store.ErrNotFound) {
-				return Result{}, fmt.Errorf("delete delivery %s: %w", id, err)
+			if err := p.deleteDelivery(ctx, &d); err != nil {
+				return Result{}, err
 			}
 			p.recordDrops(ctx, d.Spec.Provider, id, dropped)
 			return Result{}, nil
@@ -489,8 +489,22 @@ func (p *ProviderController) expire(ctx context.Context, d *Delivery) (Result, e
 	if left > 0 {
 		return Result{RequeueAfter: left}, nil
 	}
-	if err := p.s.Delete(ctx, store.Key{Kind: KindDelivery, Name: d.Metadata.Name}); err != nil && !errors.Is(err, store.ErrNotFound) {
-		return Result{}, fmt.Errorf("delete delivery %s: %w", d.Metadata.Name, err)
+	return Result{}, p.deleteDelivery(ctx, d)
+}
+
+// deleteDelivery deletes d only at the version this reconcile read
+// (store.DeleteIfUnchanged): a delivery redelivered under the same id since another leader
+// deleted it (P3 §Several dispatchers: overlapping leaders) is a new record, and stays to be
+// normalised; its own watch event reconciles it. Gone already is done.
+func (p *ProviderController) deleteDelivery(ctx context.Context, d *Delivery) error {
+	err := store.DeleteIfUnchanged(ctx, p.s, store.Key{Kind: KindDelivery, Name: d.Metadata.Name}, d.Metadata.ResourceVersion)
+	switch {
+	case err == nil, errors.Is(err, store.ErrNotFound):
+		return nil
+	case errors.Is(err, store.ErrConflict):
+		p.log.DebugContext(ctx, "delivery changed since it was read (redelivered); kept", "delivery", d.Metadata.Name)
+		p.ctrl.Enqueue(d.Metadata.Name)
+		return nil
 	}
-	return Result{}, nil
+	return fmt.Errorf("delete delivery %s: %w", d.Metadata.Name, err)
 }

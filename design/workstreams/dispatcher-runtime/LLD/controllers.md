@@ -75,7 +75,7 @@ Task compilation (part of `Dispatch` apply):
 | | |
 |---|---|
 | Watches | `WorkItem` (modified: state/links/counters), resync timer (Provider `resync`, default 10 m) |
-| Does | **Projection:** for each link on a projecting provider, `Conn.Project(ref, Projection{...})` when the projection digest changed. **Resync:** `Conn.Observe` each open link; if observation changed (e.g. PR merged by a human), emit `factory.workitem.resynced`. **Rebuild** (on start, before the rule controller starts): for each RuleSet scope `Conn.List` → parse marker → recreate WorkItems (state, counters, links) |
+| Does | **Projection:** for each link on a projecting provider, `Conn.Project(ref, Projection{...})` when the projection digest changed, under the work item's lock. **Resync:** `Conn.Observe` each open link; if the observation changed since the baseline stored in the item's `LinkObservations` (e.g. PR merged by a human), emit `factory.workitem.resynced`. No rebuild from markers: the store is the authority ([P3 §No rebuild from markers](../../../proposals/P3-dispatcher-state-in-object-storage.md#no-rebuild-from-markers)) |
 | Retention | Owns WorkItem retention, since the store can't tell whether a link is open: deletes a WorkItem whose links are all closed once its last activity is older than `--retention` (default 90 days). The store's sweeper never deletes WorkItems. |
 | Marker | `<!-- factory:wi v=1 id=… state=k:v,… runs=k:n,… links=prov:ref,… -->` (URL-encoded values; full spec in GH LLD) |
 
@@ -93,18 +93,30 @@ Timer wheel over `Debounce` objects; at `Until` re-evaluates the held intent's r
 ## Ordering and startup
 
 ```text
-start store → catalog-sync (wait first good catalog) → provider (connect) → work-item rebuild (blocking, bounded 5 min)
-→ provider (normalise), rule, work-item, run, scheduler controllers → HTTP server (agents may now lease)
+start store → the leader lock (tried at once, then every minute) → catalog-sync (wait first good catalog)
+→ provider (connect, Recover from 10 s before this process started) → HTTP server
+→ provider (normalise), rule, debounce, work-item, run, scheduler controllers, sweeper, installation check
 ```
 
-Webhooks received during rebuild, and the deliveries `Recover` brings back, are accepted and stored as Deliveries; the provider controller normalises them after the rebuild, so its intake filter sees the links the rebuild restores, and the rule controller processes the Events it keeps.
+The deliveries `Recover` brings back, and webhooks received meanwhile, are accepted and stored as Deliveries; the provider controller normalises them once it runs. There is no rebuild from markers: the store (a state dir or a bucket) is the authority, and `serve` refuses to start without a durable one unless `--state-memory` or `--dev-fake-providers` says otherwise ([P3 §No rebuild from markers](../../../proposals/P3-dispatcher-state-in-object-storage.md#no-rebuild-from-markers)). The informers list and watch from the loaded version, and the rule controller skips the Events it processed (`EventStatus` is stored), so nothing is dispatched twice.
 
-With `factory serve --state-dir` ([store.md §Serving](store.md#serving-factory-serve---state-dir)) the store starts with everything the last run left, and the same order applies: the rebuild leaves the work items the file holds alone (the file is authoritative for them; markers only bring back the items it lacks), the informers list and watch from the restored version, and the rule controller skips the Events it processed (`EventStatus` is stored), so nothing is dispatched twice.
+**One leader** ([P3 §Several dispatchers](../../../proposals/P3-dispatcher-state-in-object-storage.md#several-dispatchers-who-runs-what)). Every instance serves the API, runs the scheduler's tick (which wakes its parked polls), checks the App installations and recovers its own start-up's deliveries. The loops that write from a watch or a timer run on the holder of the store's `leader` lock only (`controllers.Leader`: TTL 3 min, renewed every minute, tried at start and every minute with a 5 s context, since `Lock` waits while another holds it):
+
+- the controllers' reconciles (provider, rule, debounce, work-item, run, the scheduler's lease controller): `Controller.SetGate(leader)` makes each reconcile wait until the lock is held, while the informers keep the queues full on every instance;
+- the scheduler's `Refresh` (its tick skips it elsewhere) and the sweeper: `Leader.While` runs the sweeper for each term and cancels it when the term ends or when the lease lapses on this process's clock (a timer re-armed on each renewal), whichever comes first.
+
+The App installation check runs on every instance (Gustavo, 2026-10-28): it only reads GitHub, and each instance's `getCatalog` shows its own result.
+
+`Held` is true from a successful `Lock` or `Renew` until the lease that call set ends on this process's clock, so a holder paused past its lease stops reconciling before another instance can take over; a failed `Renew` ends the term. A clean shutdown releases the lock once the loops have stopped, so another instance takes over at its next try. With one dispatcher it is always the leader.
+
+**Overlapping leaders** (an old leader paused past its lease, still inside a reconcile) can't apply anything twice: every store write a leader-only loop makes is a create, a compare-and-swap, or runs under the store-wide work-item lock, which also guards the provider calls (`Apply`, `Project`); the rest are deletes of records whose purpose is over (an aged-out mark, an expired token or login state, an orphan baseline), where a second delete finds nothing. A Delivery is deleted only at the version its reconcile read (`store.DeleteIfUnchanged`, Gustavo, 2026-10-28): one redelivered under the same id after another leader deleted it is a new record, and stays to be normalised. Under the lock, what a reconcile read before is read again: the rule controller checks the event's `EventStatus`, the debounce controller its record (deleted under the lock), and the work-item controller projects the item it reads there.
 
 ## Tests
 
 - In-process cascade with `provider/fake`: `issue.opened` → triage Task → fake agent completes → `factory.run.completed` → follow-up decision.
-- Rebuild: fake provider pre-loaded with markers → identical WorkItems after restart.
+- Restart on a state dir: the stored work items carry on, with nothing read back from markers (`TestServeStateDirRestart`).
+- Two `serve` processes on one `file://` bucket (`TestServeSharedState`): one leader at a time and the takeover, a webhook on one and the task through the other, the resync's stored baselines across the leader change.
+- Overlapping leaders: an event, a debounce and a projection are applied once (`overlap_test.go`).
 - Human merge out of band → resync emits `factory.workitem.resynced` → merge rule doesn't double-merge (observes merged).
 - Idempotency: the same Event delivered twice → one Task, one comment.
 
@@ -180,6 +192,7 @@ With `factory serve --state-dir` ([store.md §Serving](store.md#serving-factory-
 - **Abandon.** `throttled` returns the task to Pending (`agent-throttled`) without an attempt and marks the run abandoned. `agent-error` maps to `infra-failure` and `shutdown` to `agent-lost`: retried (Pending, attempts + 1) while the queue's retry policy allows, else Failed with that reason and `factory.run.failed`. Lease expiry stays the scheduler's; the run controller closes the open run of a task that went back to Pending (`lost`) or that something else failed (and emits `factory.run.failed`).
 - **Work-item controller.** One key per item.
   - Projection: written when its digest changed (state, counters, links; no labels, since none are defined yet).
-  - Resync: when due (the shortest Provider `resync.every`, default 10 m). The first observation after start is a baseline and emits nothing, because the rebuild already read that state. A changed observation (ignoring `updatedAt` and projections) emits `factory.workitem.resynced` with key `resync/<wi>/<digest>` and facts `resync.changed[]`.
+  - Projection: under the item's lock, on the item read again there, when a connected link's last projection (a per-process cache) differs.
+  - Resync: when due (the shortest Provider `resync.every`, default 10 m). The baselines are stored, one `LinkObservations` record per item (`{digests: {"<provider>/<ref>": sha256}}`, written only when a digest changes or a link is added or removed, by a create or a compare-and-swap). An item's first observation is its baseline and emits nothing; after that, a changed observation (ignoring `updatedAt` and projections) emits `factory.workitem.resynced` with key `resync/<wi>/<digest>` and facts `resync.changed[]`, then the new baselines are stored. A new leader, or the same one after a restart, compares with the last baselines any leader stored. Its first resync of an item that has some is spread over the interval (`WorkItemOptions.Jitter`, uniform), so it doesn't observe every open item at once. The record goes when its item is deleted (retired, or found gone), a removed link's entry at the next resync, and the leader's sweep deletes the ones whose item no longer exists (`SweepObservations`).
   - Retention, in the same pass: an item whose links are all closed, merged or gone, with no active task and whose last activity (creation, decisions, tasks, run ends) is older than the retention, is deleted under its lock after a re-check.
-- **Rebuild.** `Rebuild(ctx)` (bounded at 5 m) lists each RuleSet's scope on each bound provider, observes each object, and merges the projections per work item id: links are united (plus the object itself), counters take the maximum, and state comes from the most recently updated object. Items already in the store are left alone: with a state dir the stored item wins over its markers (store.md §Serving; a deviation from P2's "markers win for projected keys").
+- **No rebuild.** The start-up rebuild from markers (`Rebuild`) is gone ([P3 §No rebuild from markers](../../../proposals/P3-dispatcher-state-in-object-storage.md#no-rebuild-from-markers)): with a durable store the stored items are the authority, and an event handled wrongly is replayed (`POST /events/{id}/replay`). The markers stay, for people to read.

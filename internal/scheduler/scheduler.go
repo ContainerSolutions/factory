@@ -38,6 +38,11 @@ const (
 	DefaultThrottle         = 5 * time.Minute
 	DefaultLeaseTTL         = 2 * time.Minute
 	DefaultHeartbeat        = 30 * time.Second
+	// DefaultSchedWait bounds the wait for the sched lock, and how long a timeout keeps the
+	// next passes from waiting (P3 §Locks and leases).
+	DefaultSchedWait = 2 * time.Second
+	// DefaultSchedTTL is the sched lock's lease; a commit section runs under half of it.
+	DefaultSchedTTL = 30 * time.Second
 	// CredentialRefreshBefore is how long before its expiry a lease's git credential is
 	// re-minted on a heartbeat.
 	CredentialRefreshBefore = 10 * time.Minute
@@ -81,6 +86,13 @@ type Options struct {
 	Throttle time.Duration
 	// Workers are the lease controller's workers. Default 2.
 	Workers int
+	// Leader, when set, gates the leader-only work: the lease controller's reconciles and
+	// Refresh (P3 §Several dispatchers). Matching, heartbeats, completes and the tick's wake
+	// run on every instance. Nil: this process always leads.
+	Leader controllers.Gate
+	// SchedWait bounds the wait for the sched lock (DefaultSchedWait); SchedTTL is its lease
+	// (DefaultSchedTTL).
+	SchedWait, SchedTTL time.Duration
 }
 
 func (o Options) withDefaults() Options {
@@ -107,6 +119,8 @@ func (o Options) withDefaults() Options {
 	def(&o.MaxWait, DefaultMaxWait)
 	def(&o.LeaseRetention, DefaultLeaseRetention)
 	def(&o.Throttle, DefaultThrottle)
+	def(&o.SchedWait, DefaultSchedWait)
+	def(&o.SchedTTL, DefaultSchedTTL)
 	return o
 }
 
@@ -128,9 +142,13 @@ type Scheduler struct {
 	log  *slog.Logger
 	ctrl *controllers.Controller
 
-	// mu serialises matching and lease commits (so queue concurrency, budgets and lending
-	// are checked and charged atomically in this process) and guards the in-memory state.
+	// mu serialises matching and lease commits in this process and guards the in-memory
+	// state. Across dispatchers, every commit re-checks its candidate and writes under the
+	// store's sched lock, so queue concurrency, budgets and lending hold there too.
 	mu sync.Mutex
+	// schedBusyUntil: a pass that starts before it ends at once, with no wait and no mint (a
+	// wait for the sched lock timed out).
+	schedBusyUntil time.Time
 	// waiting counts the parked long polls per agent (fairness only picks among them).
 	waiting map[string]int
 	// lastLeased is when each agent last got a lease (least-recently-leased first).
@@ -177,6 +195,11 @@ func New(d Deps, opts Options) (*Scheduler, error) {
 	}
 	s.ctrl = controllers.NewController("scheduler", controllers.ReconcilerFunc(s.Reconcile),
 		controllers.Options{Workers: opts.Workers, Clock: opts.Clock, Logger: opts.Logger})
+	if opts.Leader != nil {
+		if err := s.ctrl.SetGate(opts.Leader); err != nil {
+			return nil, err
+		}
+	}
 	// Tasks: a task that left its lease is revoked, an expired one expired; any task change
 	// may make a parked poll match.
 	if err := s.ctrl.Watch(d.Store, v1alpha1.KindTask, func(obj store.Object) []string {
@@ -206,7 +229,9 @@ func New(d Deps, opts Options) (*Scheduler, error) {
 // Controller returns the lease controller (keyed by task id).
 func (s *Scheduler) Controller() *controllers.Controller { return s.ctrl }
 
-// Run runs the lease controller and the matching tick until ctx is done.
+// Run runs the lease controller and the matching tick until ctx is done. With
+// Options.Leader, the lease controller and Refresh wait for it; the tick wakes the parked
+// polls on every instance.
 func (s *Scheduler) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	wg.Go(func() { s.tickLoop(ctx) })
@@ -225,6 +250,9 @@ func (s *Scheduler) tickLoop(ctx context.Context) {
 		case <-t.C():
 		}
 		s.wake()
+		if s.opts.Leader != nil && !s.opts.Leader.Held() {
+			continue // Refresh writes: the leader's
+		}
 		if err := s.Refresh(ctx); err != nil && ctx.Err() == nil {
 			s.log.WarnContext(ctx, "refresh failed", "err", err)
 		}

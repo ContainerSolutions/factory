@@ -3,13 +3,16 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +22,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/scheduler"
 	"github.com/ContainerSolutions/factory/internal/store"
 	"github.com/ContainerSolutions/factory/internal/store/filestore"
+	"github.com/ContainerSolutions/factory/internal/store/objectstore"
 )
 
 // stateEpoch is when the fixture starts.
@@ -554,5 +558,153 @@ func TestStateCopyWithTornLine(t *testing.T) {
 	}
 	if !reflect.DeepEqual(snapshotFiles(t, cp), before) {
 		t.Fatal("factory state changed the copy")
+	}
+}
+
+// TestStateURL: factory state reads a --state-url's bucket, read-only, while a dispatcher has
+// it open: the objects, the log above the snapshot and a run's transcript. reset refuses it,
+// and no error prints the URL.
+func TestStateURL(t *testing.T) {
+	ctx := t.Context()
+	dir := filepath.Join(t.TempDir(), "bucket")
+	stateURL := "file://" + dir
+	clk := clock.NewFake(stateEpoch)
+	b, err := objectstore.ParseURL(ctx, stateURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := objectstore.Open(ctx, b, store.Options{Clock: clk, Logger: slog.New(slog.DiscardHandler)}, objectStoreKinds()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	task := &v1alpha1.Task{
+		TypeMeta: v1alpha1.TypeMeta{Kind: v1alpha1.KindTask},
+		Metadata: v1alpha1.TaskMeta{ID: "tsk_shared", WorkItem: "wi_1"},
+		Spec:     v1alpha1.TaskRunSpec{TaskSpec: v1alpha1.TaskSpecRef{Name: "implement"}, Queue: "docs"},
+		Status:   &v1alpha1.TaskStatus{Phase: v1alpha1.TaskPending},
+	}
+	run := &v1alpha1.Run{
+		TypeMeta: v1alpha1.TypeMeta{Kind: v1alpha1.KindRun},
+		Metadata: v1alpha1.ObjectMeta{Name: "run_shared-1"},
+		Spec:     v1alpha1.RunSpec{Task: "tsk_shared", Attempt: 1, Agent: "agt_1"},
+	}
+	for _, obj := range []store.Object{task, run} {
+		if err := st.Create(ctx, obj); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.PutTranscript(ctx, run.Metadata.Name, gzipped(t, "{\"text\":\"shared\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	f := &stateFixture{dir: filepath.Join(t.TempDir(), "state"), clk: clk}
+
+	code, out, errOut := f.state(t, "--state-url", stateURL, "tasks")
+	if code != 0 || !strings.Contains(out, "tsk_shared") || errOut != "" {
+		t.Fatalf("tasks: exit %d\nstdout:\n%s\nstderr:\n%s", code, out, errOut)
+	}
+	code, out, errOut = f.state(t, "run", "run_shared-1", "--transcript", "--state-url", stateURL)
+	if code != 0 || out != "{\"text\":\"shared\"}\n" {
+		t.Fatalf("transcript: exit %d\nstdout:\n%s\nstderr:\n%s", code, out, errOut)
+	}
+	code, out, errOut = f.state(t, "log", "--state-url", stateURL)
+	if code != 0 || !strings.Contains(out, "changes since the snapshot") || !strings.Contains(out, "tsk_shared") {
+		t.Fatalf("log: exit %d\nstdout:\n%s\nstderr:\n%s", code, out, errOut)
+	}
+	code, _, errOut = f.state(t, "reset", "--yes", "--state-url", stateURL)
+	if code != exitUsage || !strings.Contains(errOut, "deleting the objects under its prefix") {
+		t.Fatalf("reset of a --state-url: exit %d\nstderr:\n%s", code, errOut)
+	}
+	code, _, errOut = f.state(t, "tasks", "--state-url", stateURL, "--state-dir", f.dir)
+	if code != exitUsage || !strings.Contains(errOut, "exclusive") {
+		t.Fatalf("both flags: exit %d\nstderr:\n%s", code, errOut)
+	}
+	secret := "s3://AKIA:hunter2-secret@bucket/prefix"
+	code, _, errOut = f.state(t, "tasks", "--state-url", secret)
+	if code != 1 || strings.Contains(errOut, "hunter2") {
+		t.Fatalf("a bad URL: exit %d, stderr carries the URL:\n%s", code, errOut)
+	}
+}
+
+// strictBucket is a bucket that fails the test when used after Close, as a closed GCS client
+// may panic.
+type strictBucket struct {
+	objectstore.Bucket
+	t      *testing.T
+	closed atomic.Bool
+}
+
+func (b *strictBucket) check(op string) {
+	if b.closed.Load() {
+		b.t.Errorf("bucket %s after Close", op)
+	}
+}
+
+func (b *strictBucket) Get(ctx context.Context, name string) ([]byte, error) {
+	b.check("Get")
+	return b.Bucket.Get(ctx, name)
+}
+
+func (b *strictBucket) List(ctx context.Context, prefix, startAfter string, fn func(objectstore.ObjectInfo) error) error {
+	b.check("List")
+	return b.Bucket.List(ctx, prefix, startAfter, fn)
+}
+
+func (b *strictBucket) Close() error {
+	b.closed.Store(true)
+	return nil
+}
+
+// factory state --state-url keeps the bucket open while the subcommand reads through it (a
+// run's transcript), and closes it once the command is done.
+func TestStateURLBucketLifetime(t *testing.T) {
+	ctx := t.Context()
+	dir := filepath.Join(t.TempDir(), "bucket")
+	fb, err := objectstore.NewFileBucket(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clk := clock.NewFake(stateEpoch)
+	st, err := objectstore.Open(ctx, fb, store.Options{Clock: clk, Logger: slog.New(slog.DiscardHandler)}, objectStoreKinds()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := &v1alpha1.Run{
+		TypeMeta: v1alpha1.TypeMeta{Kind: v1alpha1.KindRun},
+		Metadata: v1alpha1.ObjectMeta{Name: "run_strict-1"},
+		Spec:     v1alpha1.RunSpec{Task: "tsk_strict", Attempt: 1, Agent: "agt_1"},
+	}
+	if err := st.Create(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutTranscript(ctx, run.Metadata.Name, gzipped(t, "{\"text\":\"strict\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var opened []*strictBucket
+	objectstore.RegisterScheme("strictfile", func(context.Context, *url.URL) (objectstore.Bucket, error) {
+		b := &strictBucket{Bucket: fb, t: t}
+		opened = append(opened, b)
+		return b, nil
+	})
+	f := &stateFixture{dir: filepath.Join(t.TempDir(), "state"), clk: clk}
+	for _, args := range [][]string{
+		{"run", "run_strict-1", "--state-url", "strictfile:///bucket"},
+		{"run", "run_strict-1", "--transcript", "--state-url", "strictfile:///bucket"},
+	} {
+		code, out, errOut := f.state(t, args...)
+		if code != 0 || errOut != "" || !strings.Contains(out, "strict") && !strings.Contains(out, "run_strict-1") {
+			t.Fatalf("%v: exit %d\nstdout:\n%s\nstderr:\n%s", args, code, out, errOut)
+		}
+	}
+	if len(opened) != 2 {
+		t.Fatalf("%d buckets opened, want one per command", len(opened))
+	}
+	for i, b := range opened {
+		if !b.closed.Load() {
+			t.Errorf("command %d left its bucket open", i)
+		}
 	}
 }

@@ -230,16 +230,20 @@ type Store struct {
 	// tmu serialises this store's transcript puts (the cap is read, then written).
 	tmu sync.Mutex
 
+	// collectLog keeps the log entries a load applies (Read's).
+	collectLog bool
+
 	stopLoop context.CancelFunc
 	loopDone chan struct{}
 }
 
 var (
-	_ store.Store           = (*Store)(nil)
-	_ store.Sweeper         = (*Store)(nil)
-	_ store.TranscriptStore = (*Store)(nil)
-	_ store.Syncer          = (*Store)(nil)
-	_ io.Closer             = (*Store)(nil)
+	_ store.Store            = (*Store)(nil)
+	_ store.Sweeper          = (*Store)(nil)
+	_ store.TranscriptStore  = (*Store)(nil)
+	_ store.Syncer           = (*Store)(nil)
+	_ store.UnchangedDeleter = (*Store)(nil)
+	_ io.Closer              = (*Store)(nil)
 )
 
 // Open loads the state from b (the newest snapshot, then the log above it) and returns the
@@ -379,6 +383,12 @@ func (s *Store) Update(ctx context.Context, obj store.Object) error {
 // Run's own delete commits.
 func (s *Store) Delete(ctx context.Context, k store.Key) error {
 	return s.write(ctx, "delete", k, func(ctx context.Context) error { return s.mem.Delete(ctx, k) })
+}
+
+// DeleteIfUnchanged implements store.UnchangedDeleter, through the log. A lagging store
+// syncs before it answers ErrConflict or ErrNotFound, as any refused write does.
+func (s *Store) DeleteIfUnchanged(ctx context.Context, k store.Key, resourceVersion string) error {
+	return s.deleteAt(ctx, k, resourceVersion)
 }
 
 // deleteAt deletes k only at version rv (memory.DeleteAt), through the log.

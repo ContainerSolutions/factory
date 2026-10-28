@@ -135,9 +135,6 @@ type Options struct {
 	// CatalogRepo and CatalogRef describe the catalog source for GET /catalog.
 	CatalogRepo string
 	CatalogRef  string
-	// Ready, when set, must be closed before /readyz answers 200 (the startup rebuild), on top
-	// of a loaded catalog.
-	Ready <-chan struct{}
 	// Controllers are reported on /metrics (factory_controller_panics_total).
 	Controllers []*controllers.Controller
 	// Intake reports the events the provider controller's intake filter dropped, on /metrics
