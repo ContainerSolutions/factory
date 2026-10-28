@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -113,5 +114,55 @@ func TestFinishAfterConcurrentWrites(t *testing.T) {
 	}
 	if st := e.task(id).Status; st.Phase != v1alpha1.TaskSucceeded {
 		t.Fatalf("task = %+v, want Succeeded", st)
+	}
+}
+
+// TestFinishAfterTheLeaseMovedOn: agent A's complete read the task and run -1, then waited for
+// the work item's lock. Meanwhile A's lease expired (the task back to Pending, an attempt
+// spent), a reconcile closed -1 as lost, and the task was leased again on run -2. A's finish is
+// for a lease that is gone: it is a conflict, and changes nothing.
+func TestFinishAfterTheLeaseMovedOn(t *testing.T) {
+	e := newEnv(t)
+	_, plan := e.startPlan()
+	id := plan.Metadata.ID
+	e.lease(id)
+	first := e.runs(id)[0].Metadata.Name
+	hs, rc := newHookedRuns(t, e)
+	hs.beforeLock = func() {
+		tk := e.task(id) // the scheduler's expiry: agent lost, retried
+		tk.Status.Phase, tk.Status.Agent, tk.Status.LeaseExpiresAt = v1alpha1.TaskPending, nil, time.Time{}
+		tk.Status.Attempts++
+		if err := e.st.Update(e.ctx, tk); err != nil {
+			t.Error(err)
+		}
+		if _, err := e.run.Reconcile(e.ctx, id); err != nil { // closes -1 as lost
+			t.Error(err)
+		}
+		e.lease(id) // leased again: run -2
+	}
+	if _, err := rc.Complete(e.ctx, id, doneResult("decomposed", planData)); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("Complete for the gone lease = %v, want a conflict", err)
+	}
+	if st := e.task(id).Status; st.Phase != v1alpha1.TaskLeased || st.Attempts != 1 {
+		t.Fatalf("task = %+v, want Leased on its second attempt", st)
+	}
+	runs := e.runs(id)
+	if len(runs) != 2 {
+		t.Fatalf("runs = %d, want 2", len(runs))
+	}
+	for _, r := range runs {
+		switch r.Metadata.Name {
+		case first:
+			if r.Status.End != v1alpha1.RunLost || r.Status.Result != nil {
+				t.Errorf("run %s = %+v, want lost with no Result", r.Metadata.Name, r.Status)
+			}
+		default:
+			if ended(r) {
+				t.Errorf("run %s = %+v, want the new lease's run open", r.Metadata.Name, r.Status)
+			}
+		}
+	}
+	if evs := e.events(v1alpha1.EventFactoryRunCompleted); len(evs) != 0 {
+		t.Errorf("run.completed events = %d, want none for a lost run", len(evs))
 	}
 }

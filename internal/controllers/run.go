@@ -602,6 +602,12 @@ func (r *RunController) finishLocked(ctx context.Context, t *v1alpha1.Task, run 
 			return err
 		}
 		run = ended
+		if !byThis && !f.force && !counted(run) {
+			// The run ended lost or abandoned meanwhile: the lease this finish was for is gone
+			// (expired, requeued, maybe leased again on a new run). A counted end is a retry
+			// of this finish, which goes on to move the task.
+			return fmt.Errorf("finish task %s: its run %s ended %s meanwhile: %w", t.Metadata.ID, run.Metadata.Name, run.Status.End, store.ErrConflict)
+		}
 		if byThis && counted(run) {
 			if err := r.count(ctx, t.Metadata.WorkItem, t.Spec.TaskSpec.Name); err != nil {
 				return err
@@ -676,9 +682,12 @@ func (r *RunController) endRun(ctx context.Context, run *v1alpha1.Run, f finish,
 	}
 }
 
-// endTask moves t to f's phase with a compare-and-swap on a fresh read. A write between the
-// caller's read and this one that left the task where the finish was decided (a lease
-// renewal, Leased to Running) is kept; one that moved it elsewhere is a conflict, as before.
+// endTask moves t to f's phase with a compare-and-swap on a fresh read. It keeps what a
+// write between the caller's read and this one changed while the task stayed on the same
+// lease: the same attempt and agent, and the same phase or another phase that holds a run
+// (Leased to Running on the first heartbeat, a renewed lease expiry, a requested cancel).
+// Anything else is a conflict, as an unconditional CAS was: a task that left its run
+// (Pending, finished), was leased again (another attempt), or went to another agent.
 func (r *RunController) endTask(ctx context.Context, t *v1alpha1.Task, f finish) (*v1alpha1.Task, error) {
 	for attempt := 0; ; attempt++ {
 		cur, err := r.getTask(ctx, t.Metadata.ID)
@@ -687,6 +696,9 @@ func (r *RunController) endTask(ctx context.Context, t *v1alpha1.Task, f finish)
 		}
 		if cur.Status.Phase != t.Status.Phase && (!holdsRun(cur) || !holdsRun(t)) {
 			return nil, fmt.Errorf("finish task %s: it moved from %s to %s meanwhile: %w", t.Metadata.ID, t.Status.Phase, cur.Status.Phase, store.ErrConflict)
+		}
+		if cur.Status.Attempts != t.Status.Attempts || !sameAgent(cur, t) {
+			return nil, fmt.Errorf("finish task %s: it was leased again meanwhile (attempt %d, now %d): %w", t.Metadata.ID, t.Status.Attempts, cur.Status.Attempts, store.ErrConflict)
 		}
 		cur.Status.Phase = f.phase
 		cur.Status.Reason = f.reason
@@ -699,6 +711,14 @@ func (r *RunController) endTask(ctx context.Context, t *v1alpha1.Task, f finish)
 			return nil, fmt.Errorf("finish task %s: %w", t.Metadata.ID, err)
 		}
 	}
+}
+
+// sameAgent reports whether a and b hold, or held, their lease for the same agent.
+func sameAgent(a, b *v1alpha1.Task) bool {
+	if a.Status.Agent == nil || b.Status.Agent == nil {
+		return a.Status.Agent == b.Status.Agent
+	}
+	return *a.Status.Agent == *b.Status.Agent
 }
 
 // count adds one run of spec to the work item's counters (compare-and-swap, retried on a
