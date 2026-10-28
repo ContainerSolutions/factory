@@ -1,0 +1,4 @@
+lisa-selfreview:
+- [blocker] CORE-SIZE-001 internal/provider/github/list.go:1 PR counts about 1130 changed lines (765 of them deletions) without a size-exception label
+- [must-fix] CORE-TEST-001 internal/provider/github/observe.go:48 Observe no longer reads comment bodies or their follow-up pages, untested
+- [nit] provider-doc-plain-types internal/provider/provider.go:5 Package doc says provider holds only interfaces and plain types
