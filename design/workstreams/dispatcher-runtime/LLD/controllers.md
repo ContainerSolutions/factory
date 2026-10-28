@@ -103,7 +103,7 @@ The deliveries `Recover` brings back, and webhooks received meanwhile, are accep
 **One leader** ([P3 §Several dispatchers](../../../proposals/P3-dispatcher-state-in-object-storage.md#several-dispatchers-who-runs-what)). Every instance serves the API, runs the scheduler's tick (which wakes its parked polls), checks the App installations and recovers its own start-up's deliveries. The loops that write from a watch or a timer run on the holder of the store's `leader` lock only (`controllers.Leader`: TTL 3 min, renewed every minute, tried at start and every minute with a 5 s context, since `Lock` waits while another holds it):
 
 - the controllers' reconciles (provider, rule, debounce, work-item, run, the scheduler's lease controller): `Controller.SetGate(leader)` makes each reconcile wait until the lock is held, while the informers keep the queues full on every instance;
-- the scheduler's `Refresh` (its tick skips it elsewhere) and the sweeper: `Leader.While` runs the sweeper for each term and cancels it when the term ends.
+- the scheduler's `Refresh` (its tick skips it elsewhere) and the sweeper: `Leader.While` runs the sweeper for each term and cancels it when the term ends or when the lease lapses on this process's clock (a timer re-armed on each renewal), whichever comes first.
 
 The App installation check runs on every instance (Gustavo, 2026-10-28): it only reads GitHub, and each instance's `getCatalog` shows its own result.
 

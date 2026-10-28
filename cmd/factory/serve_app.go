@@ -552,16 +552,25 @@ func (l leaderSweeps) Sweep(ctx context.Context) (store.SweepResult, error) {
 	return res, err
 }
 
+// freshGrace is how long a connection that hasn't sent a request yet may still start one
+// once the listener stops, before shutdown closes it.
+const freshGrace = time.Second
+
 // connTracker follows a server's connections that haven't sent a request yet (StateNew), so
 // shutdown can close them once the listener stops: http.Server.Shutdown counts such a
-// connection as busy for 5 s, which can outlast --shutdown-timeout.
+// connection as busy for 5 s, which can outlast --shutdown-timeout. Each gets a short grace
+// first, so a request about to arrive isn't cut; one that starts in it (StateActive) is
+// served and drained as usual.
 type connTracker struct {
+	grace   time.Duration
 	mu      sync.Mutex
 	fresh   map[net.Conn]struct{}
 	stopped bool
 }
 
-func newConnTracker() *connTracker { return &connTracker{fresh: map[net.Conn]struct{}{}} }
+func newConnTracker() *connTracker {
+	return &connTracker{grace: freshGrace, fresh: map[net.Conn]struct{}{}}
+}
 
 // track is http.Server.ConnState.
 func (t *connTracker) track(c net.Conn, st http.ConnState) {
@@ -571,22 +580,33 @@ func (t *connTracker) track(c net.Conn, st http.ConnState) {
 		delete(t.fresh, c)
 		return
 	}
-	if t.stopped {
-		_ = c.Close()
-		return
-	}
 	t.fresh[c] = struct{}{}
+	if t.stopped {
+		t.closeLater(c)
+	}
 }
 
-// closeFresh closes the connections that haven't sent a request, and any accepted later.
+// closeFresh closes, after the grace, the connections that still haven't sent a request,
+// and any accepted from now on.
 func (t *connTracker) closeFresh() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.stopped = true
 	for c := range t.fresh {
-		_ = c.Close()
+		t.closeLater(c)
 	}
-	clear(t.fresh)
+}
+
+// closeLater closes c after the grace if it is still fresh. The caller holds t.mu.
+func (t *connTracker) closeLater(c net.Conn) {
+	time.AfterFunc(t.grace, func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		if _, ok := t.fresh[c]; ok {
+			delete(t.fresh, c)
+			_ = c.Close()
+		}
+	})
 }
 
 // catalogSource is the catalog-sync source cfg names.

@@ -93,6 +93,21 @@ type stateRun struct {
 	json           bool
 	dir, dirFrom   string // the state dir (or the state URL's scheme), and where it came from
 	view           stateView
+	// bucket is the --state-url's bucket: open while the subcommand reads through the view
+	// (a run's transcript), closed by runState once it returns.
+	bucket objectstore.Bucket
+}
+
+// close releases what open opened: the --state-url's bucket (the GCS and S3 clients hold
+// connections, and a closed client must not be used again).
+func (r *stateRun) close() {
+	if r.bucket == nil {
+		return
+	}
+	if err := closeBucket(r.bucket); err != nil {
+		fmt.Fprintf(r.stderr, "%s: warning: %v\n", r.name, err)
+	}
+	r.bucket = nil
 }
 
 // stateView is the state factory state reads: a state dir's (filestore.View) or a bucket's
@@ -157,6 +172,7 @@ func runState(ctx context.Context, args []string, env stateEnv, stdout, stderr i
 	for _, s := range stateSubs() {
 		if s.name == fl.Arg(0) {
 			r := &stateRun{env: env, stdout: stdout, stderr: stderr, name: "factory state " + s.name, dirFlag: *dir, urlFlag: *stateURL, json: *asJSON}
+			defer r.close()
 			return s.run(ctx, r, fl.Args()[1:])
 		}
 	}
@@ -276,7 +292,7 @@ func (r *stateRun) openURL(ctx context.Context) (code int, ok bool) {
 		fmt.Fprintf(r.stderr, "%s: --state-url: %v\n", r.name, err)
 		return 1, false
 	}
-	defer func() { _ = closeBucket(b) }()
+	r.bucket = b // runState closes it once the subcommand is done
 	v, err := objectstore.Read(ctx, b, store.Options{Logger: slog.New(slog.DiscardHandler)}, objectStoreKinds()...)
 	if err != nil {
 		fmt.Fprintf(r.stderr, "%s: read %s: %v\n", r.name, r.dir, err)

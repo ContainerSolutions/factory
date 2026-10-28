@@ -52,10 +52,35 @@ func TestLeaderPausedPastItsLease(t *testing.T) {
 	clk, a, b := leaderPair(t)
 	a.step(ctx)
 	ended := a.term
-	// a is paused past its lease: its gate closes on its own clock, before any renewal.
-	clk.Advance(3*time.Minute + time.Second)
+	// A leader-only loop runs through While.
+	loopCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	terms := make(chan context.Context, 2)
+	go a.While(loopCtx, "loop", func(ctx context.Context) error {
+		terms <- ctx
+		<-ctx.Done()
+		return nil
+	})
+	term := <-terms
+	clk.BlockUntil(1) // the term's watch is armed at the lease end
+	// A renewal inside the lease moves the term's end with it.
+	clk.Advance(2 * time.Minute)
+	a.step(ctx)
+	clk.BlockUntil(1)
+	clk.Advance(2 * time.Minute)
+	if term.Err() != nil {
+		t.Fatal("the loop's term ended inside a renewed lease")
+	}
+	// a is paused past its lease: its gate closes on its own clock, and the loop's context
+	// ends, before any renewal.
+	clk.Advance(time.Minute + time.Second)
 	if a.Held() {
 		t.Fatal("a holds the lock past its lease")
+	}
+	select {
+	case <-term.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the loop's context outlived the lease on a's clock")
 	}
 	b.step(ctx)
 	if !b.Held() {

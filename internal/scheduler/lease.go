@@ -26,6 +26,12 @@ var errSkip = errors.New("skip task")
 // until the next wake or tick, and passes that start within SchedWait end at once.
 var errSchedBusy = errors.New("the sched lock is busy")
 
+// errSchedStale ends a matching pass too: a candidate failed the re-check under the sched lock,
+// so the pass's snapshot is stale. Matching the next candidate against it would mint and lock
+// once per pending task; instead the poll parks, and the sync the lock made has already woken
+// it, so the next pass reloads. Unlike errSchedBusy it sets no busy window.
+var errSchedStale = errors.New("the matching snapshot is stale")
+
 // SchedLock is the store lock every lease commit, on every dispatcher, re-checks and writes
 // under (P3 §Locks and leases): one lock, not one per pool, since lending lets a queue's tasks
 // run in other pools.
@@ -129,7 +135,7 @@ func (s *Scheduler) tryLease(ctx context.Context, agentID string) (*Grant, error
 		switch {
 		case errors.Is(err, errSkip):
 			continue
-		case errors.Is(err, errSchedBusy):
+		case errors.Is(err, errSchedBusy), errors.Is(err, errSchedStale):
 			return nil, nil
 		}
 		return g, err
@@ -140,8 +146,9 @@ func (s *Scheduler) tryLease(ctx context.Context, agentID string) (*Grant, error
 // commit leases t to a: mint the git credentials, then, under the sched lock, check t and a
 // again against fresh state, move the task to Leased (compare-and-swap on the version just
 // read), record the lease, charge the budgets and the agent's day, and tell the run
-// controller. A candidate that fails the re-check is errSkip, and its credentials are left to
-// expire; a wait for the lock that times out is errSchedBusy. The caller holds s.mu.
+// controller. A candidate that fails the re-check is errSchedStale (the pass ends: at most
+// one mint and one lock per pass), and its credentials are left to expire; a wait for the
+// lock that times out is errSchedBusy. The caller holds s.mu.
 func (s *Scheduler) commit(ctx context.Context, sn *snapshot, t *v1alpha1.Task, a *v1alpha1.Agent, v verdict) (*Grant, error) {
 	now := s.clk.Now()
 	agentID, taskID := a.Metadata.Name, t.Metadata.ID
@@ -191,14 +198,14 @@ func (s *Scheduler) commit(ctx context.Context, sn *snapshot, t *v1alpha1.Task, 
 	}
 	t, a = fresh.pendingTask(taskID), fresh.agents[agentID]
 	if t == nil || a == nil {
-		return nil, errSkip // leased, cancelled or gone, or the agent left, since the pass read them
+		return nil, errSchedStale // leased, cancelled or gone, or the agent left, since the pass read them
 	}
 	if v, err = fresh.check(t, a); err != nil {
 		return nil, err
 	}
 	if !v.ok() {
-		s.log.DebugContext(ctx, "candidate failed the re-check under the sched lock", "task", taskID, "agent", agentID, "reason", v.reason)
-		return nil, errSkip
+		s.log.DebugContext(ctx, "candidate failed the re-check under the sched lock; the pass ends", "task", taskID, "agent", agentID, "reason", v.reason)
+		return nil, errSchedStale
 	}
 	return s.commitLocked(sctx, fresh, t, a, v, creds)
 }

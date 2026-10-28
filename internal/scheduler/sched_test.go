@@ -27,6 +27,7 @@ const testSchedWait = 100 * time.Millisecond
 // the test makes them.
 type twoInstances struct {
 	clk    *clock.Fake
+	bucket *objectstore.FakeBucket
 	sa, sb *objectstore.Store
 	a, b   *env
 }
@@ -59,7 +60,7 @@ func newTwoInstances(t *testing.T) *twoInstances {
 	sa, sb := open("ins_a"), open("ins_b")
 	opts := Options{SchedWait: testSchedWait}
 	return &twoInstances{
-		clk: clk, sa: sa, sb: sb,
+		clk: clk, bucket: b, sa: sa, sb: sb,
 		a: newEnvOn(t, clk, sa, cat, gh, opts), b: newEnvOn(t, clk, sb, cat, gh, opts),
 	}
 }
@@ -266,4 +267,43 @@ func (g *switchGate) Wait(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// TestSchedLockStalePassMintsOnce: an instance behind the other polls once against a queue
+// at concurrency 1 with several pending tasks, one of which the other just leased. Its first
+// candidate fails the re-check under the sched lock, and the pass ends there: one mint and
+// one lock round trip (P3: a pass mints at most once), not one per pending task.
+func TestSchedLockStalePassMintsOnce(t *testing.T) {
+	ti := newTwoInstances(t)
+	a, b := ti.a, ti.b
+	a.cat.Queues[pocQueue].Spec.Concurrency = 1
+	for _, id := range []string{"tsk_1", "tsk_2", "tsk_3", "tsk_4", "tsk_5"} {
+		a.task(id, "implement", nil)
+	}
+	ana, _ := a.register("ana", "ana-mbp", lendQueues(pocQueue))
+	bob, _ := a.register("bob", "bob-mbp", lendQueues(pocQueue))
+	if err := ti.sb.Sync(b.ctx); err != nil { // b sees the tasks and agents, then falls behind
+		t.Fatal(err)
+	}
+	a.mustLease(ana, "tsk_1")
+
+	mints, creates := len(a.gh.Mints()), ti.bucket.Calls(objectstore.FakeCreate)
+	if g := b.lease(bob); g != nil {
+		t.Fatalf("b leased %s past the queue's concurrency of 1", g.Task.Metadata.ID)
+	}
+	if n := len(a.gh.Mints()) - mints; n != 1 {
+		t.Errorf("b's pass minted %d times, want 1", n)
+	}
+	// One lock round trip: the StoreLock's create and its delete, two log entries.
+	if n := ti.bucket.Calls(objectstore.FakeCreate) - creates; n != 2 {
+		t.Errorf("b's pass created %d log entries, want 2 (one lock round trip)", n)
+	}
+	// The next pass, on the fresh state, finds nothing to try: no mint, no lock.
+	mints, creates = len(a.gh.Mints()), ti.bucket.Calls(objectstore.FakeCreate)
+	if g := b.lease(bob); g != nil {
+		t.Fatalf("b leased %s on its second pass", g.Task.Metadata.ID)
+	}
+	if n, c := len(a.gh.Mints())-mints, ti.bucket.Calls(objectstore.FakeCreate)-creates; n != 0 || c != 0 {
+		t.Errorf("b's second pass: %d mints, %d log entries; want none", n, c)
+	}
 }

@@ -41,6 +41,8 @@ func TestSafeReturnTo(t *testing.T) {
 		{"/tab\there", "", false},
 		{"/\x00", "", false},
 		{"http:/evil.example", "", false},
+		{"/" + strings.Repeat("a", MaxReturnTo-1), "/" + strings.Repeat("a", MaxReturnTo-1), true},
+		{"/" + strings.Repeat("a", MaxReturnTo), "", false},
 	}
 	for _, tt := range tests {
 		got, err := SafeReturnTo(tt.in)
@@ -286,5 +288,37 @@ func TestSessionKeyRotation(t *testing.T) {
 	}
 	if _, ok := b.verify("ses-id." + strings.Repeat("A", 43)); ok {
 		t.Fatal("a forged signature verified")
+	}
+}
+
+// TestFinishLoginWritesNothingWithoutACode: a callback with a valid state but no code (or a
+// code GitHub refuses) creates no UsedLoginState, so an anonymous client can't make the
+// store write; the state stays usable for the real callback.
+func TestFinishLoginWritesNothingWithoutACode(t *testing.T) {
+	ctx := context.Background()
+	clk := clock.NewFake(time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC))
+	a, _ := newAuth(t, clk)
+	a.cfg.OAuth.ClientID = "c"
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"bad_verification_code"}`, http.StatusOK)
+	}))
+	defer gh.Close()
+	a.cfg.OAuth.TokenURL = gh.URL
+	a.cfg.HTTPClient = gh.Client()
+	_, cookie, err := a.BeginLogin(ctx, "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/callback", nil)
+	r.AddCookie(cookie)
+	if _, err := a.FinishLogin(ctx, r, "", cookie.Value); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("no code: %v, want ErrUnauthenticated", err)
+	}
+	if _, err := a.FinishLogin(ctx, r, "forged", cookie.Value); err == nil {
+		t.Fatal("a code GitHub refuses finished the login")
+	}
+	var used []*UsedLoginState
+	if _, err := a.d.Store.List(ctx, KindUsedLoginState, store.ListOptions{}, &used); err != nil || len(used) != 0 {
+		t.Fatalf("UsedLoginStates after callbacks with no valid code: %d (%v), want none", len(used), err)
 	}
 }
