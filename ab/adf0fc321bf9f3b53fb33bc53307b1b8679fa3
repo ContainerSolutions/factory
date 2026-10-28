@@ -1,0 +1,5 @@
+lisa-design:
+- ask's locals are _ask_* so no caller's VAR can name one (printf -v would set ask's local); every caller checked: confirm (answer, the bug), setting (v), token, claude_token.
+- Test seam: the prompts read ${FACTORY_INSTALL_TTY:-/dev/tty}, opened once on fd 9 by the first ask (fixed fd, not exec {fd}<: macOS /bin/bash is 3.2), so a file of answers is read line by line. Not in --help (the comment sits after set -euo, which usage stops at).
+- have_tty checks the same path (or the open fd); host init's stdin is the same path ("$tty") rather than a literal /dev/tty, so a test run without a controlling terminal doesn't fail on the redirect. Identical in real use.
+- The silent read's trailing newline goes to stderr (where read -p prints the prompt) instead of /dev/tty, so the seam never touches /dev/tty.
