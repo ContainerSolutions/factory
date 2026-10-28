@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 	"github.com/ContainerSolutions/factory/internal/provider"
@@ -274,9 +273,10 @@ func TestProjectErrors(t *testing.T) {
 	}
 }
 
-// TestRebuildRoundTrip: what Project writes, List finds and Observe reads back as the
-// projection (contracts.md: rebuild = List → Observe → Projections).
-func TestRebuildRoundTrip(t *testing.T) {
+// TestProjectRoundTrip: the marker Project writes on each linked object parses back, through
+// the marker parser, as the projection (markers are for people; nothing reads them into the
+// store, but Project reads its own to update them).
+func TestProjectRoundTrip(t *testing.T) {
 	e := newEnv(t)
 	e.srv.AddObject(githubtest.Object{Repo: docs, Number: 57, Author: human, Labels: []string{"documentation"}})
 	e.srv.AddObject(githubtest.Object{Repo: docs, Number: 90, PR: true, Author: factory, Head: "h1", Base: "main"})
@@ -299,127 +299,68 @@ func TestRebuildRoundTrip(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// The PR is merged and closed later: it still carries its marker, so List finds it.
-	e.srv.UpdateObject(docs, 90, func(o *githubtest.Object) { o.State = "merged" })
+	for _, n := range []int{57, 90} {
+		ms := markersOn(t, e.srv, docs, n)
+		if len(ms) != 1 {
+			t.Fatalf("#%d: %d markers, want 1", n, len(ms))
+		}
+		got, ok, err := github.ParseMarker(ms[0].Body)
+		if !ok || err != nil || !reflect.DeepEqual(got, p) {
+			t.Errorf("#%d marker parses to %+v (%v, %v), want %+v", n, got, ok, err, p)
+		}
+	}
+	if ms := markersOn(t, e.srv, docs, 91); len(ms) != 0 {
+		t.Errorf("#91 markers = %+v", ms)
+	}
+}
 
-	refs, err := c.List(ctx, v1alpha1.Scope{Repos: []string{docs}})
-	if err != nil {
+// TestProjectReadsOnlyItsMarkers: Project reads back only the v1 markers the author App wrote,
+// on every page of comments, and of two for one work item updates the oldest. Look-alikes by
+// a human, the reviewer App or a deleted account, and a marker of another version, own no
+// labels and are never edited.
+func TestProjectReadsOnlyItsMarkers(t *testing.T) {
+	marker := func(id, label string) string {
+		return "<!-- factory:wi v=1 id=" + id + " labels=" + label + " -->\n🏭 Tracked by CCF Factory"
+	}
+	reviewer := githubtest.User{Login: "ccf-factory-reviewer[bot]", Bot: true}
+	comments := []githubtest.Comment{
+		{Author: human, Body: marker("wi_57", "factory%3Aforged")},
+		{Author: reviewer, Body: marker("wi_57", "factory%3Areviewer")},
+		{Author: githubtest.User{}, Body: marker("wi_57", "factory%3Aghost")}, // a deleted account
+		{Author: factory, Body: "<!-- factory:wi v=2 id=wi_57 labels=factory%3Av2 -->\n🏭 Tracked by CCF Factory"},
+		{Author: factory, Body: marker("wi_57", "factory%3Aold")},
+		{Author: factory, Body: marker("wi_57", "factory%3Anewer")},
+	}
+	owned := []string{"factory:forged", "factory:ghost", "factory:newer", "factory:old", "factory:reviewer", "factory:v2"}
+	e := newEnv(t)
+	e.srv.SetPageSize(2) // three pages of comments
+	e.srv.AddObject(githubtest.Object{Repo: docs, Number: 57, Labels: owned, Comments: comments})
+	c := e.connect(t)
+	p := provider.Projection{WorkItemID: "wi_57", Labels: []string{"factory:new"}}
+	if err := c.Project(context.Background(), objRef(provider.KindIssue, docs+"#57"), p); err != nil {
 		t.Fatal(err)
 	}
-	want := []v1alpha1.ObjectRef{objRef(provider.KindIssue, docs+"#57"), objRef(provider.KindPR, docs+"#90"), objRef(provider.KindIssue, docs+"#91")}
-	if !reflect.DeepEqual(refs, want) {
-		t.Fatalf("List = %+v, want %+v", refs, want)
+	// Only factory:old, which the oldest of the App's markers owned, is removed.
+	want := []string{"factory:forged", "factory:ghost", "factory:new", "factory:newer", "factory:reviewer", "factory:v2"}
+	if got := labelsOf(t, e.srv, docs, 57); !reflect.DeepEqual(got, want) {
+		t.Errorf("labels = %v, want %v", got, want)
 	}
-	got := map[string][]provider.Projection{}
-	for _, r := range refs {
-		o, err := c.Observe(ctx, r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got[r.Ref] = o.Projections
+	o, _ := e.srv.Object(docs, 57)
+	if len(o.Comments) != len(comments) {
+		t.Fatalf("%d comments, want %d: the App's marker was not found", len(o.Comments), len(comments))
 	}
-	for _, l := range links {
-		if !reflect.DeepEqual(got[l.Ref], []provider.Projection{p}) {
-			t.Errorf("%s projections = %+v, want %+v", l.Ref, got[l.Ref], p)
-		}
-	}
-	if got[docs+"#91"] != nil {
-		t.Errorf("#91 projections = %+v", got[docs+"#91"])
-	}
-}
-
-func TestList(t *testing.T) {
-	e := newEnv(t)
-	e.p.Spec.Scope = &v1alpha1.ProviderScope{Orgs: []string{org}}
-	now := t0
-	old := now.Add(-github.ListWindow - 24*time.Hour)
-	marker := githubtest.Comment{Author: factory, Body: "<!-- factory:wi v=1 id=wi_x -->\n🏭 Tracked by CCF Factory"}
-	for _, o := range []githubtest.Object{
-		{Repo: docs, Number: 1},
-		{Repo: docs, Number: 2, PR: true},
-		{Repo: docs, Number: 3, State: "closed", Comments: []githubtest.Comment{marker}},
-		{Repo: docs, Number: 4, State: "closed"},
-		{Repo: docs, Number: 5, UpdatedAt: old},
-		{Repo: docs, Number: 6, State: "merged", PR: true, Comments: []githubtest.Comment{marker}, UpdatedAt: old},
-		{Repo: org + "/mock-docs", Number: 1},
-		{Repo: org + "/mock-docs", Number: 2},
-		{Repo: org + "/mock-docs", Number: 3},
-		{Repo: org + "/mock-api", Number: 1},
-		{Repo: org + "/workflows", Number: 9},
-	} {
-		e.srv.AddObject(o)
-	}
-	e.srv.AddAccountRepos(org, "docs", "mock-docs", "mock-api", "workflows")
-	e.srv.SetPageSize(2)
-	c := e.connect(t)
-	ctx := context.Background()
-	refs := func(rs ...string) []v1alpha1.ObjectRef {
-		var out []v1alpha1.ObjectRef
-		for _, r := range rs {
-			kind := provider.KindIssue
-			if r == docs+"#2" {
-				kind = provider.KindPR
+	for i, cm := range o.Comments {
+		if i == 4 {
+			if got, ok, err := github.ParseMarker(cm.Body); !ok || err != nil || !reflect.DeepEqual(got, p) {
+				t.Errorf("the oldest marker parses to %+v (%v, %v), want %+v", got, ok, err, p)
 			}
-			out = append(out, objRef(kind, r))
+			continue
 		}
-		return out
-	}
-	for _, tc := range []struct {
-		name  string
-		scope v1alpha1.Scope
-		want  []v1alpha1.ObjectRef
-	}{
-		// Open ones in the window, and closed ones with a marker; not #4 (closed), #5 and #6
-		// (too old). Three pages of open ones.
-		{"one repo", v1alpha1.Scope{Repos: []string{docs}}, refs(docs+"#1", docs+"#2", docs+"#3")},
-		{"glob and exclude", v1alpha1.Scope{Repos: []string{org + "/mock-*"}, Exclude: []string{org + "/mock-api"}},
-			refs(org+"/mock-docs#1", org+"/mock-docs#2", org+"/mock-docs#3")},
-		{"owner glob uses the Provider's orgs", v1alpha1.Scope{Repos: []string{"*/workflows"}}, refs(org + "/workflows#9")},
-		{"outside the Provider's orgs", v1alpha1.Scope{Repos: []string{"someone-else/tool"}}, nil},
-		{"every repo", v1alpha1.Scope{Exclude: []string{org + "/{docs,mock-*}"}}, refs(org + "/workflows#9")},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := c.List(ctx, tc.scope)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("List = %+v, want %+v", got, tc.want)
-			}
-		})
-	}
-	if n := e.srv.Count(githubtest.RouteSearch); n < 6 {
-		t.Errorf("%d searches: pagination not exercised", n)
-	}
-	for _, r := range e.srv.TokenRequests() {
-		if r.HasRepositories && !reflect.DeepEqual(r.Permissions, map[string]string{"checks": "read", "contents": "read", "issues": "read", "pull_requests": "read"}) {
-			t.Errorf("List token request %+v", r)
+		if cm.Body != comments[i].Body {
+			t.Errorf("comment %d edited: %q", i, cm.Body)
 		}
 	}
-}
-
-func TestListErrors(t *testing.T) {
-	e := newEnv(t)
-	e.srv.AddObject(githubtest.Object{Repo: docs, Number: 1})
-	c := e.connect(t) // no Provider scope.orgs
-	ctx := context.Background()
-	for name, scope := range map[string]v1alpha1.Scope{
-		"owner glob without orgs": {Repos: []string{"*/docs"}},
-		"empty without orgs":      {},
-		"bad pattern":             {Repos: []string{org + "/{docs"}},
-		"bad exclude":             {Repos: []string{docs}, Exclude: []string{"re:("}},
-	} {
-		if _, err := c.List(ctx, scope); !errors.Is(err, provider.ErrInvalid) {
-			t.Errorf("%s: %v, want ErrInvalid", name, err)
-		}
-	}
-	e.srv.FailNext(githubtest.RouteSearch, githubtest.Failure{Status: http.StatusForbidden, Message: "You have exceeded a secondary rate limit", Header: http.Header{"Retry-After": {"60"}}})
-	if _, err := c.List(ctx, v1alpha1.Scope{Repos: []string{docs}}); !errors.Is(err, provider.ErrRetryable) {
-		t.Errorf("rate limited search: %v, want ErrRetryable", err)
-	}
-	// A repo the App isn't installed on is skipped.
-	got, err := c.List(ctx, v1alpha1.Scope{Repos: []string{docs, "someone-else/tool"}})
-	if err != nil || !reflect.DeepEqual(got, []v1alpha1.ObjectRef{objRef(provider.KindIssue, docs+"#1")}) {
-		t.Errorf("List = %+v, %v", got, err)
+	if w := countWrites(e.srv); w != (writes{update: 1, add: 1, remove: 1}) {
+		t.Errorf("writes = %+v", w)
 	}
 }

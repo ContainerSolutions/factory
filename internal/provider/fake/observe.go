@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
-	"github.com/ContainerSolutions/factory/internal/patterns"
 	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
@@ -22,44 +20,6 @@ func (c *Conn) Observe(ctx context.Context, ref v1alpha1.ObjectRef) (provider.Ob
 		return provider.Observation{}, fmt.Errorf("fake: observe: %w", err)
 	}
 	return cloneObservation(*o), nil
-}
-
-// List implements provider.Conn: the objects whose repo matches scope.repos (any repo when
-// empty) and no scope.exclude glob, that are open or carry a projection, sorted by ref.
-// Channels and branches are not modelled, nor GitHub's 90-day window.
-func (c *Conn) List(ctx context.Context, scope v1alpha1.Scope) ([]v1alpha1.ObjectRef, error) {
-	include, err := compileGlobs(scope.Repos)
-	if err != nil {
-		return nil, fmt.Errorf("fake: list: scope.repos: %w: %w", err, provider.ErrInvalid)
-	}
-	exclude, err := compileGlobs(scope.Exclude)
-	if err != nil {
-		return nil, fmt.Errorf("fake: list: scope.exclude: %w: %w", err, provider.ErrInvalid)
-	}
-	if err := c.begin(ctx, MethodList); err != nil {
-		return nil, err
-	}
-	defer c.mu.Unlock()
-	var out []v1alpha1.ObjectRef
-	for _, o := range c.objects {
-		repo := RepoOf(o.Ref.Ref)
-		if (include != nil && !include.Match(repo)) || (exclude != nil && exclude.Match(repo)) {
-			continue
-		}
-		if o.State == provider.StateOpen || len(o.Projections) > 0 {
-			out = append(out, o.Ref)
-		}
-	}
-	slices.SortFunc(out, func(a, b v1alpha1.ObjectRef) int { return strings.Compare(a.Ref, b.Ref) })
-	return out, nil
-}
-
-// compileGlobs compiles a scope's glob list; nil for an empty list.
-func compileGlobs(globs []string) (patterns.Pattern, error) {
-	if len(globs) == 0 {
-		return nil, nil
-	}
-	return patterns.Compile(globs)
 }
 
 // SetTeam sets the members of a team ("org/team-slug").

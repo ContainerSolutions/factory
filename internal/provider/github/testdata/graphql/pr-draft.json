@@ -19,8 +19,7 @@
         "labels": { "nodes": [] },
         "reviews": { "nodes": [] },
         "reviewThreads": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] },
-        "commits": { "nodes": [ { "commit": { "oid": "d00d000000000000000000000000000000000001", "checkSuites": { "nodes": [ { "status": "IN_PROGRESS", "conclusion": null, "checkRuns": { "totalCount": 2 } }, { "status": "COMPLETED", "conclusion": "SUCCESS", "checkRuns": { "totalCount": 1 } } ] } } } ] },
-        "comments": { "totalCount": 0, "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] }
+        "commits": { "nodes": [ { "commit": { "oid": "d00d000000000000000000000000000000000001", "checkSuites": { "nodes": [ { "status": "IN_PROGRESS", "conclusion": null, "checkRuns": { "totalCount": 2 } }, { "status": "COMPLETED", "conclusion": "SUCCESS", "checkRuns": { "totalCount": 1 } } ] } } } ] }
       }
     }
   }

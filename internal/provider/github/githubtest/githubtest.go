@@ -114,7 +114,6 @@ const (
 	RouteUpdateComment     = "update_comment"
 	RouteAddLabels         = "add_labels"
 	RouteRemoveLabel       = "remove_label"
-	RouteSearch            = "search"
 	RouteGraphQL           = "graphql"
 	RouteDeployments       = "deployments"
 	RouteDeploymentStatus  = "deployment_statuses"

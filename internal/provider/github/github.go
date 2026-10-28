@@ -1,6 +1,6 @@
 // Package github is the provider adapter for GitHub and GHE
 // (design/workstreams/provider-github/LLD/github-provider.md): App auth and scoped git
-// credentials (GH-S1-T01), webhook ingress and normalisation (GH-S1-T02), observe, list and
+// credentials (GH-S1-T01), webhook ingress and normalisation (GH-S1-T02), observe and
 // projection (GH-S1-T03) and effects (GH-S1-T04).
 //
 // It acts as the Provider's App identities ("author", "reviewer"), whose installation tokens
@@ -141,13 +141,8 @@ func (a *Adapter) Connect(ctx context.Context, p v1alpha1.Provider, secrets prov
 	if slices.Contains(ids, EventIdentity) {
 		readIdentity = EventIdentity
 	}
-	var orgs []string
-	if p.Spec.Scope != nil {
-		orgs = slices.Clone(p.Spec.Scope.Orgs)
-	}
 	return &Conn{
 		name:          name,
-		orgs:          orgs,
 		uiBase:        a.opts.UIBaseURL,
 		deployEnv:     a.opts.DeployEnvironment,
 		minter:        minter,
@@ -170,9 +165,7 @@ const EventIdentity = "author"
 
 // Conn is a connection to one GitHub Provider instance. It is safe for concurrent use.
 type Conn struct {
-	name string
-	// orgs is the Provider's scope.orgs: List's outer bound and where its globs look.
-	orgs          []string
+	name          string
 	uiBase        string
 	deployEnv     string
 	minter        *tokens.Minter

@@ -73,13 +73,6 @@ func cloneObservation(o provider.Observation) provider.Observation {
 		d := *o.Deploy
 		o.Deploy = &d
 	}
-	if o.Projections != nil {
-		ps := make([]provider.Projection, len(o.Projections))
-		for i, p := range o.Projections {
-			ps[i] = cloneProjection(p)
-		}
-		o.Projections = ps
-	}
 	return o
 }
 

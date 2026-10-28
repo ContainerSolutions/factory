@@ -144,7 +144,6 @@ const (
 	MethodRecover           Method = "Recover"
 	MethodNormalise         Method = "Normalise"
 	MethodObserve           Method = "Observe"
-	MethodList              Method = "List"
 	MethodResolveGroup      Method = "ResolveGroup"
 	MethodProject           Method = "Project"
 	MethodApply             Method = "Apply"
@@ -160,6 +159,9 @@ type Conn struct {
 	seq int // delivery, comment, issue and token numbers
 
 	objects map[string]*provider.Observation // by ref.Ref
+	// marks are the projections on each object, by ref.Ref: what Project last wrote for each
+	// work item, sorted by WorkItemID (the GitHub markers).
+	marks map[string][]provider.Projection
 
 	teams      map[string][]string
 	orgRoles   map[v1alpha1.OrgRole][]string
@@ -182,6 +184,7 @@ func NewConn(p v1alpha1.Provider, opts Options) *Conn {
 		opts:       opts.withDefaults(),
 		p:          p,
 		objects:    map[string]*provider.Observation{},
+		marks:      map[string][]provider.Projection{},
 		teams:      map[string][]string{},
 		orgRoles:   map[v1alpha1.OrgRole][]string{},
 		userGroups: map[string][]string{},
@@ -245,7 +248,8 @@ func (c *Conn) begin(ctx context.Context, m Method) error {
 // ---- Objects ---------------------------------------------------------------------------------
 
 // Seed adds or replaces objects. Ref.Provider defaults to this provider, Ref.Kind to
-// "issue", State to open; an issue gets an empty Issue and a PR an empty PR when unset.
+// "issue", State to open; an issue gets an empty Issue and a PR an empty PR when unset. A
+// replaced object loses its projections.
 func (c *Conn) Seed(objs ...provider.Observation) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -274,6 +278,7 @@ func (c *Conn) Seed(objs ...provider.Observation) error {
 			o.UpdatedAt = c.opts.Clock.Now()
 		}
 		c.objects[o.Ref.Ref] = &o
+		delete(c.marks, o.Ref.Ref)
 	}
 	return nil
 }

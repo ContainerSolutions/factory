@@ -27,7 +27,7 @@ const (
 )
 
 // observeCases are the recorded GraphQL responses under testdata/graphql: <name>.json answers
-// Observe for ref, <name>.comments-2.json and <name>.threads-2.json the follow-up pages.
+// Observe for ref, <name>.threads-2.json the follow-up page of a PR's review threads.
 var observeCases = []struct {
 	name string
 	ref  v1alpha1.ObjectRef
@@ -68,12 +68,7 @@ func observeEnv(t *testing.T) *env {
 			Data struct {
 				Repository struct {
 					Object struct {
-						ID       string `json:"id"`
-						Comments struct {
-							PageInfo struct {
-								EndCursor string `json:"endCursor"`
-							} `json:"pageInfo"`
-						} `json:"comments"`
+						ID      string `json:"id"`
 						Threads struct {
 							PageInfo struct {
 								EndCursor string `json:"endCursor"`
@@ -87,19 +82,14 @@ func observeEnv(t *testing.T) *env {
 			t.Fatal(err)
 		}
 		o := obj.Data.Repository.Object
-		for suffix, follow := range map[string]struct{ op, cursor string }{
-			"comments-2": {"ObserveComments", o.Comments.PageInfo.EndCursor},
-			"threads-2":  {"ObserveThreads", o.Threads.PageInfo.EndCursor},
-		} {
-			b, err := os.ReadFile(filepath.Join("testdata", "graphql", tc.name+"."+suffix+".json"))
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			e.srv.SetGraphQL(follow.op, map[string]any{"id": o.ID, "after": follow.cursor}, b)
+		b, err := os.ReadFile(filepath.Join("testdata", "graphql", tc.name+".threads-2.json"))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
 		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.srv.SetGraphQL("ObserveThreads", map[string]any{"id": o.ID, "after": o.Threads.PageInfo.EndCursor}, b)
 	}
 	// docs' Pages deployments: the latest of main is what Observe reports; a newer one to
 	// another environment and one of another ref don't count.
@@ -236,31 +226,10 @@ func TestObserveFields(t *testing.T) {
 		}
 	})
 
-	t.Run("projections", func(t *testing.T) {
-		// Only the author App's v1 markers count: mallory's look-alike, the v2 marker and the
-		// deleted account's are ignored, and of two markers for wi_epic57 the oldest wins.
-		ps := observe(objRef(provider.KindIssue, docs+"#57")).Projections
-		want := []provider.Projection{{
-			WorkItemID: "wi_epic57",
-			State: map[string]any{
-				"plan": map[string]any{"parts": []any{"intro", "install"}, "size": float64(2)}, "stackNext": float64(1),
-				"stackTotal": float64(2), "review": "pending",
-			},
-			Counters: map[string]int{"docs-plan": 1, "docs-build": 2},
-			Links: []v1alpha1.Link{
-				{Provider: prov, Ref: docs + "#57", Kind: provider.KindIssue, Primary: true},
-				{Provider: prov, Ref: docs + "#90", Kind: provider.KindPR},
-			},
-			Labels: []string{"factory:epic"},
-		}}
-		if !reflect.DeepEqual(ps, want) {
-			t.Errorf("projections = %+v, want %+v", ps, want)
-		}
-		// A marker on the second page of comments is read.
+	t.Run("train", func(t *testing.T) {
 		train := observe(objRef(provider.KindIssue, workflows+"#123"))
-		if len(train.Projections) != 1 || train.Projections[0].WorkItemID != "wi_train123" ||
-			train.Projections[0].State["train"] != workflows+"#123" || train.State != provider.StateClosed {
-			t.Errorf("train projections = %+v", train.Projections)
+		if train.State != provider.StateClosed || train.Issue == nil || train.Issue.Comments != 3 {
+			t.Errorf("train = %s %+v", train.State, train.Issue)
 		}
 		if a := train.Author; a == nil || !a.IsBot || a.IsFactory || a.ID != prov+":ccf-release-bot[bot]" {
 			t.Errorf("train author = %+v", a)
@@ -290,6 +259,35 @@ func TestObserveFields(t *testing.T) {
 			t.Errorf("token requests = %+v", e.srv.TokenRequests())
 		}
 	})
+}
+
+// TestObserveReadsNoComments: Observe reads an object's comment count, never the comments: one
+// query, however many pages of comments the object has, and no comment body selected.
+func TestObserveReadsNoComments(t *testing.T) {
+	e := newEnv(t)
+	comments := make([]githubtest.Comment, 150) // two pages of 100
+	for i := range comments {
+		comments[i] = githubtest.Comment{Author: factory, Body: "<!-- factory:wi v=1 id=wi_57 -->\n🏭 Tracked by CCF Factory"}
+	}
+	e.srv.AddObject(githubtest.Object{Repo: docs, Number: 57, Author: human, Comments: comments})
+	c := e.connect(t)
+	o, err := c.Observe(context.Background(), objRef(provider.KindIssue, docs+"#57"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Issue == nil || o.Issue.Comments != len(comments) {
+		t.Errorf("issue = %+v, want %d comments", o.Issue, len(comments))
+	}
+	var ops []string
+	for _, q := range e.srv.GraphQLRequests() {
+		ops = append(ops, q.Operation)
+	}
+	if !reflect.DeepEqual(ops, []string{"Observe"}) {
+		t.Errorf("GraphQL operations = %v, want one Observe", ops)
+	}
+	if strings.Contains(github.ObserveQuery, "body") {
+		t.Error("observeQuery selects a body: Observe reads no untrusted text")
+	}
 }
 
 func TestObserveErrors(t *testing.T) {

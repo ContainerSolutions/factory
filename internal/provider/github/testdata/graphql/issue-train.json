@@ -13,14 +13,7 @@
         "labels": { "nodes": [ { "name": "release-train" }, { "name": "train:done" } ] },
         "subIssues": { "nodes": [] },
         "closedByPullRequestsReferences": { "nodes": [] },
-        "comments": {
-          "totalCount": 3,
-          "pageInfo": { "hasNextPage": true, "endCursor": "Y3Vyc29yOnYyOpHOkNAAAQ==" },
-          "nodes": [
-            { "databaseId": 2401000001, "author": { "__typename": "Bot", "login": "ccf-release-bot" }, "body": "Train started." },
-            { "databaseId": 2401000002, "author": { "__typename": "User", "login": "admin" }, "body": "Ship it." }
-          ]
-        }
+        "comments": { "totalCount": 3 }
       }
     }
   }

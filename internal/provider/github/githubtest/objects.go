@@ -209,7 +209,7 @@ func (s *Server) UpdateObject(repo string, n int, fn func(*Object)) {
 	}
 }
 
-// SetGraphQL sets the canned response of a GraphQL operation ("Observe", "ObserveComments",
+// SetGraphQL sets the canned response of a GraphQL operation ("Observe", "ObserveThreads",
 // …) for exactly these variables (compared as JSON), e.g. one recorded from GitHub.
 func (s *Server) SetGraphQL(op string, vars map[string]any, response []byte) {
 	s.mu.Lock()
@@ -259,7 +259,6 @@ func (s *Server) routeObjects(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/issues/comments/{id}", s.handleUpdateComment)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/labels", s.handleAddLabels)
 	mux.HandleFunc("DELETE /repos/{owner}/{repo}/issues/{number}/labels/{name}", s.handleRemoveLabel)
-	mux.HandleFunc("GET /search/issues", s.handleSearch)
 	mux.HandleFunc("POST /graphql", s.handleGraphQL)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/deployments", s.handleDeployments)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/deployments/{id}/statuses", s.handleDeploymentStatuses)
@@ -528,97 +527,6 @@ func (s *Server) handleRemoveLabel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// searchTerm splits a search query into terms, keeping quoted phrases whole.
-var searchTerm = regexp.MustCompile(`"[^"]*"|\S+`)
-
-// handleSearch serves the issue search for the qualifiers List uses: repo: (required, and the
-// token must cover it), is:open|closed|issue|pr, updated:>=YYYY-MM-DD, and a phrase with
-// in:comments (matched case-insensitively in comment bodies). Results are newest first.
-func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	m, ok := s.beginToken(w, r, RouteSearch)
-	if !ok {
-		return
-	}
-	var (
-		repo, state, kind string
-		since             time.Time
-		phrases           []string
-		inComments        bool
-	)
-	for _, t := range searchTerm.FindAllString(r.URL.Query().Get("q"), -1) {
-		switch {
-		case strings.HasPrefix(t, `"`):
-			phrases = append(phrases, strings.ToLower(strings.Trim(t, `"`)))
-		case strings.HasPrefix(t, "repo:"):
-			repo = strings.TrimPrefix(t, "repo:")
-		case t == "is:open" || t == "is:closed":
-			state = strings.TrimPrefix(t, "is:")
-		case t == "is:issue" || t == "is:pr":
-			kind = strings.TrimPrefix(t, "is:")
-		case strings.HasPrefix(t, "updated:>="):
-			d, err := time.Parse(time.DateOnly, strings.TrimPrefix(t, "updated:>="))
-			if err != nil {
-				writeError(w, http.StatusUnprocessableEntity, "Validation Failed")
-				return
-			}
-			since = d
-		case t == "in:comments":
-			inComments = true
-		default:
-			writeError(w, http.StatusUnprocessableEntity, "githubtest: unsupported search term "+t)
-			return
-		}
-	}
-	owner, name, found := strings.Cut(repo, "/")
-	if !found || (len(phrases) > 0 && !inComments) {
-		writeError(w, http.StatusUnprocessableEntity, "Validation Failed")
-		return
-	}
-	if !allowRepoAny(w, m, owner, name, []string{"issues", "pull_requests"}, "read") {
-		return
-	}
-	s.mu.Lock()
-	var hits []*Object
-	for _, o := range s.objects {
-		st := o.State
-		if st == "merged" {
-			st = "closed"
-		}
-		switch {
-		case !strings.EqualFold(o.Repo, repo),
-			state != "" && st != state,
-			kind == "pr" && !o.PR, kind == "issue" && o.PR,
-			o.UpdatedAt.Before(since):
-			continue
-		}
-		if len(phrases) == 0 || matchesComments(o, phrases) {
-			hits = append(hits, o)
-		}
-	}
-	sort.Slice(hits, func(i, j int) bool {
-		if !hits[i].UpdatedAt.Equal(hits[j].UpdatedAt) {
-			return hits[i].UpdatedAt.After(hits[j].UpdatedAt)
-		}
-		return hits[i].Number > hits[j].Number
-	})
-	items := make([]any, len(hits))
-	for i, o := range hits {
-		items[i] = restIssue(o)
-	}
-	s.mu.Unlock()
-	lo, hi := s.pageBounds(w, r, len(items))
-	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(items), "incomplete_results": false, "items": items[lo:hi]})
-}
-
-func matchesComments(o *Object, phrases []string) bool {
-	for _, p := range phrases {
-		if !slices.ContainsFunc(o.Comments, func(c Comment) bool { return strings.Contains(strings.ToLower(c.Body), p) }) {
-			return false
-		}
-	}
-	return true
-}
-
 func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 	m, ok := s.beginToken(w, r, RouteDeployments)
 	if !ok {
@@ -682,7 +590,7 @@ func (s *Server) handleDeploymentStatuses(w http.ResponseWriter, r *http.Request
 var operationName = regexp.MustCompile(`^\s*(?:query|mutation)\s+([A-Za-z_][A-Za-z0-9_]*)`)
 
 // handleGraphQL answers a query with its canned response (SetGraphQL), else from the object
-// model for the adapter's operations (Observe, ObserveComments, ObserveThreads, ObserveRepo,
+// model for the adapter's operations (Observe, ObserveThreads, ObserveRepo,
 // and the review-thread effects: ApplyThread, ApplyThreadReply, ApplyResolveThread).
 // A query naming a repo needs a token covering it with issues or pull_requests read (metadata
 // read for ObserveRepo), and every query the permissions of the fields it selects
@@ -740,10 +648,6 @@ func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
 	case "Observe":
 		n, _ := req.Variables["number"].(float64)
 		writeJSON(w, http.StatusOK, s.gqlObserve(owner+"/"+name, int(n)))
-	case "ObserveComments":
-		id, _ := req.Variables["id"].(string)
-		after, _ := req.Variables["after"].(string)
-		writeJSON(w, http.StatusOK, s.gqlComments(id, after))
 	case "ObserveThreads":
 		writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"node": map[string]any{
 			"reviewThreads": map[string]any{"pageInfo": map[string]any{"hasNextPage": false, "endCursor": nil}, "nodes": []any{}},
@@ -802,25 +706,6 @@ func gqlActor(u User) any {
 	return map[string]any{"__typename": "User", "login": u.Login}
 }
 
-// gqlCommentPage is a page of an object's comments after cursor ("c<index>"), as GraphQL
-// shows it (under the lock).
-func (s *Server) gqlCommentPage(o *Object, after string) map[string]any {
-	lo := 0
-	if n, err := strconv.Atoi(strings.TrimPrefix(after, "c")); err == nil && after != "" {
-		lo = min(n, len(o.Comments))
-	}
-	hi := min(lo+s.pageSize, len(o.Comments))
-	nodes := make([]any, 0, hi-lo)
-	for _, c := range o.Comments[lo:hi] {
-		nodes = append(nodes, map[string]any{"databaseId": c.ID, "author": gqlActor(c.Author), "body": c.Body})
-	}
-	return map[string]any{
-		"totalCount": len(o.Comments),
-		"pageInfo":   map[string]any{"hasNextPage": hi < len(o.Comments), "endCursor": "c" + strconv.Itoa(hi)},
-		"nodes":      nodes,
-	}
-}
-
 func (s *Server) gqlObserve(repo string, n int) map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -836,7 +721,7 @@ func (s *Server) gqlObserve(repo string, n int) map[string]any {
 	}
 	obj := map[string]any{
 		"id": "obj:" + objectKey(o.Repo, o.Number), "number": o.Number, "updatedAt": o.UpdatedAt.UTC().Format(time.RFC3339),
-		"author": gqlActor(o.Author), "labels": map[string]any{"nodes": labels}, "comments": s.gqlCommentPage(o, ""),
+		"author": gqlActor(o.Author), "labels": map[string]any{"nodes": labels},
 	}
 	if o.PR {
 		var mergedAt any
@@ -871,6 +756,7 @@ func (s *Server) gqlObserve(repo string, n int) map[string]any {
 		obj["commits"] = map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"oid": o.Head, "checkSuites": map[string]any{"nodes": suites}}}}}
 	} else {
 		obj["__typename"] = "Issue"
+		obj["comments"] = map[string]any{"totalCount": len(o.Comments)}
 		obj["state"] = strings.ToUpper(o.State)
 		obj["subIssues"] = map[string]any{"nodes": []any{}}
 		obj["closedByPullRequestsReferences"] = map[string]any{"nodes": []any{}}
@@ -878,16 +764,4 @@ func (s *Server) gqlObserve(repo string, n int) map[string]any {
 	return map[string]any{"data": map[string]any{"repository": map[string]any{
 		"nameWithOwner": o.Repo, "defaultBranchRef": map[string]any{"name": "main"}, "issueOrPullRequest": obj,
 	}}}
-}
-
-func (s *Server) gqlComments(id, after string) map[string]any {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	o, ok := s.objects[strings.TrimPrefix(id, "obj:")]
-	if !ok {
-		out := gqlErrors("NOT_FOUND", "Could not resolve to a node with the global id of '"+id+"'")
-		out["data"] = map[string]any{"node": nil}
-		return out
-	}
-	return map[string]any{"data": map[string]any{"node": map[string]any{"comments": s.gqlCommentPage(o, after)}}}
 }

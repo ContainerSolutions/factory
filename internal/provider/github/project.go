@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
@@ -17,7 +18,7 @@ import (
 // maxCommentPages bounds the comments Project reads to find a marker (100 per page).
 const maxCommentPages = 30
 
-// projectIdentity is the identity that writes the markers and whose markers Observe reads:
+// projectIdentity is the identity that writes the markers and whose markers Project reads:
 // the author App (EventIdentity), else the read identity.
 func (c *Conn) projectIdentity() string { return c.readIdentity }
 
@@ -30,7 +31,7 @@ func projectPerms(kind string) map[string]string {
 	return map[string]string{"issues": "write"}
 }
 
-// Project implements provider.Conn (github-provider.md §Observe, list and projection): as the
+// Project implements provider.Conn (github-provider.md §Observe and projection): as the
 // author identity, reading with observePerms and writing with projectPerms on the object's
 // repo, it
 //
@@ -172,6 +173,48 @@ func (c *Conn) project(ctx context.Context, ref v1alpha1.ObjectRef, p provider.P
 		}
 	}
 	return nil
+}
+
+// markerComment is a comment that may be a marker, from GraphQL or REST.
+type markerComment struct {
+	id    int64
+	login string
+	body  string
+}
+
+// parsedMarker is a marker comment read back.
+type parsedMarker struct {
+	id   int64
+	body string
+	p    provider.Projection
+}
+
+// markers returns the projection markers among comments written by the projecting App, one
+// per work item (the oldest comment), sorted by work item ID.
+func (c *Conn) markers(ctx context.Context, comments []markerComment, bots map[string]string) []parsedMarker {
+	byID := map[string]parsedMarker{}
+	for _, cm := range comments {
+		if !isMarker(cm.body) || bots[strings.ToLower(cm.login)] != c.projectIdentity() {
+			continue
+		}
+		p, ok, err := parseMarker(cm.body)
+		if !ok {
+			if err != nil {
+				c.log.WarnContext(ctx, "projection marker not read", "comment", cm.id, "error", err)
+			}
+			continue
+		}
+		if prev, dup := byID[p.WorkItemID]; dup && prev.id < cm.id {
+			continue
+		}
+		byID[p.WorkItemID] = parsedMarker{id: cm.id, body: cm.body, p: p}
+	}
+	out := make([]parsedMarker, 0, len(byID))
+	for _, m := range byID {
+		out = append(out, m)
+	}
+	slices.SortFunc(out, func(a, b parsedMarker) int { return strings.Compare(a.p.WorkItemID, b.p.WorkItemID) })
+	return out
 }
 
 // issueComments lists an issue's or a PR's conversation comments (up to maxCommentPages).

@@ -16,14 +16,14 @@ import (
 // KindRepo is the kind of a work item's link to a whole repo (an event without an object).
 const KindRepo = "repo"
 
-// maxFollowPages bounds the follow-up pages Observe reads of one connection (comments, review
-// threads): 100 per page.
+// maxFollowPages bounds the follow-up pages Observe reads of a PR's review threads: 100 per
+// page.
 const maxFollowPages = 10
 
 // observePerms are the read identity's permissions for Observe, exactly what observeQuery
 // reads: the issue or the PR with its reviews and threads (issues, pull_requests), the
 // commits it reaches (the head, the merge commit, each review's commit: contents) and the head
-// commit's check suites (checks). List, ReadContent and Project's reads share the set, so one
+// commit's check suites (checks). ReadContent and Project's reads share the set, so one
 // cached token per repo serves them all. No statuses: the head's statusCheckRollup also
 // covers commit statuses, which the factory's Apps aren't granted (see checksOf).
 var observePerms = map[string]string{"issues": "read", "pull_requests": "read", "contents": "read", "checks": "read"}
@@ -45,7 +45,7 @@ const observeQuery = `query Observe($owner: String!, $name: String!, $number: In
         labels(first: 100) { nodes { name } }
         subIssues(first: 100) { nodes { number repository { nameWithOwner } } }
         closedByPullRequestsReferences(first: 50, includeClosedPrs: true) { nodes { number repository { nameWithOwner } } }
-        comments(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { databaseId author { __typename login } body } }
+        comments { totalCount }
       }
       ... on PullRequest {
         id
@@ -63,17 +63,8 @@ const observeQuery = `query Observe($owner: String!, $name: String!, $number: In
         reviews(last: 100) { nodes { author { __typename login } state commit { oid } } }
         reviewThreads(first: 100) { pageInfo { hasNextPage endCursor } nodes { isResolved } }
         commits(last: 1) { nodes { commit { oid checkSuites(first: 100) { nodes { status conclusion checkRuns(first: 1) { totalCount } } } } } }
-        comments(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { databaseId author { __typename login } body } }
       }
     }
-  }
-}`
-
-// commentsQuery reads the next page of an issue's or a PR's comments.
-const commentsQuery = `query ObserveComments($id: ID!, $after: String!) {
-  node(id: $id) {
-    ... on Issue { comments(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { databaseId author { __typename login } body } } }
-    ... on PullRequest { comments(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { databaseId author { __typename login } body } } }
   }
 }`
 
@@ -105,16 +96,6 @@ type (
 			NameWithOwner string `json:"nameWithOwner"`
 		} `json:"repository"`
 	}
-	gqlComment struct {
-		DatabaseID int64     `json:"databaseId"`
-		Author     *gqlActor `json:"author"`
-		Body       string    `json:"body"`
-	}
-	gqlComments struct {
-		TotalCount int          `json:"totalCount"`
-		PageInfo   gqlPageInfo  `json:"pageInfo"`
-		Nodes      []gqlComment `json:"nodes"`
-	}
 	gqlThreads struct {
 		PageInfo gqlPageInfo `json:"pageInfo"`
 		Nodes    []struct {
@@ -133,8 +114,10 @@ type (
 				Name string `json:"name"`
 			} `json:"nodes"`
 		} `json:"labels"`
-		Comments gqlComments `json:"comments"`
 		// Issue.
+		Comments struct {
+			TotalCount int `json:"totalCount"`
+		} `json:"comments"`
 		SubIssues struct {
 			Nodes []gqlNumbered `json:"nodes"`
 		} `json:"subIssues"`
@@ -193,7 +176,7 @@ type (
 
 // Observe implements provider.Conn: one GraphQL query per object (github-provider.md
 // §Observe), as the read identity with observePerms on the object's repo, and follow-up pages
-// for comments and review threads beyond the first 100 (up to maxFollowPages each).
+// for a PR's review threads beyond the first 100 (up to maxFollowPages).
 //
 //   - Issues: state, labels, author, sub-issues, the PRs that close it (linked PRs), the
 //     comment count.
@@ -202,13 +185,12 @@ type (
 //     approving, changes-requesting or dismissing review of each reviewer: the factory's
 //     Apps map to their identity, "reviewer" or "author", anyone else to their login),
 //     unresolved threads, merged-at and the merge commit; a merged PR also gets Deploy.
-//   - Projections: the markers in comments written by the projecting App (comments by anyone
-//     else that look like markers are ignored), one per work item (the oldest wins), sorted.
 //   - A "repo" ref: open, or closed once archived. Releases and deployments are immutable
 //     records: closed, with no call.
 //
 // A ref of the other kind (an issue ref naming a PR) is ErrNotFound, as a missing object is.
-// No untrusted text is returned: comment bodies are read only to find the markers.
+// No untrusted text is read or returned: of the comments, only their count is read. The
+// factory's projection markers are not read back (Project reads them, to update its own).
 func (c *Conn) Observe(ctx context.Context, ref v1alpha1.ObjectRef) (provider.Observation, error) {
 	obs, err := c.observe(ctx, ref)
 	if err != nil {
@@ -263,19 +245,15 @@ func (c *Conn) observe(ctx context.Context, ref v1alpha1.ObjectRef) (provider.Ob
 		return provider.Observation{}, fmt.Errorf("%s is a %s, not a %s: %w", ref.Ref, kind, ref.Kind, provider.ErrNotFound)
 	}
 	ref.Kind = kind
-	if err := c.followComments(ctx, tok, o); err != nil {
-		return provider.Observation{}, err
-	}
 	bots, err := c.factoryBots(ctx)
 	if err != nil {
 		return provider.Observation{}, err
 	}
 	obs := provider.Observation{
-		Ref:         ref,
-		State:       objectState(o.State),
-		Author:      c.actorOf(o.Author, bots),
-		UpdatedAt:   o.UpdatedAt.UTC(),
-		Projections: c.projectionsIn(ctx, o.Comments.Nodes, bots),
+		Ref:       ref,
+		State:     objectState(o.State),
+		Author:    c.actorOf(o.Author, bots),
+		UpdatedAt: o.UpdatedAt.UTC(),
 	}
 	for _, l := range o.Labels.Nodes {
 		obs.Labels = append(obs.Labels, l.Name)
@@ -327,30 +305,6 @@ func (c *Conn) observeRepo(ctx context.Context, ref v1alpha1.ObjectRef) (provide
 		obs.State = provider.StateClosed
 	}
 	return obs, nil
-}
-
-// followComments reads the comments past the first page into o.
-func (c *Conn) followComments(ctx context.Context, tok string, o *gqlObject) error {
-	for i := 0; o.Comments.PageInfo.HasNextPage && i < maxFollowPages; i++ {
-		var data struct {
-			Node *struct {
-				Comments gqlComments `json:"comments"`
-			} `json:"node"`
-		}
-		vars := map[string]any{"id": o.ID, "after": o.Comments.PageInfo.EndCursor}
-		if err := c.minter.GraphQL(ctx, tok, "ObserveComments", commentsQuery, vars, &data); err != nil {
-			return err
-		}
-		if data.Node == nil {
-			return fmt.Errorf("comments of %s: %w", o.ID, provider.ErrNotFound)
-		}
-		o.Comments.Nodes = append(o.Comments.Nodes, data.Node.Comments.Nodes...)
-		o.Comments.PageInfo = data.Node.Comments.PageInfo
-	}
-	if o.Comments.PageInfo.HasNextPage {
-		c.log.WarnContext(ctx, "comments beyond the pages read; markers there are not seen", "object", o.ID, "pages", maxFollowPages+1)
-	}
-	return nil
 }
 
 // followThreads reads the review threads past the first page into o.
@@ -528,63 +482,6 @@ func (c *Conn) refsOf(kind string, nodes []gqlNumbered) []v1alpha1.ObjectRef {
 			out = append(out, c.ref(kind, n.Repository.NameWithOwner+"#"+strconv.Itoa(n.Number)))
 		}
 	}
-	return out
-}
-
-// projectionsIn reads the markers among comments: only those written by the projecting App
-// count (anyone can post a comment that looks like one), one per work item (the oldest
-// comment wins), sorted by work item ID.
-func (c *Conn) projectionsIn(ctx context.Context, comments []gqlComment, bots map[string]string) []provider.Projection {
-	ms := make([]markerComment, 0, len(comments))
-	for _, cm := range comments {
-		ms = append(ms, markerComment{id: cm.DatabaseID, login: restLogin(cm.Author), body: cm.Body})
-	}
-	var out []provider.Projection
-	for _, m := range c.markers(ctx, ms, bots) {
-		out = append(out, m.p)
-	}
-	return out
-}
-
-// markerComment is a comment that may be a marker, from GraphQL or REST.
-type markerComment struct {
-	id    int64
-	login string
-	body  string
-}
-
-// parsedMarker is a marker comment read back.
-type parsedMarker struct {
-	id   int64
-	body string
-	p    provider.Projection
-}
-
-// markers returns the projection markers among comments written by the projecting App, one
-// per work item (the oldest comment), sorted by work item ID.
-func (c *Conn) markers(ctx context.Context, comments []markerComment, bots map[string]string) []parsedMarker {
-	byID := map[string]parsedMarker{}
-	for _, cm := range comments {
-		if !isMarker(cm.body) || bots[strings.ToLower(cm.login)] != c.projectIdentity() {
-			continue
-		}
-		p, ok, err := parseMarker(cm.body)
-		if !ok {
-			if err != nil {
-				c.log.WarnContext(ctx, "projection marker not read", "comment", cm.id, "error", err)
-			}
-			continue
-		}
-		if prev, dup := byID[p.WorkItemID]; dup && prev.id < cm.id {
-			continue
-		}
-		byID[p.WorkItemID] = parsedMarker{id: cm.id, body: cm.body, p: p}
-	}
-	out := make([]parsedMarker, 0, len(byID))
-	for _, m := range byID {
-		out = append(out, m)
-	}
-	slices.SortFunc(out, func(a, b parsedMarker) int { return strings.Compare(a.p.WorkItemID, b.p.WorkItemID) })
 	return out
 }
 

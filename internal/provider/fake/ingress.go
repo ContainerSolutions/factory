@@ -143,29 +143,35 @@ func (c *Conn) Deliveries() []provider.RawEvent {
 
 // Handler implements provider.Conn. It accepts a POSTed Webhook as JSON (there is no
 // signature to verify), calls sink.Accept and only then answers: 202, 200 for a duplicate
-// delivery, 503 when the sink fails. A bad method is 405, a bad body 400.
+// delivery, 503 when the sink fails. A bad method is 405, a body over MaxWebhookBytes 413, a
+// bad body 400. Refusals are problems (provider.WriteProblem), with internal/server's codes.
 func (c *Conn) Handler(sink provider.IngressSink) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			provider.WriteProblem(w, http.StatusMethodNotAllowed, "method-not-allowed", "only POST delivers a webhook")
 			return
 		}
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxWebhookBytes))
 		if err != nil {
-			http.Error(w, "unreadable body", http.StatusBadRequest)
+			var tooBig *http.MaxBytesError
+			if errors.As(err, &tooBig) {
+				provider.WriteProblem(w, http.StatusRequestEntityTooLarge, "payload-too-large", fmt.Sprintf("the body is over %d bytes", MaxWebhookBytes))
+				return
+			}
+			provider.WriteProblem(w, http.StatusBadRequest, "invalid-request", "unreadable body")
 			return
 		}
 		hook, err := decodeWebhook(body)
 		if err != nil {
-			http.Error(w, "invalid webhook", http.StatusBadRequest)
+			provider.WriteProblem(w, http.StatusBadRequest, "invalid-request", "invalid webhook")
 			return
 		}
 		c.mu.Lock()
 		ev, err := c.rawEventLocked(hook, r.Header.Clone())
 		c.mu.Unlock()
 		if err != nil {
-			http.Error(w, "invalid webhook", http.StatusBadRequest)
+			provider.WriteProblem(w, http.StatusBadRequest, "invalid-request", "invalid webhook")
 			return
 		}
 		err = sink.Accept(r.Context(), cloneRawEvent(ev))
@@ -176,7 +182,7 @@ func (c *Conn) Handler(sink provider.IngressSink) http.Handler {
 		case errors.Is(err, provider.ErrDuplicateDelivery):
 			w.WriteHeader(http.StatusOK)
 		default:
-			http.Error(w, "delivery not stored", http.StatusServiceUnavailable)
+			provider.WriteProblem(w, http.StatusServiceUnavailable, "unavailable", "")
 		}
 	})
 }

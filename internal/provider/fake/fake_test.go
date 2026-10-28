@@ -2,6 +2,7 @@ package fake_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -355,14 +356,15 @@ func TestHandler(t *testing.T) {
 		sinkErr  error
 		pre      bool // the sink already has the delivery
 		want     int
+		code     string // a refusal's problem code
 		accepted int
 	}{
 		{name: "accepted", method: http.MethodPost, body: body, want: http.StatusAccepted, accepted: 1},
 		{name: "duplicate", method: http.MethodPost, body: body, pre: true, want: http.StatusOK, accepted: 1},
-		{name: "sink fails", method: http.MethodPost, body: body, sinkErr: errors.New("store down"), want: http.StatusServiceUnavailable},
-		{name: "wrong method", method: http.MethodGet, want: http.StatusMethodNotAllowed},
-		{name: "bad body", method: http.MethodPost, body: `{"type":`, want: http.StatusBadRequest},
-		{name: "too large", method: http.MethodPost, body: `{"facts":{"x":"` + strings.Repeat("a", fake.MaxWebhookBytes) + `"}}`, want: http.StatusBadRequest},
+		{name: "sink fails", method: http.MethodPost, body: body, sinkErr: errors.New("store down"), want: http.StatusServiceUnavailable, code: "unavailable"},
+		{name: "wrong method", method: http.MethodGet, want: http.StatusMethodNotAllowed, code: "method-not-allowed"},
+		{name: "bad body", method: http.MethodPost, body: `{"type":`, want: http.StatusBadRequest, code: "invalid-request"},
+		{name: "too large", method: http.MethodPost, body: `{"facts":{"x":"` + strings.Repeat("a", fake.MaxWebhookBytes) + `"}}`, want: http.StatusRequestEntityTooLarge, code: "payload-too-large"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -379,6 +381,17 @@ func TestHandler(t *testing.T) {
 			c.Handler(s).ServeHTTP(rec, req)
 			if rec.Code != tt.want {
 				t.Fatalf("status %d, want %d (%s)", rec.Code, tt.want, rec.Body)
+			}
+			var problem struct {
+				Status int    `json:"status"`
+				Code   string `json:"code"`
+			}
+			if tt.code == "" && rec.Body.Len() != 0 {
+				t.Errorf("body %q, want none", rec.Body)
+			}
+			if tt.code != "" && (rec.Header().Get("Content-Type") != provider.ProblemContentType ||
+				json.Unmarshal(rec.Body.Bytes(), &problem) != nil || problem.Status != tt.want || problem.Code != tt.code) {
+				t.Errorf("answer %q (%s), want a problem with code %s", rec.Body, rec.Header().Get("Content-Type"), tt.code)
 			}
 			if got := len(s.accepted()); got != tt.accepted {
 				t.Errorf("sink has %d deliveries, want %d", got, tt.accepted)
@@ -454,10 +467,6 @@ func seedDocs(t *testing.T, c *fake.Conn) {
 		provider.Observation{Ref: ref("issue", "compliance-framework/docs#42"), Labels: []string{"docs"}},
 		provider.Observation{Ref: ref("pr", "compliance-framework/docs#57"), PR: &provider.PRObservation{Head: "beef", Base: "main", UnresolvedThreads: 2}},
 		provider.Observation{Ref: ref("issue", "compliance-framework/docs#1"), State: provider.StateClosed},
-		provider.Observation{
-			Ref: ref("issue", "compliance-framework/docs#2"), State: provider.StateClosed,
-			Projections: []provider.Projection{{WorkItemID: "wi_old"}},
-		},
 		provider.Observation{Ref: v1alpha1.ObjectRef{Ref: "compliance-framework/api#3"}},
 		provider.Observation{Ref: ref("issue", "compliance-framework/workflows#123")},
 	)
@@ -466,7 +475,7 @@ func seedDocs(t *testing.T, c *fake.Conn) {
 	}
 }
 
-func TestObserveAndList(t *testing.T) {
+func TestObserve(t *testing.T) {
 	c, _ := newConn(t)
 	seedDocs(t, c)
 	ctx := context.Background()
@@ -505,45 +514,6 @@ func TestObserveAndList(t *testing.T) {
 				t.Fatalf("Observe = %v, want %v", err, tt.want)
 			}
 		})
-	}
-
-	listTests := []struct {
-		name  string
-		scope v1alpha1.Scope
-		want  []string
-	}{
-		{"everything open or projected", v1alpha1.Scope{}, []string{
-			"compliance-framework/api#3", "compliance-framework/docs#2", "compliance-framework/docs#42",
-			"compliance-framework/docs#57", "compliance-framework/workflows#123",
-		}},
-		{"one repo", v1alpha1.Scope{Repos: []string{"compliance-framework/docs"}}, []string{
-			"compliance-framework/docs#2", "compliance-framework/docs#42", "compliance-framework/docs#57",
-		}},
-		{"glob minus exclude", v1alpha1.Scope{Repos: []string{"compliance-framework/*"}, Exclude: []string{"compliance-framework/{docs,workflows}"}}, []string{
-			"compliance-framework/api#3",
-		}},
-		{"no match", v1alpha1.Scope{Repos: []string{"other/*"}}, nil},
-	}
-	for _, tt := range listTests {
-		t.Run("list "+tt.name, func(t *testing.T) {
-			refs, err := c.List(ctx, tt.scope)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var got []string
-			for _, r := range refs {
-				if r.Provider != prov || r.Kind == "" {
-					t.Errorf("ref %+v lacks provider or kind", r)
-				}
-				got = append(got, r.Ref)
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("List = %v, want %v", got, tt.want)
-			}
-		})
-	}
-	if _, err := c.List(ctx, v1alpha1.Scope{Repos: []string{"re:("}}); !errors.Is(err, provider.ErrInvalid) {
-		t.Errorf("List(bad glob) = %v", err)
 	}
 
 	// Out-of-band change: a human merges the PR.
@@ -636,8 +606,20 @@ func TestProject(t *testing.T) {
 	if !reflect.DeepEqual(o.Labels, []string{"docs", "factory:tracked"}) {
 		t.Errorf("labels %v: projection labels are added, others kept", o.Labels)
 	}
-	if len(o.Projections) != 2 || o.Projections[0].WorkItemID != "wi_0" || !reflect.DeepEqual(o.Projections[1], p) {
-		t.Errorf("Observe projections = %+v", o.Projections)
+	if ps := c.ProjectionsOn(target.Ref); len(ps) != 2 || ps[0].WorkItemID != "wi_0" || !reflect.DeepEqual(ps[1], p) {
+		t.Errorf("ProjectionsOn = %+v", ps)
+	}
+	// The projections are copies.
+	c.ProjectionsOn(target.Ref)[1].State["release"] = "mutated"
+	if got := c.ProjectionsOn(target.Ref)[1].State["release"]; got != "drafting" {
+		t.Errorf("ProjectionsOn returned shared state: %v", got)
+	}
+	// Re-seeding an object clears its projections.
+	if err := c.Seed(provider.Observation{Ref: target}); err != nil {
+		t.Fatal(err)
+	}
+	if ps := c.ProjectionsOn(target.Ref); ps != nil {
+		t.Errorf("ProjectionsOn after Seed = %+v", ps)
 	}
 	if !o.UpdatedAt.Equal(t0.Add(time.Minute)) {
 		t.Errorf("UpdatedAt = %v", o.UpdatedAt)
@@ -946,7 +928,6 @@ func TestCancelledContext(t *testing.T) {
 	issue := ref("issue", "compliance-framework/docs#42")
 	calls := map[string]func() error{
 		"Observe": func() error { _, err := c.Observe(ctx, issue); return err },
-		"List":    func() error { _, err := c.List(ctx, v1alpha1.Scope{}); return err },
 		"ResolveGroup": func() error {
 			_, err := c.ResolveGroup(ctx, v1alpha1.GroupSource{Provider: prov, Users: []string{"a"}})
 			return err
@@ -1019,10 +1000,10 @@ func TestConcurrent(t *testing.T) {
 				if resp.StatusCode != http.StatusAccepted {
 					t.Errorf("POST status %d", resp.StatusCode)
 				}
-				_, _ = c.List(ctx, v1alpha1.Scope{})
 				_ = c.Health()
 				_ = c.Applies()
 				_ = c.Projections()
+				_ = c.ProjectionsOn("compliance-framework/docs#42")
 			}
 		}()
 	}
