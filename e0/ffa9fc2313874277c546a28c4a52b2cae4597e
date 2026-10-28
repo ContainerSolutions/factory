@@ -16,3 +16,6 @@ Pass 1 (final, lenient):
 - must-fix CORE-SIZE-001: the diff was over 1000 lines -> compacted (tests and helpers) to under the limit.
 - must-fix CORE-TEST-001 (default mode): the interactive prompts read /dev/tty and have no go test -> dropped: a pty needs a dependency off the allow-list; checked by hand with expect in a dry run against stubs (re-asks a bad value, Enter takes defaults, per-harness prompts).
 - should-fix CORE-DUP-001: the defaults also appear in the --help header and README's table, which no test compares -> dropped: the test guards the table the script uses (against agent.yaml.example); the header and README are prose and the size limit leaves no room.
+
+lisa-addressed:
+- Enrolled-host path tested; token file trimming fixed (inner whitespace refused); unused --enrollment-token-file reported; diff compacted under 1000 lines.
