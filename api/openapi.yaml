@@ -51,7 +51,7 @@ tags:
   - name: events
     description: Server-sent events for live UI updates.
   - name: auth
-    description: GitHub OAuth for the web UI, and the OAuth client's device-flow configuration.
+    description: GitHub OAuth for the web UI.
   - name: webhooks
     description: Provider webhooks, verified and handled by the provider adapter. Not generated.
   - name: ops
@@ -1440,24 +1440,6 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         default:
           $ref: '#/components/responses/Error'
-  /auth/device-config:
-    get:
-      operationId: getDeviceConfig
-      tags: [auth]
-      summary: The OAuth client's device-flow configuration
-      description: |
-        The dispatcher's OAuth client ID and scopes for a GitHub device-flow login. Agents no
-        longer use it (they are enrolled, P1 §6); it stays for the UI's sign-in.
-      security: []
-      responses:
-        '200':
-          description: The device-flow configuration.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DeviceConfig'
-        default:
-          $ref: '#/components/responses/Error'
 
   # ---- webhooks (not under /api/v1; handled by Conn.Handler) -------------------------------
   /hooks/{provider}:
@@ -2704,17 +2686,6 @@ components:
         isAdmin:
           type: boolean
           description: Member of the `maintainers` Group; may send commands.
-    DeviceConfig:
-      type: object
-      description: The dispatcher's OAuth client, for a device-flow login.
-      required: [clientId, scopes]
-      properties:
-        clientId:
-          type: string
-        scopes:
-          type: array
-          items:
-            type: string
 
     # ---- BEGIN GENERATED: v1alpha1 types (go run ./api/componentsgen; make generate) ----------
     # Everything up to END GENERATED is written from internal/apis/v1alpha1; don't edit it.

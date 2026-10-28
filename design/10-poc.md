@@ -709,9 +709,8 @@ sequenceDiagram
 
     O->>W: factory-agent login codex / claude once (the logins the gateway injects)
     O->>W: factory-agent supervise
-    W->>D: authenticate owner (GitHub device flow) + join token
     W->>H: probe: versions, auth mode, configured models / efforts
-    W->>D: register {owner, capabilities, lending}
+    W->>D: register {pool, host, capabilities, lending}<br/>(admin-minted enrollment token once, then its refresh token)
     loop while running
         W->>D: GET lease (long-poll, 30s)
         D-->>W: task tsk_… + resolved harness config + scoped git token

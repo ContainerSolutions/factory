@@ -92,7 +92,7 @@ Each Provider resolves tiers through its `trust` list, usually backed by **Group
 
 | Threat | Control |
 |---|---|
-| Someone registers a rogue agent | A join token **plus** owner authentication (GitHub device flow) **plus** membership of the pool's `owners` Group. Agent tokens are short-lived and revocable from the UI. |
+| Someone registers a rogue agent | Only an admin can mint an enrollment token (`factory agent enroll`), which fixes the agent's owner and pool, registers one agent and expires ([P1 §6](proposals/P1-agent-workspaces.md)). The agent then re-registers with a rotating refresh token. Agent tokens are short-lived, and revoking the agent from the UI or CLI kills its refresh token. |
 | A compromised or malicious agent fabricates results | Outcomes are schema-validated. Merge gates use provider facts. Author and reviewer agents are separated (beyond the PoC). Effects are allow-listed server-side, whatever the agent claims. |
 | An agent exfiltrates beyond its task | It only ever holds one task's scoped git token, and only ever receives that task's context. Each task runs in its own VM workspace, whose only way out is the agent's gateway: open by default except link-local and metadata, private ranges, the agent host and other workspaces; a TaskSpec can narrow it to the git host, the dispatcher and an allow list (`workspace.environment.egress`, [P1 §3](proposals/P1-agent-workspaces.md)). |
 | Owner's personal data or credentials leak into runs | A VM workspace per task, with scratch harness config dirs; the owner's model logins stay with the gateway outside the VM. No personal GitHub credentials are used. Scratch workspaces are deleted after each task ([10](10-poc.md#isolation-on-a-personal-machine)). |

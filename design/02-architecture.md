@@ -129,7 +129,7 @@ The model is deliberately **Kubernetes-shaped**: `metadata`, `spec`, `status`, l
 
 | Surface | Clients | Notes |
 |---|---|---|
-| **Runner API** | agents | Register (owner device-flow login + join token), lease (long-poll), fetch the leased task, heartbeat with progress, complete or abandon. Agents authenticate with an **agent bearer token**; task routes also require that the agent holds the task's lease. |
+| **Runner API** | agents | Register (an admin-minted, one-time enrollment token the first time, then the agent's rotating refresh token, [P1 §6](proposals/P1-agent-workspaces.md)), lease (long-poll), fetch the leased task, heartbeat with progress, complete or abandon. Agents authenticate with an **agent bearer token**; task routes also require that the agent holds the task's lease. |
 | **Effector API** | agents (through the Effector CLI or MCP) | Effect requests are checked against the task's effects allow-list, recorded as `Effect` resources, and applied through the Provider's adapter. **Provider credentials never leave the dispatcher.** |
 | **Resource API** | UI, CLI (`factory get rules`, `factory describe workitem …`), tests | Read and watch. Config kinds are read-only here (they come from git, ADR-0006). |
 | **Command API** | UI, CLI | Pause, resume, cancel, re-dispatch, dispatch, resync-catalog (approve/deny come with Approvals, Q18). Each command becomes a **`factory.command.*` event**, so it goes through the rules like everything else. |
