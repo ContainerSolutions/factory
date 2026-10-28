@@ -1,0 +1,2 @@
+lisa-addressed:
+ccf-review 5681190143 (all accepted): lease.go tryLease stale pass -> errSchedStale; state.go openURL bucket closed in runState; oauth.go code exchanged before useState + returnTo 1 KB cap; leader.go While watches the local lease end; connTracker 1 s grace.
