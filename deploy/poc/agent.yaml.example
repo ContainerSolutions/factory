@@ -36,8 +36,8 @@ enrollmentTokenFile: ~/.config/factory-agent/enrollment-token
 # default one of them; efforts from minimal, low, medium, high, max.
 harnesses:
   codex:
-    # Change the model: put <a gpt-5* or gpt-6* model your codex sign-in offers> (see /model
-    # in codex). The TaskSpecs match a glob, and a model the sign-in doesn't offer fails the run.
+    # Change the model if your codex sign-in doesn't offer it (see /model in codex): the
+    # TaskSpecs match a glob, and a model the sign-in doesn't offer fails the run.
     models: [gpt-6.1-sol]                      # release-docs, implement, plan-epic and merge ask gpt-5* or gpt-6*
     efforts: [low, medium, high]               # merge asks low, implement medium, the others high
     default: gpt-6.1-sol
