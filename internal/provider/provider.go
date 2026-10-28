@@ -42,9 +42,6 @@ type Conn interface {
 
 	// Observe reads the current state of one object; ErrNotFound when it doesn't exist.
 	Observe(ctx context.Context, ref v1alpha1.ObjectRef) (Observation, error)
-	// List returns the objects in scope that the work-item rebuild must see: the open ones,
-	// and those carrying a projection marker.
-	List(ctx context.Context, scope v1alpha1.Scope) ([]v1alpha1.ObjectRef, error)
 	// ResolveGroup returns the provider-native user IDs (GitHub logins, not Actor IDs) in one
 	// Group member source, sorted and without duplicates.
 	ResolveGroup(ctx context.Context, g v1alpha1.GroupSource) ([]string, error)
@@ -112,8 +109,7 @@ func StaticGroups(groups map[string]v1alpha1.GroupSpec) GroupLookup {
 }
 
 // Projection is what a work item writes onto each linked object: the GitHub marker comment
-// and the factory-owned labels. Observe reads the markers back (Observation.Projections), which
-// is how the work-item rebuild recreates work items after a restart.
+// and the factory-owned labels, for people to read. Nothing reads them back into the store.
 type Projection struct {
 	WorkItemID string          `json:"workItemID"`
 	State      map[string]any  `json:"state,omitzero"`

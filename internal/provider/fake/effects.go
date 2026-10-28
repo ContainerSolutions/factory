@@ -52,6 +52,19 @@ func (c *Conn) Projections() []ProjectCall {
 	return out
 }
 
+// ProjectionsOn returns the projections on the object at ref: what Project last wrote for each
+// work item, sorted by WorkItemID (nil when none). Observe doesn't return them, as GitHub's
+// Observe doesn't read its markers back.
+func (c *Conn) ProjectionsOn(ref string) []provider.Projection {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []provider.Projection
+	for _, p := range c.marks[ref] {
+		out = append(out, cloneProjection(p))
+	}
+	return out
+}
+
 // Applies returns every Apply call, in order: replays and failures included.
 func (c *Conn) Applies() []ApplyCall {
 	c.mu.Lock()
@@ -90,8 +103,8 @@ func (c *Conn) Mints() []MintCall {
 }
 
 // Project implements provider.Conn: it stores the projection on the object (replacing the
-// work item's previous one; Observe returns it in Projections) and adds the projection's
-// labels the object lacks. Unknown objects are ErrNotFound.
+// work item's previous one; ProjectionsOn returns them) and adds the projection's labels the
+// object lacks. Unknown objects are ErrNotFound.
 func (c *Conn) Project(ctx context.Context, ref v1alpha1.ObjectRef, p provider.Projection) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -123,14 +136,16 @@ func (c *Conn) projectLocked(ref v1alpha1.ObjectRef, p provider.Projection) (boo
 			changed = true
 		}
 	}
-	i := slices.IndexFunc(o.Projections, func(q provider.Projection) bool { return q.WorkItemID == p.WorkItemID })
+	marks := c.marks[o.Ref.Ref]
+	i := slices.IndexFunc(marks, func(q provider.Projection) bool { return q.WorkItemID == p.WorkItemID })
 	switch {
 	case i < 0:
-		o.Projections = append(o.Projections, cloneProjection(p))
-		slices.SortFunc(o.Projections, func(a, b provider.Projection) int { return strings.Compare(a.WorkItemID, b.WorkItemID) })
+		marks = append(marks, cloneProjection(p))
+		slices.SortFunc(marks, func(a, b provider.Projection) int { return strings.Compare(a.WorkItemID, b.WorkItemID) })
+		c.marks[o.Ref.Ref] = marks
 		changed = true
-	case !reflect.DeepEqual(o.Projections[i], p):
-		o.Projections[i] = cloneProjection(p)
+	case !reflect.DeepEqual(marks[i], p):
+		marks[i] = cloneProjection(p)
 		changed = true
 	}
 	if changed {

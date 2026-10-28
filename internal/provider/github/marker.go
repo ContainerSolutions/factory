@@ -14,7 +14,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/provider"
 )
 
-// The projection marker (github-provider.md §Observe, list and projection): one hidden comment
+// The projection marker (github-provider.md §Observe and projection): one hidden comment
 // per (work item, object), authored by the author App:
 //
 //	<!-- factory:wi v=1 id=wi_01JA… state=release:drafting,train:compliance-framework%2Fworkflows%23123 runs=release-docs:1 links=github-public:compliance-framework%2Fdocs%2357:pr:primary labels=factory%3Atracked -->
@@ -31,7 +31,7 @@ const (
 	markerPrefix  = "<!-- factory:wi "
 	markerEnd     = " -->"
 	markerVersion = "1"
-	// MarkerPhrase is the marker's visible text, which List searches comments for.
+	// MarkerPhrase is the marker's visible text, for the people reading the object.
 	MarkerPhrase = "Tracked by CCF Factory"
 	// MaxMarkerBytes caps a marker comment (GitHub's limit is 65 536 characters). A projection
 	// whose marker would be larger is written without its state, which then lives only in the

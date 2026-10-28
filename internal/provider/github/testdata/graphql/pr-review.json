@@ -38,14 +38,7 @@
         "commits": {
           "nodes": [ { "commit": { "oid": "c0ffee0000000000000000000000000000000003", "checkSuites": { "nodes": [ { "status": "COMPLETED", "conclusion": "SUCCESS", "checkRuns": { "totalCount": 3 } }, { "status": "COMPLETED", "conclusion": "SKIPPED", "checkRuns": { "totalCount": 1 } }, { "status": "QUEUED", "conclusion": null, "checkRuns": { "totalCount": 0 } } ] } } } ]
         },
-        "comments": {
-          "totalCount": 2,
-          "pageInfo": { "hasNextPage": false, "endCursor": "Y3Vyc29yOnYyOpHOkNzx0A==" },
-          "nodes": [
-            { "databaseId": 2407720001, "author": { "__typename": "Bot", "login": "ccf-factory" }, "body": "<!-- factory:wi v=1 id=wi_train123 state=release:review,train:compliance-framework%2Fworkflows%23123 runs=release-docs:1,docs-review:1 links=github-public:compliance-framework%2Fworkflows%23123:issue:primary,github-public:compliance-framework%2Fdocs%2390:pr -->\n🏭 Tracked by CCF Factory — [view](https://factory.example/workitems/wi_train123)" },
-            { "databaseId": 2407720002, "author": { "__typename": "User", "login": "alice" }, "body": "LGTM once the version table is fixed." }
-          ]
-        }
+        "comments": { "totalCount": 2 }
       }
     }
   }

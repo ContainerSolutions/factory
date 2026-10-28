@@ -56,9 +56,6 @@ type Observation struct {
 	Issue     *IssueObservation  `json:"issue,omitzero"`
 	PR        *PRObservation     `json:"pr,omitzero"`
 	Deploy    *DeployObservation `json:"deploy,omitzero"`
-	// Projections are the projections found on the object (the GitHub markers), one per work
-	// item, sorted by WorkItemID.
-	Projections []Projection `json:"projections,omitzero"`
 }
 
 // IssueObservation is what Observe reads of an issue.

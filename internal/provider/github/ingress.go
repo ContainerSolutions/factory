@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/server"
 )
 
 // Webhook ingress (github-provider.md §Ingress and normalisation).
@@ -52,36 +53,38 @@ var droppedHeaders = []string{"Authorization", "Cookie", "Proxy-Authorization"}
 // sink.Accept with the delivery and answers only once Accept has returned: 202 when it stored
 // the delivery, 200 for a duplicate, 503 for any other error (GitHub then redelivers). A bad
 // or missing signature is 401; a request that isn't a POST 405, a body over MaxWebhookBytes
-// 413, a delivery without a delivery ID or event name 400. Bodies are never logged.
+// 413, a delivery without a delivery ID or event name 400. Every refusal is an
+// application/problem+json body, as the API's errors are (provider.WriteProblem). Bodies are
+// never logged.
 func (c *Conn) Handler(sink provider.IngressSink) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			provider.WriteProblem(w, http.StatusMethodNotAllowed, codeMethodNotAllowed, "only POST delivers a webhook")
 			return
 		}
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxWebhookBytes))
 		if err != nil {
 			var tooBig *http.MaxBytesError
 			if errors.As(err, &tooBig) {
-				http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
+				provider.WriteProblem(w, http.StatusRequestEntityTooLarge, server.CodeTooLarge, fmt.Sprintf("the body is over %d bytes", MaxWebhookBytes))
 				return
 			}
-			http.Error(w, "unreadable body", http.StatusBadRequest)
+			provider.WriteProblem(w, http.StatusBadRequest, server.CodeInvalid, "unreadable body")
 			return
 		}
 		if !c.validSignature(r.Header.Get(headerSignature), body) {
 			c.log.WarnContext(r.Context(), "webhook signature rejected", "delivery", safeHeader(r.Header.Get(headerDelivery)))
-			http.Error(w, "bad signature", http.StatusUnauthorized)
+			provider.WriteProblem(w, http.StatusUnauthorized, server.CodeUnauthenticated, "missing or invalid "+headerSignature)
 			return
 		}
 		id, event := r.Header.Get(headerDelivery), r.Header.Get(headerEvent)
 		if !deliveryID.MatchString(id) || !eventName.MatchString(event) {
-			http.Error(w, "missing or malformed X-GitHub-Delivery or X-GitHub-Event", http.StatusBadRequest)
+			provider.WriteProblem(w, http.StatusBadRequest, server.CodeInvalid, "missing or malformed "+headerDelivery+" or "+headerEvent)
 			return
 		}
 		if sink == nil {
-			http.Error(w, "delivery not stored", http.StatusServiceUnavailable)
+			provider.WriteProblem(w, http.StatusServiceUnavailable, server.CodeUnavailable, "")
 			return
 		}
 		headers := r.Header.Clone()
@@ -105,10 +108,13 @@ func (c *Conn) Handler(sink provider.IngressSink) http.Handler {
 			w.WriteHeader(http.StatusOK)
 		default:
 			c.log.WarnContext(r.Context(), "webhook not stored", "delivery", ev.ID, "event", event, "err", err)
-			http.Error(w, "delivery not stored", http.StatusServiceUnavailable)
+			provider.WriteProblem(w, http.StatusServiceUnavailable, server.CodeUnavailable, "")
 		}
 	})
 }
+
+// codeMethodNotAllowed is the API server's code for a 405 (internal/server's toProblem).
+const codeMethodNotAllowed = "method-not-allowed"
 
 // validSignature checks header ("sha256=<hex>") against the body's HMAC-SHA256 under the
 // webhook secret, in constant time.
