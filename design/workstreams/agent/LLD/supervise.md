@@ -144,7 +144,7 @@ execute(lease):
 
 ## The owner's run (manual)
 
-From a release instead of a checkout, `deploy/install.sh` (attached to every release) does steps 1 to 3 with the release's binaries and installs supervise as the owner's launchd user agent (Mac) or systemd user service (Linux; supervise runs as the owner there too, root only through the kata helper): `curl -fsSL https://github.com/ContainerSolutions/factory/releases/latest/download/install.sh | bash`, `--dry-run` to print the plan. [deploy/poc/README.md §8](../../../../deploy/poc/README.md#the-one-line-install-from-a-release) lists what it does and how to undo it.
+From a release instead of a checkout, `deploy/install.sh` (attached to every release) does steps 1 to 3 with the release's binaries and installs supervise as the owner's launchd user agent (Mac) or systemd user service (Linux; supervise runs as the owner there too, root only through the kata helper): `curl -fsSL https://github.com/ContainerSolutions/factory/releases/latest/download/install.sh | bash`, `--dry-run` to print the plan. It writes the whole config from flags or environment variables, asking for the rest (or, with `--quiet`, taking every default; the dispatcher's URL and the enrollment token have none). [deploy/poc/README.md §8](../../../../deploy/poc/README.md#the-one-line-install-from-a-release) lists what it does and how to undo it.
 
 On the Mac, from a checkout of this branch (the dispatcher up, and `~/.config/factory-agent/agent.yaml` pointing at it with `codex` and/or `claude-code` under `harnesses`):
 
