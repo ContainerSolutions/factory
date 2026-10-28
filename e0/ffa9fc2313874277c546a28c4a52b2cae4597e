@@ -1,0 +1,9 @@
+lisa-design:
+- Settings and the enrollment token are resolved and checked before the download, so a --quiet run missing a value, or any bad value, fails with nothing changed (the old script downloaded and installed first).
+- A setting given by a flag or env is not asked in the default mode; the prompt shows only the default. Flag wins over env.
+- The dispatcher is required only when agent.yaml is written: a kept existing config already has one, so a --quiet re-run on an installed host needs no flags.
+- Token precedence: refresh token in the state dir (enrolled) > existing enrollment-token file > --enrollment-token-file > FACTORY_ENROLLMENT_TOKEN > prompt. An existing token file is never overwritten.
+- A default model not in the given models list falls back to the list's first (so --codex-models alone works); an explicit default not in the list is an error.
+- The defaults are one default_* table; installsh_test.go checks it against agent.yaml.example (harnesses, pool) and the loader's defaults (maxConcurrent 1, workspace.size) and that the header lists each.
+- Tests that write use a curl stub serving fake binaries from a local dir (and real install/mkdir/shasum into the temp HOME); every other side-effecting command stays a fail-loud stub. Runs use the Mac path (shasum exists on macOS and ubuntu runners).
+- Must stay bash 3.2 compatible (macOS /bin/bash under curl | bash): no associative arrays, no ${x,,}, no mapfile.
