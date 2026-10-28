@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -37,22 +38,23 @@ type Change struct {
 	Data []byte
 }
 
-// CommitHook is called for every Create, Update and Delete (Sweep's too) once the write has
-// been checked and encoded but before it is applied, under the store's write lock: changes
-// reach it one at a time, in version order. When it returns an error the write fails with it
-// (wrapped) and the store is left exactly as it was: no object, version or watch event. It must
-// not call back into the store. Locks and transcripts don't go through it.
-type CommitHook func(Change) error
+// CommitHook is called for every Create, Update and Delete (Sweep's and DeleteAt's too) once
+// the write has been checked and encoded but before it is applied, under the store's write
+// lock: changes reach it one at a time, in version order. ctx is the write's. When it returns
+// an error the write fails with it (wrapped) and the store is left exactly as it was: no
+// object, version or watch event. It must not call back into the store. Locks, transcripts and
+// Apply don't go through it.
+type CommitHook func(ctx context.Context, c Change) error
 
 // WithCommitHook makes every write go through h first (a durable store journals there).
 func WithCommitHook(h CommitHook) Option { return func(s *Store) { s.hook = h } }
 
 // commit passes c to the hook, if there is one. The caller holds s.mu.
-func (s *Store) commit(op string, c Change) error {
+func (s *Store) commit(ctx context.Context, op string, c Change) error {
 	if s.hook == nil {
 		return nil
 	}
-	if err := s.hook(c); err != nil {
+	if err := s.hook(ctx, c); err != nil {
 		return store.Errorf(op, c.Key, err, "commit")
 	}
 	return nil

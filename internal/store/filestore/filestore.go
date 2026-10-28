@@ -26,23 +26,23 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 	"github.com/ContainerSolutions/factory/internal/clock"
 	"github.com/ContainerSolutions/factory/internal/store"
+	"github.com/ContainerSolutions/factory/internal/store/journal"
 	"github.com/ContainerSolutions/factory/internal/store/memory"
 )
 
 // Files in the state dir.
 const (
-	snapshotFile  = "snapshot.json"
-	journalFile   = "journal.jsonl"
-	lockFile      = "LOCK"
-	transcriptDir = "transcripts"
+	snapshotFile  = journal.FileStoreSnapshot
+	journalFile   = journal.FileStoreJournal
+	lockFile      = journal.FileStoreLock
+	transcriptDir = journal.TranscriptDir
 	tmpSuffix     = ".tmp"
 )
 
 // Format is the snapshot format this package reads and writes.
-const Format = 1
+const Format = journal.Format
 
 // Compaction defaults: the journal is folded into the snapshot once it passes either.
 const (
@@ -63,6 +63,9 @@ var (
 	ErrFormat = errors.New("unknown state format")
 	// ErrClosed: a write after Close.
 	ErrClosed = errors.New("store is closed")
+	// ErrObjectStoreDir: the dir holds an object store's log (log/ or snapshots/: the file://
+	// bucket of an object store, P3), which the file store must never share a dir with.
+	ErrObjectStoreDir = errors.New("dir holds an object store's state")
 	// ErrJournal: an earlier journal fsync (or rollback) failed, so the journal can't be
 	// trusted; every write fails until the store is reopened.
 	ErrJournal = errors.New("journal unusable after an earlier failure; reopen the store")
@@ -102,10 +105,7 @@ func WithCompaction(maxBytes int64, maxLines int) Option {
 }
 
 // builtinKinds are the v1alpha1 kinds the store holds.
-var builtinKinds = []string{
-	v1alpha1.KindEvent, v1alpha1.KindWorkItem, v1alpha1.KindTask, v1alpha1.KindRun,
-	v1alpha1.KindAgent, v1alpha1.KindEffect, v1alpha1.KindBudgetCounter, v1alpha1.KindApproval,
-}
+var builtinKinds = journal.BuiltinKinds
 
 // Store is the file-backed store. Use Open, and Close when done.
 type Store struct {
@@ -211,6 +211,9 @@ func Open(dir string, opts store.Options, options ...Option) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("filestore: create state dir: %w", err)
 	}
+	if err := checkNotObjectStore(dir); err != nil {
+		return nil, err
+	}
 	if err := checkTree(dir); err != nil {
 		return nil, err
 	}
@@ -232,26 +235,9 @@ func Open(dir string, opts store.Options, options ...Option) (*Store, error) {
 
 // registry returns the Go type of every kind the store may hold.
 func registry(extra map[string]store.Object) (map[string]reflect.Type, error) {
-	types := map[string]reflect.Type{}
-	for _, k := range builtinKinds {
-		o, err := v1alpha1.New(k)
-		if err != nil {
-			return nil, fmt.Errorf("filestore: %w", err)
-		}
-		types[k] = reflect.TypeOf(o).Elem()
-	}
-	for k, proto := range extra {
-		t := reflect.TypeOf(proto)
-		if proto == nil || t.Kind() != reflect.Pointer || t.Elem().Kind() != reflect.Struct {
-			return nil, fmt.Errorf("filestore: kind %q: the prototype must be a pointer to a struct, got %T", k, proto)
-		}
-		if k == "" || v1alpha1.IsConfigKind(k) {
-			return nil, fmt.Errorf("filestore: kind %q can't be stored", k)
-		}
-		if old, ok := types[k]; ok && old != t.Elem() {
-			return nil, fmt.Errorf("filestore: kind %q is already %s, not %s", k, old, t.Elem())
-		}
-		types[k] = t.Elem()
+	types, err := journal.Registry(extra)
+	if err != nil {
+		return nil, fmt.Errorf("filestore: %w", err)
 	}
 	return types, nil
 }
@@ -259,18 +245,7 @@ func registry(extra map[string]store.Object) (map[string]reflect.Type, error) {
 // checkType rejects a write of a kind the store couldn't load back. Writes that are invalid
 // anyway are left to the memory store, so its errors stay the conformant ones.
 func (s *Store) checkType(op string, obj store.Object) error {
-	k, err := store.CheckObject(op, obj)
-	if err != nil {
-		return nil
-	}
-	t := s.types[k.Kind]
-	if t == nil {
-		return store.Errorf(op, k, store.ErrInvalid, "kind %s has no Go type registered with the file store (filestore.WithKind)", k.Kind)
-	}
-	if got := reflect.TypeOf(obj).Elem(); got != t {
-		return store.Errorf(op, k, store.ErrInvalid, "object is %T, the file store holds %s as *%s", obj, k.Kind, t)
-	}
-	return nil
+	return journal.CheckType(s.types, op, obj, "file store")
 }
 
 // Get implements store.Store.

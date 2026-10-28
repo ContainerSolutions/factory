@@ -23,9 +23,10 @@ type serveStore interface {
 }
 
 // internalKinds are the kinds outside v1alpha1 the dispatcher stores, with their Go types: the
-// file store needs each one's type to load it back, and refuses to write a kind it lacks.
+// durable stores need each one's type to load it back, and refuse to write a kind they lack.
 // TestServeStoreKinds fails when a package adds a stored kind (a store.MetaObject) that isn't
-// here.
+// here, or when this table and the secrets audit's (storeaudit.InternalKinds) differ; and
+// TestStoredSchema when a stored type changes without a store.ReadableSchema bump.
 func internalKinds() map[string]store.Object {
 	return map[string]store.Object{
 		auth.KindSession:            &auth.Session{},
