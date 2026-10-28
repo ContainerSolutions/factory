@@ -37,10 +37,18 @@ broken down as:
   (`internal/store/store.go`, with `storetest` as its conformance suite), with GCS and S3
   implementations. Keep the local-file backend for development.
 
-**Status (2026-10-27):** (a) is ContainerSolutions/factory#223 (proposal P3 + ADR-0009),
-reviewed with ccf-review to no open finding, waiting for Gustavo's approval and his answers to
-P3's two questions (the ~$2–3/month cost; push the workstation state or start fresh). (b) is
-P3's four-PR rollout, which starts once #223 and the org move (item 4) are both merged.
+**Status (2026-10-28):** built, as gh stack #245, in merge order:
+- #223, the design: P3 + ADR-0009;
+- #239, the shared store refactor;
+- #238, the object store;
+- #244, the GCS/S3 buckets;
+- #236, the intake filter;
+- #234, the readiness contract;
+- #246, `serve --state-url`, the leader, and no rebuild from markers;
+- #247, the provider cleanup;
+- #237, brief polling in supervise.
+
+Every PR has been through ccf-review with nothing open. All are mergeable with CI green. Merge bottom-up. **Squash #246**: a stray build output went into its history and was removed. P3's Decisions section records all of Gustavo's calls.
 
 ### 6. Binaries and an install script for `supervise`
 
