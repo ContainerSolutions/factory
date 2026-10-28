@@ -1,0 +1,2 @@
+lisa-addressed:
+- Gustavo 2026-10-28: definitions.md:197/:384 and 02-architecture.md:146 fixed (no List; link to #observe-and-projection); the explicit old anchor in github-provider.md removed, nothing links to it.
