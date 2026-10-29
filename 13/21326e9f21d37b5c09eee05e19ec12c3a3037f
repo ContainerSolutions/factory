@@ -1,0 +1,2 @@
+lisa-addressed:
+- CORE-DOC-001: catalog/README.md names rules test's result-schema check and render-coverage warnings.
