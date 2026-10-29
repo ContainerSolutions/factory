@@ -1,0 +1,5 @@
+lisa-design:
+- No serve flag for SSH: the deploy key reaches ssh only through git's standard GIT_SSH_COMMAND (or ~/.ssh on a workstation); gitsource and the controllers are unchanged.
+- GitHub's host keys are pinned in the committed deploy/github_known_hosts (ed25519, ECDSA, RSA from api.github.com/meta on 2026-10-29) and installed as /etc/ssh/ssh_known_hosts: no build-time fetch, no secret in the image.
+- openssh-client-default (exists on Alpine 3.23, 10.2_p1-r0) rather than the full openssh-client meta package or the krb5 variant.
+- The known_hosts COPY uses --chmod=0644 so the image does not inherit the build context's file mode.
