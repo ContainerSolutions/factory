@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 1 fixed: CORE-DOC-001 85cac026f934: api-server.md flag table row and config-validation clause for --catalog-app-id/--catalog-app-key-ref
