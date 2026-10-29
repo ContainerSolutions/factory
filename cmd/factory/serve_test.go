@@ -35,7 +35,7 @@ const (
 	testJoinToken = "join-token-for-the-local-pool"
 	// testCatalogPEM stands in for the catalog App's private key where it isn't parsed.
 	testCatalogPEM = "catalog-app-pem-0123456789"
-	serveWait     = 15 * time.Second
+	serveWait      = 15 * time.Second
 )
 
 // testEnv is the environment of a `factory serve` under test: dummy secrets and the local
