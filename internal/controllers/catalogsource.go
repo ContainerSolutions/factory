@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	neturl "net/url"
 	"os"
 	"strings"
 
@@ -36,8 +37,9 @@ const (
 )
 
 // GitSource reads the catalog from a git repository through gitsource: Head is
-// gitsource.Head (git ls-remote), Load is gitsource.Load at that commit (a shallow fetch into
-// a temporary directory). gitsource redacts credentials in the URL from its errors.
+// gitsource.HeadAuth (git ls-remote), Load is gitsource.LoadAuth at that commit (a shallow
+// fetch into a temporary directory). gitsource redacts credentials in the URL, and the token,
+// from its errors.
 type GitSource struct {
 	// Repo is the repository URL (https, ssh, git or file). Default DefaultCatalogRepo.
 	Repo string
@@ -47,6 +49,15 @@ type GitSource struct {
 	Path string
 	// Options are passed to catalog.LoadDir (SHA is set by gitsource).
 	Options catalog.Options
+	// Token, when set, mints a read-only token for the repository ("owner/name") before each
+	// Head and Load, which send it as a header in git's environment, never in the URL or argv.
+	// Repo must then be https://<host>/<owner>/<name>[.git]. A mint error fails the call:
+	// there is no anonymous fallback. Nil: anonymous.
+	Token func(ctx context.Context, repo string) (string, error)
+
+	// headAuth and loadAuth are gitsource.HeadAuth and gitsource.LoadAuth; tests replace them.
+	headAuth func(ctx context.Context, repoURL, ref string, auth gitsource.Auth) (string, error)
+	loadAuth func(ctx context.Context, repoURL, ref, dir string, opts catalog.Options, auth gitsource.Auth) (*catalog.Catalog, []catalog.Error, error)
 }
 
 var _ CatalogSource = GitSource{}
@@ -61,7 +72,32 @@ func (g GitSource) withDefaults() GitSource {
 	if g.Path == "" {
 		g.Path = DefaultCatalogPath
 	}
+	if g.headAuth == nil {
+		g.headAuth = gitsource.HeadAuth
+	}
+	if g.loadAuth == nil {
+		g.loadAuth = gitsource.LoadAuth
+	}
 	return g
+}
+
+// auth is the credential for Repo: a minted token when Token is set, else anonymous.
+func (g GitSource) auth(ctx context.Context) (gitsource.Auth, error) {
+	if g.Token == nil {
+		return gitsource.Auth{}, nil
+	}
+	repo, ok := RepoOnHost(g.Repo, urlHost(g.Repo))
+	if u, err := neturl.Parse(g.Repo); !ok || err != nil || u.Scheme != "https" {
+		return gitsource.Auth{}, fmt.Errorf("catalog repository %s: a token needs an https://<host>/<owner>/<name> URL", gitsource.RedactURL(g.Repo))
+	}
+	tok, err := g.Token(ctx, repo)
+	if err == nil && tok == "" {
+		err = errors.New("empty token")
+	}
+	if err != nil {
+		return gitsource.Auth{}, fmt.Errorf("mint a read token for the catalog repository %s: %w", repo, err)
+	}
+	return gitsource.Auth{Token: tok}, nil
 }
 
 func (g GitSource) String() string {
@@ -69,17 +105,28 @@ func (g GitSource) String() string {
 	return fmt.Sprintf("git %s ref %s path %s", gitsource.RedactURL(g.Repo), g.Ref, g.Path)
 }
 
-// Head resolves Ref with gitsource.Head (git ls-remote): a branch wins over a tag, an
-// annotated tag resolves to its commit, and a full commit SHA is pinned.
+// Head resolves Ref with gitsource.HeadAuth (git ls-remote): a branch wins over a tag, an
+// annotated tag resolves to its commit, and a full commit SHA is pinned (no token minted).
 func (g GitSource) Head(ctx context.Context) (string, error) {
 	g = g.withDefaults()
-	return gitsource.Head(ctx, g.Repo, g.Ref)
+	if gitsource.IsCommit(g.Ref) {
+		return g.Ref, nil
+	}
+	auth, err := g.auth(ctx)
+	if err != nil {
+		return "", err
+	}
+	return g.headAuth(ctx, g.Repo, g.Ref, auth)
 }
 
-// Load fetches revision and loads the catalog under Path (gitsource.Load).
+// Load fetches revision and loads the catalog under Path (gitsource.LoadAuth).
 func (g GitSource) Load(ctx context.Context, revision string) (*catalog.Catalog, []catalog.Error, error) {
 	g = g.withDefaults()
-	return gitsource.Load(ctx, g.Repo, revision, g.Path, g.Options)
+	auth, err := g.auth(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return g.loadAuth(ctx, g.Repo, revision, g.Path, g.Options, auth)
 }
 
 // DirSource reads the catalog from a local directory (`--catalog-dir`, local development).

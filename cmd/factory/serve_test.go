@@ -33,7 +33,9 @@ const (
 	docsIssue     = "compliance-framework/docs#42"
 	testCLIToken  = "cli-token-0123456789abcdef0123456789abcdef"
 	testJoinToken = "join-token-for-the-local-pool"
-	serveWait     = 15 * time.Second
+	// testCatalogPEM stands in for the catalog App's private key where it isn't parsed.
+	testCatalogPEM = "catalog-app-pem-0123456789"
+	serveWait      = 15 * time.Second
 )
 
 // testEnv is the environment of a `factory serve` under test: dummy secrets and the local
@@ -483,6 +485,11 @@ func TestParseServeConfig(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	const catalogRepo, catalogKeyRef, catalogKeyEnv = "https://github.com/compliance-framework/factory-catalog", "ccf-factory-app/private-key", "FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY"
+	withKey := func() map[string]string { m := testEnv(); m[catalogKeyEnv] = testCatalogPEM; return m }
+	catalogApp := func(more ...string) []string {
+		return append([]string{"--catalog-repo", catalogRepo, "--catalog-app-id", "7", "--catalog-app-key-ref", catalogKeyRef}, more...)
+	}
 	without := func(keys ...string) map[string]string {
 		m := testEnv()
 		for _, k := range keys {
@@ -619,6 +626,27 @@ func TestParseServeConfig(t *testing.T) {
 		}},
 		{name: "negative anti-affinity wait", args: []string{"--anti-affinity-wait", "-1m"}, env: testEnv(), wantErr: []string{"--anti-affinity-wait must not be negative"}},
 		{name: "empty deploy environment", args: []string{"--deploy-environment", " "}, env: testEnv(), wantErr: []string{"--deploy-environment must not be empty"}},
+		{name: "catalog app", args: catalogApp(), env: withKey(), check: func(t *testing.T, c serveConfig, _ []string) {
+			if c.CatalogAppID != 7 || c.CatalogAppKeyRef != catalogKeyRef || c.CatalogAppKey != testCatalogPEM {
+				t.Errorf("catalog app %d %q, key read: %v", c.CatalogAppID, c.CatalogAppKeyRef, c.CatalogAppKey == testCatalogPEM)
+			}
+		}},
+		{name: "catalog app on GHE", args: []string{"--github-api-url", "https://ghe.example.com/api/v3", "--catalog-repo", "https://ghe.example.com/o/catalog.git",
+			"--catalog-app-id", "7", "--catalog-app-key-ref", catalogKeyRef}, env: withKey()},
+		{name: "catalog app id alone", args: []string{"--catalog-app-id", "7"}, env: withKey(), wantErr: []string{"--catalog-app-id and --catalog-app-key-ref go together"}},
+		{name: "catalog key ref alone", args: []string{"--catalog-app-key-ref", catalogKeyRef}, env: withKey(), wantErr: []string{"--catalog-app-id and --catalog-app-key-ref go together"}},
+		{name: "negative catalog app id", args: []string{"--catalog-app-id", "-7", "--catalog-app-key-ref", catalogKeyRef}, env: withKey(), wantErr: []string{"--catalog-app-id must be positive"}},
+		{name: "catalog app and dir", args: []string{"--catalog-dir", dir, "--catalog-app-id", "7", "--catalog-app-key-ref", catalogKeyRef}, env: withKey(),
+			wantErr: []string{"--catalog-dir and --catalog-app-id are exclusive"}},
+		{name: "catalog app and fake providers", args: catalogApp("--dev-fake-providers"), env: withKey(),
+			wantErr: []string{"--dev-fake-providers and --catalog-app-id are exclusive"}},
+		{name: "catalog key not set", args: catalogApp(), env: testEnv(), wantErr: []string{"--catalog-app-key-ref ccf-factory-app/private-key: " + catalogKeyEnv + " is not set"}},
+		{name: "catalog key ref without a key", args: catalogApp("--catalog-app-key-ref", "private-key"), env: withKey(), wantErr: []string{`--catalog-app-key-ref "private-key" must be a secretRef name/key`}},
+		{name: "catalog key ref with two slashes", args: catalogApp("--catalog-app-key-ref", "a/b/c"), env: withKey(), wantErr: []string{"must be a secretRef name/key"}},
+		{name: "catalog app on another host", args: catalogApp("--catalog-repo", "https://gitlab.com/o/catalog"), env: withKey(),
+			wantErr: []string{"--catalog-app-id needs --catalog-repo https://github.com/<owner>/<name>"}},
+		{name: "catalog app on an ssh URL", args: catalogApp("--catalog-repo", "git@github.com:o/catalog.git"), env: withKey(),
+			wantErr: []string{"--catalog-app-id needs --catalog-repo https://github.com/<owner>/<name>"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -644,7 +672,7 @@ func TestParseServeConfig(t *testing.T) {
 					t.Errorf("err = %v, want %q", err, w)
 				}
 			}
-			for _, secret := range []string{testCLIToken, "oauth-secret-1", "session-key-0123"} {
+			for _, secret := range []string{testCLIToken, "oauth-secret-1", "session-key-0123", testCatalogPEM} {
 				if strings.Contains(err.Error(), secret) {
 					t.Errorf("the error carries a secret: %v", err)
 				}

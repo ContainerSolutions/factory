@@ -98,6 +98,8 @@ go run ./cmd/factory validate --dir "$HOME/factory-poc-catalog"
 
 Expect `valid (dir:…): 0 errors, 11 warnings`. The warnings are the expected CAT1200 overlaps between the dev and prod RuleSets. Then set `FACTORY_CATALOG_DIR=<your home>/factory-poc-catalog` (an absolute path) in `.env`. The directory is re-read every minute too.
 
+**Private catalog.** A private catalog repository is read with an installation token of a GitHub App (`contents: read`, that repository only). Install the App on the catalog repository with Contents: read, then pass `--catalog-app-id <App ID> --catalog-app-key-ref <name>/<key>`, the key coming from `FACTORY_SECRET_<NAME>_<KEY>`. With ccf-factory, set `FACTORY_CATALOG_APP_ID` in `.env`: `run.sh` adds both flags with `--catalog-app-key-ref ccf-factory-app/private-key`, the key the Provider already reads.
+
 ## 5. Tunnel
 
 In its own terminal, with `FACTORY_PUBLIC_URL` in the environment (for example `export FACTORY_PUBLIC_URL=https://<name>.ngrok-free.dev`):

@@ -68,6 +68,11 @@ if [ -n "${FACTORY_CATALOG_DIR:-}" ]; then
 else
 	catalog=(--catalog-repo https://github.com/ContainerSolutions/factory
 		--catalog-ref "${FACTORY_CATALOG_REF:-main}" --catalog-path catalog)
+	# A private catalog repository: read with an installation token of that App, whose key
+	# is ccf-factory's (README §Catalog).
+	if [ -n "${FACTORY_CATALOG_APP_ID:-}" ]; then
+		catalog+=(--catalog-app-id "$FACTORY_CATALOG_APP_ID" --catalog-app-key-ref ccf-factory-app/private-key)
+	fi
 fi
 
 umask 077

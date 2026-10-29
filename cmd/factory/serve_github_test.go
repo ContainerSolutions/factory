@@ -7,15 +7,18 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/ContainerSolutions/factory/internal/apiclient"
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
 	"github.com/ContainerSolutions/factory/internal/clock"
+	"github.com/ContainerSolutions/factory/internal/controllers"
 	"github.com/ContainerSolutions/factory/internal/provider"
 	"github.com/ContainerSolutions/factory/internal/provider/github/githubtest"
 )
@@ -71,6 +74,56 @@ func fakeGitHub(t *testing.T) (*githubtest.Server, map[string]string) {
 	env["FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY"] = string(authorKey)
 	env["FACTORY_SECRET_CCF_FACTORY_REVIEWER_APP_PRIVATE_KEY"] = string(reviewerKey)
 	return srv, env
+}
+
+// TestCatalogSourceToken: with --catalog-app-id, the git source mints a contents: read token
+// for the catalog repository as that App; a bad private key fails at startup.
+func TestCatalogSourceToken(t *testing.T) {
+	ctx := context.Background()
+	gh := githubtest.NewServer(t, clock.Real{})
+	key, rsaKey := githubtest.NewAppKey(t)
+	gh.AddApp(7, &rsaKey.PublicKey)
+	gh.AddInstallation(githubtest.Installation{ID: 21, AppID: 7, Owner: "compliance-framework", Permissions: map[string]string{"contents": "read", "metadata": "read"}})
+	host := strings.TrimPrefix(gh.URL, "http://")
+	args := []string{"--state-memory", "--github-api-url", gh.URL, "--catalog-repo", "https://" + host + "/compliance-framework/factory-catalog",
+		"--catalog-app-id", "7", "--catalog-app-key-ref", "ccf-factory-app/private-key"}
+	log := slog.New(slog.DiscardHandler)
+
+	for _, tt := range []struct {
+		name    string
+		pem     string
+		wantErr string
+	}{
+		{name: "minted", pem: string(key)},
+		{name: "bad private key", pem: "not a PEM", wantErr: "--catalog-app-id 7: tokens: identity \"catalog\""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			env := testEnv()
+			env["FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY"] = tt.pem
+			cfg, _, err := parseServeConfig(args, getenvOf(env), io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			src, err := catalogSource(cfg, serveDeps{Clock: clock.Real{}}, log)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) || strings.Contains(err.Error(), tt.pem) {
+					t.Fatalf("catalogSource = %v, want %q (without the key)", err, tt.wantErr)
+				}
+				return
+			}
+			gs, ok := src.(controllers.GitSource)
+			if err != nil || !ok || gs.Token == nil {
+				t.Fatalf("catalogSource = %#v, %v; want a GitSource with a Token", src, err)
+			}
+			tok, err := gs.Token(ctx, "compliance-framework/factory-catalog")
+			if err != nil || tok == "" || !slices.Contains(gh.Tokens(), tok) {
+				t.Fatalf("Token = %q, %v; want a githubtest token", tok, err)
+			}
+			if strings.Contains(gs.String(), tok) {
+				t.Errorf("String() = %q carries the token", gs.String())
+			}
+		})
+	}
 }
 
 // postWebhook posts a GitHub delivery whose signature is signed's (the webhook secret's HMAC)

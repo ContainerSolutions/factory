@@ -24,6 +24,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/provider"
 	"github.com/ContainerSolutions/factory/internal/provider/fake"
 	"github.com/ContainerSolutions/factory/internal/provider/github"
+	"github.com/ContainerSolutions/factory/internal/provider/tokens"
 	"github.com/ContainerSolutions/factory/internal/scheduler"
 	"github.com/ContainerSolutions/factory/internal/server"
 	"github.com/ContainerSolutions/factory/internal/store"
@@ -219,10 +220,14 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	clk := d.Clock
 	startedAt := clk.Now()
 	secrets := envSecrets(d.Getenv)
+	source, err := catalogSource(cfg, d, log)
+	if err != nil {
+		return err
+	}
 
 	log.Info("factory serve starting",
 		"addr", cfg.Addr, "opsAddr", cfg.OpsAddr, "publicURL", cfg.PublicURL,
-		"catalog", catalogSource(cfg).String(), "retention", cfg.Retention.String(),
+		"catalog", source.String(), "privateCatalog", cfg.CatalogAppID != 0, "retention", cfg.Retention.String(),
 		"stateDir", cfg.StateDir, "stateURL", stateURLScheme(cfg.StateURL), "stateMemory", cfg.StateMemory,
 		"devFakeProviders", cfg.DevFakeProviders)
 
@@ -264,7 +269,7 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	group.Go(runCtx, "leader", leader.Run)
 
 	// Catalog.
-	cs := controllers.NewCatalogSync(catalogSource(cfg), controllers.CatalogSyncOptions{
+	cs := controllers.NewCatalogSync(source, controllers.CatalogSyncOptions{
 		Interval: cfg.CatalogInterval, Clock: clk, Logger: log,
 	})
 	group.Go(runCtx, "catalog-sync", cs.Run)
@@ -609,12 +614,38 @@ func (t *connTracker) closeLater(c net.Conn) {
 	})
 }
 
-// catalogSource is the catalog-sync source cfg names.
-func catalogSource(cfg serveConfig) controllers.CatalogSource {
+// Catalog tokens: the minter's one identity and the TTL asked for (the minter reuses a token
+// until shortly before GitHub's expiry, so a poll rarely mints).
+const (
+	catalogIdentity = "catalog"
+	catalogTokenTTL = 10 * time.Minute
+)
+
+// catalogSource is the catalog-sync source cfg names. With --catalog-app-id, the git source
+// reads the repository with a read-only installation token of that App (a bad private key
+// fails here).
+func catalogSource(cfg serveConfig, d serveDeps, log *slog.Logger) (controllers.CatalogSource, error) {
 	if cfg.CatalogDir != "" {
-		return controllers.NewDirSource(cfg.CatalogDir, catalog.Options{})
+		return controllers.NewDirSource(cfg.CatalogDir, catalog.Options{}), nil
 	}
-	return controllers.GitSource{Repo: cfg.CatalogRepo, Ref: cfg.CatalogRef, Path: cfg.CatalogPath}
+	src := controllers.GitSource{Repo: cfg.CatalogRepo, Ref: cfg.CatalogRef, Path: cfg.CatalogPath}
+	if cfg.CatalogAppID == 0 {
+		return src, nil
+	}
+	m, err := tokens.New(map[string]tokens.Identity{
+		catalogIdentity: {AppID: cfg.CatalogAppID, PrivateKey: []byte(cfg.CatalogAppKey)},
+	}, tokens.Options{APIURL: catalogAPIURL(cfg), HTTPClient: d.HTTPClient, Clock: d.Clock, Logger: log.With("component", "catalog-token")})
+	if err != nil {
+		return nil, fmt.Errorf("--catalog-app-id %d: %w", cfg.CatalogAppID, err)
+	}
+	src.Token = func(ctx context.Context, repo string) (string, error) {
+		cred, err := m.Token(ctx, provider.ReadOnlyRequest(catalogIdentity, repo, catalogTokenTTL))
+		if err != nil {
+			return "", err
+		}
+		return cred.Token, nil
+	}
+	return src, nil
 }
 
 // waitCatalog waits for catalog-sync's first good catalog, at most timeout.
