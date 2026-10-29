@@ -5,3 +5,8 @@ lisa-design:
 - A rendered text containing "<no value>", "<nil>", "%!" or "map[" fails the case (catalog_test.go's checkRendered): text/template renders a typo like .run.reslt as "<no value>", not an error.
 - The run result is rebuilt from run.result (resultMap's inverse: Result fields kept, others under data; task/status/outcome from the run) because fixtures carry the rules' flattened view.
 - Goldens: <case>/rendered/<decision index>-<prompt|template>-<name>.md; stale files fail and --update removes them; render/schema failures fail even with --update. --base-catalog renders nothing (it compares decisions only).
+
+lisa-selfreview:
+Pass 1 (strict):
+- CORE-DOC-001 should-fix design/workstreams/dispatcher-core/LLD/rules-engine.md: the Fixtures and factory rules test section doesn't describe rendered/, the render and result schema checks, the coverage warning, the failed status or the new exit-1 causes. Fix: document them.
+- CORE-TEST-001 must-fix internal/controllers/render.go CheckRunResult: the resultMap inversion (Result fields kept, others under data, run id/status/outcome filled) is only covered through one cmd case. Fix: a table test against resultMap's output and data-only views.
