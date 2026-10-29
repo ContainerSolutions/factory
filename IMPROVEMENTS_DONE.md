@@ -315,6 +315,36 @@ regenerated (web's client needed no change). Two web labels (`web/src/mocks/cata
 outside the repo: workflows' `repos.yaml` entry (Gustavo's change). Dropped: ccf-review's default
 owner (pass full `ContainerSolutions/factory#N` refs).
 
+## A shippable factory, items 5–7 (2026-10-28)
+
+**5. State in object storage.** gh stack #245, in merge order:
+- #223, the design (P3 and ADR-0009);
+- #239, the shared store refactor;
+- #238, the object store: a log of create-only objects;
+- #244, the GCS and S3 buckets;
+- #236, the intake filter;
+- #234, the readiness contract;
+- #246, `serve --state-url`, one leader, and no rebuild from markers;
+- #247, the provider cleanup;
+- #237, brief polling in supervise.
+P3's Decisions section records Gustavo's calls. The bucket's access policy and the timed work
+under scale-to-zero carry on as part of item 9's design.
+
+**6 and 7. Releases, install.sh and the dispatcher image.** The release rules: manual, one
+standalone workflow per pipeline, on `release: published`, with no bots or release-please
+(Gustavo, 2026-10-27).
+- #240 `make release-assets` and `release-binaries.yml`: `factory` and `factory-agent` for
+  darwin/arm64, linux/amd64 and linux/arm64, `install.sh` and `SHA256SUMS`;
+- #241, the `Dockerfile` and `release-image.yml`, which pushes `ghcr.io/containersolutions/factory`
+  (`:<tag>` and `:latest`);
+- #242 `deploy/install.sh`;
+- #248, install.sh writes the whole agent config, with `--quiet` defaults (the dispatcher and the
+  enrollment token are mandatory, given by flag or environment);
+- #249, its y/n prompts took only the default (a shadowed local): fixed, with tests that answer
+  from a file (approved; open on 2026-10-28, still to merge).
+Checked on real releases: v0.1.0, v0.2.0 and v0.2.1 ran both workflows green. v0.2.1 carries all
+eight assets, and its image pulls anonymously from ghcr.io. install.sh was run by Gustavo on the Mac.
+
 ## Dropped at the closing phase (2026-10-27)
 
 When the factory entered its closing phase, the backlog was cut to the next workstreams
