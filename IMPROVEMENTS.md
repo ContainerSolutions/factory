@@ -103,62 +103,167 @@ thing must stay inside a cloud free tier. That's why state moved to object stora
 
 Items 5–7 shipped on 2026-10-28: see IMPROVEMENTS_DONE.md.
 
-### 8. The factory catalog in its own repo
+### 8. The CCF catalog in its own repo (compliance-framework/factory-catalog)
 
-Move `catalog/` (272 files: groups, pools, prompts, providers, queues, rules, rulesets, schemas,
-taskspecs, templates, testdata, plus `catalog_test.go`) to a new repo under compliance-framework,
-for example `compliance-framework/factory-catalog`. Its CI runs the catalog checks, and the
-dispatcher reads it from there by default. This repo keeps only test catalogs.
+Move `catalog/` to **`compliance-framework/factory-catalog`** (private, created, empty; ccf-lisa
+can push there). The dispatcher reads it from there by default, with an App token. The move
+also gives CCF's prod flows a home. The design was agreed with Gustavo on 2026-10-29; the
+draft is in that session's scratchpad (`ccf-catalog-design.md`). The decisions:
 
-**Where things are today:**
-- **The default source.** `DefaultCatalogRepo = "https://github.com/ContainerSolutions/factory"`
-  is in `internal/controllers/catalogsource.go:33`, with `DefaultCatalogRef` `main` and
-  `DefaultCatalogPath` `catalog`. `serve`'s `--catalog-repo|--catalog-ref|--catalog-path`
-  default to these (`cmd/factory/serve.go:123`), and `cmd/factory/serve_test.go:505` checks
-  those defaults.
-- **Private repos.** The catalog is read by `internal/catalog/gitsource`. Its `Load` and `Head`
-  take no credential, so a **private** catalog repo would need `HeadAuth`'s `Auth` wired
-  through catalog-sync. Today only `compile.go`'s skills refs use `HeadAuth`. A public repo
-  needs nothing.
-- **What CI runs.** `make catalog` (in `make reviewable`, and in CI's `make-targets`) runs
-  `factory validate --dir catalog` and `factory rules test --catalog catalog --coverage`, both
-  when `catalog/` exists.
-- **Tests that read the shipped catalog.** Each must move to a test catalog or go with the
-  catalog:
-  - `cmd/factory/deploykit_test.go:30` (`shippedCatalog`): keeps `deploy/poc/.env.example` in
-    step with the catalog's secret refs;
-  - `internal/agent/harness/claudecode/schema_test.go:88` and
-    `internal/agent/pipeline/bundle_test.go:51`: `catalog/schemas/results/*.json`;
-  - `internal/agent/worker/dispatcher_test.go:29`: `catalog/testdata/poc`;
+- **Prod only.** The new repo has no dev RuleSets (dev was validated in this repo). `dev-*` and
+  mock-docs fixtures stay here, in a test catalog.
+- **Canary.** The first wave of every new RuleSet is `compliance-framework/docs` only. Later
+  waves are catalog PRs that widen `scope.repos`.
+- **People merge.** Every merge rule stays excluded.
+- **Layout.** The catalog stays under `catalog/` in the new repo (`--catalog-path` default
+  unchanged).
+- **CI is binary-only.** It downloads `factory-linux-amd64` at a pinned release (SHA256SUMS)
+  and runs `factory validate --dir catalog` and `factory rules test --catalog catalog
+  --coverage`. `catalog/catalog_test.go` doesn't move. `rules test` takes over the checks
+  that matter (PR 2 below), and the dev-safety tests go away with the dev RuleSets.
+- **Procedures are prompts only:** no new ccf-skills skills.
+
+**The flows** (packs; RuleSet scope `["compliance-framework/docs"]` at first):
+
+1. **issue-impl** (FLOW 1, replaces docs-epic). It starts in two ways:
+   - an issue opened by a `maintainer`/`member` (and not a bot), unless it has `factory:skip`;
+   - or `factory:queue` added by a member, which is how a triaged issue gets promoted.
+
+   The run: `plan-issue` (plan-epic's procedure, any repo) → `implement` per sub-issue, stacked
+   → `review` of the stack → `implement` address-review, up to 3 rounds → needs-human.
+   - **By repo kind:** the checks and the prompt's per-kind parts (the docs screenshot
+     recipe) come from RuleSet defaults (`repoKind: docs|go|ui|plugin|policies|helm`,
+     `reviewChecks`).
+   - **TaskSpecs:** `implement` and `review` are each one TaskSpec. `docs-review`, `code-review`
+     and `implement-code` aren't split out.
+   - **docs:** `announce-ptbr-live`, a UC2 one-off, is dropped.
+2. **triage** (FLOW 2): an issue opened by tier `anyone`, not a bot → `triage`.
+   - **The run:** read-only, with no effects of its own. The repo's issue plus api/ui/agent are
+     read-only.
+   - **Outcomes:** `triaged|needs-info|duplicate|security|invalid`.
+   - **Its schema, `triage.json`:** kind, components, summary, impact (users, severity),
+     `breakingChange` (likely, why), value, effort, `duplicateOf`, related, questions,
+     `suggestedLabels` (an enum), `nextStep`.
+   - **Rules:**
+     - post the `triage-report` Template and the labels (`factory:triaged` plus the suggested
+       ones);
+     - `security` → `needs-human` and a neutral comment pointing to SECURITY.md;
+     - re-triage when the reporter answers a `needs-info`, up to 3 times.
+3. **bump-fix** (FLOW 3). New trust tier `release-bot` (`bots: ["ccf-release-bot[bot]",
+   "renovate[bot]"]`).
+   - **Tracking:** `record-bot-pr` sets `bot: true` on the bot's `pr.opened|updated|labeled`.
+   - **Triggers:**
+     - `needs-human` added by `release-bot` → `bump-fix {mode: assess}`;
+     - `pr.checks.completed` failure on a `bot` item → `bump-fix {mode: fix}`, at most 3.
+   - **The run:**
+     - read each major's changelog;
+     - build, run `make test`/`lint`, and the integration target if one exists;
+     - make the smallest source fix. A test changes only when it no longer compiles, never to
+       relax an assertion, and every test change is listed;
+     - push to the bot's branch and comment `bump-report`.
+   - **Outcomes:** `fixed|no-impact|blocked|needs-human`.
+   - **Its schema, `bump-fix.json`:** pr, deps[] (name, from, to, major, breaking[], callSites),
+     checks, testChanges[], risk, commits.
+   - **After a fix:** `review` runs. The factory also adds `needs-human` and removes
+     `ccf-bump:automerge`, so `ccf-bump merge` never merges factory-changed code.
+   - **Accepted limit:** ccf-bump force-pushes its branch on a same-day rerun.
+4. **release-docs** (FLOW 4): moves as is, with `poc-*` renamed `ccf-*` and queue `poc` renamed
+   `impl`.
+5. **review-human** (people's PRs, on every repo in scope):
+   - `review` runs on non-bot, non-factory, non-draft PRs;
+   - for tier `anyone` it only comments, never approves.
+
+**Shared.**
+- **Trust tiers:** `maintainer` (org admins), `member` (new Group, org members),
+  `release-bot`, `anyone`.
+- **Queues:** `impl` (2 at a time, 40 runs a day), `triage` (2, 30), `bumps` (1, 15).
+- **`closed-gate`'s `on`:** add `issue.labeled`, `issue.commented` and `pr.labeled`.
+- **Cancels and counts:** `close-on-primary-closed` cancels the new TaskSpecs, and
+  `escalate-needs-human` counts `review` rounds.
+- **State:** each pack keeps its own state keys (`triage*`, `bot`, `bump`) because item state
+  is shared by RuleSets.
+- **The `needs-human` label:** it is both the factory's escalation label and CCF's bot-PR
+  label (workflows/docs/attention.md). FLOW 3 only reacts to the release bot adding it.
+
+**Factory code** (from the code as it is today):
+- **The catalog is read without credentials.** `internal/catalog/gitsource`'s `Load`/`Head`
+  take no credential. Only `compile.go`'s skills use `HeadAuth`, and the Provider holding the
+  App keys is inside the catalog. So `serve` needs a bootstrap credential:
+  `--catalog-app-id N --catalog-app-key-ref ccf-factory-app/private-key`. It reads the existing
+  `FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY`.
+- **The defaults.** `DefaultCatalogRepo`, `DefaultCatalogRef` and `DefaultCatalogPath` are at
+  `internal/controllers/catalogsource.go:33`. The `serve` flags are at `cmd/factory/serve.go:112`,
+  and `cmd/factory/serve_test.go:505` checks the defaults.
+- **Tests that read `catalog/`:**
+  - `cmd/factory/deploykit_test.go:30`;
+  - `internal/agent/harness/claudecode/schema_test.go:88`;
+  - `internal/agent/pipeline/bundle_test.go:51`;
+  - `internal/agent/worker/dispatcher_test.go:29`;
   - `catalog/catalog_test.go`.
-  The test catalogs already in this repo are `internal/catalog/testdata/poc` and
-  `catalog/testdata/poc`.
-- **The docs.** `deploy/poc/README.md` §4 ("Catalog") and `run.sh`'s catalog flags describe
-  `catalog/` of this repo, as does the local-copy recipe (`~/factory-poc-catalog`, with the
-  real App IDs patched into `providers/github-public.yaml`). ADR-0006 is "catalog in git".
-- **What the CLI assumes.** `factory validate` and `factory rules test` default to `./catalog`.
-  The new repo either runs them with `--dir .` and `--catalog .`, or keeps the catalog under
-  `catalog/` there too (`--catalog-path catalog` stays the default). That's a choice for the
-  plan.
 
-**The new repo's CI needs the `factory` binary.** It can download a release asset
-(`factory-linux-amd64`, with SHA256SUMS) at a pinned tag, or `go install` it from this repo at
-a pinned ref. A pin keeps catalog CI from breaking when factory changes; bumping it is a
-manual PR.
+  `make catalog` runs `validate` and `rules test` when `catalog/` exists. The docs are
+  `deploy/poc/README.md` §4, `run.sh`'s catalog flags and the local-copy recipe.
+
+**The stack.** Each PR is written by lisa (as ccf-lisa[bot]) and reviewed with ccf-review
+(proportional, at most 2 rounds), and Gustavo merges. Branches are `fx/cat-<n>-<slug>`, one
+`gh stack` per repo.
+
+*ContainerSolutions/factory, first:*
+1. `feat(controllers): read a private catalog with an App installation token`:
+   - catalog-sync mints a `contents: read` installation token for the catalog repo before
+     each `Head` and `Load`, and `gitsource.Load` gains an `Auth`;
+   - the `serve` flags above, with validation and their tests;
+   - no token keeps today's anonymous behaviour.
+2. `feat(cli): rules test renders prompts and templates and checks results`. For each
+   fixture, it fills the prompt of every dispatch and the Template of every notify into the
+   goldens, and validates the fixture's `run.result` against the TaskSpec's schema. This is
+   what `catalog_test.go`'s `TestPrompts`, `TestTemplates` and `TestResultSchemas` did.
+3. *(no PR)* Gustavo publishes a factory release containing 1–2; the catalog CI pins it.
+
+*compliance-framework/factory-catalog:*
+
+4. `chore: import the factory catalog`:
+   - prod objects and fixtures only, renamed `poc-*` to `ccf-*`;
+   - the real App IDs in the Provider;
+   - CI with the pinned binary;
+   - a README with the rollout waves.
+5. `feat(shared)`: the member and release-bot tiers, the three queues, and the shared rules
+   for the new events.
+6. `feat(issue-impl)`: `plan-issue`, the unified `implement` and `review`, the rules,
+   Templates and fixtures. The docs-epic rules are removed, and docs moves onto it.
+7. `feat(triage)`: the TaskSpec, prompt, `triage.json`, its Templates, rules and fixtures.
+8. `feat(bump-fix)`: the TaskSpec, prompt, `bump-fix.json`, `bump-report`, rules and fixtures.
+9. `feat(review-human)`: people's-PR review generalised (`review`, comment-only for
+   outsiders).
+
+*ContainerSolutions/factory, last:*
+
+10. `refactor!: drop the in-repo catalog; default to compliance-framework/factory-catalog`:
+    - the tests move to test catalogs;
+    - `make catalog` is dropped;
+    - the README §4 and the local-copy recipe are updated.
+
+**Gustavo's steps:**
+- **Before 4:**
+  - an initial commit on the empty repo's `main` (or say the bot may push one);
+  - the ccf-factory App installed on factory-catalog (`contents: read`);
+  - branch protection, and the two approvals for Provider changes.
+- **After 3:** the factory release.
+- **After 10:** start the PoC dispatcher with the defaults plus `--catalog-app-id` and check
+  that it loads the new catalog.
+- **To canary:** watch docs for a train, an issue and a bump. Then the waves:
+  - api/ui/agent, or the small plugins first, by catalog PR;
+  - all plugins;
+  - `compliance-framework/*` minus factory-catalog.
 
 **Done when:**
-- the new repo holds the catalog and its fixtures, and its CI is green;
-- `DefaultCatalogRepo` (and the path, if it changed) point at it;
-- this repo's tests use only test catalogs, and `catalog/` is gone from it;
-- the README's §4 and the local-copy recipe are updated;
-- a dispatcher started with the defaults loads the new repo's catalog (Gustavo checks this on
-  his PoC).
+- the new repo holds the catalog and its CI is green;
+- the dispatcher loads it by default with the App token;
+- this repo has no `catalog/`;
+- FLOWs 1–3 and people's-PR review are live on docs.
 
-**Ask Gustavo first:**
-- the repo's name, and whether it's public (a private one needs the auth wiring above);
-- that he creates it and adds it to the ccf-lisa App's installation;
-- branch protection, and the two approvals for Provider changes the README mentions;
-- whether the catalog stays under `catalog/` in the new repo.
+**Later, not this item:** a FLOW for new plugins and policies; the release-please major-gate
+summary; the weekly backlog sweep.
 
 ### 9. Run the dispatcher in the cloud, inside the free tier
 
