@@ -129,7 +129,7 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 	fl.StringVar(&cfg.Addr, "addr", defaultAddr, "public listener: the UI, /api/v1 and /hooks (what the tunnel forwards to)")
 	fl.StringVar(&cfg.OpsAddr, "ops-addr", defaultOpsAddr, "ops listener: /healthz, /readyz, /metrics (no auth: must be a loopback address)")
 	fl.StringVar(&cfg.PublicURL, "public-url", getenv(envPublicURL), "public base URL (the tunnel): OAuth callback, webhook URLs, UI links (env "+envPublicURL+")")
-	fl.StringVar(&cfg.CatalogRepo, "catalog-repo", controllers.DefaultCatalogRepo, "catalog git repository")
+	fl.StringVar(&cfg.CatalogRepo, "catalog-repo", "", "catalog git repository (this or --catalog-dir is required)")
 	fl.StringVar(&cfg.CatalogRef, "catalog-ref", controllers.DefaultCatalogRef, "catalog branch, tag or commit")
 	fl.StringVar(&cfg.CatalogPath, "catalog-path", controllers.DefaultCatalogPath, "catalog directory inside the repository")
 	fl.StringVar(&cfg.CatalogDir, "catalog-dir", "", "load the catalog from this local directory instead of git (development)")
@@ -220,7 +220,12 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 			bad("--catalog-dir %q is not a directory", cfg.CatalogDir)
 		}
 	} else {
-		if cfg.CatalogRepo == "" || cfg.CatalogRef == "" || cfg.CatalogPath == "" {
+		switch {
+		case set["catalog-dir"]:
+			bad("--catalog-dir must not be empty")
+		case !set["catalog-repo"]:
+			bad("a catalog is required: pass --catalog-repo URL or --catalog-dir DIR")
+		case cfg.CatalogRepo == "" || cfg.CatalogRef == "" || cfg.CatalogPath == "":
 			bad("--catalog-repo, --catalog-ref and --catalog-path must not be empty")
 		}
 		if strings.HasPrefix(cfg.CatalogRef, "-") {
@@ -392,8 +397,8 @@ func isLoopback(host string) bool {
 }
 
 func serveUsage(w io.Writer, fl *flag.FlagSet) {
-	fmt.Fprintln(w, `usage: factory serve [--addr :8800] [--ops-addr 127.0.0.1:9090] [--public-url URL]
-                     [--catalog-repo URL --catalog-ref main --catalog-path catalog | --catalog-dir DIR]
+	fmt.Fprintln(w, `usage: factory serve (--catalog-repo URL [--catalog-ref main] [--catalog-path catalog] | --catalog-dir DIR)
+                     [--addr :8800] [--ops-addr 127.0.0.1:9090] [--public-url URL]
                      [--catalog-app-id N --catalog-app-key-ref NAME/KEY]
                      [--retention 2160h] [--state-dir DIR | --state-url URL | --state-memory]
                      [--deploy-environment github-pages]
@@ -406,6 +411,9 @@ The store is durable: --state-dir keeps it in files there (one dispatcher), --st
 object storage that every dispatcher on it shares (one of them, the leader, runs the
 controllers). --state-memory keeps it in memory, where every work item starts fresh on a
 restart; --dev-fake-providers implies it.
+A catalog is required, from one of two places: --catalog-repo, a git repository read at
+--catalog-ref under --catalog-path, polled for changes; or --catalog-dir, a local directory
+(development). This repository's catalog/ is the reference catalog to copy, not a default.
 A private --catalog-repo is read with an installation token (contents: read, that repository
 only) of the GitHub App --catalog-app-id, installed on it; --catalog-app-key-ref names its
 private key's variable, e.g. ccf-factory-app/private-key for

@@ -33,7 +33,7 @@ func (c *Controller) Run(ctx context.Context) error
 |---|---|
 | Watches | timer (default 60 s) + `POST /commands {type: resync-catalog}` |
 | Does | `git ls-remote <repo> <catalog-ref>` (branch or tag as configured; default `main`); if SHA changed → `catalog.LoadGit(repo, <that SHA>)` → if no errors swap `atomic.Pointer[catalog.Catalog]`; else keep old, publish status `{lastGood, lastAttempt, errors}` |
-| Config | `--catalog-repo` (default `https://github.com/ContainerSolutions/factory`), `--catalog-path catalog`, `--catalog-ref main`; `--catalog-dir` for local dev (fsnotify reload) |
+| Config | `--catalog-repo` (no default: serve requires a catalog, `--catalog-repo` or `--catalog-dir`), `--catalog-path catalog`, `--catalog-ref main`; `--catalog-dir` for local dev (fsnotify reload). This repo's `catalog/` is the reference catalog to copy, not a default (`catalog/README.md`) |
 
 ### provider
 

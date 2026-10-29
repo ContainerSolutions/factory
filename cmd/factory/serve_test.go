@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -497,19 +498,23 @@ func TestParseServeConfig(t *testing.T) {
 		}
 		return m
 	}
+	const testRepo = "https://github.com/example/catalog"
 	tests := []struct {
 		name string
 		args []string
 		// bare: the args go as they are; otherwise a case with no store flag gets
 		// --state-memory, so it checks what it is about rather than the durable-store refusal.
-		bare    bool
-		env     map[string]string
-		wantErr []string // substrings; nil: valid
-		check   func(*testing.T, serveConfig, []string)
+		bare bool
+		// noCatalog: the args go without a catalog; otherwise a case with no --catalog-repo
+		// or --catalog-dir gets --catalog-repo testRepo.
+		noCatalog bool
+		env       map[string]string
+		wantErr   []string // substrings; nil: valid
+		check     func(*testing.T, serveConfig, []string)
 	}{
 		{name: "defaults", env: testEnv(), check: func(t *testing.T, c serveConfig, w []string) {
 			if c.Addr != ":8800" || c.OpsAddr != "127.0.0.1:9090" || c.Retention != 2160*time.Hour || c.LogFormat != "json" ||
-				c.CatalogRepo != "https://github.com/ContainerSolutions/factory" || c.CatalogRef != "main" || c.CatalogPath != "catalog" ||
+				c.CatalogRepo != testRepo || c.CatalogRef != "main" || c.CatalogPath != "catalog" ||
 				c.DevFakeProviders || c.PublicURL != "http://localhost:8800" || c.DeployEnvironment != "github-pages" || c.StateDir != "" ||
 				c.AntiAffinityWait != scheduler.DefaultAntiAffinityWait || !c.StateMemory || c.StateURL != "" ||
 				c.StateSyncInterval != objectstore.DefaultSyncInterval {
@@ -594,7 +599,15 @@ func TestParseServeConfig(t *testing.T) {
 			wantErr: []string{"--catalog-dir and --catalog-ref are exclusive"}},
 		{name: "dir missing", args: []string{"--catalog-dir", filepath.Join(dir, "nope")}, env: testEnv(), wantErr: []string{"is not a directory"}},
 		{name: "dir is a file", args: []string{"--catalog-dir", file}, env: testEnv(), wantErr: []string{"is not a directory"}},
-		{name: "empty repo", args: []string{"--catalog-repo", ""}, env: testEnv(), wantErr: []string{"must not be empty"}},
+		{name: "no catalog", noCatalog: true, env: testEnv(), wantErr: []string{"a catalog is required: pass --catalog-repo URL or --catalog-dir DIR"}},
+		{name: "empty repo", args: []string{"--catalog-repo", ""}, env: testEnv(), wantErr: []string{"--catalog-repo, --catalog-ref and --catalog-path must not be empty"}},
+		{name: "empty dir", args: []string{"--catalog-dir", ""}, env: testEnv(), wantErr: []string{"--catalog-dir must not be empty"}},
+		{name: "dev serve on the PoC catalog dir", args: []string{"--dev-fake-providers", "--catalog-dir", pocDir}, bare: true, env: testEnv(),
+			check: func(t *testing.T, c serveConfig, _ []string) {
+				if c.CatalogDir != pocDir || !c.DevFakeProviders {
+					t.Errorf("catalog dir %q, dev %v", c.CatalogDir, c.DevFakeProviders)
+				}
+			}},
 		{name: "ref like a flag", args: []string{"--catalog-ref", "--upload-pack=x"}, env: testEnv(), wantErr: []string{"must not start with '-'"}},
 		{name: "relative public URL", args: []string{"--public-url", "factory.test"}, env: testEnv(), wantErr: []string{"--public-url"}},
 		{name: "public URL with credentials", args: []string{"--public-url", "https://u:p@factory.test"}, env: testEnv(), wantErr: []string{"--public-url"}},
@@ -653,6 +666,9 @@ func TestParseServeConfig(t *testing.T) {
 			args := tt.args
 			if !tt.bare {
 				args = append([]string{"--state-memory"}, args...)
+			}
+			if !tt.noCatalog && !slices.ContainsFunc(args, func(a string) bool { return a == "--catalog-repo" || a == "--catalog-dir" }) {
+				args = append([]string{"--catalog-repo", testRepo}, args...)
 			}
 			cfg, warnings, err := parseServeConfig(args, getenvOf(tt.env), io.Discard)
 			if tt.wantErr == nil {

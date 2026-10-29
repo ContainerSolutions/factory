@@ -51,7 +51,7 @@ An org owner creates two Apps: Organization settings → Developer settings → 
   A missing installation leaves the task `Pending` with reason `git-credential`.
 - **mock-docs was created after the first installs.** If an installation uses "Only select repositories", add `mock-docs` to **both** installations: Organization settings → GitHub Apps → the App → Configure.
 - For each App, generate a private key (App settings → General → Private keys) and note the **App ID** (top of the General page). For ccf-factory, also note the **Client ID** and generate a **client secret**.
-- **The App IDs go in the catalog, not in `.env`.** `catalog/providers/github-public.yaml` has the placeholders `author: { appID: 1, … }` (ccf-factory) and `reviewer: { appID: 2, … }` (ccf-factory-reviewer). App IDs aren't secret. §4 says where to set them.
+- **The App IDs go in the catalog, not in `.env`.** The reference catalog's `providers/github-public.yaml` has the placeholders `author: { appID: 1, … }` (ccf-factory) and `reviewer: { appID: 2, … }` (ccf-factory-reviewer); your copy carries the real ones. App IDs aren't secret. §4 says where to set them.
 
 ## 3. Secrets
 
@@ -70,11 +70,15 @@ Fill it in with an editor. Each line of `.env.example` says what goes there:
 
 Agents don't use the join token any more: an admin enrolls each agent host (§8). `FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN` stays in `.env` while the catalog's Pool still names it.
 
-## 4. Catalog
+## 4. Catalog: bring your own
 
-`factory serve` reads the catalog from git by default: `catalog/` of `https://github.com/ContainerSolutions/factory` at `main`, polled every minute. `run.sh` passes that (`--catalog-repo … --catalog-ref "${FACTORY_CATALOG_REF:-main}" --catalog-path catalog`), or `--catalog-dir "$FACTORY_CATALOG_DIR"` when that is set in `.env`.
+`factory serve` has no default catalog: `run.sh` refuses to start until `.env` sets `FACTORY_CATALOG_REPO` or `FACTORY_CATALOG_DIR`. This repository's `catalog/` is the reference catalog ([`catalog/README.md`](../../catalog/README.md)): the tests use it and it is the one to copy, but no dispatcher runs it, and its prod RuleSets name compliance-framework repositories. Pick one of three sources:
 
-`main` works as is once the real App IDs are merged into `catalog/providers/github-public.yaml` and `ccf-skills` has the tag the TaskSpecs pin (`ref: v0.8.0`). A Provider change needs two approvals. Until both are true, run from a local copy:
+- **A public repository.** Set `FACTORY_CATALOG_REPO` to its URL. `run.sh` passes `--catalog-repo "$FACTORY_CATALOG_REPO" --catalog-ref "${FACTORY_CATALOG_REF:-main}" --catalog-path "${FACTORY_CATALOG_PATH:-catalog}"`, and the dispatcher polls it every minute.
+- **A private repository.** As above, plus the GitHub App that reads it with an installation token (`contents: read`, that repository only). Install the App on the catalog repository with Contents: read, then pass `--catalog-app-id <App ID> --catalog-app-key-ref <name>/<key>`, the key coming from `FACTORY_SECRET_<NAME>_<KEY>`. With ccf-factory, set `FACTORY_CATALOG_APP_ID` in `.env`: `run.sh` adds both flags with `--catalog-app-key-ref ccf-factory-app/private-key`, the key the Provider already reads. CCF's catalog is this kind: `FACTORY_CATALOG_REPO=https://github.com/compliance-framework/factory-catalog`.
+- **A local directory.** Set `FACTORY_CATALOG_DIR` to its absolute path: `run.sh` passes `--catalog-dir "$FACTORY_CATALOG_DIR"` instead of the git flags, and the directory is re-read every minute too. Use it to try a catalog before it is in a repository.
+
+A catalog of your own starts as a copy of the reference. For a local one:
 
 ```bash
 cp -R catalog "$HOME/factory-poc-catalog"
@@ -86,7 +90,7 @@ Set the real App IDs (replace `<CCF_FACTORY_APP_ID>` and `<CCF_FACTORY_REVIEWER_
 sed -i.bak -e 's/appID: 1,/appID: <CCF_FACTORY_APP_ID>,/' -e 's/appID: 2,/appID: <CCF_FACTORY_REVIEWER_APP_ID>,/' "$HOME/factory-poc-catalog/providers/github-public.yaml" && rm "$HOME/factory-poc-catalog/providers/github-public.yaml.bak"
 ```
 
-While `ccf-skills` has no `v0.8.0` tag, pin the skills to a branch. With a ref that doesn't resolve, every dispatch is retried forever (`reconcile failed; retrying … resolve skills …`):
+While `ccf-skills` has no `v0.8.0` tag (the ref the reference's TaskSpecs pin), pin the skills to a branch. With a ref that doesn't resolve, every dispatch is retried forever (`reconcile failed; retrying … resolve skills …`):
 
 ```bash
 sed -i.bak 's/ref: v0\.8\.0/ref: main/' "$HOME"/factory-poc-catalog/taskspecs/*.yaml && rm "$HOME"/factory-poc-catalog/taskspecs/*.yaml.bak
@@ -96,9 +100,7 @@ sed -i.bak 's/ref: v0\.8\.0/ref: main/' "$HOME"/factory-poc-catalog/taskspecs/*.
 go run ./cmd/factory validate --dir "$HOME/factory-poc-catalog"
 ```
 
-Expect `valid (dir:…): 0 errors, 11 warnings`. The warnings are the expected CAT1200 overlaps between the dev and prod RuleSets. Then set `FACTORY_CATALOG_DIR=<your home>/factory-poc-catalog` (an absolute path) in `.env`. The directory is re-read every minute too.
-
-**Private catalog.** A private catalog repository is read with an installation token of a GitHub App (`contents: read`, that repository only). Install the App on the catalog repository with Contents: read, then pass `--catalog-app-id <App ID> --catalog-app-key-ref <name>/<key>`, the key coming from `FACTORY_SECRET_<NAME>_<KEY>`. With ccf-factory, set `FACTORY_CATALOG_APP_ID` in `.env`: `run.sh` adds both flags with `--catalog-app-key-ref ccf-factory-app/private-key`, the key the Provider already reads.
+Expect `valid (dir:…): 0 errors, 23 warnings`. The warnings are the expected CAT1200 overlaps between the dev and prod RuleSets. Then set `FACTORY_CATALOG_DIR=<your home>/factory-poc-catalog` (an absolute path) in `.env`, or push the directory to a repository of your own and set `FACTORY_CATALOG_REPO`.
 
 ## 5. Tunnel
 
@@ -358,7 +360,7 @@ docker run --rm -p 127.0.0.1:8800:8800 -v factory-state:/var/lib/factory \
   -e FACTORY_SECRET_GITHUB_PUBLIC_WEBHOOK_SECRET -e FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY \
   -e FACTORY_SECRET_CCF_FACTORY_REVIEWER_APP_PRIVATE_KEY -e FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN \
   ghcr.io/containersolutions/factory:<tag> \
-  serve --state-dir /var/lib/factory/state --log-format json
+  serve --catalog-repo "$FACTORY_CATALOG_REPO" --state-dir /var/lib/factory/state --log-format json
 ```
 
-`--addr` defaults to `:8800`, the port the image exposes. The catalog defaults to `catalog/` of this repository at `main` (`--catalog-repo`, `--catalog-ref`, `--catalog-path`); `--catalog-dir` needs the directory mounted. The ops listener (`--ops-addr`, `/healthz`, `/readyz`, `/metrics`) must stay on loopback, so it is reachable only from inside the container.
+`--addr` defaults to `:8800`, the port the image exposes. There is no default catalog: add `--catalog-repo <URL>` (with `--catalog-ref` and `--catalog-path` when they aren't `main` and `catalog`, and the App flags for a private repository, §4), or `--catalog-dir` with the directory mounted. The ops listener (`--ops-addr`, `/healthz`, `/readyz`, `/metrics`) must stay on loopback, so it is reachable only from inside the container.
