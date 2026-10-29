@@ -72,10 +72,11 @@ Agents don't use the join token any more: an admin enrolls each agent host (§8)
 
 ## 4. Catalog: bring your own
 
-`factory serve` has no default catalog: `run.sh` refuses to start until `.env` sets `FACTORY_CATALOG_REPO` or `FACTORY_CATALOG_DIR`. This repository's `catalog/` is the reference catalog ([`catalog/README.md`](../../catalog/README.md)): the tests use it and it is the one to copy, but no dispatcher runs it, and its prod RuleSets name compliance-framework repositories. Pick one of three sources:
+`factory serve` has no default catalog: `run.sh` refuses to start until `.env` sets `FACTORY_CATALOG_REPO` or `FACTORY_CATALOG_DIR`. This repository's `catalog/` is the reference catalog ([`catalog/README.md`](../../catalog/README.md)): the tests use it and it is the one to copy, but no dispatcher runs it, and its prod RuleSets name compliance-framework repositories. Pick one of four sources:
 
 - **A public repository.** Set `FACTORY_CATALOG_REPO` to its URL. `run.sh` passes `--catalog-repo "$FACTORY_CATALOG_REPO" --catalog-ref "${FACTORY_CATALOG_REF:-main}" --catalog-path "${FACTORY_CATALOG_PATH:-catalog}"`, and the dispatcher polls it every minute.
 - **A private repository.** As above, plus the GitHub App that reads it with an installation token (`contents: read`, that repository only). Install the App on the catalog repository with Contents: read, then pass `--catalog-app-id <App ID> --catalog-app-key-ref <name>/<key>`, the key coming from `FACTORY_SECRET_<NAME>_<KEY>`. With ccf-factory, set `FACTORY_CATALOG_APP_ID` in `.env`: `run.sh` adds both flags with `--catalog-app-key-ref ccf-factory-app/private-key`, the key the Provider already reads. CCF's catalog is this kind: `FACTORY_CATALOG_REPO=https://github.com/compliance-framework/factory-catalog`.
+- **A private repository with a deploy key.** Set `FACTORY_CATALOG_REPO` to its SSH URL, `git@github.com:<owner>/<repo>.git`, and leave `FACTORY_CATALOG_APP_ID` unset: there are no serve flags for it, git reads the repository with its own SSH configuration. Add the public key under the repository's Settings → Deploy keys, read-only (leave "Allow write access" off). On a workstation, point ssh at the private key with a `Host` alias in `~/.ssh/config` (and the alias in the URL) or with `GIT_SSH_COMMAND` in `.env` (`run.sh` exports every line of it to serve); `github.com` must be in `known_hosts` (`ssh -T git@github.com` once, checking the fingerprint against GitHub's published ones), and the key must have no passphrase or be loaded in `ssh-agent`, as ssh never prompts. In the image, see §Run the image. Of the two private options, App tokens are short-lived and reuse the App key the Provider already needs; a deploy key is a second long-lived secret, rotated by hand.
 - **A local directory.** Set `FACTORY_CATALOG_DIR` to its absolute path: `run.sh` passes `--catalog-dir "$FACTORY_CATALOG_DIR"` instead of the git flags, and the directory is re-read every minute too. Use it to try a catalog before it is in a repository.
 
 A catalog of your own starts as a copy of the reference. For a local one:
@@ -344,7 +345,7 @@ Nothing releases on its own: no bot tags, bumps versions or drafts releases. A p
 | Workflow | What it adds to the release |
 |---|---|
 | `release-binaries.yml` | the assets `make release-assets VERSION=<tag>` builds into `dist/`: `factory-<os>-<arch>` (the dispatcher and CLI, UI embedded) for linux/amd64, linux/arm64 and darwin/arm64; `factory-agent-<os>-<arch>` for darwin/arm64, linux/amd64 and linux/arm64 (linux/arm64 is also the Mac's VM binary, `host init --agent-linux`); `install.sh`, the agent host installer (§8); `SHA256SUMS` over them. |
-| `release-image.yml` | pushes the dispatcher image, the root `Dockerfile` (`factory` with the UI, on Alpine with `git` and the CA roots, as uid 65532), to `ghcr.io/containersolutions/factory:<tag>` and `:latest`, for linux/amd64 and linux/arm64. `make image` builds it locally (`IMAGE`, default `factory:dev`) and never pushes. |
+| `release-image.yml` | pushes the dispatcher image, the root `Dockerfile` (`factory` with the UI, on Alpine with `git`, the CA roots, an SSH client and GitHub's pinned host keys, as uid 65532), to `ghcr.io/containersolutions/factory:<tag>` and `:latest`, for linux/amd64 and linux/arm64. `make image` builds it locally (`IMAGE`, default `factory:dev`) and never pushes. |
 
 A workflow that fails can be re-run from its Actions page: the upload replaces the release's assets (`--clobber`). `make release-assets VERSION=v0.0.0-test` builds the same `dist/` locally (it needs Node, like `make build-release`); `cd dist && shasum -a 256 -c SHA256SUMS` checks it.
 
@@ -364,3 +365,21 @@ docker run --rm -p 127.0.0.1:8800:8800 -v factory-state:/var/lib/factory \
 ```
 
 `--addr` defaults to `:8800`, the port the image exposes. There is no default catalog: add `--catalog-repo <URL>` (with `--catalog-ref` and `--catalog-path` when they aren't `main` and `catalog`, and the App flags for a private repository, §4), or `--catalog-dir` with the directory mounted. The ops listener (`--ops-addr`, `/healthz`, `/readyz`, `/metrics`) must stay on loopback, so it is reachable only from inside the container.
+
+A private catalog read with a deploy key (§4) needs the key in the container and ssh pointed at it. The image has an SSH client and GitHub's host keys for `github.com` (`/etc/ssh/ssh_known_hosts`, from [`deploy/github_known_hosts`](../github_known_hosts)), and nothing else: mount the private key read-only at `/run/secrets/catalog-deploy-key` and pass `GIT_SSH_COMMAND`, which git hands to ssh. `BatchMode=yes` makes ssh fail instead of waiting on a prompt, and `StrictHostKeyChecking=yes` accepts only the pinned host keys. The key must belong to uid 65532 with mode 0600, or ssh refuses it: `chown 65532` a host file, as below, or use the platform's secret-mount options (a Swarm secret's `uid=65532,mode=0600`, for example, which also mounts it at `/run/secrets/<target>`).
+
+```bash
+sudo install -m 0600 -o 65532 /path/to/catalog-deploy-key /srv/factory/catalog-deploy-key
+set -a; . deploy/poc/.env; set +a
+docker run --rm -p 127.0.0.1:8800:8800 -v factory-state:/var/lib/factory \
+  -v /srv/factory/catalog-deploy-key:/run/secrets/catalog-deploy-key:ro \
+  -e GIT_SSH_COMMAND="ssh -i /run/secrets/catalog-deploy-key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes" \
+  -e FACTORY_PUBLIC_URL -e FACTORY_OAUTH_CLIENT_ID -e FACTORY_OAUTH_CLIENT_SECRET \
+  -e FACTORY_SESSION_KEY -e FACTORY_CLI_TOKEN \
+  -e FACTORY_SECRET_GITHUB_PUBLIC_WEBHOOK_SECRET -e FACTORY_SECRET_CCF_FACTORY_APP_PRIVATE_KEY \
+  -e FACTORY_SECRET_CCF_FACTORY_REVIEWER_APP_PRIVATE_KEY -e FACTORY_SECRET_LOCAL_POOL_JOIN_TOKEN \
+  ghcr.io/containersolutions/factory:<tag> \
+  serve --catalog-repo git@github.com:<owner>/<repo>.git --state-dir /var/lib/factory/state --log-format json
+```
+
+ssh writes the key's path into its errors (a missing or unreadable key), and git's error reaches the `catalog source unreadable` log line and the catalog status. That is the path, never the key.

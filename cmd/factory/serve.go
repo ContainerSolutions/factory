@@ -418,6 +418,8 @@ A private --catalog-repo is read with an installation token (contents: read, tha
 only) of the GitHub App --catalog-app-id, installed on it; --catalog-app-key-ref names its
 private key's variable, e.g. ccf-factory-app/private-key for
 `+envSecretPrefix+`CCF_FACTORY_APP_PRIVATE_KEY.
+An ssh --catalog-repo (git@github.com:<owner>/<name>.git) takes no App flags: git reads it
+with its own SSH configuration, a deploy key through ~/.ssh or GIT_SSH_COMMAND.
 
 environment (secrets come from the environment only and are never logged):
   `+envOAuthClientID+`, `+envOAuthClientSecret+`   UI login (GitHub OAuth App)
