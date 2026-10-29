@@ -212,8 +212,7 @@ draft is in that session's scratchpad (`ccf-catalog-design.md`). The decisions:
 `gh stack` per repo. The full plan: `~/.claude/plans/factory-remove-the-enchanted-sutton.md`.
 
 *Stack A, ContainerSolutions/factory (merged and released first):*
-**Built (2026-10-29):** #250 (A1) → #251 (A2) → #252 (A3), green and reviewed clean, waiting
-for Gustavo to merge bottom-up and publish the release. Stack B's specs are in that session's
+**Merged (2026-10-29):** #250 (A1) → #251 (A2) → #252 (A3), released as v0.3.0. Stack B's specs are in that session's
 scratchpad (`specsB/`), App IDs filled in (ccf-factory 5343156, reviewer 5343204).
 - **A1** `feat(controllers): read a private catalog with an App installation token`:
   `serve --catalog-app-id N --catalog-app-key-ref name/key` (the key from the existing
@@ -231,6 +230,11 @@ scratchpad (`specsB/`), App IDs filled in (ccf-factory 5343156, reviewer 5343204
 - **Release** (Gustavo): a factory release with A1–A3; the catalog CI pins it.
 
 *Stack B, compliance-framework/factory-catalog (all new RuleSets scoped to docs):*
+**Built (2026-10-29):** factory-catalog #1 (B1, size-exception) → #2 → #3 → #4 → #5 → #6, all green
+and reviewed (B5 and B6 each had one fix round). Waiting for Gustavo to merge bottom-up. Changes
+from the plan, made in review: `review-comment` is its own TaskSpec (outsiders get comments only,
+enforced by effects); bump-fix also removes `renovate:automerge`; the people's-PR review skips
+factory and bot PRs; triage doesn't use `publicReads` (it breaks the private ccf-skills fetch).
 - **B1** `chore: import the CCF catalog from the reference`: prod objects and fixtures only,
   `poc-*` → `ccf-*`, the real App IDs, CI with the pinned binary, a README with the waves.
 - **B2** `feat(shared)`: member and release-bot tiers, the three queues, shared rules for the
