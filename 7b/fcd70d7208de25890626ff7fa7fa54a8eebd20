@@ -1,0 +1,2 @@
+lisa-selfreview:
+pass 1 (verdict approve, no fix-worthy findings): checked CORE-SEC-001/FACTORY-CRED-001 (only public host keys committed; no key read or logged), CORE-DOC-001 (README §4, §12, §Run the image, .env.example, serve usage all updated), CORE-TEST-001 (no Go behaviour changed; the image is verified by docker build + run, and CI does not build the dispatcher image on PRs: raised under For triage), CORE-SCOPE-001 (gitsource/controllers untouched). deploykit_test and make reviewable pass.
