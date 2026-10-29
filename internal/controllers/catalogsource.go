@@ -29,9 +29,9 @@ type CatalogSource interface {
 	String() string
 }
 
-// Catalog-sync source defaults (the LLD's --catalog-* flags).
+// Catalog-sync source defaults (the LLD's --catalog-* flags). There is no default repository:
+// serve requires --catalog-repo or --catalog-dir.
 const (
-	DefaultCatalogRepo = "https://github.com/ContainerSolutions/factory"
 	DefaultCatalogRef  = "main"
 	DefaultCatalogPath = "catalog"
 )
@@ -41,7 +41,7 @@ const (
 // fetch into a temporary directory). gitsource redacts credentials in the URL, and the token,
 // from its errors.
 type GitSource struct {
-	// Repo is the repository URL (https, ssh, git or file). Default DefaultCatalogRepo.
+	// Repo is the repository URL (https, ssh, git or file). Required: there is no default.
 	Repo string
 	// Ref is the branch or tag to follow, or a full commit SHA to pin. Default "main".
 	Ref string
@@ -63,9 +63,6 @@ type GitSource struct {
 var _ CatalogSource = GitSource{}
 
 func (g GitSource) withDefaults() GitSource {
-	if g.Repo == "" {
-		g.Repo = DefaultCatalogRepo
-	}
 	if g.Ref == "" {
 		g.Ref = DefaultCatalogRef
 	}

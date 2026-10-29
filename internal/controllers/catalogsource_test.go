@@ -230,7 +230,7 @@ func TestGitSourcePinnedHead(t *testing.T) {
 
 func TestDefaults(t *testing.T) {
 	g := GitSource{}.withDefaults()
-	if g.Repo != DefaultCatalogRepo || g.Ref != "main" || g.Path != "catalog" {
+	if g.Repo != "" || g.Ref != "main" || g.Path != "catalog" {
 		t.Errorf("GitSource defaults = %+v", g)
 	}
 	if _, err := (DirSource{}).Head(context.Background()); err == nil {

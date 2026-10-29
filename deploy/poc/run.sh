@@ -53,6 +53,8 @@ case "$FACTORY_PUBLIC_URL" in
 https://*) ;;
 *) die "FACTORY_PUBLIC_URL must be the https tunnel URL (the UI's session cookies are Secure)" ;;
 esac
+[ -n "${FACTORY_CATALOG_REPO:-}" ] || [ -n "${FACTORY_CATALOG_DIR:-}" ] ||
+	die "a catalog is required: set FACTORY_CATALOG_REPO (a git repository) or FACTORY_CATALOG_DIR (a local directory) in $env_file (README §Catalog)"
 
 cd "$root"
 if [ "${SKIP_BUILD:-}" = 1 ]; then
@@ -61,13 +63,14 @@ else
 	make build-release
 fi
 
-# The catalog: a local directory (FACTORY_CATALOG_DIR), or catalog/ of
-# ContainerSolutions/factory at FACTORY_CATALOG_REF (default main), polled every minute.
+# The catalog (README §Catalog): a local directory (FACTORY_CATALOG_DIR), or
+# FACTORY_CATALOG_PATH (default catalog) of the repository FACTORY_CATALOG_REPO at
+# FACTORY_CATALOG_REF (default main), polled every minute. There is no default repository.
 if [ -n "${FACTORY_CATALOG_DIR:-}" ]; then
 	catalog=(--catalog-dir "$FACTORY_CATALOG_DIR")
 else
-	catalog=(--catalog-repo https://github.com/ContainerSolutions/factory
-		--catalog-ref "${FACTORY_CATALOG_REF:-main}" --catalog-path catalog)
+	catalog=(--catalog-repo "$FACTORY_CATALOG_REPO"
+		--catalog-ref "${FACTORY_CATALOG_REF:-main}" --catalog-path "${FACTORY_CATALOG_PATH:-catalog}")
 	# A private catalog repository: read with an installation token of that App, whose key
 	# is ccf-factory's (README §Catalog).
 	if [ -n "${FACTORY_CATALOG_APP_ID:-}" ]; then
