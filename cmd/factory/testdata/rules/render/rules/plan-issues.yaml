@@ -1,0 +1,9 @@
+kind: Rule
+metadata: { name: plan-issues, labels: { pack: demo } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [issue.opened]
+  where: "actor.tier == 'maintainer'"
+  actions:
+    - set: { plan: planning }
+    - dispatch: { taskSpec: plan, queue: q, inputs: { issue: "=event.object.ref" } }

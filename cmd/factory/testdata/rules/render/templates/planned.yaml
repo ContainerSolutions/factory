@@ -1,0 +1,8 @@
+kind: Template
+metadata: { name: planned }
+spec:
+  bodies:
+    github: |
+      Planned in {{ len .run.result.plan }} steps:
+      {{ range .run.result.plan }}- {{ .issue }}: {{ .title }}
+      {{ end }}See {{ .links.ui }}.

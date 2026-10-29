@@ -1,0 +1,25 @@
+{
+  "kind": "Event",
+  "id": "factory-run-1",
+  "source": "factory",
+  "type": "factory.run.completed",
+  "time": "2026-10-16T12:00:00Z",
+  "data": {
+    "provider": "factory",
+    "facts": {
+      "run": {
+        "id": "run-1",
+        "spec": "plan",
+        "outcome": "decomposed",
+        "status": "done",
+        "result": {
+          "plan": [
+            { "issue": "acme/docs#8", "title": "First" },
+            { "issue": "acme/docs#9", "title": "Second" }
+          ]
+        }
+      }
+    }
+  },
+  "workItem": "wi-7"
+}

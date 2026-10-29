@@ -1,0 +1,56 @@
+{
+  "event": "gh-1",
+  "workItem": "wi-7",
+  "matches": [
+    {
+      "ruleSet": "demo",
+      "rule": "plan-issues",
+      "result": "matched",
+      "inputs": [
+        "actor"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "demo",
+      "rule": "plan-issues",
+      "action": {
+        "set": {
+          "key": "plan",
+          "value": "planning"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor"
+      ]
+    },
+    {
+      "ruleSet": "demo",
+      "rule": "plan-issues",
+      "action": {
+        "dispatch": {
+          "taskSpec": "plan",
+          "queue": "q",
+          "inputs": {
+            "issue": "acme/docs#7"
+          }
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "actor"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "plan": "planning"
+  }
+}

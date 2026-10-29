@@ -544,7 +544,12 @@ func validateResult(cat *catalog.Catalog, t *v1alpha1.Task, res v1alpha1.Result)
 			return fmt.Errorf("outcome %q is not one of %s", res.Outcome, strings.Join(out.Outcomes, ", "))
 		}
 	}
-	ts := ResultSpec(cat, t)
+	return checkOutputSchema(ResultSpec(cat, t), res)
+}
+
+// checkOutputSchema validates a Result (any value that encodes as one) against ts's output
+// schema; nil when ts is nil or has none.
+func checkOutputSchema(ts *catalog.CompiledTaskSpec, res any) error {
 	if ts == nil || ts.OutputSchema == nil {
 		return nil
 	}

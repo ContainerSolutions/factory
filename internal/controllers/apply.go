@@ -58,23 +58,14 @@ type applied struct {
 // that doesn't render, an effect the provider rejects) is returned as a note for the decision
 // record; any other error is returned so the reconcile is retried (every step is idempotent).
 func (a *applier) apply(ctx context.Context, ac *applyCtx, d applied) (note string, err error) {
-	switch d.verdict.Verdict {
-	case rules.VerdictAllowed, rules.VerdictDeferred:
-	default:
+	if !applies(d.verdict) {
 		return "", nil // suppressed or unsupported: recorded, not applied
 	}
 	act := d.action
+	if applyToItem(ac, act) {
+		return "", nil
+	}
 	switch {
-	case act.Set != nil:
-		st := ensureStatus(ac.wi)
-		if st.State == nil {
-			st.State = map[string]any{}
-		}
-		st.State[act.Set.Key] = jsonValue(act.Set.Value)
-		return "", nil
-	case act.Link != nil:
-		AddLink(ac.wi, act.Link.Ref, ac.ev.Source)
-		return "", nil
 	case act.Dispatch != nil:
 		return a.dispatch(ctx, ac, d)
 	case act.Cancel != nil:
@@ -87,6 +78,28 @@ func (a *applier) apply(ctx context.Context, ac *applyCtx, d applied) (note stri
 		return "", a.debounce(ctx, ac, d)
 	}
 	return "", nil
+}
+
+// applies reports whether a decision with this rail verdict is applied: allowed or deferred.
+func applies(v v1alpha1.RailVerdict) bool {
+	return v.Verdict == rules.VerdictAllowed || v.Verdict == rules.VerdictDeferred
+}
+
+// applyToItem applies a set or a link to ac.wi and reports whether act was one.
+func applyToItem(ac *applyCtx, act rules.ActionIntent) bool {
+	switch {
+	case act.Set != nil:
+		st := ensureStatus(ac.wi)
+		if st.State == nil {
+			st.State = map[string]any{}
+		}
+		st.State[act.Set.Key] = jsonValue(act.Set.Value)
+		return true
+	case act.Link != nil:
+		AddLink(ac.wi, act.Link.Ref, ac.ev.Source)
+		return true
+	}
+	return false
 }
 
 func ensureStatus(wi *v1alpha1.WorkItem) *v1alpha1.WorkItemStatus {

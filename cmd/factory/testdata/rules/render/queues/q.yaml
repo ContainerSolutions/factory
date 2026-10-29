@@ -1,0 +1,5 @@
+kind: Queue
+metadata: { name: q }
+spec:
+  pool: local
+  concurrency: 1

@@ -126,6 +126,7 @@ catalog/testdata/<case>/   # a case is any directory holding an event.json, at a
   workitem.json        # WorkItemView before
   rails.json           # optional: tripped rails (FakeRails); none = every action allowed
   expected.json        # golden Evaluation (Matches, Decisions, StateAfter), generated with --update
+  rendered/            # golden texts the decisions render, <decision>-<prompt|template>-<name>.md, generated with --update
 ```
 
 ```text
@@ -149,11 +150,13 @@ factory rules test [--catalog catalog] [--fixtures <catalog>/testdata] [--update
   ```
 
   Rules pair by (RuleSet, rule). Decisions pair by (RuleSet, rule, kind, the TaskSpec/key/template/ref/op they name) and occurrence, so a changed input or rail verdict reads as `~` with the changed fields (`dispatch.inputs.checks: [...] -> [...]`, `[allowed] -> [suppressed kill-switch: …]`). A reorder is one `~ decision order` line. State changes are per top-level key. A missing `expected.json` is a mismatch too.
-- `--update`: rewrites the goldens that differ (or are missing), prints what changed, and exits 0.
-- `--base-catalog`: evaluates each case with both catalogs, and prints the **decision diff** from base to `--catalog` (`- base, + head`) and "N of M cases change their decisions" (for catalog PRs). It doesn't read the goldens, so it doesn't combine with `--update`. It exits 0 unless `--fail-on-diff` is given.
-- `--coverage`: lists rules never matched by any fixture (CI fails on uncovered PoC rules — CAT-S1-T04). Only the rules some RuleSet selects count. The others (e.g. the excluded `merge-*` rules) are listed as not selected. Exit 1 when a selected rule never fires.
-- `--format json`: the report (cases with status `ok|differs|missing|updated|changed` and their structured changes, totals, coverage) on stdout.
-- **Exit codes**, as for `factory validate`: 0 OK; 1 a mismatch or missing golden, a base/head change with `--fail-on-diff`, or an uncovered rule with `--coverage`; 2 a usage error, an unreadable fixture, or a catalog that doesn't load. A catalog that doesn't load prints its diagnostics in `validate`'s format on stderr. When the default `<catalog>/testdata` doesn't exist, it warns and exits 0, so a catalog without fixtures yet doesn't break `make catalog`. An explicit `--fixtures` that doesn't exist is exit 2.
+- **Renders.** Each case also renders what its decisions would make the dispatcher render, with the dispatcher's code (`controllers.RenderEvaluation`): the prompt of every dispatch (`compileTask` with `KeepSkills`, the decision key's task id) and the GitHub body of every notify's Template (`templateData`, `renderBody`, `links.ui` on `https://factory.example`), whatever the rail verdict. Sets and links apply in order first, as the rule controller applies them. The texts are goldens under `rendered/`: a text that differs, a missing golden and a golden no decision renders (stale) are mismatches. A text that doesn't render, or that holds `<no value>`, `<nil>`, `%!` or `map[` (a field typo such as `.run.reslt`, or a value printed raw), fails the case with the TaskSpec or Template name and the error.
+- **Result schemas.** For a `factory.run.completed` event with a `run.result`, the Result (rebuilt from the rules' view: `controllers.CheckRunResult`) is validated against the run's TaskSpec `output.schema`, as `complete` does; a refusal fails the case.
+- `--update`: rewrites the goldens that differ (or are missing), removes stale rendered ones, prints what changed, and exits 0 unless a case fails to render or its result fails its schema.
+- `--base-catalog`: evaluates each case with both catalogs, and prints the **decision diff** from base to `--catalog` (`- base, + head`) and "N of M cases change their decisions" (for catalog PRs). It doesn't read the goldens and renders nothing, so it doesn't combine with `--update`. It exits 0 unless `--fail-on-diff` is given.
+- `--coverage`: lists rules never matched by any fixture (CI fails on uncovered PoC rules — CAT-S1-T04). Only the rules some RuleSet selects count. The others (e.g. the excluded `merge-*` rules) are listed as not selected. Exit 1 when a selected rule never fires. It also warns (without failing) about the TaskSpecs with a prompt and the Templates no case renders.
+- `--format json`: the report (cases with status `ok|differs|missing|updated|changed|failed`, their structured changes, rendered golden mismatches and failures, totals, coverage) on stdout.
+- **Exit codes**, as for `factory validate`: 0 OK; 1 a mismatch or missing golden, a render or result schema failure (also with `--update`), a base/head change with `--fail-on-diff`, or an uncovered rule with `--coverage`; 2 a usage error, an unreadable fixture, or a catalog that doesn't load. A catalog that doesn't load prints its diagnostics in `validate`'s format on stderr. When the default `<catalog>/testdata` doesn't exist, it warns and exits 0, so a catalog without fixtures yet doesn't break `make catalog`. An explicit `--fixtures` that doesn't exist is exit 2.
 
 ## Tests (CORE-S1-T04)
 

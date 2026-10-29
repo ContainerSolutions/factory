@@ -17,10 +17,14 @@ import (
 	"github.com/ContainerSolutions/factory/internal/rules"
 )
 
-// factory rules test exits like factory validate: 0 when every case matches its golden (or
+// factory rules test exits like factory validate: 0 when every case matches its goldens (or
 // with --update, or --base-catalog without --fail-on-diff), 1 on a mismatch, a missing
-// golden, a base/head difference with --fail-on-diff or an uncovered rule with --coverage,
-// and 2 on a usage error, an invalid catalog or an unreadable fixture.
+// golden, a prompt or Template that doesn't render, a run result its schema refuses (also
+// with --update), a base/head difference with --fail-on-diff or an uncovered rule with
+// --coverage, and 2 on a usage error, an invalid catalog or an unreadable fixture.
+//
+// Besides the decisions (expected.json), each case's goldens are the texts its decisions
+// render (rendered/, rules_render.go). --base-catalog compares decisions only.
 
 func rulesCommand() command {
 	return command{
@@ -58,6 +62,7 @@ const (
 	caseMissing = "missing" // has no expected.json
 	caseUpdated = "updated" // --update rewrote (or created) its golden
 	caseChanged = "changed" // --base-catalog: the catalogs decide differently
+	caseFailed  = "failed"  // a prompt or Template doesn't render, or the run result fails its schema
 )
 
 // rulesTestReport is the --format json output.
@@ -66,12 +71,13 @@ type rulesTestReport struct {
 	BaseCatalog string       `json:"baseCatalog,omitzero"`
 	Fixtures    string       `json:"fixtures"`
 	Cases       []caseReport `json:"cases"`
-	// Total is the number of cases; Differ those that differ from their golden (or are
+	// Total is the number of cases; Differ those that differ from their goldens (or are
 	// missing one), or, with --base-catalog, whose decisions change; Updated those --update
-	// rewrote.
+	// rewrote; Failed those that don't render or whose run result fails its schema.
 	Total    int             `json:"total"`
 	Differ   int             `json:"differ"`
 	Updated  int             `json:"updated,omitzero"`
+	Failed   int             `json:"failed,omitzero"`
 	Coverage *coverageReport `json:"coverage,omitzero"`
 }
 
@@ -80,15 +86,24 @@ type caseReport struct {
 	Status  string         `json:"status"`
 	Note    string         `json:"note,omitzero"`
 	Changes []rules.Change `json:"changes,omitzero"`
+	// Rendered are the rendered goldens that don't match, or that --update rewrote.
+	Rendered []renderReport `json:"rendered,omitzero"`
+	// Failures are the render and run result schema failures.
+	Failures []string `json:"failures,omitzero"`
 }
 
 // coverageReport lists the rules no case fires. Only the rules some RuleSet selects count:
-// the others (e.g. the merge-* rules every PoC RuleSet excludes) can't fire.
+// the others (e.g. the merge-* rules every PoC RuleSet excludes) can't fire. It also lists
+// the TaskSpecs (with a prompt) and the Templates no case renders: a warning, not a failure.
 type coverageReport struct {
 	Selected    int      `json:"selected"`
 	Fired       int      `json:"fired"`
 	NeverFired  []string `json:"neverFired"`
 	NotSelected []string `json:"notSelected,omitzero"`
+	// PromptsNotRendered and TemplatesNotRendered are empty with --base-catalog, which
+	// renders nothing.
+	PromptsNotRendered   []string `json:"promptsNotRendered,omitzero"`
+	TemplatesNotRendered []string `json:"templatesNotRendered,omitzero"`
 }
 
 func runRulesTest(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -96,7 +111,7 @@ func runRulesTest(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	fl.SetOutput(stderr)
 	catalogDir := fl.String("catalog", "catalog", "catalog directory")
 	fixturesDir := fl.String("fixtures", "", "fixtures directory: every directory under it with an event.json is a case (default <catalog>/testdata)")
-	update := fl.Bool("update", false, "rewrite each case's expected.json with the current decisions")
+	update := fl.Bool("update", false, "rewrite each case's expected.json and rendered/ texts with the current decisions and renders")
 	baseDir := fl.String("base-catalog", "", "also evaluate every case with this catalog and print the decision diff from it to --catalog (for catalog PRs); the goldens are not read")
 	failOnDiff := fl.Bool("fail-on-diff", false, "with --base-catalog: exit 1 when any case's decisions change")
 	coverage := fl.Bool("coverage", false, "list the rules no case fires; exit 1 when a rule some RuleSet selects never fires")
@@ -156,6 +171,7 @@ func runRulesTest(ctx context.Context, args []string, stdout, stderr io.Writer) 
 
 	rep := rulesTestReport{Catalog: *catalogDir, BaseCatalog: *baseDir, Fixtures: *fixturesDir, Total: len(cases), Cases: []caseReport{}}
 	fired := map[string]bool{}
+	seen := renderSeen{taskSpecs: map[string]bool{}, templates: map[string]bool{}}
 	for _, f := range cases {
 		ev, err := f.Evaluate(ctx, head)
 		if err != nil {
@@ -180,21 +196,30 @@ func runRulesTest(ctx context.Context, args []string, stdout, stderr io.Writer) 
 			}
 		} else {
 			cr, err = goldenCase(f, ev, *fixturesDir, *update)
+			if err == nil {
+				cr.Rendered, cr.Failures, err = renderCase(ctx, head, f, ev, filepath.Join(*fixturesDir, filepath.FromSlash(f.Name)), *update, seen)
+			}
 			if err != nil {
-				fmt.Fprintf(stderr, "factory rules test: %v\n", err)
+				fmt.Fprintf(stderr, "factory rules test: %s: %v\n", f.Name, err)
 				return exitUsage
 			}
+			cr.Status = caseStatus(cr)
 		}
 		switch cr.Status {
 		case caseDiffers, caseMissing, caseChanged:
 			rep.Differ++
 		case caseUpdated:
 			rep.Updated++
+		case caseFailed:
+			rep.Failed++
 		}
 		rep.Cases = append(rep.Cases, cr)
 	}
 	if *coverage {
 		rep.Coverage = ruleCoverage(head, fired)
+		if base == nil {
+			renderCoverage(rep.Coverage, head, seen)
+		}
 	}
 
 	if *format == "json" {
@@ -210,6 +235,8 @@ func runRulesTest(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	}
 
 	switch {
+	case rep.Failed > 0:
+		return exitInvalid
 	case base == nil && rep.Differ > 0:
 		return exitInvalid
 	case base != nil && rep.Differ > 0 && *failOnDiff:
@@ -277,6 +304,41 @@ func goldenCase(f rules.Fixture, ev rules.Evaluation, fixturesDir string, update
 	return cr, nil
 }
 
+// caseStatus is a case's status from its decisions' (goldenCase) and its rendered goldens' and
+// failures: a decision mismatch first, then a failure, then a rendered golden.
+func caseStatus(cr caseReport) string {
+	switch {
+	case cr.Status != caseOK && cr.Status != caseUpdated:
+		return cr.Status
+	case len(cr.Failures) > 0:
+		return caseFailed
+	}
+	if len(cr.Rendered) == 0 {
+		return cr.Status
+	}
+	// Under --update every rendered golden listed was rewritten or removed; else none was.
+	if s := cr.Rendered[0].Status; s == caseUpdated || s == renderRemoved {
+		return caseUpdated
+	}
+	return caseDiffers
+}
+
+// renderCoverage adds to cov the TaskSpecs with a prompt and the Templates no case rendered.
+func renderCoverage(cov *coverageReport, c *catalog.Catalog, seen renderSeen) {
+	for name, ts := range c.TaskSpecs {
+		if ts.Prompt != nil && ts.Prompt.Template != nil && !seen.taskSpecs[name] {
+			cov.PromptsNotRendered = append(cov.PromptsNotRendered, name)
+		}
+	}
+	for name := range c.Templates {
+		if !seen.templates[name] {
+			cov.TemplatesNotRendered = append(cov.TemplatesNotRendered, name)
+		}
+	}
+	slices.Sort(cov.PromptsNotRendered)
+	slices.Sort(cov.TemplatesNotRendered)
+}
+
 func ruleCoverage(c *catalog.Catalog, fired map[string]bool) *coverageReport {
 	selected := map[string]bool{}
 	for _, rs := range c.RuleSets {
@@ -312,12 +374,17 @@ func printRulesTest(stdout, stderr io.Writer, rep rulesTestReport) {
 			continue
 		case caseDiffers:
 			head = "FAIL " + cr.Name + ": decisions differ from " + rules.FixtureExpected + " (- expected, + now)"
+			if len(cr.Changes) == 0 && cr.Note == "" {
+				head = "FAIL " + cr.Name + ": rendered texts differ from their goldens under " + renderedDir + "/"
+			}
 		case caseMissing:
 			head = "FAIL " + cr.Name
 		case caseUpdated:
 			head = "updated " + cr.Name
 		case caseChanged:
 			head = "changed " + cr.Name + " (- base, + head)"
+		case caseFailed:
+			head = "FAIL " + cr.Name + ": does not render or its run result fails its schema"
 		}
 		if cr.Note != "" {
 			head += ": " + cr.Note
@@ -328,6 +395,16 @@ func printRulesTest(stdout, stderr io.Writer, rep rulesTestReport) {
 				fmt.Fprintln(stdout, "  "+l)
 			}
 		}
+		for _, r := range cr.Rendered {
+			l := "  " + r.Status + " " + r.File
+			if r.Note != "" {
+				l += ": " + r.Note
+			}
+			fmt.Fprintln(stdout, l)
+		}
+		for _, f := range cr.Failures {
+			fmt.Fprintln(stdout, "  error: "+f)
+		}
 	}
 	if cov := rep.Coverage; cov != nil {
 		fmt.Fprintf(stdout, "coverage: %d of %d selected rules fire in some case\n", cov.Fired, cov.Selected)
@@ -337,13 +414,23 @@ func printRulesTest(stdout, stderr io.Writer, rep rulesTestReport) {
 		for _, r := range cov.NotSelected {
 			fmt.Fprintln(stdout, "  not selected by any RuleSet: "+r)
 		}
+		for _, n := range cov.PromptsNotRendered {
+			fmt.Fprintln(stdout, "  warning: no case renders the prompt of TaskSpec "+n)
+		}
+		for _, n := range cov.TemplatesNotRendered {
+			fmt.Fprintln(stdout, "  warning: no case renders Template "+n)
+		}
+	}
+	failed := ""
+	if rep.Failed > 0 {
+		failed = fmt.Sprintf(", %d failed", rep.Failed)
 	}
 	switch {
 	case rep.BaseCatalog != "":
 		fmt.Fprintf(stderr, "%s -> %s: %d of %d cases change their decisions\n", rep.BaseCatalog, rep.Catalog, rep.Differ, rep.Total)
 	case rep.Updated > 0:
-		fmt.Fprintf(stderr, "%s: %d cases, %d goldens updated\n", rep.Fixtures, rep.Total, rep.Updated)
+		fmt.Fprintf(stderr, "%s: %d cases, %d goldens updated%s\n", rep.Fixtures, rep.Total, rep.Updated, failed)
 	default:
-		fmt.Fprintf(stderr, "%s: %d cases, %d ok, %d differ\n", rep.Fixtures, rep.Total, rep.Total-rep.Differ, rep.Differ)
+		fmt.Fprintf(stderr, "%s: %d cases, %d ok, %d differ%s\n", rep.Fixtures, rep.Total, rep.Total-rep.Differ-rep.Failed, rep.Differ, failed)
 	}
 }

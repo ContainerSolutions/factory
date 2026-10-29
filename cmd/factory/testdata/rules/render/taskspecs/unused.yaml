@@ -1,0 +1,8 @@
+kind: TaskSpec
+metadata: { name: unused }
+spec:
+  description: No rule dispatches it.
+  instructions: { template: prompts/unused.md.tmpl, headless: true }
+  harness: { default: { name: codex } }
+  identity: author
+  output: { outcomes: [done] }

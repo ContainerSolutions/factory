@@ -21,7 +21,19 @@
             "build"
           ]
         },
-        "result": {}
+        "result": {
+          "findings": {
+            "posted": 2,
+            "blocking": true
+          },
+          "prs": [
+            {
+              "pr": "compliance-framework/mock-docs#43",
+              "event": "request-changes",
+              "threads": 2
+            }
+          ]
+        }
       }
     }
   },
