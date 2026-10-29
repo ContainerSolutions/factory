@@ -6,7 +6,7 @@ Its prod RuleSets (`rulesets/poc-*.yaml`) name compliance-framework repositories
 
 ## What is checked
 
-- `make catalog` (part of `make reviewable`, so CI) runs `factory validate --dir catalog` (the schema and the cross-references) and `factory rules test --catalog catalog --coverage`: each case under `testdata/` replays its event against the rules and compares the decisions with `expected.json`, renders the prompts and Templates its decisions use against the goldens in `rendered/`, and `--coverage` fails on a selected rule no case fires. `go run ./cmd/factory rules test --catalog catalog --update` rewrites the goldens.
+- `make catalog` (part of `make reviewable`, so CI) runs `factory validate --dir catalog` (the schema and the cross-references) and `factory rules test --catalog catalog --coverage`: each case under `testdata/` replays its event against the rules and compares the decisions with `expected.json`, renders the prompts and Templates its decisions use against the goldens in `rendered/`, and checks a `factory.run.completed` case's run result against its TaskSpec's output schema; `--coverage` fails on a selected rule no case fires and warns about a prompt or Template no case renders. `go run ./cmd/factory rules test --catalog catalog --update` rewrites the goldens.
 - `catalog_test.go` (`make test`) pins what the reference itself promises: every object is there, the dev RuleSets never target `compliance-framework/docs`, every prompt and Template renders, the result schemas accept what the skills write, and untrusted text in the fixtures stays fenced.
 
 ## Start a catalog of your own
