@@ -4,3 +4,6 @@ lisa-design:
 - GitSource keeps no Repo default; an empty Repo reaches gitsource, which already rejects it. serve is the one place that validates.
 - deploy/poc/.env.example keeps FACTORY_CATALOG_REPO commented out (CCF's value as the example): it is required only without FACTORY_CATALOG_DIR, so it is not in run.sh's unconditional required=() list, which deploykit_test.go pins to the uncommented lines. run.sh checks the either/or itself.
 - TestParseServeConfig injects --catalog-repo testRepo into every row that names no catalog (noCatalog opts out), like --state-memory for the store, so each row checks what it is about.
+
+lisa-selfreview:
+- pass 1 (the only pass): CORE-DOC-001 should-fix, catalog/README.md:9: the make catalog bullet left out rules test's result-schema check and its render-coverage warnings. Fixed in the one fix pass.
