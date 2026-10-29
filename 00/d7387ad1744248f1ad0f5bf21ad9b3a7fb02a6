@@ -1,0 +1,7 @@
+lisa-design:
+- Render through one exported helper in internal/controllers (render.go: RenderEvaluation, CheckRunResult) that calls compileTask (KeepSkills), templateData and renderBody; apply's set/link step and validateResult's schema step were extracted (applyToItem, applies, checkOutputSchema) so nothing is copied.
+- Decisions apply in order like the rule controller: an allowed/deferred set or link before a dispatch changes the item the prompt sees. Every dispatch/notify renders whatever its rail verdict (suppressed ones are checked too).
+- Task ids come from the decision key (evt/<event>/<rule>/<i>), now is the event time, links.ui uses RenderUIBase https://factory.example, Templates render their github body: goldens are deterministic.
+- A rendered text containing "<no value>", "<nil>", "%!" or "map[" fails the case (catalog_test.go's checkRendered): text/template renders a typo like .run.reslt as "<no value>", not an error.
+- The run result is rebuilt from run.result (resultMap's inverse: Result fields kept, others under data; task/status/outcome from the run) because fixtures carry the rules' flattened view.
+- Goldens: <case>/rendered/<decision index>-<prompt|template>-<name>.md; stale files fail and --update removes them; render/schema failures fail even with --update. --base-catalog renders nothing (it compares decisions only).
