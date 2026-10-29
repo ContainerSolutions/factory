@@ -1,0 +1,6 @@
+lisa-design:
+- GitSource.Token has no anonymous fallback (unlike GitSkills.Token): a private catalog read anonymously would only add a confusing second error; catalog-sync retries and keeps the last good catalog.
+- GitSource.Head skips the mint for a pinned commit SHA (no network needed), as GitSkills does.
+- serve refuses --catalog-app-id unless --catalog-repo is https://<host>/<owner>/<name> on the git host of --github-api-url (default github.com): the token is minted for that host and must not be sent elsewhere. GitSource also refuses non-https / non-repo URLs at first use.
+- The catalog minter is separate from the Provider's (identity "catalog"): the Provider is declared in the catalog, so it can't bootstrap reading it.
+- catalogSource is built once in runServe and returns an error (tokens.New parses the PEM there, so a bad key fails at startup).
