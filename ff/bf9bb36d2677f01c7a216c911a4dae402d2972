@@ -1,0 +1,6 @@
+lisa-design:
+- No default catalog repo: `--catalog-repo` defaults to "", and serve refuses to start without --catalog-repo or --catalog-dir ("a catalog is required: pass --catalog-repo URL or --catalog-dir DIR"). --catalog-ref (main) and --catalog-path (catalog) keep their defaults: the conventional layout.
+- "Required" is judged on whether the flag was passed (flag.Visit), so an explicitly empty --catalog-repo still reports "must not be empty" and an explicitly empty --catalog-dir reports "--catalog-dir must not be empty" (it used to fall through to the git default).
+- GitSource keeps no Repo default; an empty Repo reaches gitsource, which already rejects it. serve is the one place that validates.
+- deploy/poc/.env.example keeps FACTORY_CATALOG_REPO commented out (CCF's value as the example): it is required only without FACTORY_CATALOG_DIR, so it is not in run.sh's unconditional required=() list, which deploykit_test.go pins to the uncommented lines. run.sh checks the either/or itself.
+- TestParseServeConfig injects --catalog-repo testRepo into every row that names no catalog (noCatalog opts out), like --state-memory for the store, so each row checks what it is about.
