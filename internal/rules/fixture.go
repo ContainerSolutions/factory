@@ -20,11 +20,14 @@ import (
 //	workitem.json  the WorkItemView before
 //	rails.json     optional: the tripped rails (FakeRails); without it every action is allowed
 //	expected.json  the golden evaluation (Golden), written by `factory rules test --update`
+//	rendered/      the golden prompts and Template bodies its decisions render, written by
+//	               `factory rules test --update` (not read here)
 const (
 	FixtureEvent    = "event.json"
 	FixtureWorkItem = "workitem.json"
 	FixtureRails    = "rails.json"
 	FixtureExpected = "expected.json"
+	FixtureRendered = "rendered"
 )
 
 // Fixture is one recorded case: an event, the work item before it, the tripped rails and

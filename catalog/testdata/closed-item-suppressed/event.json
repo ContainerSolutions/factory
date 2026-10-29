@@ -19,7 +19,8 @@
           "base": "main"
         },
         "result": {
-          "branch": "factory/stack/wi-epic/0"
+          "branch": "factory/stack/wi-epic/0",
+          "pr": "compliance-framework/docs#81"
         }
       }
     }

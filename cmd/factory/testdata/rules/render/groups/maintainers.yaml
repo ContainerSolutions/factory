@@ -1,0 +1,5 @@
+kind: Group
+metadata: { name: maintainers }
+spec:
+  members:
+    - { provider: github, orgRole: { org: acme, role: admin } }

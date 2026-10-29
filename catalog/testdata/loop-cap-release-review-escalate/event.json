@@ -24,7 +24,19 @@
             "build"
           ]
         },
-        "result": {}
+        "result": {
+          "findings": {
+            "posted": 1,
+            "blocking": true
+          },
+          "prs": [
+            {
+              "pr": "compliance-framework/docs#90",
+              "event": "request-changes",
+              "threads": 1
+            }
+          ]
+        }
       }
     }
   },

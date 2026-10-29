@@ -1,0 +1,9 @@
+kind: Rule
+metadata: { name: announce-plan, labels: { pack: demo } }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  on: [factory.run.completed]
+  where: "run.spec == 'plan' && run.outcome == 'decomposed'"
+  actions:
+    - notify: { template: planned, to: [{ item: primary }] }
+    - set: { plan: planned }

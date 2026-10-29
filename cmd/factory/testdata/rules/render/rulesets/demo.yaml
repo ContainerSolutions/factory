@@ -1,0 +1,8 @@
+kind: RuleSet
+metadata: { name: demo }
+spec:
+  providerSelector: { matchLabels: { family: github } }
+  scope: { repos: ["acme/docs"] }
+  rules:
+    selector: { matchLabels: { pack: demo } }
+  stateKeys: [plan]

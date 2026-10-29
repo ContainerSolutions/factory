@@ -207,7 +207,7 @@ func TestPoCRuleCoverage(t *testing.T) {
 
 // TestFixtureNames keeps the fixture tree tidy: every case has its files and nothing else.
 func TestFixtureNames(t *testing.T) {
-	allowed := []string{FixtureEvent, FixtureWorkItem, FixtureRails, FixtureExpected}
+	allowed := []string{FixtureEvent, FixtureWorkItem, FixtureRails, FixtureExpected, FixtureRendered}
 	for _, f := range fixtures(t) {
 		dir := filepath.Join(casesDir, filepath.FromSlash(f.Name))
 		entries, err := os.ReadDir(dir)

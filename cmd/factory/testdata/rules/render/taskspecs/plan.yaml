@@ -1,0 +1,10 @@
+kind: TaskSpec
+metadata: { name: plan }
+spec:
+  description: Plan an issue.
+  instructions: { template: prompts/plan.md.tmpl, headless: true }
+  inputs: { issue: { type: string }, depth: { type: string, default: shallow } }
+  harness: { default: { name: codex } }
+  identity: author
+  permissions: { issues: write }
+  output: { schema: schemas/results/plan.json, outcomes: [decomposed, single] }

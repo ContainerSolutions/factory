@@ -15,6 +15,7 @@ FAIL review-human-prs-draft: decisions differ from expected.json (- expected, + 
       {"cancel":{"taskSpec":"docs-review"}}
   + decision poc-docs-human-review/review-human-prs: dispatch docs-review → poc [allowed]
       {"dispatch":{"taskSpec":"docs-review","queue":"poc","inputs":{"checks":["style","build"],"target":"pr"}}}
+  missing rendered/1-prompt-docs-review.md: no golden (run with --update)
 FAIL review-release-docs: decisions differ from expected.json (- expected, + now)
   ~ rule poc-docs-human-review/review-human-prs
       inputs: [actor item] -> [actor]

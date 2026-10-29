@@ -1,0 +1,12 @@
+{
+  "kind": "Event",
+  "id": "gh-1",
+  "source": "github",
+  "type": "issue.opened",
+  "time": "2026-10-16T11:00:00Z",
+  "data": {
+    "provider": "github",
+    "actor": { "id": "github:admin", "tier": "maintainer" },
+    "object": { "provider": "github", "kind": "issue", "ref": "acme/docs#7" }
+  }
+}

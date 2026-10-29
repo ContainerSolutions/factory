@@ -1,0 +1,57 @@
+{
+  "event": "factory-run-1",
+  "workItem": "wi-7",
+  "matches": [
+    {
+      "ruleSet": "demo",
+      "rule": "announce-plan",
+      "result": "matched",
+      "inputs": [
+        "run"
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "ruleSet": "demo",
+      "rule": "announce-plan",
+      "action": {
+        "notify": {
+          "template": "planned",
+          "to": [
+            {
+              "item": "primary"
+            }
+          ]
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "run"
+      ]
+    },
+    {
+      "ruleSet": "demo",
+      "rule": "announce-plan",
+      "action": {
+        "set": {
+          "key": "plan",
+          "value": "planned"
+        }
+      },
+      "rail": {
+        "rail": "",
+        "verdict": "allowed"
+      },
+      "inputs": [
+        "run"
+      ]
+    }
+  ],
+  "stateAfter": {
+    "plan": "planned"
+  }
+}

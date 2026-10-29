@@ -1,0 +1,5 @@
+kind: Template
+metadata: { name: unused }
+spec:
+  bodies:
+    github: "Never sent."

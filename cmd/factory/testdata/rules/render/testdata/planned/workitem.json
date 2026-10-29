@@ -1,0 +1,5 @@
+{
+  "id": "wi-7",
+  "links": [{ "provider": "github", "ref": "acme/docs#7", "kind": "issue", "primary": true }],
+  "state": { "plan": "planning" }
+}

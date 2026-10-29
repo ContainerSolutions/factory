@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -126,12 +127,13 @@ func TestRulesTestBaseCatalog(t *testing.T) {
 	}
 	checkGolden(t, "base-catalog", out)
 
-	// The change lines are those of the golden comparison.
+	// The change lines are those of the golden comparison (which also checks the rendered
+	// goldens).
 	_, golden, _ := runFactory(t, "rules", "test", "--catalog", changed, "--fixtures", pocCases)
 	strip := func(s string) string {
 		var lines []string
 		for l := range strings.SplitSeq(s, "\n") {
-			if strings.HasPrefix(l, "  ") {
+			if strings.HasPrefix(l, "  ") && !strings.Contains(l, " "+renderedDir+"/") {
 				lines = append(lines, l)
 			}
 		}
@@ -214,7 +216,8 @@ func TestRulesTestCoverage(t *testing.T) {
 	code, out, _ := runFactory(t, "rules", "test", "--catalog", pocDir, "--fixtures", pocCases, "--coverage")
 	want := "coverage: 14 of 14 selected rules fire in some case\n" +
 		"  not selected by any RuleSet: merge-release-docs\n" +
-		"  not selected by any RuleSet: merge-whole-stack\n"
+		"  not selected by any RuleSet: merge-whole-stack\n" +
+		"  warning: no case renders the prompt of TaskSpec merge\n"
 	if code != 0 || out != want {
 		t.Errorf("exit %d\n%s", code, out)
 	}
@@ -276,5 +279,151 @@ func TestRulesTestErrors(t *testing.T) {
 				t.Errorf("exit %d, want %d\nstdout:\n%s\nstderr:\n%s", code, tc.code, out, errOut)
 			}
 		})
+	}
+}
+
+// renderCatalog is a small catalog whose two cases render a prompt (opened) and a Template
+// (planned), with a TaskSpec and a Template no case renders.
+const renderCatalog = "testdata/rules/render"
+
+// copyRenderCatalog copies renderCatalog into a temp dir and applies edit to it.
+func copyRenderCatalog(t *testing.T, edit func(dir string) error) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.CopyFS(dir, os.DirFS(renderCatalog)); err != nil {
+		t.Fatal(err)
+	}
+	if edit != nil {
+		if err := edit(dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// replaceIn replaces old with new in the file of a catalog copy.
+func replaceIn(file, old, new string) func(dir string) error {
+	return func(dir string) error {
+		p := filepath.Join(dir, file)
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		s := strings.Replace(string(b), old, new, 1)
+		if s == string(b) {
+			return errors.New(file + ": nothing replaced")
+		}
+		return os.WriteFile(p, []byte(s), 0o600)
+	}
+}
+
+func TestRulesTestRender(t *testing.T) {
+	tests := []struct {
+		name   string
+		edit   func(dir string) error
+		code   int
+		stdout []string // substrings
+	}{
+		{name: "renders", code: 0},
+		{name: "prompt with a bad field", edit: replaceIn("prompts/plan.md.tmpl", ".inputs.depth", ".inputs.dpth"), code: 1, stdout: []string{
+			"FAIL opened: does not render or its run result fails its schema\n",
+			`  error: TaskSpec plan: the text contains "<no value>": a missing field or a value printed raw` + "\n",
+		}},
+		{name: "template that fails to execute", edit: replaceIn("templates/planned.yaml", "len .run.result.plan", "len .run.result.plan.steps"), code: 1, stdout: []string{
+			"FAIL planned: does not render or its run result fails its schema\n",
+			"  error: Template planned: notify: template planned: template: planned:1:",
+		}},
+		{name: "changed prompt", edit: replaceIn("prompts/plan.md.tmpl", "Plan `", "Plan issue `"), code: 1, stdout: []string{
+			"FAIL opened: rendered texts differ from their goldens under rendered/\n",
+			"  differs rendered/1-prompt-plan.md: line 3: - \"Plan `acme/docs#7`",
+			", + \"Plan issue `acme/docs#7`",
+		}},
+		{name: "result that fails its schema", edit: replaceIn("testdata/planned/event.json", `"acme/docs#9"`, `9`), code: 1, stdout: []string{
+			"FAIL planned: does not render or its run result fails its schema\n",
+			"  error: result of the plan run: schema schemas/results/plan.json: ",
+			"at '/data/plan/1/issue': got number, want string",
+		}},
+		{name: "missing golden", edit: func(dir string) error {
+			return os.Remove(filepath.Join(dir, "testdata", "planned", "rendered", "0-template-planned.md"))
+		}, code: 1, stdout: []string{"  missing rendered/0-template-planned.md: no golden (run with --update)\n"}},
+		{name: "stale golden", edit: func(dir string) error {
+			return os.WriteFile(filepath.Join(dir, "testdata", "opened", "rendered", "9-prompt-old.md"), []byte("old"), 0o600)
+		}, code: 1, stdout: []string{"  stale rendered/9-prompt-old.md: no decision renders it (run with --update)\n"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := copyRenderCatalog(t, tc.edit)
+			code, out, errOut := runFactory(t, "rules", "test", "--catalog", dir)
+			if code != tc.code {
+				t.Errorf("exit %d, want %d\nstdout:\n%s\nstderr:\n%s", code, tc.code, out, errOut)
+			}
+			for _, s := range tc.stdout {
+				if !strings.Contains(out, s) {
+					t.Errorf("stdout doesn't contain %q:\n%s", s, out)
+				}
+			}
+			if tc.stdout == nil && out != "" {
+				t.Errorf("stdout:\n%s", out)
+			}
+		})
+	}
+
+	// A failure fails the case under --update too, and is in the JSON report.
+	dir := copyRenderCatalog(t, replaceIn("prompts/plan.md.tmpl", ".inputs.depth", ".inputs.dpth"))
+	if code, out, _ := runFactory(t, "rules", "test", "--catalog", dir, "--update"); code != 1 || !strings.Contains(out, "error: TaskSpec plan:") {
+		t.Errorf("--update: exit %d\n%s", code, out)
+	}
+	_, out, _ := runFactory(t, "rules", "test", "--catalog", dir, "--format", "json")
+	var rep rulesTestReport
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatal(err)
+	}
+	if rep.Failed != 1 || rep.Cases[0].Status != caseFailed || len(rep.Cases[0].Failures) != 1 {
+		t.Errorf("report: %+v", rep)
+	}
+}
+
+// TestRulesTestRenderUpdate: --update writes the rendered goldens and removes stale ones, and
+// a second run passes with the same files.
+func TestRulesTestRenderUpdate(t *testing.T) {
+	dir := copyRenderCatalog(t, func(dir string) error {
+		if err := os.RemoveAll(filepath.Join(dir, "testdata", "opened", "rendered")); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dir, "testdata", "planned", "rendered", "9-prompt-old.md"), []byte("old"), 0o600)
+	})
+	code, out, errOut := runFactory(t, "rules", "test", "--catalog", dir, "--update")
+	want := "updated opened\n  updated rendered/1-prompt-plan.md: created\nupdated planned\n  removed rendered/9-prompt-old.md\n"
+	if code != 0 || out != want || !strings.Contains(errOut, ": 2 cases, 2 goldens updated") {
+		t.Fatalf("--update: exit %d\nstdout:\n%s\nstderr:\n%s", code, out, errOut)
+	}
+	for _, f := range []string{"opened/rendered/1-prompt-plan.md", "planned/rendered/0-template-planned.md"} {
+		got, err := os.ReadFile(filepath.Join(dir, "testdata", f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := os.ReadFile(filepath.Join(renderCatalog, "testdata", f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s: --update wrote\n%s\nwant\n%s", f, got, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "testdata", "planned", "rendered", "9-prompt-old.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("stale golden: %v", err)
+	}
+	if code, out, _ := runFactory(t, "rules", "test", "--catalog", dir); code != 0 || out != "" {
+		t.Errorf("after --update: exit %d\n%s", code, out)
+	}
+}
+
+func TestRulesTestRenderCoverage(t *testing.T) {
+	code, out, _ := runFactory(t, "rules", "test", "--catalog", renderCatalog, "--coverage")
+	want := "coverage: 2 of 2 selected rules fire in some case\n" +
+		"  warning: no case renders the prompt of TaskSpec unused\n" +
+		"  warning: no case renders Template unused\n"
+	if code != 0 || out != want {
+		t.Errorf("exit %d\n%s", code, out)
 	}
 }

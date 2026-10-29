@@ -1,0 +1,13 @@
+kind: Provider
+metadata: { name: github, labels: { family: github } }
+spec:
+  type: github
+  github:
+    apiURL: https://api.github.com
+    webhook: { path: /hooks/github, secretRef: { name: github-webhook, key: secret } }
+    identities:
+      author: { appID: 1, privateKeyRef: { name: app, key: private-key } }
+  scope: { orgs: [acme] }
+  trust:
+    - { tier: maintainer, group: maintainers }
+    - { tier: anyone }

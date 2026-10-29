@@ -16,13 +16,16 @@
         "result": {
           "plan": [
             {
-              "issue": "compliance-framework/docs#71"
+              "issue": "compliance-framework/docs#71",
+              "title": "Enable Docusaurus i18n with pt-BR"
             },
             {
-              "issue": "compliance-framework/docs#72"
+              "issue": "compliance-framework/docs#72",
+              "title": "PT-BR glossary"
             },
             {
-              "issue": "compliance-framework/docs#73"
+              "issue": "compliance-framework/docs#73",
+              "title": "Translate the general section"
             }
           ]
         }
