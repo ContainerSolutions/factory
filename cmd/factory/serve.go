@@ -13,8 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/catalog/gitsource"
 	"github.com/ContainerSolutions/factory/internal/controllers"
 	"github.com/ContainerSolutions/factory/internal/provider/github"
+	"github.com/ContainerSolutions/factory/internal/provider/tokens"
 	"github.com/ContainerSolutions/factory/internal/scheduler"
 	"github.com/ContainerSolutions/factory/internal/store/objectstore"
 )
@@ -62,6 +65,12 @@ type serveConfig struct {
 	CatalogDir      string
 	CatalogInterval time.Duration
 	CatalogTimeout  time.Duration
+	// CatalogAppID and CatalogAppKeyRef read a private catalog repository with an
+	// installation token of that GitHub App; CatalogAppKey is the App's PEM, from the
+	// secretRef's FACTORY_SECRET_<NAME>_<KEY>. Zero and empty: the catalog is read anonymously.
+	CatalogAppID     int64
+	CatalogAppKeyRef string
+	CatalogAppKey    string
 
 	Retention       time.Duration
 	ShutdownTimeout time.Duration
@@ -124,6 +133,8 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 	fl.StringVar(&cfg.CatalogRef, "catalog-ref", controllers.DefaultCatalogRef, "catalog branch, tag or commit")
 	fl.StringVar(&cfg.CatalogPath, "catalog-path", controllers.DefaultCatalogPath, "catalog directory inside the repository")
 	fl.StringVar(&cfg.CatalogDir, "catalog-dir", "", "load the catalog from this local directory instead of git (development)")
+	fl.Int64Var(&cfg.CatalogAppID, "catalog-app-id", 0, "read a private --catalog-repo with an installation token of this GitHub App (needs --catalog-app-key-ref)")
+	fl.StringVar(&cfg.CatalogAppKeyRef, "catalog-app-key-ref", "", "the --catalog-app-id App's private key, as a secretRef name/key: read from "+envSecretPrefix+"<NAME>_<KEY>")
 	fl.DurationVar(&cfg.CatalogInterval, "catalog-interval", controllers.DefaultCatalogPollInterval, "how often the catalog source is polled")
 	fl.DurationVar(&cfg.CatalogTimeout, "catalog-timeout", defaultCatalogTimeout, "how long startup waits for the first valid catalog")
 	fl.DurationVar(&cfg.Retention, "retention", defaultRetention, "how long runs, events, effects and finished tasks (and closed work items) are kept")
@@ -215,6 +226,9 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 		if strings.HasPrefix(cfg.CatalogRef, "-") {
 			bad("--catalog-ref %q must not start with '-'", cfg.CatalogRef)
 		}
+	}
+	if cfg.CatalogAppID != 0 || cfg.CatalogAppKeyRef != "" {
+		cfg.CatalogAppKey = catalogAppKey(cfg, getenv, bad)
 	}
 
 	// The store: a durable one, unless asked otherwise (P3 §No rebuild from markers).
@@ -313,6 +327,60 @@ func parseServeConfig(args []string, getenv func(string) string, stderr io.Write
 	return cfg, warnings, nil
 }
 
+// catalogAppKey checks the --catalog-app-* flags and returns the App's private key from the
+// environment (reported through bad by name, never by value).
+func catalogAppKey(cfg serveConfig, getenv func(string) string, bad func(string, ...any)) string {
+	switch {
+	case cfg.CatalogAppID == 0 || cfg.CatalogAppKeyRef == "":
+		bad("--catalog-app-id and --catalog-app-key-ref go together")
+		return ""
+	case cfg.CatalogAppID < 0:
+		bad("--catalog-app-id must be positive")
+	}
+	if cfg.CatalogDir != "" {
+		bad("--catalog-dir and --catalog-app-id are exclusive: a token reads a catalog repository")
+	}
+	if cfg.DevFakeProviders {
+		bad("--dev-fake-providers and --catalog-app-id are exclusive: the fake mints no real token")
+	}
+	// The token is for the App's git host: it must not go to a repository elsewhere.
+	if host := catalogGitHost(cfg); cfg.CatalogDir == "" && host != "" {
+		if _, ok := controllers.RepoOnHost(cfg.CatalogRepo, host); !ok || !strings.HasPrefix(cfg.CatalogRepo, "https://") {
+			bad("--catalog-app-id needs --catalog-repo https://%s/<owner>/<name>, not %q", host, gitsource.RedactURL(cfg.CatalogRepo))
+		}
+	}
+	name, key, ok := strings.Cut(cfg.CatalogAppKeyRef, "/")
+	if !ok || name == "" || key == "" || strings.Contains(key, "/") {
+		bad("--catalog-app-key-ref %q must be a secretRef name/key", cfg.CatalogAppKeyRef)
+		return ""
+	}
+	env := secretEnv(v1alpha1.SecretRef{Name: name, Key: key})
+	v := getenv(env)
+	if v == "" {
+		bad("--catalog-app-key-ref %s: %s is not set", cfg.CatalogAppKeyRef, env)
+	}
+	return v
+}
+
+// catalogAPIURL is the REST API the catalog App's tokens are minted on: --github-api-url,
+// else api.github.com.
+func catalogAPIURL(cfg serveConfig) string {
+	if cfg.GitHubAPIURL != "" {
+		return strings.TrimRight(cfg.GitHubAPIURL, "/")
+	}
+	return tokens.DefaultAPIURL
+}
+
+// catalogGitHost is the git host of catalogAPIURL ("github.com" for api.github.com), or ""
+// when the URL doesn't parse (reported with the other GitHub URLs).
+func catalogGitHost(cfg serveConfig) string {
+	u, err := url.Parse(catalogAPIURL(cfg))
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return tokens.HostForAPI(u)
+}
+
 // isLoopback reports whether host is a loopback name or IP (an empty host listens on every
 // interface, so it isn't).
 func isLoopback(host string) bool {
@@ -326,6 +394,7 @@ func isLoopback(host string) bool {
 func serveUsage(w io.Writer, fl *flag.FlagSet) {
 	fmt.Fprintln(w, `usage: factory serve [--addr :8800] [--ops-addr 127.0.0.1:9090] [--public-url URL]
                      [--catalog-repo URL --catalog-ref main --catalog-path catalog | --catalog-dir DIR]
+                     [--catalog-app-id N --catalog-app-key-ref NAME/KEY]
                      [--retention 2160h] [--state-dir DIR | --state-url URL | --state-memory]
                      [--deploy-environment github-pages]
                      [--anti-affinity-wait 10m]
@@ -337,6 +406,10 @@ The store is durable: --state-dir keeps it in files there (one dispatcher), --st
 object storage that every dispatcher on it shares (one of them, the leader, runs the
 controllers). --state-memory keeps it in memory, where every work item starts fresh on a
 restart; --dev-fake-providers implies it.
+A private --catalog-repo is read with an installation token (contents: read, that repository
+only) of the GitHub App --catalog-app-id, installed on it; --catalog-app-key-ref names its
+private key's variable, e.g. ccf-factory-app/private-key for
+`+envSecretPrefix+`CCF_FACTORY_APP_PRIVATE_KEY.
 
 environment (secrets come from the environment only and are never logged):
   `+envOAuthClientID+`, `+envOAuthClientSecret+`   UI login (GitHub OAuth App)

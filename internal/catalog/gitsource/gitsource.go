@@ -2,7 +2,7 @@
 // directory with the git CLI, then catalog.LoadDir on the catalog's directory in it, with the
 // commit as the snapshot's SHA (design/workstreams/dispatcher-core/LLD/catalog.md §Loading).
 // Head resolves a ref to its commit with git ls-remote, for catalog-sync's polling; HeadAuth
-// does the same on a private repository with a token (Auth).
+// and LoadAuth do the same on a private repository with a token (Auth).
 //
 // Errors never carry credentials: user info in the repository URL (a token in
 // https://x-access-token:<token>@host/…) and an Auth token are redacted from every error
@@ -45,10 +45,21 @@ const allowedProtocols = "https:ssh:git:file"
 // root) and removes the checkout. The snapshot's SHA is the fetched commit. The []Error is
 // LoadDir's; err is set only when the ref couldn't be fetched (wrapping ErrGit) or dir
 // doesn't exist.
-func Load(ctx context.Context, repoURL, ref, dir string, opts catalog.Options) (_ *catalog.Catalog, _ []catalog.Error, err error) {
-	defer func() { err = redactError(err, repoURL) }()
+func Load(ctx context.Context, repoURL, ref, dir string, opts catalog.Options) (*catalog.Catalog, []catalog.Error, error) {
+	return LoadAuth(ctx, repoURL, ref, dir, opts, Auth{})
+}
+
+// LoadAuth is Load from a repository that needs a credential: the fetch sends auth's token as
+// HeadAuth does (an Authorization header scoped to repoURL, in git's environment), so the URL
+// must be http(s) and carry no user info. A zero Auth is Load. The token never appears in an
+// error.
+func LoadAuth(ctx context.Context, repoURL, ref, dir string, opts catalog.Options, auth Auth) (_ *catalog.Catalog, _ []catalog.Error, err error) {
+	defer func() { err = redactError(err, repoURL, auth.secrets()...) }()
 	if repoURL == "" || ref == "" {
 		return nil, nil, fmt.Errorf("%w: repository URL and ref are required", ErrGit)
+	}
+	if err := auth.check(repoURL); err != nil {
+		return nil, nil, err
 	}
 	tmp, err := os.MkdirTemp("", "factory-catalog-*")
 	if err != nil {
@@ -56,13 +67,16 @@ func Load(ctx context.Context, repoURL, ref, dir string, opts catalog.Options) (
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 
-	steps := [][]string{
-		{"init", "--quiet", tmp},
-		{"-C", tmp, "fetch", "--quiet", "--depth", "1", "--no-tags", "--", repoURL, ref},
-		{"-C", tmp, "-c", "advice.detachedHead=false", "checkout", "--quiet", "FETCH_HEAD"},
+	steps := []struct {
+		config [][2]string
+		args   []string
+	}{
+		{nil, []string{"init", "--quiet", tmp}},
+		{auth.config(repoURL), []string{"-C", tmp, "fetch", "--quiet", "--depth", "1", "--no-tags", "--", repoURL, ref}},
+		{nil, []string{"-C", tmp, "-c", "advice.detachedHead=false", "checkout", "--quiet", "FETCH_HEAD"}},
 	}
-	for _, args := range steps {
-		if _, err := git(ctx, nil, args...); err != nil {
+	for _, st := range steps {
+		if _, err := git(ctx, st.config, st.args...); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -133,6 +147,19 @@ func (a Auth) config(repoURL string) [][2]string {
 	return [][2]string{{"http." + repoURL + ".extraHeader", "Authorization: " + a.header()}}
 }
 
+// check refuses a token for a repository URL it can't be scoped to: one that isn't http(s), or
+// carries user info.
+func (a Auth) check(repoURL string) error {
+	if a.Token == "" {
+		return nil
+	}
+	u, err := url.Parse(repoURL)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil {
+		return fmt.Errorf("%w: a token needs an http(s) repository URL without user info", ErrGit)
+	}
+	return nil
+}
+
 // secrets are the strings redacted from errors: the token and its header encoding.
 func (a Auth) secrets() []string {
 	if a.Token == "" {
@@ -157,11 +184,8 @@ func HeadAuth(ctx context.Context, repoURL, ref string, auth Auth) (_ string, er
 	if repoURL == "" || ref == "" {
 		return "", fmt.Errorf("%w: repository URL and ref are required", ErrGit)
 	}
-	if auth.Token != "" {
-		u, perr := url.Parse(repoURL)
-		if perr != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil {
-			return "", fmt.Errorf("%w: a token needs an http(s) repository URL without user info", ErrGit)
-		}
+	if err := auth.check(repoURL); err != nil {
+		return "", err
 	}
 	if IsCommit(ref) {
 		return ref, nil

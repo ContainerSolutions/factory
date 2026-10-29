@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/ContainerSolutions/factory/internal/catalog"
 )
 
 const testToken = "ghs_s3cr3tT0ken"
@@ -128,6 +130,55 @@ func TestHeadAuth(t *testing.T) {
 	}
 	if srv.sent != 0 {
 		t.Errorf("%d anonymous requests to the public repo carried credentials", srv.sent)
+	}
+}
+
+func TestLoadAuth(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	ctx := context.Background()
+	repo, sha := testRepo(t)
+	srv := newAuthServer(t, repo)
+	private := srv.ts.URL + "/o/private"
+	header := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + testToken))
+
+	tests := []struct {
+		name, url, ref string
+		auth           Auth
+		gitErr         bool
+		secrets        []string // must not appear in the error
+	}{
+		{name: "private with the token", url: private, ref: "main", auth: Auth{Token: testToken}},
+		{name: "private anonymously", url: private, ref: "main", gitErr: true},
+		{name: "private with a wrong token", url: private, ref: "main", auth: Auth{Token: "wrong-" + testToken}, gitErr: true, secrets: []string{"wrong-" + testToken}},
+		// git names the missing ref in its error: the token in it is redacted.
+		{name: "a ref that is the token", url: private, ref: testToken, auth: Auth{Token: testToken}, gitErr: true, secrets: []string{testToken, header}},
+		{name: "a token on a file URL", url: "file://" + repo, ref: "main", auth: Auth{Token: testToken}, gitErr: true, secrets: []string{testToken}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, errs, err := LoadAuth(ctx, tt.url, tt.ref, "catalog", catalog.Options{}, tt.auth)
+			if tt.gitErr {
+				if !errors.Is(err, ErrGit) {
+					t.Fatalf("LoadAuth = %v; want an ErrGit", err)
+				}
+				for _, s := range tt.secrets {
+					if strings.Contains(err.Error(), s) {
+						t.Errorf("the error has a secret: %v", err)
+					}
+				}
+				return
+			}
+			if err != nil || c == nil || c.SHA != sha {
+				t.Fatalf("LoadAuth = %v, %v, %v; want the catalog at %s", c, errs, err, sha)
+			}
+		})
+	}
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	if srv.authed == 0 || srv.denied == 0 {
+		t.Errorf("private repo: %d authenticated and %d denied requests, want some of each", srv.authed, srv.denied)
 	}
 }
 

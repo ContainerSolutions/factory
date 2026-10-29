@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/ContainerSolutions/factory/internal/catalog"
+	"github.com/ContainerSolutions/factory/internal/catalog/gitsource"
 )
 
 const pocCatalog = "../catalog/testdata/poc"
@@ -135,6 +136,95 @@ func TestGitSourceRedactsCredentials(t *testing.T) {
 	g := GitSource{Repo: "https://x-access-token:s3cr3t@github.com/ContainerSolutions/factory"}
 	if s := g.String(); strings.Contains(s, "s3cr3t") || !strings.Contains(s, "github.com/ContainerSolutions/factory") {
 		t.Errorf("String() = %q", s)
+	}
+}
+
+// TestGitSourceToken: with Token set, Head and Load mint a token for the repository and pass
+// it to gitsource; a mint error or a URL a token can't go with fails, with no anonymous call.
+func TestGitSourceToken(t *testing.T) {
+	const tok = "ghs_catalogT0ken"
+	const pinned = "0123456789abcdef0123456789abcdef01234567"
+	mint := func(_ context.Context, repo string) (string, error) {
+		if repo != "compliance-framework/factory-catalog" {
+			return "", errors.New("unexpected repo " + repo)
+		}
+		return tok, nil
+	}
+	tests := []struct {
+		name    string
+		repo    string
+		ref     string
+		token   func(context.Context, string) (string, error)
+		want    gitsource.Auth // what gitsource gets
+		wantErr string         // "": no error
+		noCall  bool           // gitsource must not be called
+	}{
+		{name: "minted", repo: "https://github.com/compliance-framework/factory-catalog", token: mint, want: gitsource.Auth{Token: tok}},
+		{name: "minted, .git URL", repo: "https://github.com/compliance-framework/factory-catalog.git", token: mint, want: gitsource.Auth{Token: tok}},
+		{name: "no Token: anonymous", repo: "https://github.com/compliance-framework/factory-catalog"},
+		{name: "mint error", repo: "https://github.com/compliance-framework/factory-catalog", token: func(context.Context, string) (string, error) {
+			return "", errors.New("no installation")
+		}, wantErr: "mint a read token for the catalog repository compliance-framework/factory-catalog: no installation", noCall: true},
+		{name: "empty token", repo: "https://github.com/compliance-framework/factory-catalog", token: func(context.Context, string) (string, error) {
+			return "", nil
+		}, wantErr: "empty token", noCall: true},
+		{name: "ssh URL", repo: "git@github.com:compliance-framework/factory-catalog.git", token: mint, wantErr: "a token needs an https://", noCall: true},
+		{name: "http URL", repo: "http://github.com/compliance-framework/factory-catalog", token: mint, wantErr: "a token needs an https://", noCall: true},
+		{name: "not a repo path", repo: "https://github.com/compliance-framework", token: mint, wantErr: "a token needs an https://", noCall: true},
+		{name: "user info", repo: "https://x:s3cr3t@github.com/compliance-framework/factory-catalog", token: mint, wantErr: "a token needs an https://", noCall: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var heads, loads []gitsource.Auth
+			g := GitSource{
+				Repo: tt.repo, Ref: tt.ref, Token: tt.token,
+				headAuth: func(_ context.Context, _, _ string, auth gitsource.Auth) (string, error) {
+					heads = append(heads, auth)
+					return pinned, nil
+				},
+				loadAuth: func(_ context.Context, _, ref, _ string, _ catalog.Options, auth gitsource.Auth) (*catalog.Catalog, []catalog.Error, error) {
+					loads = append(loads, auth)
+					return &catalog.Catalog{SHA: ref}, nil, nil
+				},
+			}
+			_, herr := g.Head(context.Background())
+			_, _, lerr := g.Load(context.Background(), pinned)
+			for _, err := range []error{herr, lerr} {
+				if tt.wantErr == "" && err != nil {
+					t.Fatalf("err = %v", err)
+				}
+				if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
+					t.Fatalf("err = %v, want %q", err, tt.wantErr)
+				}
+				if err != nil && strings.Contains(err.Error(), "s3cr3t") {
+					t.Errorf("the error carries a credential: %v", err)
+				}
+			}
+			if tt.noCall {
+				if len(heads)+len(loads) != 0 {
+					t.Fatalf("gitsource called (heads %v, loads %v), want no anonymous fallback", heads, loads)
+				}
+				return
+			}
+			if !slices.Equal(heads, []gitsource.Auth{tt.want}) || !slices.Equal(loads, []gitsource.Auth{tt.want}) {
+				t.Errorf("gitsource got heads %v, loads %v; want %v each", heads, loads, tt.want)
+			}
+		})
+	}
+}
+
+// TestGitSourcePinnedHead: a pinned commit is Head's answer without a mint or an ls-remote.
+func TestGitSourcePinnedHead(t *testing.T) {
+	const pinned = "0123456789abcdef0123456789abcdef01234567"
+	g := GitSource{
+		Repo: "https://github.com/compliance-framework/factory-catalog", Ref: pinned,
+		Token: func(context.Context, string) (string, error) { return "", errors.New("minted") },
+		headAuth: func(context.Context, string, string, gitsource.Auth) (string, error) {
+			return "", errors.New("ls-remote")
+		},
+	}
+	if got, err := g.Head(context.Background()); err != nil || got != pinned {
+		t.Errorf("Head = %q, %v; want %s", got, err, pinned)
 	}
 }
 
