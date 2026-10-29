@@ -105,13 +105,16 @@ Items 5–7 shipped on 2026-10-28: see IMPROVEMENTS_DONE.md.
 
 ### 8. The CCF catalog in its own repo (compliance-framework/factory-catalog)
 
-Move `catalog/` to **`compliance-framework/factory-catalog`** (private, created, empty; ccf-lisa
-can push there). The dispatcher reads it from there by default, with an App token. The move
-also gives CCF's prod flows a home. The design was agreed with Gustavo on 2026-10-29; the
+CCF's prod catalog goes to **`compliance-framework/factory-catalog`** (private, created, empty;
+ccf-lisa can push there), read with an App token. The factory is a product that different people
+run with their own catalogs, so **this repo's `catalog/` stays as the reference catalog**: the
+baseline for tests, fixtures and examples, deployed nowhere, keeping its Go tests, and not
+getting the new flows. **`serve` has no default catalog any more:** it requires
+`--catalog-repo` or `--catalog-dir`. The design was agreed with Gustavo on 2026-10-29; the
 draft is in that session's scratchpad (`ccf-catalog-design.md`). The decisions:
 
 - **Prod only.** The new repo has no dev RuleSets (dev was validated in this repo). `dev-*` and
-  mock-docs fixtures stay here, in a test catalog.
+  the mock-docs fixtures stay in the reference catalog.
 - **Canary.** The first wave of every new RuleSet is `compliance-framework/docs` only. Later
   waves are catalog PRs that widen `scope.repos`.
 - **People merge.** Every merge rule stays excluded.
@@ -119,8 +122,8 @@ draft is in that session's scratchpad (`ccf-catalog-design.md`). The decisions:
   unchanged).
 - **CI is binary-only.** It downloads `factory-linux-amd64` at a pinned release (SHA256SUMS)
   and runs `factory validate --dir catalog` and `factory rules test --catalog catalog
-  --coverage`. `catalog/catalog_test.go` doesn't move. `rules test` takes over the checks
-  that matter (PR 2 below), and the dev-safety tests go away with the dev RuleSets.
+  --coverage`. `catalog/catalog_test.go` stays with the reference. `rules test` gains the
+  render and schema checks (A2 below) so the catalog repo gets them too.
 - **Procedures are prompts only:** no new ccf-skills skills.
 
 **The flows** (packs; RuleSet scope `["compliance-framework/docs"]` at first):
@@ -205,61 +208,50 @@ draft is in that session's scratchpad (`ccf-catalog-design.md`). The decisions:
   `deploy/poc/README.md` §4, `run.sh`'s catalog flags and the local-copy recipe.
 
 **The stack.** Each PR is written by lisa (as ccf-lisa[bot]) and reviewed with ccf-review
-(proportional, at most 2 rounds), and Gustavo merges. Branches are `fx/cat-<n>-<slug>`, one
-`gh stack` per repo.
+(proportional, at most 2 rounds), and Gustavo merges. Branches are `fx/cat-<id>-<slug>`, one
+`gh stack` per repo. The full plan: `~/.claude/plans/factory-remove-the-enchanted-sutton.md`.
 
-*ContainerSolutions/factory, first:*
-1. `feat(controllers): read a private catalog with an App installation token`:
-   - catalog-sync mints a `contents: read` installation token for the catalog repo before
-     each `Head` and `Load`, and `gitsource.Load` gains an `Auth`;
-   - the `serve` flags above, with validation and their tests;
-   - no token keeps today's anonymous behaviour.
-2. `feat(cli): rules test renders prompts and templates and checks results`. For each
-   fixture, it fills the prompt of every dispatch and the Template of every notify into the
-   goldens, and validates the fixture's `run.result` against the TaskSpec's schema. This is
-   what `catalog_test.go`'s `TestPrompts`, `TestTemplates` and `TestResultSchemas` did.
-3. *(no PR)* Gustavo publishes a factory release containing 1–2; the catalog CI pins it.
+*Stack A, ContainerSolutions/factory (merged and released first):*
+- **A1** `feat(controllers): read a private catalog with an App installation token`:
+  `serve --catalog-app-id N --catalog-app-key-ref name/key` (the key from the existing
+  `FACTORY_SECRET_<NAME>_<KEY>`); catalog-sync mints a `contents: read` installation token for
+  the catalog repo before each `Head` and `Load` (`internal/provider/tokens`, wired like
+  `GitSkills.Token`); `gitsource.Load` gains an `Auth`. No App flags: anonymous, as today.
+- **A2** `feat(cli): rules test renders prompts and templates and checks results`: per
+  fixture, the prompt of every dispatch and the Template of every notify go into the goldens,
+  and `run.result` is validated against the TaskSpec's schema (what `catalog_test.go`'s
+  `TestPrompts`, `TestTemplates`, `TestResultSchemas` do, lifted into shared code).
+- **A3** `feat(serve)!: require a catalog; catalog/ is the reference catalog`: no
+  `DefaultCatalogRepo`; `serve` errors without `--catalog-repo`/`--catalog-dir`; a
+  `catalog/README.md` saying it's the reference; `deploy/poc` takes `FACTORY_CATALOG_REPO` (no
+  default), `_REF`, `_PATH`, `_APP_ID`; README §4, the local-copy recipe and the LLDs updated.
+- **Release** (Gustavo): a factory release with A1–A3; the catalog CI pins it.
 
-*compliance-framework/factory-catalog:*
-
-4. `chore: import the factory catalog`:
-   - prod objects and fixtures only, renamed `poc-*` to `ccf-*`;
-   - the real App IDs in the Provider;
-   - CI with the pinned binary;
-   - a README with the rollout waves.
-5. `feat(shared)`: the member and release-bot tiers, the three queues, and the shared rules
-   for the new events.
-6. `feat(issue-impl)`: `plan-issue`, the unified `implement` and `review`, the rules,
-   Templates and fixtures. The docs-epic rules are removed, and docs moves onto it.
-7. `feat(triage)`: the TaskSpec, prompt, `triage.json`, its Templates, rules and fixtures.
-8. `feat(bump-fix)`: the TaskSpec, prompt, `bump-fix.json`, `bump-report`, rules and fixtures.
-9. `feat(review-human)`: people's-PR review generalised (`review`, comment-only for
-   outsiders).
-
-*ContainerSolutions/factory, last:*
-
-10. `refactor!: drop the in-repo catalog; default to compliance-framework/factory-catalog`:
-    - the tests move to test catalogs;
-    - `make catalog` is dropped;
-    - the README §4 and the local-copy recipe are updated.
+*Stack B, compliance-framework/factory-catalog (all new RuleSets scoped to docs):*
+- **B1** `chore: import the CCF catalog from the reference`: prod objects and fixtures only,
+  `poc-*` → `ccf-*`, the real App IDs, CI with the pinned binary, a README with the waves.
+- **B2** `feat(shared)`: member and release-bot tiers, the three queues, shared rules for the
+  new events.
+- **B3** `feat(issue-impl)`: `plan-issue`, the unified `implement` and `review`, rules,
+  Templates and fixtures; docs-epic removed, docs moves onto it.
+- **B4** `feat(triage)`, **B5** `feat(bump-fix)`, **B6** `feat(review-human)`, as above.
 
 **Gustavo's steps:**
-- **Before 4:**
+- **Before B1:**
   - an initial commit on the empty repo's `main` (or say the bot may push one);
   - the ccf-factory App installed on factory-catalog (`contents: read`);
   - branch protection, and the two approvals for Provider changes.
-- **After 3:** the factory release.
-- **After 10:** start the PoC dispatcher with the defaults plus `--catalog-app-id` and check
-  that it loads the new catalog.
-- **To canary:** watch docs for a train, an issue and a bump. Then the waves:
-  - api/ui/agent, or the small plugins first, by catalog PR;
-  - all plugins;
-  - `compliance-framework/*` minus factory-catalog.
+- **After A3:** the factory release.
+- **Cutover:** start the PoC dispatcher with `--catalog-repo
+  https://github.com/compliance-framework/factory-catalog --catalog-app-id <ccf-factory>` and
+  check that it loads the new catalog.
+- **To canary:** watch docs for a train, an issue, an outsider's issue, a bump and a person's
+  PR. Then the waves by catalog PR: small repos or plugins; api/ui/agent; all repos.
 
 **Done when:**
-- the new repo holds the catalog and its CI is green;
-- the dispatcher loads it by default with the App token;
-- this repo has no `catalog/`;
+- the new repo holds the CCF catalog and its CI is green;
+- the PoC dispatcher loads it with the App token;
+- `serve` requires a catalog, and `catalog/` here is marked as the reference;
 - FLOWs 1–3 and people's-PR review are live on docs.
 
 **Later, not this item:** a FLOW for new plugins and policies; the release-please major-gate
