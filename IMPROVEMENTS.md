@@ -212,6 +212,9 @@ draft is in that session's scratchpad (`ccf-catalog-design.md`). The decisions:
 `gh stack` per repo. The full plan: `~/.claude/plans/factory-remove-the-enchanted-sutton.md`.
 
 *Stack A, ContainerSolutions/factory (merged and released first):*
+**Built (2026-10-29):** #250 (A1) → #251 (A2) → #252 (A3), green and reviewed clean, waiting
+for Gustavo to merge bottom-up and publish the release. Stack B's specs are in that session's
+scratchpad (`specsB/`), App IDs filled in (ccf-factory 5343156, reviewer 5343204).
 - **A1** `feat(controllers): read a private catalog with an App installation token`:
   `serve --catalog-app-id N --catalog-app-key-ref name/key` (the key from the existing
   `FACTORY_SECRET_<NAME>_<KEY>`); catalog-sync mints a `contents: read` installation token for
