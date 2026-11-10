@@ -344,8 +344,8 @@ monthly bill is within the free tier.
   no factory code change.
 - The cutover and the docs canary (item 8) wait until this is up.
 
-**In progress:** the design, P4 (`design/proposals/P4-dispatcher-on-aws.md`). Its open points
+**In progress:** the design, P4 (`design/proposals/P4-dispatcher-on-aws.md`), #255: approved, waiting for Gustavo to merge. Its open points
 for Gustavo: the bill (about $13 a month at list price, paid by the credits while they last,
-versus Lambda's about $1.60 with a stack of RT code), whether the account is standalone or in
+versus Lambda's about $1.10 with a stack of RT code), whether the account is standalone or in
 CS's Organization, and CloudFormation versus Terraform. Next: the `deploy/aws/` kit PR.
 
