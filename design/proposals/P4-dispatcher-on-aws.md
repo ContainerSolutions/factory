@@ -31,8 +31,10 @@ for compliance-framework, from the catalog in `compliance-framework/factory-cata
    renews itself.
 2. The state is in `s3://<bucket>/factory` in eu-west-2, private to the dispatcher's identity.
 3. The timed work runs on its own, as on the workstation: no tick endpoint, no scheduler.
-4. Secrets live in SSM Parameter Store (SecureString), are read at start by the instance's
-   role, and are never written to disk.
+4. Secrets live in SSM Parameter Store (SecureString) and are read at start by the instance's
+   role. They are never in the image, the repo, the template or the user data. On the instance
+   they are only in Docker's root-only container config while the container runs, on an
+   encrypted volume.
 5. One `aws cloudformation deploy` creates everything but the secrets' values and the DNS
    delegation, and one command upgrades the image.
 
@@ -55,7 +57,7 @@ AWS has two shapes that fit, and a few that don't.
 | TLS and the name | Caddy on the box, Let's Encrypt | CloudFront with an ACM certificate (function URLs take no custom name) |
 | The UI's event stream | as today | response streaming through the Lambda Web Adapter, capped at 15 minutes |
 | Cold start | none | about a second per new instance (P3 Goal 4) |
-| Cost per month, list price | about $13 (t4g.micro), $9.50 (t4g.nano) | about $1.60 |
+| Cost per month, list price | about $13 (t4g.micro), $9.50 (t4g.nano) | about $1.10 |
 
 **Lambda's code**, for the record (RT's, not built): an authenticated public `POST /tick` that
 takes the leader lock for the call, runs each leader loop's pending work until idle or a
@@ -108,11 +110,22 @@ GitHub (webhooks, OAuth)       people (UI, CLI)       agents (factory-agent supe
   (free), and commands through SSM Run Command.
 - **IMDSv2 required**, hop limit 1: both containers use the host's network, so they reach the
   metadata service as the host does, and nothing else can.
-- **An 8 GiB gp3 root volume.** Nothing on it matters but Caddy's certificates, which it
-  re-issues if they are lost.
+- **An 8 GiB gp3 root volume, encrypted** with EBS encryption and the AWS-managed `aws/ebs` key
+  (free). Nothing on it matters but Caddy's certificates, which it re-issues if they are lost,
+  and the running container's config, which holds the secrets (§Two containers).
 - **Recovery:** EC2's simplified automatic recovery (on by default for t4g) moves the instance to
   new hardware on a host failure, keeping its ID, volume and Elastic IP. A replaced instance
   (a template change, a new AMI) starts with an empty disk and loads the state from the bucket.
+
+### The instance role
+
+All the instance role may do, in one place:
+- `s3:GetObject`, `s3:PutObject` and `s3:DeleteObject` on `arn:aws:s3:::<bucket>/factory/*`, and
+  `s3:ListBucket` on the bucket with the condition `s3:prefix` = `factory/*` (§State);
+- `ssm:GetParameter` and `ssm:GetParametersByPath` under `/factory/prod/` (§Secrets);
+- the `AmazonSSMManagedInstanceCore` managed policy, for Session Manager and Run Command;
+- `logs:CreateLogStream` and `logs:PutLogEvents` on the one log group, for the `awslogs` driver
+  (§Logs and metrics).
 
 ### Two containers, two systemd units
 
@@ -126,14 +139,17 @@ parameter change and a restart (§Operating).
      its newlines, which `docker --env-file` can't carry;
   2. reads `/factory/prod/image` and `/factory/prod/args` (serve's catalog flags, which aren't
      secret);
-  3. `exec`s `docker run --network host --log-driver awslogs -e <each name> -e AWS_REGION=eu-west-2
-     <image> serve --addr 127.0.0.1:8800 --ops-addr 127.0.0.1:9090 --public-url
-     https://factory.container-solutions.com --state-url s3://<bucket>/factory --log-format json
-     <args>`.
+  3. `exec`s `docker run --rm --network host --log-driver awslogs -e <each name> -e
+     AWS_REGION=eu-west-2 <image> serve --addr 127.0.0.1:8800 --ops-addr 127.0.0.1:9090
+     --public-url https://factory.container-solutions.com --state-url s3://<bucket>/factory
+     --log-format json <args>`.
 
-  The values pass from the script's environment to `docker run` by name, so they never reach the
-  disk or a command line. `AWS_REGION` is required: the S3 backend refuses an `s3://` URL without
-  it. systemd restarts the unit on failure.
+  The values pass from the script's environment to `docker run` by name, so they never reach a
+  command line or a file the script writes. Docker keeps them in the container's config
+  (`/var/lib/docker/containers/<id>/config.v2.json`, root-only, and shown by `docker inspect`)
+  while the container exists; `--rm` removes it with the container, and the root volume is
+  encrypted. `AWS_REGION` is required: the S3 backend refuses an `s3://` URL without it. systemd
+  restarts the unit on failure.
 - **`caddy.service`** runs the official `caddy:2` image with host networking and a two-line
   Caddyfile:
 
@@ -160,8 +176,10 @@ From P3 and item 9:
   and the same `ListBucket`, for `factory state --state-url s3://<bucket>/factory` from a laptop.
 - **Versioning on**, as the guard against an accidental delete. The store only creates and
   deletes objects, never overwrites, so a version is kept only for what was deleted. A lifecycle
-  rule expires **noncurrent** versions after 7 days, so the sweeper's deletes don't pile up.
-  There is **no** rule on current objects: P3 deletes log entries itself, under its retention.
+  rule expires **noncurrent** versions after 7 days, so the sweeper's deletes don't pile up. The
+  same rule removes expired delete markers (`ExpiredObjectDeleteMarker: true`), so deletes don't
+  leave markers that listing has to step over. There is **no** rule on current objects: P3
+  deletes log entries itself, under its retention.
 - **eu-west-2**, with the instance, so requests stay in-region and free of transfer charges.
 - The template sets all of this; `serve` checks none of it, so the README says what it is and
   why, for anyone deploying without the template.
@@ -178,8 +196,9 @@ values (a template would leave them in its history); the README lists the names 
 - one `FACTORY_SECRET_<NAME>_<KEY>` per secretRef in the catalog: today the webhook secret, the
   two App keys and the pool's join token (`deploy/poc/README.md` §3 has the list).
 
-The instance role may `ssm:GetParametersByPath` and `ssm:GetParameter` under `/factory/prod/`
-and nothing else. Rotating one is `put-parameter --overwrite`, then a restart.
+The instance role may `ssm:GetParametersByPath` and `ssm:GetParameter` under `/factory/prod/`;
+§The instance role lists everything else it may do. Rotating one is `put-parameter
+--overwrite`, then a restart.
 
 ### DNS
 
@@ -236,12 +255,12 @@ $100 in credits (and up to $100 more for trying services) instead of the old 12 
 EC2:
 - on the **Free plan**, nothing is billed, but the account closes after six months or when the
   credits run out, unless upgraded;
-- on the **Paid plan**, the credits pay the bill until they run out (at $13 a month, longer than
-  a year), then it is list price;
+- on the **Paid plan**, the credits pay the bill until they run out or expire, whichever is
+  first (the expiry date is on the account's Credits page), then it is list price;
 - an account that joins an AWS Organization is on the Paid plan. Whether a member account gets
   the sign-up credits is to check on the account itself.
 
-Lambda's setup is the only one that stays about $1.60 a month after the credits (S3 and the
+Lambda's setup is the only one that stays about $1.10 a month after the credits (S3 and the
 hosted zone; Lambda, CloudFront and EventBridge Scheduler stay inside their always-free
 allowances). §Options says why it isn't worth its code today.
 
@@ -328,7 +347,7 @@ monthly bill is the table above, paid by the credits while they last.
 Open, for Gustavo:
 - **The bill:** about $13 a month at list price (about $9.50 on t4g.nano), covered by the
   account's credits while they last, versus item 9's "inside the free tier". Accept, or ask for
-  the Lambda stack (about $1.60 a month, §Options)?
+  the Lambda stack (about $1.10 a month, §Options)?
 - **The account:** new and standalone (credits; the Free plan closes after six months unless
   upgraded), or a member of Container Solutions' AWS Organization (Paid plan; credits to check)?
 - **IaC:** CloudFormation, unless CS standardises on Terraform or OpenTofu.
