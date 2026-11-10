@@ -335,10 +335,17 @@ Part of 9's design: **the bucket's access policy** (from P3):
 bucket, the Apps' webhooks reach it, an agent enrolls against it and runs a task, and the
 monthly bill is within the free tier.
 
-**Ask Gustavo first:**
-- GCP or AWS, and which account or project;
-- who controls DNS for container-solutions.com;
-- whether a small always-on VM is acceptable, if it's cheaper than scale-to-zero plus a
-  scheduler;
-- the region.
+**Decided (Gustavo, 2026-11-10):**
+- **AWS, eu-west-2.** The account is picked later; the design doesn't depend on it.
+- **DNS:** CS keeps `container-solutions.com` and adds an `NS` record delegating
+  `factory.container-solutions.com` to a Route 53 hosted zone.
+- **A small always-on VM is fine.** So: one EC2 t4g.micro, Caddy for TLS, state in S3, secrets
+  in SSM Parameter Store. The leader's loops run as on a laptop, so there is no `POST /tick` and
+  no factory code change.
+- The cutover and the docs canary (item 8) wait until this is up.
+
+**In progress:** the design, P4 (`design/proposals/P4-dispatcher-on-aws.md`). Its open points
+for Gustavo: the bill (about $13 a month at list price, paid by the credits while they last,
+versus Lambda's about $1.60 with a stack of RT code), whether the account is standalone or in
+CS's Organization, and CloudFormation versus Terraform. Next: the `deploy/aws/` kit PR.
 
