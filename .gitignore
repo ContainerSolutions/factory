@@ -27,3 +27,11 @@ web/dist/
 go.work
 go.work.sum
 .DS_Store
+
+# OpenTofu (deploy/aws): providers, the real backend config, local state and plans.
+deploy/aws/.terraform/
+deploy/aws/backend.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
