@@ -1,0 +1,2 @@
+lisa-addressed:
+- [should-fix CORE-DUP-001] parameter names duplicated between instance.tf and the boot script: tests/instance.tftest.hcl now asserts the rendered user data reads each aws_ssm_parameter by its name (kept as literals in the script: the spec limits the template vars to region, log group, domain and state URL).
