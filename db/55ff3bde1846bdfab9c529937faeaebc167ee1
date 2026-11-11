@@ -1,0 +1,3 @@
+lisa-design:
+- The alarm's SNS ARN is built from the topic name (local.alerts_topic_arn), not aws_sns_topic.alerts.arn: the provider validates alarm_actions as ARNs at plan, and under mock_provider .arn is a random string that fails that check in every test file.
+- Only alarm_actions notify (no ok_actions), as the spec says; the subscription is a README step because OpenTofu can't confirm an email subscription.
