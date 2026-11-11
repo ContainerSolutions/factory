@@ -14,6 +14,8 @@
 # fake-gcs-server and MinIO in containers) when Go changes. Both are advisory: neither required
 # nor notify needs them, so a failure there shows on the PR but doesn't block the merge or page
 # anyone.
+# The tofu job checks the AWS kit (deploy/aws) with OpenTofu: fmt, validate and its mocked
+# `tofu test`, with no credentials; nothing is ever planned against or applied to AWS.
 # Each runs only when its side of the repo changed. The one status check to require is
 # `ci / required`, which reports on every PR, including when a side is skipped.
 name: ci
@@ -40,6 +42,7 @@ jobs:
       web: ${{ steps.diff.outputs.web }}
       web-app: ${{ steps.diff.outputs.web-app }}
       kata: ${{ steps.diff.outputs.kata }}
+      tofu: ${{ steps.diff.outputs.tofu }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -62,24 +65,26 @@ jobs:
           fi
           if [ -z "$range" ]; then
             echo "No base to compare with; treating everything as changed."
-            go=true; web=true; kata=true
+            go=true; web=true; kata=true; tofu=true
           else
             files="$(git diff --name-only "$range")"
             printf 'Changed files:\n%s\n' "$files"
-            go=false; web=false; kata=false
+            go=false; web=false; kata=false; tofu=false
             # Workflow changes run every job, so a CI edit is always exercised.
             if grep -qE '^(cmd/|internal/|api/|schemas/|catalog/|go\.mod$|go\.sum$|Makefile$|\.golangci\.yml$|\.github/workflows/)' <<< "$files"; then go=true; fi
             if grep -qE '^(web/|api/openapi\.yaml$|api/examples/|\.github/workflows/)' <<< "$files"; then web=true; fi
             if grep -qE '^(internal/agent/host/provision/|\.github/workflows/)' <<< "$files"; then kata=true; fi
+            if grep -qE '^(deploy/aws/|\.github/workflows/)' <<< "$files"; then tofu=true; fi
           fi
           web_app=false
           if [ -f web/package.json ]; then web_app=true; fi
-          echo "go=$go web=$web web-app=$web_app kata=$kata"
+          echo "go=$go web=$web web-app=$web_app kata=$kata tofu=$tofu"
           {
             echo "go=$go"
             echo "web=$web"
             echo "web-app=$web_app"
             echo "kata=$kata"
+            echo "tofu=$tofu"
           } >> "$GITHUB_OUTPUT"
 
   go:
@@ -172,6 +177,36 @@ jobs:
           docker run --rm --network none --hostname ws-tskci factory-agent-base:ci bash -c \
             'printf "127.0.0.1 localhost\n" >/etc/hosts && getent hosts "$(hostname)" && su admin -c "sudo -n true" 2>&1 | { ! grep .; }'
 
+  tofu:
+    name: tofu
+    needs: changes
+    if: ${{ needs.changes.outputs.tofu == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: deploy/aws
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: 1.13.9
+          tofu_wrapper: false
+      - name: tofu fmt
+        run: tofu fmt -check -recursive
+      # No backend: the real one needs AWS credentials, and nothing here talks to AWS.
+      - name: tofu init
+        run: tofu init -backend=false -input=false
+      - name: tofu validate
+        run: tofu validate
+      # The tests mock the AWS provider and only plan.
+      - name: tofu test
+        run: tofu test
+
   e2e-container:
     name: e2e container (advisory)
     needs: changes
@@ -225,7 +260,7 @@ jobs:
   # e2e-container and e2e-objectstore are left out on purpose: they are advisory.
   required:
     name: required
-    needs: [changes, go, web, kata]
+    needs: [changes, go, web, kata, tofu]
     # Skipped, not failed, on a closed PR, like the jobs above.
     if: ${{ always() && !(github.event_name == 'pull_request' && github.event.pull_request.state == 'closed') }}
     runs-on: ubuntu-latest
@@ -251,7 +286,7 @@ jobs:
           echo "All required jobs succeeded or were skipped."
 
   notify:
-    needs: [go, web, kata]
+    needs: [go, web, kata, tofu]
     if: always()
     uses: compliance-framework/workflows/.github/workflows/notify-failure.yml@e85d35af2af2ddfcd4b92061d2063e665c1831f6 # v1.7.0
     with:
