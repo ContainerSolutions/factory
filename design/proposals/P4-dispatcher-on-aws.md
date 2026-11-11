@@ -105,7 +105,10 @@ GitHub (webhooks, OAuth)       people (UI, CLI)       agents (factory-agent supe
   micro first.
 - **Amazon Linux 2023**, the AMI from SSM's public parameter
   (`/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64`), so the module
-  never pins an AMI ID. Docker from `dnf`; the AWS CLI is already there.
+  never pins an AMI ID. Docker from `dnf`; the AWS CLI is already there. AWS moves that
+  parameter to each new image every few weeks, so the instance ignores later AMI changes
+  (`lifecycle { ignore_changes = [ami] }`): an apply for something else never replaces it.
+  Moving to a new AMI is deliberate, `terraform apply -replace=aws_instance.factory`.
 - **No SSH.** The security group opens 80 and 443 only. Access is through SSM Session Manager
   (free), and commands through SSM Run Command.
 - **IMDSv2 required**, hop limit 1: both containers use the host's network, so they reach the
@@ -115,7 +118,8 @@ GitHub (webhooks, OAuth)       people (UI, CLI)       agents (factory-agent supe
   and the running container's config, which holds the secrets (§Two containers).
 - **Recovery:** EC2's simplified automatic recovery (on by default for t4g) moves the instance to
   new hardware on a host failure, keeping its ID, volume and Elastic IP. A replaced instance
-  (a changed user-data script, a new AMI) starts with an empty disk and loads the state from the bucket.
+  (a changed user-data script, or a deliberate `-replace` for a new AMI) starts with an empty
+  disk and loads the state from the bucket.
 
 ### The instance role
 
