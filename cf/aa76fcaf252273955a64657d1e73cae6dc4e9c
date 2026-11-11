@@ -1,0 +1,9 @@
+lisa-design:
+- The region is a local in providers.tf (local.region) so the provider, the policy ARNs and the boot script share one literal; the domain is local.domain in instance.tf (dns.tf reuses it).
+- Policy ARNs (log group, SSM parameters, bucket) are built from names known at plan, not from mocked .arn attributes, so the tests compare exact resources.
+- The three kit parameters use insecure_value (type String): nothing in them is secret, and the digest stays readable in a plan when upgrading.
+- The ingress rules are one for_each resource over {http=80, https=443}, so the test can assert the collection holds exactly those two.
+- The boot script retries `dnf install docker` (30 x 10 s): with associate_public_ip_address = false and no NAT the instance has no route out until the Elastic IP is attached, seconds after it starts.
+- factory-run reads the env/ parameters into a shell variable first (set -e catches an aws failure), then parses them with python3 into NUL-separated pairs ending with an empty-name sentinel; a missing sentinel means the parse died and the script exits. No temp file, no `wait $!` (bash version independent).
+- $args is word-split on purpose with globbing off (set -f), so a * in serve's flags stays literal.
+- The instance depends_on the log group, the role policy and the three parameters, which the units read on first start; the units restart every 5 s until the secrets exist.
