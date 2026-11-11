@@ -7,3 +7,6 @@ lisa-design:
 - factory-run reads the env/ parameters into a shell variable first (set -e catches an aws failure), then parses them with python3 into NUL-separated pairs ending with an empty-name sentinel; a missing sentinel means the parse died and the script exits. No temp file, no `wait $!` (bash version independent).
 - $args is word-split on purpose with globbing off (set -f), so a * in serve's flags stays literal.
 - The instance depends_on the log group, the role policy and the three parameters, which the units read on first start; the units restart every 5 s until the secrets exist.
+
+lisa-selfreview:
+pass 1 (fx/imp9-4-aws-instance): [should-fix CORE-DUP-001] deploy/aws/user_data.sh.tftpl: the three parameter names (/factory/prod/image, caddy-image, args) are written both in instance.tf and in the boot script, which the spec keeps to four template vars; nothing ties them.
