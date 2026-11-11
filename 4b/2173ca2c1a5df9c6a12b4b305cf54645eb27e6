@@ -1,0 +1,4 @@
+lisa-design:
+- OpenTofu's own state bucket is named factory-tofu-state-<account> in the README's commands (any name works: backend.hcl holds it), distinct from the dispatcher's factory-state-<account>.
+- The read-only role is used through an AWS CLI/SDK profile with role_arn (the dispatcher's S3 backend loads the SDK's default chain, which follows it), not by exporting temporary keys by hand.
+- The README links P4 at design/proposals/P4-dispatcher-on-aws.md, which lands with PR #255.
