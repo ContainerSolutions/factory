@@ -1,0 +1,2 @@
+lisa-addressed:
+- [nit] #260 deploy/aws/README.md §9: the state command now calls ../../bin/factory (commands run from deploy/aws), with a note that a release's factory on PATH works too.
