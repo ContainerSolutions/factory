@@ -2,3 +2,6 @@ lisa-design:
 - OpenTofu's own state bucket is named factory-tofu-state-<account> in the README's commands (any name works: backend.hcl holds it), distinct from the dispatcher's factory-state-<account>.
 - The read-only role is used through an AWS CLI/SDK profile with role_arn (the dispatcher's S3 backend loads the SDK's default chain, which follows it), not by exporting temporary keys by hand.
 - The README links P4 at design/proposals/P4-dispatcher-on-aws.md, which lands with PR #255.
+
+lisa-selfreview:
+pass 1 (fx/imp9-6-aws-readme): [should-fix CORE-DOC-001] deploy/aws/README.md §5: the generated secrets (openssl rand) had no put command and the CLI token no way to read it back; §8: factory agent enroll needs the CLI token, not said.
