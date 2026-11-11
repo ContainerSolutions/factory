@@ -351,6 +351,8 @@ A workflow that fails can be re-run from its Actions page: the upload replaces t
 
 ### Run the image
 
+Our own deployment, on AWS, runs this image from [`deploy/aws`](../aws/README.md).
+
 The image's entrypoint is `factory` and its default command `serve`; give `serve`'s flags after the image name, as `run.sh` does (§6). It holds no secret: every `FACTORY_*` variable of §3 comes from the environment at run time. Pass them by name from a shell that loaded `.env` (a PEM spans lines, which `docker run --env-file` can't carry). The state dir (§6, State) belongs on a volume at `/var/lib/factory`, owned by uid 65532 (a named volume is; a host directory must be `chown 65532` and mode 0700):
 
 ```bash
