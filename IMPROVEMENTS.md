@@ -347,6 +347,14 @@ monthly bill is within the free tier.
 - **Terraform**, not CloudFormation, with the install script as the instance's `user_data`.
 - The cutover and the docs canary (item 8) wait until this is up.
 
-**In progress:** the design, P4 (`design/proposals/P4-dispatcher-on-aws.md`), #255, being
-updated for Terraform. The one open point: whether the account is standalone or in CS's
-Organization. Next: the `deploy/aws/` Terraform kit PR.
+**Built (2026-11-10):** P4 is #255 (approved). The kit is gh stack #256 (network and state
+bucket) → #257 (CI `tofu` job) → #258 (instance, role, boot script) → #259 (DNS, alarm,
+outputs) → #260 (README), all approved; waiting for Gustavo to merge #255 and the stack
+bottom-up. OpenTofu (`tofu test` with a mocked provider, never the real cloud), plain resources,
+values written in; `aws_account_id` is the only variable. Open: whether the account is standalone
+or in CS's Organization.
+
+**Gustavo's steps after the merge:** deploy/aws/README.md §2–§8: the OpenTofu state bucket,
+`tofu apply -var aws_account_id=<id>`, the NS record for `factory`, the secrets in SSM, the
+alerts subscription, then the Apps' webhook and callback URLs and an agent enrolled against
+the new URL.
