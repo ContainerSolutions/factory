@@ -342,10 +342,11 @@ monthly bill is within the free tier.
 - **A small always-on VM is fine.** So: one EC2 t4g.micro, Caddy for TLS, state in S3, secrets
   in SSM Parameter Store. The leader's loops run as on a laptop, so there is no `POST /tick` and
   no factory code change.
+- **The bill:** about $13 a month at list price is fine (not Lambda's ~$1.10 plus RT code). It
+  replaces "inside the free tier" in this item's title and done-when.
+- **Terraform**, not CloudFormation, with the install script as the instance's `user_data`.
 - The cutover and the docs canary (item 8) wait until this is up.
 
-**In progress:** the design, P4 (`design/proposals/P4-dispatcher-on-aws.md`), #255: approved, waiting for Gustavo to merge. Its open points
-for Gustavo: the bill (about $13 a month at list price, paid by the credits while they last,
-versus Lambda's about $1.10 with a stack of RT code), whether the account is standalone or in
-CS's Organization, and CloudFormation versus Terraform. Next: the `deploy/aws/` kit PR.
-
+**In progress:** the design, P4 (`design/proposals/P4-dispatcher-on-aws.md`), #255, being
+updated for Terraform. The one open point: whether the account is standalone or in CS's
+Organization. Next: the `deploy/aws/` Terraform kit PR.
