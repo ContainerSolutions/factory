@@ -105,7 +105,13 @@ aws ssm put-parameter --type SecureString --overwrite \
 
 read -rs v && aws ssm put-parameter --type SecureString --overwrite \
   --name /factory/prod/env/FACTORY_OAUTH_CLIENT_SECRET --value "$v"; unset v
+
+v="$(openssl rand -hex 32)" && aws ssm put-parameter --type SecureString --overwrite \
+  --name /factory/prod/env/FACTORY_SESSION_KEY --value "$v"; unset v
 ```
+
+A value you need later, such as the CLI token, reads back with
+`aws ssm get-parameter --with-decryption --name /factory/prod/env/FACTORY_CLI_TOKEN --query Parameter.Value --output text`.
 
 Then restart the dispatcher:
 
@@ -139,8 +145,9 @@ aws sns subscribe --topic-arn "$(tofu output -raw alerts_topic_arn)" \
   the secret from §5.
 - ccf-factory's callback URL: `https://factory.container-solutions.com/api/v1/auth/callback`.
 - Agents: enroll each host against the new URL, as in [`deploy/poc/README.md`](../poc/README.md)
-  §8, with `--dispatcher https://factory.container-solutions.com` (and `--server` on
-  `factory agent enroll`). They keep the default long poll.
+  §8, with `--dispatcher https://factory.container-solutions.com`, and
+  `--server https://factory.container-solutions.com` on `factory agent enroll` (with the CLI token
+  from §5 in `FACTORY_CLI_TOKEN`). They keep the default long poll.
 
 ## 9. Operating
 
