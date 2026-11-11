@@ -188,8 +188,10 @@ region         = eu-west-2
 
 ```bash
 AWS_PROFILE=factory-state AWS_REGION=eu-west-2 \
-  bin/factory state tasks --state-url "$(tofu output -raw state_url)"
+  ../../bin/factory state tasks --state-url "$(tofu output -raw state_url)"
 ```
+
+`../../bin/factory` is the repo root's build; a `factory` from a release on your `PATH` works too.
 
 **A new Amazon Linux image.** The instance ignores new images, so an apply for something else never
 replaces it. Move to the latest one on purpose:
