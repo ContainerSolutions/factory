@@ -3,7 +3,7 @@
 > Status: **proposed**. Workstream: RUN (the deploy kit). Builds on
 > [P3](P3-dispatcher-state-in-object-storage.md): state in an S3 bucket, any number of
 > dispatchers on it. IMPROVEMENTS item 9. **No contract change and no factory code change:** the
-> work is a new kit under `deploy/aws/` (a Terraform module, its user-data script and a README),
+> work is a new kit under `deploy/aws/` (OpenTofu resources, their user-data script and a README),
 > which Gustavo runs against his account. Decisions at the end (Gustavo, 2026-11-10).
 
 ## Why
@@ -32,11 +32,11 @@ for compliance-framework, from the catalog in `compliance-framework/factory-cata
 2. The state is in `s3://<bucket>/factory` in eu-west-2, private to the dispatcher's identity.
 3. The timed work runs on its own, as on the workstation: no tick endpoint, no scheduler.
 4. Secrets live in SSM Parameter Store (SecureString) and are read at start by the instance's
-   role. They are never in the image, the repo, the Terraform state or the user data. On the instance
-   they are only in Docker's root-only container config while the container runs, on an
+   role. They are never in the image, the repo, the OpenTofu state or the user data. On the
+   instance they are only in Docker's root-only container config while the container runs, on an
    encrypted volume.
-5. One `terraform apply` creates everything but the secrets' values and the DNS delegation,
-   and an upgrade is a variable change, an apply and a restart.
+5. One `tofu apply` creates everything but the secrets' values and the DNS delegation, and an
+   upgrade is a one-line change, an apply and a restart.
 
 Non-goals:
 - High availability. One instance, recovered by EC2 when its host fails. P3 makes a second
@@ -108,7 +108,7 @@ GitHub (webhooks, OAuth)       people (UI, CLI)       agents (factory-agent supe
   never pins an AMI ID. Docker from `dnf`; the AWS CLI is already there. AWS moves that
   parameter to each new image every few weeks, so the instance ignores later AMI changes
   (`lifecycle { ignore_changes = [ami] }`): an apply for something else never replaces it.
-  Moving to a new AMI is deliberate, `terraform apply -replace=aws_instance.factory`.
+  Moving to a new AMI is deliberate, `tofu apply -replace=aws_instance.factory`.
 - **No SSH.** The security group opens 80 and 443 only. Access is through SSM Session Manager
   (free), and commands through SSM Run Command.
 - **IMDSv2 required**, hop limit 1: both containers use the host's network, so they reach the
@@ -133,8 +133,8 @@ All the instance role may do, in one place:
 
 ### Two containers, two systemd units
 
-Both images are pinned by digest. Terraform writes them, and serve's non-secret args, to SSM
-parameters that the units read at start, so an upgrade is a variable change, an apply and a
+Both images are pinned by digest. OpenTofu writes them, and serve's non-secret args, to SSM
+parameters that the units read at start, so an upgrade is a one-line change, an apply and a
 restart (§Operating).
 
 - **`factory.service`** runs `/usr/local/bin/factory-run`, which:
@@ -177,7 +177,7 @@ From P3 and item 9:
 - **Only the dispatcher writes:** the instance role may `GetObject`, `PutObject` and
   `DeleteObject` on `arn:aws:s3:::<bucket>/factory/*`, and `ListBucket` on the bucket with the
   condition `s3:prefix` = `factory/*`. Nothing else in the account needs it.
-- **A read-only role** (optional, a variable naming who may assume it) with `GetObject`
+- **A read-only role** (any principal in the account that its own policy allows) with `GetObject`
   and the same `ListBucket`, for `factory state --state-url s3://<bucket>/factory` from a laptop.
 - **Versioning on**, as the guard against an accidental delete. The store only creates and
   deletes objects, never overwrites, so a version is kept only for what was deleted. A lifecycle
@@ -192,7 +192,7 @@ From P3 and item 9:
 ### Secrets
 
 SSM Parameter Store SecureString, standard tier, encrypted with the AWS-managed key `aws/ssm`:
-no charge, unlike Secrets Manager's $0.40 per secret a month. Terraform creates none of the
+no charge, unlike Secrets Manager's $0.40 per secret a month. OpenTofu creates none of the
 values (its state would hold them in plain text); the README lists the names and gives the
 `aws ssm put-parameter` command for each, reading the value from a file or stdin:
 
@@ -271,56 +271,59 @@ allowances). §Options says why it isn't worth its code today.
 
 ## The kit: `deploy/aws/`
 
-A Terraform root module, with the boot script as the instance's `user_data`.
+Plain OpenTofu resources in one root, no modules, with the boot script as the instance's
+`user_data`. It deploys our instance, so its values are written in: the domain, eu-west-2, the
+instance type, the image digests and serve's flags. **The one variable is `aws_account_id`**,
+the one thing not known yet; the provider refuses any other account (`allowed_account_ids`).
+Another deployment copies the directory and edits the values.
 
-- **`versions.tf`:** Terraform `>= 1.10` and the `hashicorp/aws` provider `~> 6.0`, and an
-  empty `backend "s3" {}` block.
-- **`variables.tf`:** `domain` (no default), `region` (default `eu-west-2`), `instance_type`
-  (default `t4g.micro`), `alarm_email`, `readonly_principal_arns` (optional, for the read-only
-  role), `factory_image` and `caddy_image` (digests, no defaults) and `serve_args` (the catalog
-  flags). Nothing account-specific is hard-coded, so anyone can deploy the product with their own
-  tfvars.
-- **The resources**, one file per concern (`network.tf`, `instance.tf`, `iam.tf`, `state.tf`,
-  `dns.tf`, `monitoring.tf`):
-  - a VPC with one public subnet and an internet gateway (free; the account's default VPC may be
-    gone);
-  - the security group, the Elastic IP and the instance (the AMI from SSM's public parameter);
-  - the instance role and its profile (§The instance role), and the read-only role;
-  - the bucket, its public access block, ownership, encryption, versioning, lifecycle rule and
-    policy;
-  - the hosted zone and its `A` and `CAA` records;
-  - the log group, the SNS topic and its email subscription, and the status-check alarm;
-  - the non-secret SSM parameters: `/factory/prod/image`, `/factory/prod/caddy-image`,
-    `/factory/prod/args`.
-- **`user_data.sh.tftpl`**, rendered with `templatefile()` (the bucket, the region, the domain,
-  the log group): installs Docker, writes `factory-run`, the Caddyfile and the two units, and
-  enables them. It holds no secret. The instance sets `user_data_replace_on_change`, so a changed
-  script replaces the instance: the state is in the bucket and the Elastic IP moves over, so
-  nothing is lost but Caddy's certificate, which it gets again (Let's Encrypt allows five
-  identical certificates a week).
+- **`versions.tf`:** OpenTofu `>= 1.10` and the `hashicorp/aws` provider `~> 6.0`, and an empty
+  `backend "s3" {}` block; the provider lock file is committed. The HCL stays valid for
+  Terraform 1.10 and later too.
+- **The resources**, one file per concern:
+  - `network.tf`: a VPC with one public subnet and an internet gateway (free; the account's
+    default VPC may be gone);
+  - `state.tf`: the bucket (`factory-state-<account>`), its public access block, ownership,
+    encryption, versioning, lifecycle rule and policy;
+  - `iam.tf`: the instance role and its profile (§The instance role), and the read-only role;
+  - `instance.tf`: the security group, the Elastic IP, the instance (the AMI from SSM's public
+    parameter), the log group, and the non-secret SSM parameters `/factory/prod/image`,
+    `/factory/prod/caddy-image` and `/factory/prod/args`;
+  - `dns.tf`: the hosted zone and its `A` and `CAA` records;
+  - `monitoring.tf`: the SNS topic and the status-check alarm (the email subscription is one
+    `aws sns subscribe`, in the README);
+  - policies are written with `jsonencode()`, so the tests can read them.
+- **`user_data.sh.tftpl`**, rendered with `templatefile()`: installs Docker, writes `factory-run`,
+  the Caddyfile and the two units, and enables them. It holds no secret. The instance sets
+  `user_data_replace_on_change`, so a changed script replaces the instance: the state is in the
+  bucket and the Elastic IP moves over, so nothing is lost but Caddy's certificate, which it gets
+  again (Let's Encrypt allows five identical certificates a week).
 - **`outputs.tf`:** the name servers, the state URL and the instance ID.
-- **`terraform.tfvars.example`** with our values (`factory.container-solutions.com`,
-  eu-west-2, the factory-catalog flags) and **`backend.hcl.example`**. The real `*.tfvars` and
-  `backend.hcl` stay out of git (`.gitignore`), as do `.terraform/` and any local state.
+- **`backend.hcl.example`.** The real `backend.hcl` stays out of git (`.gitignore`), as do
+  `.terraform/` and any local state.
+- **`tests/*.tftest.hcl`:** `tofu test` with `mock_provider "aws"` and `command = plan`, so the
+  tests need no credentials and never reach AWS. They check what this design promises: the
+  bucket is private and TLS-only, the role reaches only its prefix, parameters and log group,
+  IMDSv2 is required, only 80 and 443 are open, the root volume is encrypted, the user data runs
+  `docker run --rm` and holds no secret, and a malformed account ID is refused.
 - **`README.md`:** the order of operations (§Rollout), the secrets' parameter names, upgrade and
   rollback, reading the state from a laptop, and the bucket policy explained for anyone not
-  using the module.
+  using the kit.
 
-**Terraform's own state** lives in a separate S3 bucket, created once by hand (versioned,
+**OpenTofu's own state** lives in a separate S3 bucket, created once by hand (versioned,
 private, Block Public Access on), through the S3 backend with partial configuration:
-`terraform init -backend-config=backend.hcl`, so the repo names no bucket or account. Locking
-uses S3's own lock file (`use_lockfile = true`, Terraform 1.10 and later), so there is no
-DynamoDB table. The state holds no secret value, since Terraform never sees the secrets.
+`tofu init -backend-config=backend.hcl`, so the repo names no state bucket. Locking uses S3's
+own lock file (`use_lockfile = true`), so there is no DynamoDB table. The state holds no secret
+value, since OpenTofu never sees the secrets.
 
-CI can't apply it. `terraform fmt -check` and `terraform validate` (after `terraform init
--backend=false`) need no credentials; the kit's PR runs them by hand and says so, rather than
-adding a Terraform job to CI for one module.
+**CI** runs `tofu fmt -check`, `tofu validate` and `tofu test` on changes under `deploy/aws/`
+(after `tofu init -backend=false`). None of them needs credentials, and nothing ever applies.
 
 ## Operating
 
 ```bash
-# Upgrade (or roll back) the dispatcher: set factory_image to another digest in your tfvars, then
-terraform apply
+# Upgrade (or roll back) the dispatcher: change the digest in /factory/prod/image's resource, then
+tofu apply
 aws ssm send-command --instance-ids <id> --document-name AWS-RunShellScript \
   --parameters 'commands=["systemctl restart factory"]'
 
@@ -338,15 +341,16 @@ reads it.
 ## Rollout
 
 1. **This proposal** (docs).
-2. **`feat(deploy): the dispatcher on one EC2 instance (deploy/aws)`**: the Terraform module,
-   the user-data script and the README. One PR, RUN's. It is under 1000 lines.
+2. **The kit, as a `gh stack`** (RUN's; the CI job is FND's): the network and state bucket; the
+   CI job; the instance, its role and boot script; DNS, the alarm and outputs; the README.
+   Each is under 1000 lines.
 3. **Gustavo's steps**, in this order, from the README:
-   1. create the Terraform state bucket once, copy the two examples, then `terraform init
-      -backend-config=backend.hcl` and `terraform apply` in eu-west-2;
+   1. create the state bucket once, copy `backend.hcl.example`, then `tofu init
+      -backend-config=backend.hcl` and `tofu apply -var aws_account_id=<id>`;
    2. give the four name servers to whoever runs `container-solutions.com`, for the `factory`
       `NS` record;
-   3. `put-parameter` each secret. The image digests and serve's args come from the tfvars (the
-      catalog flags: `--catalog-repo https://github.com/compliance-framework/factory-catalog
+   3. `put-parameter` each secret (the image digests and serve's flags are already in the
+      kit: `--catalog-repo https://github.com/compliance-framework/factory-catalog
       --catalog-app-id 5343156 --catalog-app-key-ref ccf-factory-app/private-key --retention
       2160h`);
    4. restart `factory`; check `https://factory.container-solutions.com/` serves the UI once
@@ -372,7 +376,10 @@ monthly bill is the table above (about $13), paid by the credits while they last
    laptop, no tick endpoint and no factory code change.
 4. **The bill:** about $13 a month at list price is fine, so not the Lambda stack. It replaces
    item 9's "inside the free tier".
-5. **Terraform**, not CloudFormation, with the install script as the instance's `user_data`.
+5. **Terraform-style IaC**, not CloudFormation, with the install script as the instance's
+   `user_data`. Built and tested with **OpenTofu** (`tofu test` with mocked providers, never
+   the real cloud); plain resources, no modules; values written in, with the account ID the
+   only variable.
 
 Open, for Gustavo:
 - **The account:** new and standalone (credits; the Free plan closes after six months unless
