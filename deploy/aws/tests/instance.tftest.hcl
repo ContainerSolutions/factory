@@ -239,6 +239,14 @@ run "user_data_runs_the_containers_and_holds_no_secret" {
   }
 
   assert {
+    condition = alltrue([
+      for p in [aws_ssm_parameter.image, aws_ssm_parameter.caddy_image, aws_ssm_parameter.args] :
+      can(regex("(param|--name) ${p.name}[ )]", aws_instance.factory.user_data))
+    ])
+    error_message = "the boot script reads the parameters the kit writes, by the same names"
+  }
+
+  assert {
     condition     = aws_instance.factory.user_data == local.user_data
     error_message = "the instance runs the rendered boot script"
   }
