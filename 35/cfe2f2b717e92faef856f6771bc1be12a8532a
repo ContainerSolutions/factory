@@ -1,0 +1,6 @@
+lisa-design:
+- Bucket policy ARNs are built from aws_s3_bucket.state.bucket ("arn:aws:s3:::<name>"), not .arn: the name is known at plan, so tests under mock_provider can jsondecode the policy and compare exact resources; .arn would be a mocked random string.
+- The lifecycle test reads expiration.days as 0, not null: the provider schema makes it Optional+Computed with 0 meaning unset, which is what plan shows under the mock.
+- The lifecycle rule uses an empty filter {} (whole bucket); under the mock its computed prefix is a random string, so the tests do not assert on the filter.
+- The lock file is OpenTofu's (registry.opentofu.org); Terraform users regenerate it (README, PR 5).
+- The bucket policy grants nothing: the instance role's access comes from IAM in PR 3; the test asserts every statement is a Deny.
