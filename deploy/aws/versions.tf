@@ -1,4 +1,4 @@
-# The AWS kit for factory.container-solutions.com (design/proposals/P4-dispatcher-on-aws.md).
+# The AWS kit for factory.ccf.container-solutions.com (design/proposals/P4-dispatcher-on-aws.md).
 # Built and tested with OpenTofu; the HCL stays valid for Terraform >= 1.10 too.
 terraform {
   required_version = ">= 1.10"
