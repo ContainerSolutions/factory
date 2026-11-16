@@ -8,7 +8,7 @@
 
 ## Why
 
-The factory ships as a product, and our own instance runs at `factory.container-solutions.com`
+The factory ships as a product, and our own instance runs at `factory.ccf.container-solutions.com`
 for compliance-framework, from the catalog in `compliance-framework/factory-catalog`
 (IMPROVEMENTS item 8). Today the dispatcher runs on a workstation behind an ngrok tunnel
 (`deploy/poc`). It needs a home that:
@@ -27,7 +27,7 @@ for compliance-framework, from the catalog in `compliance-framework/factory-cata
 
 ## Goal
 
-1. `https://factory.container-solutions.com` serves the dispatcher, with a certificate that
+1. `https://factory.ccf.container-solutions.com` serves the dispatcher, with a certificate that
    renews itself.
 2. The state is in `s3://<bucket>/factory` in eu-west-2, private to the dispatcher's identity.
 3. The timed work runs on its own, as on the workstation: no tick endpoint, no scheduler.
@@ -35,8 +35,8 @@ for compliance-framework, from the catalog in `compliance-framework/factory-cata
    role. They are never in the image, the repo, the OpenTofu state or the user data. On the
    instance they are only in Docker's root-only container config while the container runs, on an
    encrypted volume.
-5. One `tofu apply` creates everything but the secrets' values and the DNS delegation, and an
-   upgrade is a one-line change, an apply and a restart.
+5. One `tofu apply` creates everything but the secrets' values and the DNS zone (made by hand),
+   and an upgrade is a one-line change, an apply and a restart.
 
 Non-goals:
 - High availability. One instance, recovered by EC2 when its host fails. P3 makes a second
@@ -86,9 +86,9 @@ Ruled out:
 ```
 GitHub (webhooks, OAuth)       people (UI, CLI)       agents (factory-agent supervise)
             \                         |                        /
-             '------ https://factory.container-solutions.com -'
+             '---- https://factory.ccf.container-solutions.com -'
                                       |
-                Route 53 zone factory.container-solutions.com (A → Elastic IP)
+   Route 53 zone ccf.container-solutions.com, made by hand (factory A → Elastic IP)
                                       |
    EC2 t4g.micro, Amazon Linux 2023 arm64, public subnet, SG: 80 and 443 in, all out
      caddy (container, host network)  :80, :443  → 127.0.0.1:8800
@@ -146,7 +146,7 @@ restart (§Operating).
      secret);
   3. `exec`s `docker run --rm --network host --log-driver awslogs -e <each name> -e
      AWS_REGION=eu-west-2 <image> serve --addr 127.0.0.1:8800 --ops-addr 127.0.0.1:9090
-     --public-url https://factory.container-solutions.com --state-url s3://<bucket>/factory
+     --public-url https://factory.ccf.container-solutions.com --state-url s3://<bucket>/factory
      --log-format json <args>`.
 
   The values pass from the script's environment to `docker run` by name, so they never reach a
@@ -159,7 +159,7 @@ restart (§Operating).
   Caddyfile:
 
   ```
-  factory.container-solutions.com {
+  factory.ccf.container-solutions.com {
       reverse_proxy 127.0.0.1:8800
   }
   ```
@@ -210,15 +210,15 @@ The instance role may `ssm:GetParametersByPath` and `ssm:GetParameter` under `/f
 
 ### DNS
 
-Gustavo's team keeps `container-solutions.com`. The module creates a Route 53 public hosted
-zone for `factory.container-solutions.com` and prints its four name servers; the parent gets an
-`NS` record for `factory` pointing at them. In the zone:
-- an `A` record for the apex, to the Elastic IP;
+`ccf.container-solutions.com` is a Route 53 public hosted zone in the account, made by hand and
+delegated from `container-solutions.com` by its owners. The kit looks it up (a data source) and
+never creates or manages it; it adds, for `factory.ccf.container-solutions.com`:
+- an `A` record, to the Elastic IP;
 - a `CAA` record allowing only `letsencrypt.org`.
 
-The Elastic IP outlives the instance, so a replaced instance keeps the name. Caddy's first
-certificate waits for the delegation: until then it retries, and the dispatcher is reachable
-only from the box.
+The Elastic IP outlives the instance, so a replaced instance keeps the name. The zone must be
+delegated before the apply: Caddy's first certificate waits for the name to resolve, retrying
+until then, and the dispatcher is reachable only from the box.
 
 ### Logs and metrics
 
@@ -240,7 +240,7 @@ script while upgrades are rare.
 
 ### Agents
 
-Unchanged. An agent installs with `--dispatcher https://factory.container-solutions.com`
+Unchanged. An agent installs with `--dispatcher https://factory.ccf.container-solutions.com`
 (`deploy/poc/README.md` §8) and keeps the default long poll: Caddy has no read timeout on a proxied request, and `LeaseTask`'s 30 s
 wait is well within the dispatcher's own.
 
@@ -253,7 +253,7 @@ eu-west-2 list prices, per month, for the setup above:
 | t4g.micro on demand ($0.0094 an hour) | $6.86 |
 | Public IPv4, the Elastic IP ($0.005 an hour) | $3.65 |
 | gp3 root volume, 8 GiB | about $0.75 |
-| Route 53 hosted zone | $0.50 |
+| Route 53 hosted zone (`ccf.container-solutions.com`, made by hand) | $0.50 |
 | S3: about 100,000 writes and 1,300,000 reads (P3 §What it costs, "VM"), storage well under 1 GB | about $1.10 |
 | CloudWatch Logs, SSM parameters, SNS, Session Manager | $0 at our volume |
 | **Total** | **about $13** (about $9.50 on t4g.nano) |
@@ -292,7 +292,8 @@ Another deployment copies the directory and edits the values.
   - `instance.tf`: the security group, the Elastic IP, the instance (the AMI from SSM's public
     parameter), the log group, and the non-secret SSM parameters `/factory/prod/image`,
     `/factory/prod/caddy-image` and `/factory/prod/args`;
-  - `dns.tf`: the hosted zone and its `A` and `CAA` records;
+  - `dns.tf`: looks up the hand-made `ccf.container-solutions.com` zone and adds the `A` and
+    `CAA` records;
   - `monitoring.tf`: the SNS topic and the status-check alarm (the email subscription is one
     `aws sns subscribe`, in the README);
   - policies are written with `jsonencode()`, so the tests can read them.
@@ -301,7 +302,7 @@ Another deployment copies the directory and edits the values.
   `user_data_replace_on_change`, so a changed script replaces the instance: the state is in the
   bucket and the Elastic IP moves over, so nothing is lost but Caddy's certificate, which it gets
   again (Let's Encrypt allows five identical certificates a week).
-- **`outputs.tf`:** the name servers, the state URL and the instance ID.
+- **`outputs.tf`:** the state URL and the instance ID.
 - **`backend.hcl.example`.** The real `backend.hcl` stays out of git (`.gitignore`), as do
   `.terraform/` and any local state.
 - **`tests/*.tftest.hcl`:** `tofu test` with `mock_provider "aws"` and `command = plan`, so the
@@ -348,33 +349,34 @@ reads it.
    CI job; the instance, its role and boot script; DNS, the alarm and outputs; the README.
    Each is under 1000 lines.
 3. **Gustavo's steps**, in this order, from the README:
-   1. create the state bucket once, copy `backend.hcl.example`, then `tofu init
+   1. check that `ccf.container-solutions.com` is delegated (`dig +short NS
+      ccf.container-solutions.com` answers its four name servers);
+   2. create the state bucket once, copy `backend.hcl.example`, then `tofu init
       -backend-config=backend.hcl` and `tofu apply -var aws_account_id=<id>`;
-   2. give the four name servers to whoever runs `container-solutions.com`, for the `factory`
-      `NS` record;
    3. `put-parameter` each secret (the image digests and serve's flags are already in the
       kit: `--catalog-repo https://github.com/compliance-framework/factory-catalog
       --catalog-app-id 5343156 --catalog-app-key-ref ccf-factory-app/private-key --retention
       2160h`);
-   4. restart `factory`; check `https://factory.container-solutions.com/` serves the UI once
-      the delegation resolves;
+   4. restart `factory`; check `https://factory.ccf.container-solutions.com/` serves the UI
+      once the name resolves;
    5. point ccf-factory's and ccf-factory-reviewer's webhook URL at
-      `https://factory.container-solutions.com/hooks/<provider>`, and the OAuth App's callback at
-      `/api/v1/auth/callback`;
+      `https://factory.ccf.container-solutions.com/hooks/<provider>`, and the OAuth App's
+      callback at `/api/v1/auth/callback`;
    6. enroll an agent against the new URL and dispatch a test event;
    7. stop the workstation's dispatcher. Its state isn't moved (P3 Decision 2: a fresh start).
 
 The canary on docs (item 8's cutover) follows once this is up.
 
-**Done when** (item 9): the UI is served over HTTPS at `factory.container-solutions.com`; the
+**Done when** (item 9): the UI is served over HTTPS at `factory.ccf.container-solutions.com`; the
 state is in the bucket; the Apps' webhooks reach it; an agent enrolls and runs a task; and the
 monthly bill is the table above (about $13), paid by the credits while they last.
 
 ## Decisions (Gustavo, 2026-11-10)
 
 1. **AWS**, in **eu-west-2** (the account: Decision 6).
-2. **DNS:** `container-solutions.com` stays where it is, with an `NS` record delegating
-   `factory.container-solutions.com` to a Route 53 hosted zone the module creates.
+2. **DNS** (2026-11-16): `ccf.container-solutions.com` is a Route 53 zone made by hand and
+   delegated from `container-solutions.com`; the dispatcher is
+   `factory.ccf.container-solutions.com`, its records added by the kit.
 3. **A small always-on VM is fine.** So: one EC2 instance, the leader's loops running as on a
    laptop, no tick endpoint and no factory code change.
 4. **The bill:** about $13 a month at list price is fine, so not the Lambda stack. It replaces
