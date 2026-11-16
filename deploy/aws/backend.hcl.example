@@ -1,0 +1,9 @@
+# Copy to backend.hcl (git-ignored), fill in the bucket, then:
+#   tofu init -backend-config=backend.hcl
+# The bucket holds OpenTofu's own state, not the dispatcher's. It is created once by hand
+# (versioned, private, Block Public Access on); README.md has the commands.
+bucket       = "<your state bucket>"
+key          = "factory/prod.tfstate"
+region       = "eu-west-2"
+use_lockfile = true
+encrypt      = true
