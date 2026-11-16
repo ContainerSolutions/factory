@@ -1,13 +1,14 @@
 # AWS kit
 
-How to run our dispatcher at `https://factory.container-solutions.com` on AWS, in eu-west-2
+How to run our dispatcher at `https://factory.ccf.container-solutions.com` on AWS, in eu-west-2
 ([P4](../../design/proposals/P4-dispatcher-on-aws.md)). The kit is plain OpenTofu resources in
 this directory. One `tofu apply` creates a VPC with one public subnet, an EC2 t4g.micro with an
 Elastic IP, the dispatcher's state bucket (`factory-state-<account>`), the instance's role and a
-read-only role for the state, a CloudWatch log group, a Route 53 zone with its records, and a
-status-check alarm. The instance runs `factory serve` and Caddy as two containers; Caddy gets the
-certificate from Let's Encrypt. The secrets are SSM parameters you put by hand (§5): OpenTofu never
-sees them. It costs about **$13 a month** at list price (P4 §What it costs).
+read-only role for the state, a CloudWatch log group, the factory's records in the existing
+`ccf.container-solutions.com` Route 53 zone, and a status-check alarm. The instance runs
+`factory serve` and Caddy as two containers; Caddy gets the certificate from Let's Encrypt. The
+secrets are SSM parameters you put by hand (§5): OpenTofu never sees them. It costs about
+**$13 a month** at list price (P4 §What it costs).
 
 The kit deploys our instance, so its values are written in: the domain, the region, the instance
 type, the image digests and `serve`'s flags. The one variable is `aws_account_id`. Another
@@ -21,7 +22,7 @@ deployment copies the directory and edits the values.
 | `iam.tf` | the instance role and the read-only role. |
 | `instance.tf` | the instance, its security group, Elastic IP, log group and the non-secret parameters (the image digests and `serve`'s flags). |
 | `user_data.sh.tftpl` | the boot script: Docker, `factory-run`, `caddy-run`, the Caddyfile and the two systemd units. |
-| `dns.tf`, `monitoring.tf`, `outputs.tf` | the zone and its records, the alarm and its SNS topic, the outputs. |
+| `dns.tf`, `monitoring.tf`, `outputs.tf` | the A and CAA records in the existing zone, the alarm and its SNS topic, the outputs. |
 | `backend.hcl.example` | the backend settings for OpenTofu's own state (§3). |
 | `tests/` | `tofu test` with a mocked provider (§11). |
 
@@ -32,6 +33,11 @@ Commands run from `deploy/aws` unless a step says otherwise.
 - **OpenTofu 1.10 or later** (CI uses 1.13). Terraform 1.10 or later works too, but the committed
   lock file is OpenTofu's: `terraform init` adds its own entries.
 - **The AWS CLI v2**, with the Session Manager plugin for §9's shell.
+- **The public hosted zone `ccf.container-solutions.com`** in the account, made by hand and
+  delegated from `container-solutions.com` by its owners, before you apply:
+  `dig +short NS ccf.container-solutions.com` answers its four name servers. The kit looks the
+  zone up and adds its records; it never creates it. Caddy can't get a certificate until the zone
+  is delegated.
 - **An admin session on the account**, in eu-west-2:
 
 ```bash
@@ -62,16 +68,15 @@ cp backend.hcl.example backend.hcl    # git-ignored; set bucket to "factory-tofu
 tofu init -backend-config=backend.hcl
 ```
 
-## 4. Apply and delegate the name
+## 4. Apply
 
 ```bash
 tofu apply -var aws_account_id=$ACCOUNT
-tofu output name_servers
 ```
 
-Give the four name servers to whoever runs `container-solutions.com`, for an `NS` record on
-`factory`. Until it resolves, Caddy retries its certificate and the dispatcher is reachable only
-from the box. `dig +short NS factory.container-solutions.com` shows when it does.
+The A record for `factory.ccf.container-solutions.com` points at the Elastic IP
+(`dig +short factory.ccf.container-solutions.com` shows it). Until it resolves, Caddy retries its
+certificate and the dispatcher is reachable only from the box.
 
 The `factory` unit restarts every 5 seconds until the secrets exist (§5). That is expected.
 
@@ -134,20 +139,20 @@ aws sns subscribe --topic-arn "$(tofu output -raw alerts_topic_arn)" \
 
 ## 7. Check it
 
-- `https://factory.container-solutions.com/` serves the UI once the name resolves.
+- `https://factory.ccf.container-solutions.com/` serves the UI once the name resolves.
 - The logs are in the CloudWatch log group `/factory/prod`, one stream per container:
   `aws logs tail /factory/prod --follow --log-stream-names factory` (or `caddy`). The dispatcher's
   are JSON.
 
 ## 8. Point GitHub and the agents at it
 
-- ccf-factory's webhook URL: `https://factory.container-solutions.com/hooks/github-public`, with
+- ccf-factory's webhook URL: `https://factory.ccf.container-solutions.com/hooks/github-public`, with
   the secret from §5.
-- ccf-factory's callback URL: `https://factory.container-solutions.com/api/v1/auth/callback`.
+- ccf-factory's callback URL: `https://factory.ccf.container-solutions.com/api/v1/auth/callback`.
 - Agents: enroll each host against the new URL, as in [`deploy/poc/README.md`](../poc/README.md)
-  §8, with `--dispatcher https://factory.container-solutions.com`, and
-  `--server https://factory.container-solutions.com` on `factory agent enroll` (with the CLI token
-  from §5 in `FACTORY_CLI_TOKEN`). They keep the default long poll.
+  §8, with `--dispatcher https://factory.ccf.container-solutions.com`, and
+  `--server https://factory.ccf.container-solutions.com` on `factory agent enroll` (with the CLI
+  token from §5 in `FACTORY_CLI_TOKEN`). They keep the default long poll.
 
 ## 9. Operating
 
