@@ -21,10 +21,10 @@ mock_provider "aws" {
     }
   }
 
-  override_resource {
-    target = aws_route53_zone.factory
+  override_data {
+    target = data.aws_route53_zone.ccf
     values = {
-      name_servers = ["ns-1.awsdns-01.org", "ns-2.awsdns-02.co.uk", "ns-3.awsdns-03.com", "ns-4.awsdns-04.net"]
+      zone_id = "Z0123456789ABCDEFGHIJ"
     }
   }
 }
@@ -33,29 +33,35 @@ variables {
   aws_account_id = "111122223333"
 }
 
-run "zone_points_at_the_elastic_ip" {
+run "records_in_the_ccf_zone_point_at_the_elastic_ip" {
   command = plan
 
   assert {
-    condition     = aws_route53_zone.factory.name == "factory.container-solutions.com"
-    error_message = "the zone is factory.container-solutions.com"
+    condition     = data.aws_route53_zone.ccf.name == "ccf.container-solutions.com" && data.aws_route53_zone.ccf.private_zone == false
+    error_message = "the kit looks up the public ccf.container-solutions.com zone"
+  }
+
+  assert {
+    condition = alltrue([
+      for r in [aws_route53_record.factory_a, aws_route53_record.factory_caa] :
+      r.zone_id == "Z0123456789ABCDEFGHIJ" && r.name == "factory.ccf.container-solutions.com"
+    ])
+    error_message = "both records are factory.ccf.container-solutions.com, in the looked-up ccf.container-solutions.com zone"
   }
 
   assert {
     condition = (
-      aws_route53_record.apex_a.name == "factory.container-solutions.com" &&
-      aws_route53_record.apex_a.type == "A" &&
-      aws_route53_record.apex_a.ttl == 300 &&
-      aws_route53_record.apex_a.records == toset(["203.0.113.10"])
+      aws_route53_record.factory_a.type == "A" &&
+      aws_route53_record.factory_a.ttl == 300 &&
+      aws_route53_record.factory_a.records == toset(["203.0.113.10"])
     )
-    error_message = "the apex A record points at the Elastic IP"
+    error_message = "the A record points at the Elastic IP"
   }
 
   assert {
     condition = (
-      aws_route53_record.apex_caa.name == "factory.container-solutions.com" &&
-      aws_route53_record.apex_caa.type == "CAA" &&
-      aws_route53_record.apex_caa.records == toset(["0 issue \"letsencrypt.org\""])
+      aws_route53_record.factory_caa.type == "CAA" &&
+      aws_route53_record.factory_caa.records == toset(["0 issue \"letsencrypt.org\""])
     )
     error_message = "the CAA record allows only letsencrypt.org"
   }
@@ -98,11 +104,6 @@ run "alarm_watches_the_instance" {
 
 run "outputs" {
   command = plan
-
-  assert {
-    condition     = length(output.name_servers) == 4
-    error_message = "name_servers lists the zone's name servers"
-  }
 
   assert {
     condition     = output.state_url == "s3://factory-state-111122223333/factory"

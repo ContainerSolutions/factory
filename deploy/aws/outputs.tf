@@ -1,9 +1,3 @@
-# For the parent zone's NS record on `factory` (container-solutions.com).
-output "name_servers" {
-  description = "The hosted zone's name servers, for the NS record that delegates the name."
-  value       = aws_route53_zone.factory.name_servers
-}
-
 output "state_url" {
   description = "The dispatcher's state, for `factory state ... --state-url`."
   value       = local.state_url
