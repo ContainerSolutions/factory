@@ -2,7 +2,7 @@
 # instance). Its secrets are SSM parameters under /factory/prod/env/, put by hand (README);
 # OpenTofu never sees them.
 locals {
-  domain = "factory.container-solutions.com"
+  domain = "factory.ccf.container-solutions.com"
 
   # The boot script. It holds no secret: factory-run reads them from SSM when the unit starts.
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {

@@ -222,12 +222,12 @@ run "user_data_runs_the_containers_and_holds_no_secret" {
       for s in [
         "docker run --rm",
         "--state-url s3://factory-state-111122223333/factory",
-        "--public-url https://factory.container-solutions.com",
+        "--public-url https://factory.ccf.container-solutions.com",
         "--log-driver awslogs",
         "awslogs-group=/factory/prod",
         "-e AWS_REGION=eu-west-2",
         "--with-decryption",
-        "factory.container-solutions.com {",
+        "factory.ccf.container-solutions.com {",
       ] : strcontains(aws_instance.factory.user_data, s)
     ])
     error_message = "the boot script must run both containers with the expected flags"
