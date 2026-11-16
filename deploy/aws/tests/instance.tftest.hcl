@@ -127,19 +127,12 @@ run "dispatcher_role_reaches_only_its_prefix_parameters_and_logs" {
   }
 
   assert {
-    condition = alltrue([
+    condition = [
       for s in jsondecode(aws_iam_role_policy.dispatcher.policy).Statement :
-      s.Condition.StringLike["s3:prefix"] == ["factory/*"]
+      { resource = s.Resource, conditioned = contains(keys(s), "Condition") }
       if s.Action == "s3:ListBucket"
-    ])
-    error_message = "ListBucket is limited to the factory/ prefix"
-  }
-
-  assert {
-    condition = anytrue([
-      for s in jsondecode(aws_iam_role_policy.dispatcher.policy).Statement : s.Action == "s3:ListBucket"
-    ])
-    error_message = "the instance role may list the state prefix"
+    ] == [{ resource = "arn:aws:s3:::factory-state-111122223333", conditioned = false }]
+    error_message = "the instance role lists the state bucket with no condition (else a missing key is 403, not 404)"
   }
 
   assert {
@@ -179,6 +172,15 @@ run "readonly_role_cannot_write" {
       "arn:aws:s3:::factory-state-111122223333",
     ])
     error_message = "the read-only role reaches only the state prefix"
+  }
+
+  assert {
+    condition = [
+      for s in jsondecode(aws_iam_role_policy.state_readonly.policy).Statement :
+      { resource = s.Resource, conditioned = contains(keys(s), "Condition") }
+      if s.Action == "s3:ListBucket"
+    ] == [{ resource = "arn:aws:s3:::factory-state-111122223333", conditioned = false }]
+    error_message = "the read-only role lists the state bucket with no condition (else a missing key is 403, not 404)"
   }
 
   assert {

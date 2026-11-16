@@ -2,12 +2,7 @@
 # for reading the state from a laptop. ARNs are built from names known at plan time.
 locals {
   state_bucket_arn = "arn:aws:s3:::${aws_s3_bucket.state.bucket}"
-  state_list_condition = {
-    StringLike = {
-      "s3:prefix" = ["${local.state_prefix}/*"]
-    }
-  }
-  log_group_arn = "arn:aws:logs:${local.region}:${var.aws_account_id}:log-group:${aws_cloudwatch_log_group.factory.name}"
+  log_group_arn    = "arn:aws:logs:${local.region}:${var.aws_account_id}:log-group:${aws_cloudwatch_log_group.factory.name}"
 }
 
 resource "aws_iam_role" "dispatcher" {
@@ -44,11 +39,13 @@ resource "aws_iam_role_policy" "dispatcher" {
         Resource = "${local.state_bucket_arn}/${local.state_prefix}/*"
       },
       {
-        Sid       = "StateList"
-        Effect    = "Allow"
-        Action    = "s3:ListBucket"
-        Resource  = local.state_bucket_arn
-        Condition = local.state_list_condition
+        # On the whole bucket, with no s3:prefix condition: S3 answers 404 NoSuchKey for a
+        # missing key only to a caller with ListBucket on the bucket (else 403), and the store
+        # reads up to the first missing log entry on every sync. The bucket holds only the state.
+        Sid      = "StateList"
+        Effect   = "Allow"
+        Action   = "s3:ListBucket"
+        Resource = local.state_bucket_arn
       },
       {
         # The image, serve's args and the secrets under env/. The parameters use the
@@ -109,11 +106,11 @@ resource "aws_iam_role_policy" "state_readonly" {
         Resource = "${local.state_bucket_arn}/${local.state_prefix}/*"
       },
       {
-        Sid       = "StateList"
-        Effect    = "Allow"
-        Action    = "s3:ListBucket"
-        Resource  = local.state_bucket_arn
-        Condition = local.state_list_condition
+        # Unconditional, as for the dispatcher: a missing key must be 404, not 403.
+        Sid      = "StateList"
+        Effect   = "Allow"
+        Action   = "s3:ListBucket"
+        Resource = local.state_bucket_arn
       },
     ]
   })
