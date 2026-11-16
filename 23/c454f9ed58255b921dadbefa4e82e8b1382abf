@@ -1,0 +1,12 @@
+lisa-addressed:
+---
+Comment (deploy/aws/iam.tf:47):
+**[Must-fix] Prefix-conditioned ListBucket likely turns missing keys into 403s, which breaks every state sync**
+
+S3 answers a GET or HEAD for a missing key with 404 only when the caller has `s3:ListBucket` on the bucket; otherwise it answers 403 AccessDenied. Here `ListBucket` is granted only under `StringLike s3:prefix = factory/*`. A GetObject request carries no `s3:prefix` key, and IAM evaluates a condition on an absent key as false, so S3's implicit ListBucket check most likely fails. The result is 403 for a missing key. v0.3.1's S3 bucket maps only `NoSuchKey` to `ErrNotExist` (`internal/store/objectstore/s3.go` `s3Sentinel`). The store's `probe` reads log entry version+1 on every sync until one is missing (`log.go` `probe`), so each sync would end in `read <entry>: AccessDenied` rather than stopping cleanly. `Delete` (HeadObject first) and the sweep fail the same way. The `factory-state-readonly` role has the same condition, so `factory state tasks` from a laptop would fail too. `tofu test` can't see this, and the MinIO e2e doesn't use IAM.
+
+**Why:** On a live launch the dispatcher can't finish a state sync, so it can't serve or dispatch, and nothing before launch would catch it.
+**Fix:** Grant `s3:ListBucket` on the state bucket without the `s3:prefix` condition, in both roles. The bucket is dedicated to the factory state (the OpenTofu state is in its own bucket), so the condition doesn't narrow anything that matters. Update the condition assertions in `tests/instance.tftest.hcl` to match. To confirm on the account first: with the instance role, `aws s3api get-object --bucket factory-state-<id> --key factory/does-not-exist /dev/null` should give 404 NoSuchKey, not 403.
+**Severity basis:** no rule matched; decision tree: wrong behaviour or missing companion change.
+
+<sub>ccf-review · b279c102ed79 · rules@a2047481e6e9</sub>
