@@ -220,7 +220,7 @@ way (`state.tf` and `iam.tf` have the exact settings):
 | Lifecycle: expired delete markers are removed | Deletes don't leave markers that listing has to step over. |
 | Lifecycle: incomplete multipart uploads are aborted after a day | No hidden storage from interrupted uploads. |
 | No expiration of current objects | The dispatcher deletes its own log entries, under its retention. |
-| Only the dispatcher's role writes | `s3:GetObject`, `s3:PutObject` and `s3:DeleteObject` on `<bucket>/factory/*`, and `s3:ListBucket` on the bucket with `s3:prefix` = `factory/*`. |
+| Only the dispatcher's role writes | `s3:GetObject`, `s3:PutObject` and `s3:DeleteObject` on `<bucket>/factory/*`, and `s3:ListBucket` on the bucket with no prefix condition: S3 answers 404 for a missing key only to a caller with `ListBucket` on the bucket (else 403), and the bucket holds nothing but the state. |
 | A read-only role | `s3:GetObject` and the same `s3:ListBucket`, for `factory state`. |
 | The same region as the instance | Requests stay in-region and free of transfer charges. |
 
