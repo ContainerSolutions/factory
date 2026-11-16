@@ -1,0 +1,2 @@
+lisa-addressed:
+- [should-fix CORE-DOC-001] README §5 now shows putting a generated value and reading the CLI token back; §8 says enroll needs FACTORY_CLI_TOKEN.
