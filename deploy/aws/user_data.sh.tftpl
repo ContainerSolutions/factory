@@ -1,0 +1,128 @@
+#!/bin/bash
+# The factory dispatcher's boot script (deploy/aws, P4 §Two containers). Rendered by
+# templatefile() with the region, the log group, the domain and the state URL only: it holds no
+# secret. It runs once, as root, on the instance's first boot. Never turn on tracing (xtrace)
+# here or in the scripts it writes: factory-run handles the secrets.
+set -euo pipefail
+
+# The Elastic IP is attached a few seconds after the instance starts, and there is no route out
+# until then: retry.
+for attempt in $(seq 1 30); do
+  if dnf install -y docker; then
+    break
+  fi
+  if [ "$attempt" -eq 30 ]; then
+    echo "user-data: dnf install docker failed" >&2
+    exit 1
+  fi
+  sleep 10
+done
+systemctl enable --now docker
+
+install -d -m 0755 /etc/caddy /var/lib/caddy
+
+# factory-run: reads the secrets under /factory/prod/env/ and passes each to the container as an
+# environment variable named by the parameter's last segment. The values go from this script's
+# environment to docker by name: never on a command line, never in a file the script writes.
+cat > /usr/local/bin/factory-run <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+
+param() {
+  aws ssm get-parameter --region ${region} --name "$1" --query Parameter.Value --output text
+}
+
+# The CLI follows the pages itself.
+params="$(aws ssm get-parameters-by-path --region ${region} --path /factory/prod/env/ \
+  --with-decryption --recursive --output json)"
+
+# One NUL-separated name and value per parameter (a PEM keeps its newlines), then an empty name
+# that marks the end, so a parse that dies half-way is noticed.
+parse='
+import json, sys
+for p in json.load(sys.stdin)["Parameters"]:
+    sys.stdout.write(p["Name"].rsplit("/", 1)[-1] + "\0" + p["Value"] + "\0")
+sys.stdout.write("\0\0")
+'
+
+complete=false
+env_args=()
+while IFS= read -r -d '' name && IFS= read -r -d '' value; do
+  if [ -z "$name" ]; then
+    complete=true
+    break
+  fi
+  if [[ ! "$name" =~ ^[A-Z][A-Z0-9_]*$ ]]; then
+    echo "factory-run: refusing /factory/prod/env/ parameter '$name': not an environment variable name" >&2
+    exit 1
+  fi
+  export "$name=$value"
+  env_args+=(-e "$name")
+done < <(printf '%s' "$params" | python3 -c "$parse")
+unset params value
+if [ "$complete" != true ]; then
+  echo "factory-run: could not parse the parameters under /factory/prod/env/" >&2
+  exit 1
+fi
+
+image="$(param /factory/prod/image)"
+args="$(param /factory/prod/args)"
+
+# $args is word-split on purpose: it is several flags in one parameter, none with a space.
+# Globbing is off so a * in it stays a *.
+set -f
+# shellcheck disable=SC2086
+exec docker run --rm --name factory --network host \
+  --log-driver awslogs --log-opt awslogs-region=${region} \
+  --log-opt awslogs-group=${log_group} --log-opt awslogs-stream=factory \
+  -e AWS_REGION=${region} "$${env_args[@]}" \
+  "$image" serve --addr 127.0.0.1:8800 --ops-addr 127.0.0.1:9090 \
+  --public-url https://${domain} --state-url ${state_url} \
+  --log-format json $args
+SCRIPT
+chmod 0755 /usr/local/bin/factory-run
+
+cat > /usr/local/bin/caddy-run <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+
+image="$(aws ssm get-parameter --region ${region} --name /factory/prod/caddy-image --query Parameter.Value --output text)"
+
+exec docker run --rm --name caddy --network host \
+  --log-driver awslogs --log-opt awslogs-region=${region} \
+  --log-opt awslogs-group=${log_group} --log-opt awslogs-stream=caddy \
+  -v /etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro -v /var/lib/caddy:/data \
+  "$image"
+SCRIPT
+chmod 0755 /usr/local/bin/caddy-run
+
+# Caddy gets and renews the certificate (HTTP-01 on port 80) and redirects HTTP to HTTPS. The
+# ops listener (127.0.0.1:9090) is not proxied.
+cat > /etc/caddy/Caddyfile <<'CADDYFILE'
+${domain} {
+	reverse_proxy 127.0.0.1:8800
+}
+CADDYFILE
+
+# The units. A container left from a crash is removed before each start.
+for unit in factory caddy; do
+  cat > "/etc/systemd/system/$unit.service" <<UNIT
+[Unit]
+Description=$unit (docker)
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+ExecStartPre=-/usr/bin/docker rm -f $unit
+ExecStart=/usr/local/bin/$unit-run
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+done
+
+systemctl daemon-reload
+systemctl enable --now factory caddy
