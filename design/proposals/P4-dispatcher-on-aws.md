@@ -125,7 +125,7 @@ GitHub (webhooks, OAuth)       people (UI, CLI)       agents (factory-agent supe
 
 All the instance role may do, in one place:
 - `s3:GetObject`, `s3:PutObject` and `s3:DeleteObject` on `arn:aws:s3:::<bucket>/factory/*`, and
-  `s3:ListBucket` on the bucket with the condition `s3:prefix` = `factory/*` (§State);
+  `s3:ListBucket` on the bucket, with no prefix condition (§State);
 - `ssm:GetParameter` and `ssm:GetParametersByPath` under `/factory/prod/` (§Secrets);
 - the `AmazonSSMManagedInstanceCore` managed policy, for Session Manager and Run Command;
 - `logs:CreateLogStream` and `logs:PutLogEvents` on the one log group, for the `awslogs` driver
@@ -175,8 +175,11 @@ From P3 and item 9:
   enforced", default encryption SSE-S3, and a bucket policy that denies any request without TLS
   (`aws:SecureTransport` false).
 - **Only the dispatcher writes:** the instance role may `GetObject`, `PutObject` and
-  `DeleteObject` on `arn:aws:s3:::<bucket>/factory/*`, and `ListBucket` on the bucket with the
-  condition `s3:prefix` = `factory/*`. Nothing else in the account needs it.
+  `DeleteObject` on `arn:aws:s3:::<bucket>/factory/*`, and `ListBucket` on the bucket with no
+  prefix condition: S3 answers 404 for a missing key only to a caller with `ListBucket` on the
+  bucket (else 403), and the store reads up to the first missing log entry on every sync. The
+  bucket holds nothing but the state, so this exposes nothing more. Nothing else in the account
+  needs it.
 - **A read-only role** (any principal in the account that its own policy allows) with `GetObject`
   and the same `ListBucket`, for `factory state --state-url s3://<bucket>/factory` from a laptop.
 - **Versioning on**, as the guard against an accidental delete. The store only creates and
@@ -369,7 +372,7 @@ monthly bill is the table above (about $13), paid by the credits while they last
 
 ## Decisions (Gustavo, 2026-11-10)
 
-1. **AWS**, in **eu-west-2**. The account is chosen later; this design doesn't depend on it.
+1. **AWS**, in **eu-west-2** (the account: Decision 6).
 2. **DNS:** `container-solutions.com` stays where it is, with an `NS` record delegating
    `factory.container-solutions.com` to a Route 53 hosted zone the module creates.
 3. **A small always-on VM is fine.** So: one EC2 instance, the leader's loops running as on a
@@ -380,7 +383,6 @@ monthly bill is the table above (about $13), paid by the credits while they last
    `user_data`. Built and tested with **OpenTofu** (`tofu test` with mocked providers, never
    the real cloud); plain resources, no modules; values written in, with the account ID the
    only variable.
-
-Open, for Gustavo:
-- **The account:** new and standalone (credits; the Free plan closes after six months unless
-  upgraded), or a member of Container Solutions' AWS Organization (Paid plan; credits to check)?
+6. **The account** (2026-11-16): an account in Container Solutions' AWS Organization (Paid plan;
+   credits to check on the account). Before the first apply, its SCPs and any permission
+   boundary must allow the kit's two IAM roles and eu-west-2.
