@@ -1,0 +1,2 @@
+lisa-addressed:
+- CORE-SIZE-001 (partly): trimmed from 1306 to 1120 counted lines (duplicate clirun test, rules type, doc edits, condensed comments); the rest is left to reviewers (size-exception or split).
