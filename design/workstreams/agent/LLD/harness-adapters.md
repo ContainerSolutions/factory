@@ -1,7 +1,7 @@
 # LLD — Harness adapters (AGT)
 
-> Workstream: [AGT](../../definitions.md#agt-agent) · Tasks: AGT-S1-T03 (Codex), AGT-S1-T04 (Claude Code) · Package: `internal/agent/harness/{codex,claudecode,fake}`
-> Design: [05 §Harness adapter contract](../../../05-agent-runtime.md#harness-adapter-contract)
+> Workstream: [AGT](../../definitions.md#agt-agent) · Tasks: AGT-S1-T03 (Codex), AGT-S1-T04 (Claude Code), OC-4 and OC-5 (OpenCode) · Package: `internal/agent/harness/{codex,claudecode,opencode,fake}`
+> Design: [05 §Harness adapter contract](../../../05-agent-runtime.md#harness-adapter-contract) · OpenCode: [ADR-0010](../../../adr/0010-self-hosted-models-through-opencode.md)
 
 > **Rule:** every flag marked **verify** must be checked against the installed CLI (`--help`, docs) at the start of the task; the PR body lists each with ✅/changed.
 >
@@ -11,7 +11,7 @@
 
 ```go
 type Adapter interface {
-    Name() string
+    Name() string                                                   // the harness's name: codex, claude-code, opencode
     Capabilities() v1alpha1.AdapterCapabilities                     // static: effort mapping, features
     Prepare(ctx context.Context, ws Workspace, t v1alpha1.Task) error
     Run(ctx context.Context, ws Workspace, t v1alpha1.Task, prompt string, sink EventSink) (Raw, error)
@@ -51,9 +51,29 @@ type EventSink interface { Progress(ProgressEvent); Usage(UsageDelta); RateLimit
 | Stream | stream-json: `system/init` (confirms plugins loaded; fail if `plugin_errors`), `assistant`/`user` (tool_use/tool_result) → progress, `result` (usage, `num_turns`, `total_cost_usd` → only meaningful for API keys) ; rate-limit errors → `RateLimited` |
 | Result | `--json-schema` structured output → `out/result.json` |
 
+## OpenCode
+
+The third harness ([ADR-0010](../../../adr/0010-self-hosted-models-through-opencode.md)) runs a model the owner serves (vLLM on the DGX Spark) through the gateway's model endpoint. Every opencode name below is UNVERIFIED ([the list](#unverified-opencode)).
+
+| Concern | Mapping |
+|---|---|
+| Binary | `opencode` in the workspace image: a pinned release, sha256-checked per arch by `provision/base.sh` (OC-6), never run at build |
+| Auth | `selfHosted`: the model server's API key (vLLM's `--api-key`), stored on the agent host by `factory-agent login opencode` (`logins/opencode.json`, 0600). The VM's config carries `harness.Placeholder`; the gateway replaces it with `Bearer <key>` ([gateway.md](gateway.md#the-model-endpoint)) |
+| Isolation | the VM. Per run, the pipeline's scratch `XDG_CONFIG_HOME` (`<home>/.config`) holds `opencode/opencode.json` (also named by `OPENCODE_CONFIG`) and `opencode/skills/`; the adapter's own files are in `<home>/.factory-opencode/` |
+| Invocation | `opencode run --format json --model factory/<model>`, prompt on stdin, in the pipeline's `WorkDir` (else the workspace root); the fallback is `--file <prompt.md>` with a short message |
+| Skills | the flattened skill folders in `opencode/skills/<name>/`, with codex's layout and clash rule (the flattening moves to `clirun`) |
+| MCP (Effector) | `opencode.json`'s `mcp.factory`: `{type: local, command: [<ws>/bin/factory, mcp], environment: {NAME: "{env:NAME}", …}}`, names only |
+| System prompt | `instructions` names a generated file: the headless preamble, the Result schema's path and, for a read-only checkout, the don't-change line (as codex's `AGENTS.md`); task prompt on stdin |
+| Effort mapping | the model's `options.reasoningEffort`: `minimal→low, low→low, medium→medium, high→high, max→high`; a `flags.go` switch stops sending it |
+| Stream | NDJSON: `step_start` → turn; `tool_use` → tool; `text` → message (and the candidate final message); `step_finish.part.tokens` → `Usage`; `error` → error; the `sessionID` is kept |
+| Result | `$FACTORY_RESULT`, which the preamble asks for; else the last `text` without a code fence. The pipeline validates it and repairs |
+| Repair | `opencode run --session <id> --format json --model factory/<model>` with the problems |
+| Limits | no `--max-turns`: the pipeline counts `turn` events; the runner enforces the wall clock; no USD |
+| Rate and availability limits | 429, `too many requests`, `overloaded` or 503 → `RateLimited(now+2m)`; the gateway's `upstream` or `timeout` answer (the server or the tunnel is down) → `RateLimited(now+5m)` |
+
 ## In the VM (P1 phase 3)
 
-Both adapters run only in `factory-agent run` inside a VM workspace, where the VM is the boundary: claude gets no `sandbox` or `permissions` settings, a scratch `CLAUDE_CONFIG_DIR` and a placeholder `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`), and keeps its PreToolUse hook; codex runs `--sandbox danger-full-access` with no `[sandbox_workspace_write]` or `workDirFor`, and a placeholder `auth.json` built from the account identifiers in the run bundle, in Phase 0's shape. See [workspace-run.md](workspace-run.md#harnesses-in-the-vm).
+Both adapters run only in `factory-agent run` inside a VM workspace, where the VM is the boundary: claude gets no `sandbox` or `permissions` settings, a scratch `CLAUDE_CONFIG_DIR` and a placeholder `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`), and keeps its PreToolUse hook; codex runs `--sandbox danger-full-access` with no `[sandbox_workspace_write]` or `workDirFor`, and a placeholder `auth.json` built from the account identifiers in the run bundle, in Phase 0's shape. See [workspace-run.md](workspace-run.md#harnesses-in-the-vm). opencode runs only there too ([workspace-run.md](workspace-run.md#opencode)).
 
 ## Fake adapter
 
@@ -61,7 +81,7 @@ Scriptable (`fake.Script{Events, Result, Err, RateLimitAfter}`) for pipeline and
 
 ## Tests
 
-- Golden parsing of recorded streams (`testdata/codex-*.jsonl`, `testdata/claude-*.jsonl`) → progress/usage/rate-limit events.
+- Golden parsing of recorded streams (`testdata/codex-*.jsonl`, `testdata/claude-*.jsonl`, `testdata/opencode-*.jsonl`) → progress/usage/rate-limit events.
 - Command-line construction tables per TaskSpec variant (read-only vs rw, effort, schema).
 - The pipeline end to end with each real adapter on its fake binary, as a VM workspace runs it (`harnesstest.E2E.Pipeline`: gateway mode through `internal/fakegateway`, from the run bundle). The real harnesses run only in a VM workspace; there is no host smoke target.
 - The fake binaries are wrapper scripts the test writes and then execs. Every script a `factory-agent` test execs (these, the pipeline's and effector's git wrappers, the provisioning stubs) is written through `internal/agent/internal/exectest` (test-only), a wrapper over `execfile`, which holds `syscall.ForkLock` around the write as production code does ([run-pipeline.md](run-pipeline.md#decisions-taken-in-agt-s1-t02)): a child that parallel tests fork meanwhile would otherwise inherit the file open for writing, and exec'ing it then fails with ETXTBSY ("text file busy").
@@ -172,3 +192,48 @@ Scriptable (`fake.Script{Events, Result, Err, RateLimitAfter}`) for pipeline and
   - cancel killing a process tree that ignores SIGTERM, and a rate limit stopping a blocked run;
   - the pipeline end to end with the hook, the repair turn and a throttled run.
 
+## Decisions for OC-4/OC-5
+
+What [ADR-0010](../../../adr/0010-self-hosted-models-through-opencode.md)'s design settles for the opencode adapter; OC-4 is Prepare and its config, OC-5 the run, the stream and the repair.
+
+- **Nothing is run against a real opencode**, as for codex and claude: not even `--help`. Every part of opencode's interface the adapter relies on is a constant in `internal/agent/harness/opencode/flags.go`, marked `UNVERIFIED (owner to verify on a VM workspace run)` ([the list](#unverified-opencode)).
+- **Package.** `internal/agent/harness/opencode`, built like `codex` and `claudecode` on `clirun` and `harnesstest`. vmrun's `taskAdapters` builds it for an opencode task, with the bundle's `Model` limits ([workspace-run.md](workspace-run.md#opencode)). Every invocation goes through `Options.Binary`, so tests run a fake opencode.
+- **Prepare** writes `opencode/opencode.json` under the scratch `XDG_CONFIG_HOME`, a new 0600 file:
+  - `provider.factory`: `npm: "@ai-sdk/openai-compatible"` and `options` with `baseURL: "http://model.factory.internal/v1"`, `apiKey: harness.Placeholder` and `proxy` set to the run's `HTTP_PROXY` (UNVERIFIED item 3);
+  - `provider.factory.models.<model>`: `tool_call: true`, `limit.context` and `limit.output` from the bundle's `Model`, and `options.reasoningEffort` mapped;
+  - `model: "factory/<model>"`, `enabled_providers: ["factory"]`, `autoupdate: false` and `share: "disabled"`;
+  - `instructions`: the path of `<home>/.factory-opencode/instructions.md`, which holds the preamble, the Result schema's path (`ws.Schema`) and, for a read-only checkout, the don't-change line;
+  - `mcp.factory` as in the table: `environment` maps the name of every run variable to `{env:NAME}`, so no value, and no token, reaches the file;
+  - `permission`: every value is `allow` or `deny`, never `ask`, because nobody can answer. `edit` is `deny` for a read-only primary checkout, else `allow`; `bash` allows everything but `git push *`. The gateway is still the boundary, as for codex.
+
+  The model is the resolved one, else the config's default. With neither, Prepare refuses: opencode has no default model for a provider it doesn't know. A bundle without `Model` is refused too.
+- **The environment** is the pipeline's plus `OPENCODE_CONFIG`, `OPENCODE_DISABLE_AUTOUPDATE=1`, `OPENCODE_DISABLE_MODELS_FETCH=1` (no models.dev), `OPENCODE_DISABLE_LSP_DOWNLOAD=1` and `OPENCODE_DISABLE_CLAUDE_CODE=1` (no repo `.claude/` skills or `CLAUDE.md`). **Change from the design:** `XDG_DATA_HOME` is not a scratch dir; it stays system setup's, the run user's `~/.local/share` ([workspace-run.md](workspace-run.md#system-setup-vmrunsystemgo)). gh finds its extensions there, and the agent's shell commands (lisa's `gh pr-review`) inherit opencode's environment. opencode's sessions and logs then go to `~/.local/share/opencode` in the VM, which is destroyed with the run.
+- **Run** is `opencode run --format json --model factory/<model>` with the prompt on stdin, through `clirun.Run` (the process group, SIGTERM, then SIGKILL after `KillGrace`). The transcript is the stdout lines plus `factory.opencode-exec` (the args), `factory.opencode-stderr` and `factory.opencode-transcript-truncated`.
+- **Stream mapping.**
+  - Each `step_start` is one `turn` event, so `limits.maxTurns` counts model calls.
+  - Each `tool_use` is one `tool` event, summarised as claude's are (`$ cmd`, `edit <path>`, `mcp server.tool`).
+  - Each `text` is a `message` event and becomes the candidate final message.
+  - Each `step_finish`'s `part.tokens` is a usage delta: `input` plus `cache.read` as input (as the other adapters count cached input), `output` as output. `CostUSD` is nil.
+  - `error` is an `error` event; a non-zero exit fails the run. The first `sessionID` is kept for the repair.
+- **Result.** `$FACTORY_RESULT` wins (the pipeline's rule); `Raw.Result` is the last `text` without a code fence. The descriptor's `structured-output` feature means exactly this for opencode: the Result arrives through `$FACTORY_RESULT` and is validated against the full schema and repaired by the pipeline; no schema is enforced inside the harness. If open models keep failing repairs, the fallback is a `result` tool on the Effector's MCP server (claude's `StructuredOutput` pattern, validated inside the loop).
+- **Repair** resumes the session: `opencode run --session <id> --format json --model factory/<model>`, asking for the corrected Result only. The session id and the run's model, workdir and read-only flag are kept in `<home>/.factory-opencode/factory-session.json` and the prompt in `factory-prompt.md`, so one Adapter serves concurrent runs. Without a session id, a new run gets the original prompt followed by the problems.
+- **Throttling.** The gateway's `no-login` answer (`factory gateway: no model login …`, a 503) is checked first and fails the run: it means the agent host has no endpoint configured, and a retry won't change that. Otherwise an `error` event, or the last stderr line after a failed exit, with `429`, `too many requests`, `overloaded` or `503` reports `RateLimited(now+2m)`. One with the gateway's `upstream` or `timeout` body (`factory gateway: the upstream …`) reports `RateLimited(now+5m)`, so the task goes back to the queue instead of failing.
+- **Capabilities:** `effortMapping {low, medium, high}`, features `structured-output`, `mcp` and `skills-dir`. The catalog's descriptor has no `knownModels` for opencode: the served model names are the owner's (OC-7).
+- **Tests** never run opencode. The fake opencode replays a recorded NDJSON file, writes `$FACTORY_RESULT`, records its arguments, environment, stdin and `opencode.json`, and can start a child that ignores SIGTERM. The tests cover golden parsing of `testdata/opencode-*.jsonl` (with `-update`); flag and config assembly, writable and read-only, with no token in `opencode.json`; repair by session; cancel killing the process tree; and the pipeline end to end through `harnesstest` with the fake opencode.
+
+### UNVERIFIED (opencode)
+
+Each item is a `flags.go` constant or switch, so a fix doesn't change the design. The owner's first run checks them on a VM workspace, with the transcript's `factory.egress` lines.
+
+1. **The `--format json` events** have no official schema: `step_start`, `tool_use`, `text`, `step_finish` with `part.tokens.{input, output, cache.read}`, `error`, and `sessionID` on each; and that one step is one model call, which `maxTurns` then counts. The version is pinned in the image.
+2. **The prompt on stdin** for `run`; the fallback is `--file <path>` with a short message.
+3. **The proxy.** opencode is a Bun binary, so its model calls use Bun's `fetch`, not Node's, and `NODE_USE_ENV_PROXY` doesn't apply. Bun's docs say `fetch` reads `HTTP_PROXY` and `HTTPS_PROXY`, but compiled Bun binaries have been reported to ignore them (Claude Code's native build, opencode's models.dev fetch). So Prepare also sets the provider's `proxy` option. A missed proxy fails closed: the VM has no other route out, so it shows as a failed first run, never a leak. The last resort is a `baseURL` on the gateway itself, in origin form, which needs a gateway change.
+4. **The bundled provider.** `@ai-sdk/openai-compatible` must be inside the binary. If it isn't, opencode fetches it from npm at run time: the first run's egress log shows `registry.npmjs.org`, and the fix is to warm it in the image.
+5. **Results from open models.** The model must write a schema-valid `$FACTORY_RESULT`; if repairs keep failing, the fallback is the MCP `result` tool above.
+6. **`reasoningEffort`** may be rejected by a model without reasoning (Qwen); the `flags.go` switch stops sending it.
+7. **The flags:** `run`, `--format json`, `--model <provider>/<model>`, `--session <id>` and `--file <path>`.
+8. **The environment variables:** `OPENCODE_CONFIG`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_DISABLE_MODELS_FETCH`, `OPENCODE_DISABLE_LSP_DOWNLOAD` and `OPENCODE_DISABLE_CLAUDE_CODE`, and that opencode takes its config dir from `XDG_CONFIG_HOME` and its data dir from `XDG_DATA_HOME`.
+9. **The config keys:** `provider.<id>.npm`, `.options.{baseURL, apiKey, proxy}` and `.models.<model>.{tool_call, limit.context, limit.output, options.reasoningEffort}`; `model`, `enabled_providers`, `autoupdate`, `share: "disabled"`; `instructions` as a list of file paths; `mcp.<name>.{type: local, command, environment}` with `{env:NAME}` expanded; `permission.edit` and `permission.bash` as a pattern map, with `allow` and `deny`; and the skills dir `opencode/skills/<name>/SKILL.md` under `XDG_CONFIG_HOME`.
+10. **No prompt in headless mode:** with every permission `allow` or `deny`, `run` never waits on a question.
+11. **The rate wording:** how opencode reports a 429, a 503 or an overloaded server, and the gateway's own answers, in `error` events or on stderr.
+12. **No other egress:** the first run's egress log shows no calls to `registry.npmjs.org`, `models.dev` or `opncd.ai`.
