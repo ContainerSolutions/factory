@@ -1,2 +1,5 @@
 lisa-addressed:
 pass 1: re-wrapped the policy package doc (fp ef4f63a84473); removed the unused gatewaycases.RefusalHeader (fp 4c186ef9724b).
+
+lisa-selfreview:
+pass 2 (strict): approve, no findings. Checked: the route table vs the LLD rows (GET only, per the design note), the fixed transport's dispatcher behaviour unchanged (its tests untouched and green), nil paths (g.model only used after the nil-endpoint check), the key in no record/log/VM response (assertNoSecrets at cleanup, body checks), SSE flush (mutation-verified), the shared cases run green by both proxies, NO_PROXY leaves model.factory.internal on the proxy.
