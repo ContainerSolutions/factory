@@ -77,7 +77,9 @@ func (m Match) Fired() bool { return m.Result == Matched || m.Result == ActionEr
 
 // Records returns the work item's decision records for this evaluation ("why did this
 // happen?"): one per candidate, with the where inputs, the actions and the rail verdicts of
-// a fired rule, and the reason for the others. at is the time the controller applies them.
+// a fired rule, and the reason for the others. A not-matched record carries no inputs: most
+// candidates don't match, and each would copy the whole item into the bounded history. at is
+// the time the controller applies them.
 func (e Evaluation) Records(at time.Time) []v1alpha1.Decision {
 	type key struct{ set, rule string }
 	byRule := map[key][]Decision{}
@@ -87,9 +89,13 @@ func (e Evaluation) Records(at time.Time) []v1alpha1.Decision {
 	}
 	out := make([]v1alpha1.Decision, 0, len(e.Matches))
 	for _, m := range e.Matches {
+		inputs := m.Inputs
+		if m.Result == NotMatched {
+			inputs = nil
+		}
 		r := v1alpha1.Decision{
 			At: at, Event: e.Event, RuleSet: m.RuleSet, Rule: m.Rule,
-			Fired: m.Fired(), Inputs: m.Inputs, Reason: reason(m),
+			Fired: m.Fired(), Inputs: inputs, Reason: reason(m),
 		}
 		for _, d := range byRule[key{m.RuleSet, m.Rule}] {
 			r.Actions = append(r.Actions, d.Action.String())

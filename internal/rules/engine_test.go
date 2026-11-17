@@ -367,14 +367,28 @@ func TestRecords(t *testing.T) {
 		byKey[r.RuleSet+"/"+r.Rule] = r
 	}
 	r := byKey["poc-docs-epic/escalate-needs-human"]
-	if !r.Fired || !reflect.DeepEqual(r.Actions, []string{"effect label.add", "notify needs-human"}) || len(r.Rails) != 2 || r.Inputs["run"] == nil {
+	if !reflect.DeepEqual(r.Actions, []string{"effect label.add", "notify needs-human"}) || len(r.Rails) != 2 || r.Inputs["run"] == nil {
 		t.Errorf("fired record %+v", r)
 	}
-	if r := byKey["poc-release-docs/escalate-needs-human"]; r.Fired || r.Reason != "already fired through RuleSet poc-docs-epic" {
-		t.Errorf("duplicate record %+v", r)
+	// The match keeps the where inputs; only its record drops them.
+	for _, m := range ev.Matches {
+		if m.RuleSet+"/"+m.Rule == "poc-docs-epic/fix-stack-review" && (m.Result != NotMatched || m.Inputs == nil) {
+			t.Fatalf("want a not-matched candidate with where inputs, got %+v", m)
+		}
 	}
-	if r := byKey["poc-docs-epic/fix-stack-review"]; r.Fired || r.Reason != "where is false" {
-		t.Errorf("not-matched record %+v", r)
+	for _, tc := range []struct {
+		key, reason string
+		fired       bool
+		inputs      bool // the record carries the where inputs
+	}{
+		{key: "poc-docs-epic/escalate-needs-human", fired: true, inputs: true},
+		{key: "poc-release-docs/escalate-needs-human", reason: "already fired through RuleSet poc-docs-epic"},
+		{key: "poc-docs-epic/fix-stack-review", reason: "where is false"},
+	} {
+		r, ok := byKey[tc.key]
+		if !ok || r.Fired != tc.fired || r.Reason != tc.reason || (r.Inputs != nil) != tc.inputs {
+			t.Errorf("%s: record %+v", tc.key, r)
+		}
 	}
 }
 
