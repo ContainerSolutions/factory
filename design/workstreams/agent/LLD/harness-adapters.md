@@ -196,7 +196,7 @@ Scriptable (`fake.Script{Events, Result, Err, RateLimitAfter}`) for pipeline and
 
 What [ADR-0010](../../../adr/0010-self-hosted-models-through-opencode.md)'s design settles for the opencode adapter; OC-4 is Prepare and its config, OC-5 the run, the stream and the repair.
 
-- **Nothing is run against a real opencode**, as for codex and claude: not even `--help`. Every part of opencode's interface the adapter relies on is a constant in `internal/agent/harness/opencode/flags.go`, marked `UNVERIFIED (owner to verify on a VM workspace run)` ([the list](#unverified-opencode)).
+- **Nothing is run against a real opencode**, as for codex and claude: not even `--help`. Every part of opencode's interface the adapter relies on is a constant in `internal/agent/harness/opencode/flags.go`, marked with the pinned release's source file it was read from, or `UNVERIFIED (owner to verify on a VM workspace run)` ([the list](#unverified-opencode)).
 - **Package.** `internal/agent/harness/opencode`, built like `codex` and `claudecode` on `clirun` and `harnesstest`. vmrun's `taskAdapters` builds it for an opencode task, with the bundle's `Model` limits ([workspace-run.md](workspace-run.md#opencode)). Every invocation goes through `Options.Binary`, so tests run a fake opencode.
 - **Prepare** writes `opencode/opencode.json` under the scratch `XDG_CONFIG_HOME`, a new 0600 file:
   - `$schema: "https://opencode.ai/config.json"`: opencode writes it into a config file that lacks it, which would rewrite the generated file in the run;
