@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 1: wrapped the opencode CA error in loadLogins ("the opencode endpoint: …"); install.sh/README say "one or more of codex, claude-code, opencode"; login.go picks the paste prompt with an if.
