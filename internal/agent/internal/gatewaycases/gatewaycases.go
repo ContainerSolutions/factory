@@ -19,9 +19,6 @@ import (
 // ModelHost is the model endpoint's name as the VM sees it.
 const ModelHost = "model.factory.internal"
 
-// RefusalHeader carries a refusal's code on an answer the proxy makes itself.
-const RefusalHeader = "X-Factory-Gateway-Refusal"
-
 // Case is one request through a proxy.
 type Case struct {
 	Name string
