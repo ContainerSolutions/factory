@@ -10,3 +10,8 @@ Comment (design/workstreams/agent/LLD/gateway.md:197):
 **Severity basis:** no rule matched; decision tree: likely to cause a future bug.
 
 <sub>ccf-review · c1a05be0389c · rules@a2047481e6e9</sub>
+
+lisa-design:
+- `selfHosted` is documented, not enforced: `auth` stays a free string in v1alpha1 (no enum, no validation), as the other values are; the contract change is comments/descriptions only.
+- The hand-written `UsageDelta` description in api/openapi.yaml takes the same "null unless billed by an API key" wording as `Usage`, so the heartbeat and Result contracts agree; internal (non-contract) comments in scheduler/runner/harness that say "nil for subscription runs" are left to their owning workstreams.
+- design/03-domain-model.md's Agent example lists all five values (it was missing accessToken); its copy internal/apis/v1alpha1/testdata/examples/03-14-agent.yaml is kept identical. Other design docs (ADR-0008, foundation contracts LLD) are out of scope per the spec.
