@@ -1,2 +1,5 @@
 lisa-addressed:
 - CORE-SIZE-001 (partly): trimmed from 1306 to 1120 counted lines (duplicate clirun test, rules type, doc edits, condensed comments); the rest is left to reviewers (size-exception or split).
+
+lisa-selfreview:
+pass 2 (strict): CORE-DOC-001 [should-fix] harness-adapters.md §Decisions for OC-4/OC-5 still said every flags.go name is UNVERIFIED; now says read from the source or UNVERIFIED. Fixed in this pass. No other findings.
