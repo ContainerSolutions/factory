@@ -1,2 +1,5 @@
 lisa-addressed:
 pass 1: CORE-TEST-001 (fp 14f0a55aa17b) fixed: catalog/catalog_test.go TestOpencodeOverride resolves {name: opencode} against every TaskSpec's constraints (fails when one TaskSpec drops opencode, checked). Nit: the defaultHarnesses comment cites harness-adapters LLD §OpenCode instead of ADR-0010.
+
+lisa-design:
+- Supersedes "only the existing TestCapabilitiesFiles count and the no-capabilities golden change": catalog/catalog_test.go also gets TestOpencodeOverride (the spec's verification "a command override to opencode validates against each TaskSpec", kept in CI); still no descriptor-vs-adapter test.
