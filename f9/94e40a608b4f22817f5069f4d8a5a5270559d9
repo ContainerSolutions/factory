@@ -1,0 +1,2 @@
+lisa-addressed:
+self-review pass 1: no-login checked before the 503 throttle rule (harness-adapters Throttling); the model endpoint named as exempt from the egress mode (gateway §Egress); the OC-3 test row asserts the key is in no record or log; "one step is one model call" moved into UNVERIFIED item 1.
