@@ -1,0 +1,2 @@
+lisa-addressed:
+PR #269 thread PRRT_kwDOVK0lgs64dsm1 (recovered error fails the run): parser.recovered set on a step_finish after the last error; exec returns the Raw (nil error) on a non-zero, non-throttle exit when recovered. opencode-overflow-recovered.jsonl replaces opencode-error-then-success.jsonl. Fixed in 3c1bfb2.
