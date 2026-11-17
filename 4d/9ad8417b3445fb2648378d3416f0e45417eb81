@@ -1,0 +1,9 @@
+lisa-design:
+- harness-adapters.md: the "Decisions for OC-4/OC-5" section and its UNVERIFIED list sit at the end of the file, after the AGT-S1-T03/T04 decisions (the house layout: mapping tables up top, decisions at the bottom); the ## OpenCode table sits between ## Claude Code and ## In the VM as the spec asks.
+- XDG_DATA_HOME stays system setup's (the run user's ~/.local/share), not a scratch dir as design.md said: gh finds its extensions through it and the agent's shell commands inherit opencode's env (lisa's gh pr-review would break). The VM is destroyed per run, so opencode's data there doesn't outlive it.
+- Refusal codes reuse existing ones: another port and off-route requests on model.factory.internal are model-path (as the dispatcher uses dispatcher-route for both); CONNECT is plain-only, whose body OC-3 rewords generically ("this host is served over plain HTTP through the proxy"); no-login's body already names no host, so it is unchanged.
+- ModelEndpoint.URL is the server root (as Dispatcher), its path a prefix; RootCAs nil falls back to UpstreamRoots (system roots by default), so tests can use their httptest CA as for the dispatcher.
+- The opencode adapter's own files (instructions.md, factory-session.json, factory-prompt.md) live in <home>/.factory-opencode/ (as claude's .factory-claude), keeping opencode's config dir to what opencode reads; instructions names that file.
+- The gateway's no-login answer fails an opencode run instead of throttling it (a missing endpoint is configuration; a 503 throttle would loop).
+- A missing model (neither resolved nor config default) is refused in Prepare: opencode has no default for the factory provider.
+- The Go comment "Name is the harness's name: codex, claude-code" lives in internal/agent/harness/harness.go; this docs-only PR updates the LLD's Interface block instead, OC-4 updates the code comment.
