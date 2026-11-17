@@ -7,3 +7,10 @@ lisa-design:
 - The gateway's no-login answer fails an opencode run instead of throttling it (a missing endpoint is configuration; a 503 throttle would loop).
 - A missing model (neither resolved nor config default) is refused in Prepare: opencode has no default for the factory provider.
 - The Go comment "Name is the harness's name: codex, claude-code" lives in internal/agent/harness/harness.go; this docs-only PR updates the LLD's Interface block instead, OC-4 updates the code comment.
+
+lisa-selfreview:
+pass 1 (strict), verdict request_changes:
+- [should-fix, CORE-INPUT-001-ish] harness-adapters.md Throttling: no-login is a 503 too, so the "503 -> RateLimited(now+2m)" rule would catch it before "no-login fails the run"; state that the no-login body is checked first.
+- [should-fix, docs consistency] gateway.md §Egress step 1 says the gateway's own routes are never subject to the egress mode, listing the git host, dispatcher and model hosts but not the model endpoint; OC-3 needs deny-by-default to leave it alone.
+- [should-fix, FACTORY-CRED-001 coverage] gateway.md §Tests OC-3 row doesn't name the core property (the key in no record or log line) explicitly; the general sentence covers it, but design.md asks for that test.
+- [nit] harness-adapters.md Stream mapping asserts a step_start is one model call; that's opencode semantics, so it belongs in UNVERIFIED item 1.
