@@ -1,0 +1,4 @@
+lisa-design:
+- Only NotMatched records drop Inputs (in Evaluation.Records); Matched, ActionError and WhereError keep them for debugging. SuppressedByFinal/Duplicate never had inputs.
+- Match.Inputs and the engine are deliberately unchanged: the dry-run evaluation API and the rules goldens read them. The record itself stays (rule, reason, event, at) for the "why" view and replay history; replay's sameDecision ignores inputs.
+- No contract change: v1alpha1.Decision.Inputs is already optional (omitzero).
