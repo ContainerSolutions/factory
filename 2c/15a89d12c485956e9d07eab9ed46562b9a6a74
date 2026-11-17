@@ -1,0 +1,9 @@
+lisa-design:
+- /v1/models and /v1/models/<id> take GET only, not HEAD: the LLD (gateway.md, the model endpoint, on OC-1) names GET; the PR spec's GET/HEAD loses to it (common.md: the LLD wins). HEAD is model-path.
+- A wrong port to model.factory.internal is refused in policy.DecidePlain (model-path), so its record keeps mode forward, exactly as the dispatcher's wrong port does (its test expects ModeForward); only requests that reach the route are mode model.
+- No FlushInterval on the route: httputil.ReverseProxy flushes text/event-stream (and any unknown-length body) immediately, and countWriter's Unwrap lets ResponseController reach the Flusher. TestModelEndpointStreams proves it (it fails if the flush path is broken).
+- newDispatcherTransport became newFixedTransport(base, roots, wrongAddr): the wrong-address error is a parameter so the dispatcher keeps errDispatcherAddr and its tests pass unchanged; the model gets errModelAddr. Both keep the 5-minute ResponseHeaderTimeout (already the dispatcher's).
+- validDispatcher renamed validUpstream: it is now the rule for both fixed upstreams.
+- ModelEndpoint redacts whole (String is "gateway.ModelEndpoint{redacted}", URL included), as AnthropicAuth does; nothing logs the server's URL at info.
+- gatewaycases did not exist (PR 10 never landed): this PR creates it with only the model route's rows; moving the fake's whole TestRoutes table is PR 10's. The fake sets X-Factory-Gateway-Refusal only on its model-route refusals, from its own constants, so the shared rows compare codes.
+- The fake's model route needs ModelKey with ModelUpstream (New refuses it otherwise), mirroring the gateway's empty-key refusal; with no ModelUpstream the route answers 503 no-login after the route checks.
