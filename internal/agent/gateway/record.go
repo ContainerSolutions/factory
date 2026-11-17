@@ -25,6 +25,7 @@ const (
 	ModeTunnel     Mode = "tunnel"     // any other CONNECT: one record per tunnel, when it closes
 	ModeForward    Mode = "forward"    // plain HTTP
 	ModeDispatcher Mode = "dispatcher" // plain HTTP to the dispatcher
+	ModeModel      Mode = "model"      // plain HTTP to the model endpoint
 	ModeAccept     Mode = "accept"     // a peer outside Clients
 )
 

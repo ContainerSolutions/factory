@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"io"
@@ -27,8 +28,11 @@ const (
 // gitUsername is the user name a GitHub App installation token is presented with.
 const gitUsername = "x-access-token"
 
-// errDispatcherAddr refuses a dispatcher dial to any address but Config.Dispatcher's.
-var errDispatcherAddr = errors.New("gateway: the dispatcher transport dials only the dispatcher")
+// errDispatcherAddr and errModelAddr refuse a fixed-upstream dial to any address but its URL's.
+var (
+	errDispatcherAddr = errors.New("gateway: the dispatcher transport dials only the dispatcher")
+	errModelAddr      = errors.New("gateway: the model endpoint transport dials only the model endpoint")
+)
 
 // routeIntercepted applies the class's request rule inside an intercepted tunnel (github.com
 // by repo, api.github.com's reads) and returns the Authorization to set after the carriers are
@@ -167,28 +171,55 @@ func (g *Gateway) toDispatcher(w http.ResponseWriter, r *http.Request, rec *Reco
 		rec.Status, rec.Refusal = writeRefusal(w, code, "")
 		return
 	}
-	base := g.cfg.Dispatcher
 	auth := ""
 	if tok := g.cfg.DispatcherToken(); tok != "" {
 		auth, rec.Injected = "Bearer "+tok, InjectedDispatcher
 	}
-	g.proxy(w, r, rec, g.dispatcher, func(out *http.Request) {
+	g.proxy(w, r, rec, g.dispatcher, toFixed(g.cfg.Dispatcher, r, policy.Dispatcher, auth))
+}
+
+// toModelEndpoint serves the model endpoint's route (gateway.md, the model endpoint): POST
+// /v1/chat/completions and GET /v1/models[/<id>] (model-path for anything else, bad-path for a
+// path that isn't canonical), checked before the endpoint is read; no-login without
+// Config.ModelEndpoint; else sent to its URL over its own transport with every carrier and
+// Cookie stripped and its key as Bearer. The body streams both ways, never buffered or retried,
+// and ReverseProxy flushes a text/event-stream answer as it comes.
+func (g *Gateway) toModelEndpoint(w http.ResponseWriter, r *http.Request, rec *Record) {
+	if code := policy.DecideModelEndpoint(r.Method, r.URL); code != "" {
+		rec.Status, rec.Refusal = writeRefusal(w, code, "")
+		return
+	}
+	m := g.cfg.ModelEndpoint
+	if m == nil {
+		rec.Status, rec.Refusal = writeRefusal(w, policy.CodeNoLogin, "")
+		return
+	}
+	rec.Injected = InjectedModelEndpoint
+	g.proxy(w, r, rec, g.model, toFixed(m.URL, r, policy.ModelEndpoint, "Bearer "+m.APIKey))
+}
+
+// toFixed is the rewrite to a fixed upstream: base's scheme and host, its path joined in front
+// of r's, Host set to it, every carrier and the class's cookies stripped, and auth set as
+// Authorization ("" for none).
+func toFixed(base *url.URL, r *http.Request, c policy.Class, auth string) func(*http.Request) {
+	return func(out *http.Request) {
 		out.URL = &url.URL{Scheme: base.Scheme, Host: base.Host,
 			Path: strings.TrimSuffix(base.Path, "/") + r.URL.Path, RawQuery: r.URL.RawQuery}
 		out.Host = base.Host
-		stripCarriers(out, policy.Dispatcher)
+		stripCarriers(out, c)
 		if auth != "" {
 			out.Header.Set("Authorization", auth)
 		}
-	})
+	}
 }
 
-// newDispatcherTransport is the dispatcher's own transport (gateway.md, the dispatcher): a
-// plain dialer without the egress check, since the dispatcher is the supervisor's own
-// configuration (127.0.0.1:8800 on the Mac), that dials only Config.Dispatcher's host and port,
-// so a request can't redirect it. HTTP/1.1, no proxy, UpstreamRoots for https.
-func (g *Gateway) newDispatcherTransport() *http.Transport {
-	base := g.cfg.Dispatcher
+// newFixedTransport is a fixed upstream's own transport (gateway.md, the dispatcher and the
+// model endpoint): a plain dialer without the egress check, since the URL is the supervisor's
+// own configuration (127.0.0.1:8800 for the dispatcher on the Mac, a tunnel address for the
+// model server), that dials only base's host and port, so a request can't redirect it, and
+// refuses any other address with wrongAddr. HTTP/1.1, no proxy, roots for https, and up to
+// five minutes for the response headers (a git pack, a long prompt's prefill).
+func (g *Gateway) newFixedTransport(base *url.URL, roots *x509.CertPool, wrongAddr error) *http.Transport {
 	port := base.Port()
 	if port == "" {
 		port = map[string]string{"http": "80", "https": "443"}[base.Scheme]
@@ -199,7 +230,7 @@ func (g *Gateway) newDispatcherTransport() *http.Transport {
 		Proxy: nil, ForceAttemptHTTP2: false, DisableCompression: true,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			if !strings.EqualFold(addr, want) {
-				return nil, errDispatcherAddr
+				return nil, wrongAddr
 			}
 			c, err := plain.DialContext(ctx, network, want)
 			if err != nil {
@@ -210,7 +241,7 @@ func (g *Gateway) newDispatcherTransport() *http.Transport {
 			}
 			return nil, &egressError{code: policy.CodeClosing}
 		},
-		TLSClientConfig:     &tls.Config{RootCAs: g.cfg.UpstreamRoots, MinVersion: tls.VersionTLS12},
+		TLSClientConfig:     &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
 		TLSHandshakeTimeout: tlsHandshakeTimeout, ResponseHeaderTimeout: responseHeaderTimeout,
 		IdleConnTimeout: idleTimeout, MaxIdleConnsPerHost: 4,
 	}

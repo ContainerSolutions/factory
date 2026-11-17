@@ -2,6 +2,7 @@ package fakegateway
 
 import (
 	"bufio"
+	"context"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
@@ -22,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ContainerSolutions/factory/internal/agent/harness"
+	"github.com/ContainerSolutions/factory/internal/agent/internal/gatewaycases"
 	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
 )
 
@@ -72,7 +75,7 @@ func config(disp, git, api *echo) Config {
 func assertNoTokens(t *testing.T, recs []Record) {
 	t.Helper()
 	dump := fmt.Sprintf("%+v", recs)
-	for _, tok := range []string{RunToken, rwToken, roToken, apiToken, agentToken, DefaultPlaceholder,
+	for _, tok := range []string{RunToken, rwToken, roToken, apiToken, agentToken, ModelKey, DefaultPlaceholder,
 		basic(rwToken)[6:], basic(roToken)[6:], "x-access-token"} {
 		if strings.Contains(dump, tok) {
 			t.Errorf("records hold %.10q…: %s", tok, dump)
@@ -206,6 +209,9 @@ func TestNoUpstream(t *testing.T) {
 	}
 	if _, err := New(Config{Dispatcher: "dispatcher:8080"}); err == nil {
 		t.Fatal("New accepted a relative upstream")
+	}
+	if _, err := New(Config{ModelUpstream: "http://127.0.0.1:1"}); !errors.Is(err, ErrConfig) {
+		t.Fatalf("New accepted a model upstream without a key: %v", err)
 	}
 }
 
@@ -819,4 +825,61 @@ func TestGitThroughTheGateway(t *testing.T) {
 	}
 	gw.AssertNoClientCredential(t)
 	assertNoTokens(t, gw.Records())
+}
+
+// TestModelEndpointCases runs gatewaycases' model endpoint rows: the status, the refusal code,
+// whether the model server was reached and what it got.
+func TestModelEndpointCases(t *testing.T) {
+	var mu sync.Mutex
+	var got []*http.Request
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		mu.Lock()
+		got = append(got, r.Clone(context.Background()))
+		mu.Unlock()
+		_, _ = io.WriteString(w, "ok")
+	}))
+	t.Cleanup(up.Close)
+	reached := func() []*http.Request {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]*http.Request(nil), got...)
+	}
+	with, without := Start(t, Config{ModelUpstream: up.URL, ModelKey: ModelKey}), Start(t, Config{})
+	for _, c := range gatewaycases.ModelEndpoint() {
+		t.Run(c.Name, func(t *testing.T) {
+			gw := with
+			if c.NoEndpoint {
+				gw = without
+			}
+			before := len(reached())
+			status, h := rawRequest(t, gw, c.Raw)
+			if status != c.Status || h.Get(RefusalHeader) != c.Refusal {
+				t.Fatalf("got %d %q, want %d %q", status, h.Get(RefusalHeader), c.Status, c.Refusal)
+			}
+			reqs := reached()[before:]
+			if c.Upstream == "" {
+				if len(reqs) != 0 {
+					t.Errorf("a refused request reached the model server")
+				}
+				return
+			}
+			if len(reqs) != 1 {
+				t.Fatalf("the model server got %d requests, want 1", len(reqs))
+			}
+			r := reqs[0]
+			if r.URL.RequestURI() != c.Upstream || r.Header.Get("Authorization") != "Bearer "+ModelKey {
+				t.Errorf("the model server got %s with Authorization %.16q…", r.URL.RequestURI(), r.Header.Get("Authorization"))
+			}
+			for k, vs := range r.Header {
+				if k == "X-Api-Key" || k == "Proxy-Authorization" || k == "Cookie" || strings.Contains(strings.Join(vs, ","), harness.Placeholder) {
+					t.Errorf("the model server got %s from the VM", k)
+				}
+			}
+			if recs := gw.Records(); recs[len(recs)-1].Injected != InjectedModelKey {
+				t.Errorf("record %+v, want the model key injected", recs[len(recs)-1])
+			}
+			assertNoTokens(t, gw.Records())
+		})
+	}
 }

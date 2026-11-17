@@ -1,8 +1,9 @@
 // Package policy holds the workspace gateway's decisions as data (gateway.md): the host
 // classes and what a CONNECT or a plain HTTP request to each gets, the egress check (the
 // task's mode and allow list, the deny table, the open addresses), the github.com,
-// api.github.com (with the GraphQL read check), dispatcher and model host (methods and path
-// lists) request rules, the refusal codes and bodies, and the cookie filter of the model hosts.
+// api.github.com (with the GraphQL read check), dispatcher, model host (methods and path lists)
+// and model endpoint request rules, the refusal codes and bodies, and the cookie filter of the
+// model hosts.
 //
 // It is pure, like internal/rules: no network, no I/O, no clock and no goroutines. The
 // gateway package resolves names, reads the agent host's interface addresses and dials; this
@@ -30,13 +31,16 @@ const (
 	AuthOpenAIHost = "auth.openai.com"
 	// DispatcherHost is runbundle.DefaultDispatcherURL's host: the dispatcher as the VM sees it.
 	DispatcherHost = "dispatcher.factory.internal"
+	// ModelEndpointHost is the self-hosted model server (an opencode task's) as the VM sees it.
+	ModelEndpointHost = "model.factory.internal"
 )
 
 // The ports the gateway's own routes are served on.
 const (
-	InterceptPort  = 443 // the intercepted hosts' CONNECT port
-	DispatcherPort = 80  // the dispatcher's plain HTTP port
-	httpPort       = 80  // an absolute-form http URL's port when it names none
+	InterceptPort     = 443 // the intercepted hosts' CONNECT port
+	DispatcherPort    = 80  // the dispatcher's plain HTTP port
+	ModelEndpointPort = 80  // the model endpoint's plain HTTP port
+	httpPort          = 80  // an absolute-form http URL's port when it names none
 )
 
 // anthropicHosts get the Anthropic credential (claude).
@@ -58,16 +62,17 @@ type Class uint8
 
 // The host classes.
 const (
-	Ordinary   Class = iota // every other host: a tunnel or plain forwarding, after the egress check
-	Anthropic               // the Anthropic hosts: intercepted, the Anthropic credential
-	ChatGPT                 // chatgpt.com: intercepted, the ChatGPT login
-	AuthOpenAI              // auth.openai.com: refused
-	GitHub                  // github.com: intercepted, git credentials by repo
-	GitHubAPI               // api.github.com: intercepted, the task token on GET and HEAD
-	Dispatcher              // the dispatcher: plain HTTP only, the run token
+	Ordinary      Class = iota // every other host: a tunnel or plain forwarding, after the egress check
+	Anthropic                  // the Anthropic hosts: intercepted, the Anthropic credential
+	ChatGPT                    // chatgpt.com: intercepted, the ChatGPT login
+	AuthOpenAI                 // auth.openai.com: refused
+	GitHub                     // github.com: intercepted, git credentials by repo
+	GitHubAPI                  // api.github.com: intercepted, the task token on GET and HEAD
+	Dispatcher                 // the dispatcher: plain HTTP only, the run token
+	ModelEndpoint              // the model endpoint: plain HTTP only, the endpoint's key
 )
 
-var classNames = [...]string{"ordinary", "anthropic", "chatgpt", "auth-openai", "github", "github-api", "dispatcher"}
+var classNames = [...]string{"ordinary", "anthropic", "chatgpt", "auth-openai", "github", "github-api", "dispatcher", "model-endpoint"}
 
 func (c Class) String() string {
 	if int(c) < len(classNames) {
@@ -89,6 +94,8 @@ func ClassOf(host string) Class {
 		return GitHubAPI
 	case DispatcherHost:
 		return Dispatcher
+	case ModelEndpointHost:
+		return ModelEndpoint
 	default:
 		if slices.Contains(anthropicHosts, h) {
 			return Anthropic
@@ -106,7 +113,7 @@ func (c Class) Intercepted() bool {
 // (CarrierHeaders and URL user info) before setting the gateway's credential, so the VM's
 // placeholder is replaced and never compared. An ordinary host keeps them, except
 // Proxy-Authorization, which the gateway always drops.
-func (c Class) StripsCarriers() bool { return c.Intercepted() || c == Dispatcher }
+func (c Class) StripsCarriers() bool { return c.Intercepted() || c == Dispatcher || c == ModelEndpoint }
 
 // CarrierHeaders returns the request headers that can carry a credential. URL user info is a
 // carrier too.
@@ -123,12 +130,13 @@ const (
 )
 
 // Cookies is the class's cookie rule: the model hosts keep only the infrastructure cookies,
-// github.com, api.github.com and the dispatcher lose the header, and ordinary hosts keep it.
+// github.com, api.github.com, the dispatcher and the model endpoint lose the header, and
+// ordinary hosts keep it.
 func (c Class) Cookies() CookieRule {
 	switch c {
 	case Anthropic, ChatGPT:
 		return CookiesInfraOnly
-	case GitHub, GitHubAPI, Dispatcher:
+	case GitHub, GitHubAPI, Dispatcher, ModelEndpoint:
 		return CookiesStripped
 	default:
 		return CookiesUntouched
@@ -316,14 +324,15 @@ type Action uint8
 
 // The actions.
 const (
-	Refuse       Action = iota // answer Decision.Refusal (and close a CONNECT)
-	Intercept                  // CONNECT: TLS-terminate and apply the class's request rules
-	Tunnel                     // CONNECT: resolve, check every address (Egress.CheckResolved), tunnel
-	Forward                    // plain HTTP: resolve, check every address, forward
-	ToDispatcher               // plain HTTP to the dispatcher: its route rule, then Config.Dispatcher
+	Refuse          Action = iota // answer Decision.Refusal (and close a CONNECT)
+	Intercept                     // CONNECT: TLS-terminate and apply the class's request rules
+	Tunnel                        // CONNECT: resolve, check every address (Egress.CheckResolved), tunnel
+	Forward                       // plain HTTP: resolve, check every address, forward
+	ToDispatcher                  // plain HTTP to the dispatcher: its route rule, then Config.Dispatcher
+	ToModelEndpoint               // plain HTTP to the model endpoint: its route rule, then Config.ModelEndpoint
 )
 
-var actionNames = [...]string{"refuse", "intercept", "tunnel", "forward", "dispatcher"}
+var actionNames = [...]string{"refuse", "intercept", "tunnel", "forward", "dispatcher", "model-endpoint"}
 
 func (a Action) String() string {
 	if int(a) < len(actionNames) {
@@ -345,10 +354,11 @@ func refuse(code Code, c Class, t Target) Decision {
 }
 
 // DecideConnect applies the host table to a CONNECT's target (host:port): bad-target when it
-// doesn't parse; auth.openai.com refused (auth-host); the dispatcher refused (plain-only); an
-// intercepted host intercepted on 443 and refused on any other port (port); any other host
-// tunnelled when e's host check allows it, else egress-not-allowed. The intercepted hosts and
-// the dispatcher are the gateway's own routes, so the egress mode never applies to them.
+// doesn't parse; auth.openai.com refused (auth-host); the dispatcher and the model endpoint
+// refused (plain-only); an intercepted host intercepted on 443 and refused on any other port
+// (port); any other host tunnelled when e's host check allows it, else egress-not-allowed. The
+// intercepted hosts, the dispatcher and the model endpoint are the gateway's own routes, so the
+// egress mode never applies to them.
 func DecideConnect(target string, e Egress) Decision {
 	t, ok := ParseConnectTarget(target)
 	if !ok {
@@ -357,7 +367,7 @@ func DecideConnect(target string, e Egress) Decision {
 	switch c := ClassOf(t.Host); {
 	case c == AuthOpenAI:
 		return refuse(CodeAuthHost, c, t)
-	case c == Dispatcher:
+	case c == Dispatcher, c == ModelEndpoint:
 		return refuse(CodePlainOnly, c, t)
 	case c.Intercepted():
 		if t.Port != InterceptPort {
@@ -375,8 +385,9 @@ func DecideConnect(target string, e Egress) Decision {
 // DecidePlain applies the host table to an absolute-form request's URL scheme and host (port 80
 // when it has none): not-proxy for a scheme other than http or a host that doesn't parse (an
 // origin-form request has neither); auth.openai.com refused (auth-host); an intercepted host
-// refused (plain-http); the dispatcher on port 80 only, else dispatcher-route; any other host
-// forwarded when e's host check allows it, else egress-not-allowed.
+// refused (plain-http); the dispatcher on port 80 only, else dispatcher-route; the model
+// endpoint on port 80 only, else model-path; any other host forwarded when e's host check
+// allows it, else egress-not-allowed.
 func DecidePlain(scheme, hostport string, e Egress) Decision {
 	if asciiLower(scheme) != "http" {
 		return refuse(CodeNotProxy, Ordinary, Target{})
@@ -395,6 +406,11 @@ func DecidePlain(scheme, hostport string, e Egress) Decision {
 			return refuse(CodeDispatcherRoute, c, t)
 		}
 		return Decision{Action: ToDispatcher, Class: c, Target: t}
+	case c == ModelEndpoint:
+		if t.Port != ModelEndpointPort {
+			return refuse(CodeModelPath, c, t)
+		}
+		return Decision{Action: ToModelEndpoint, Class: c, Target: t}
 	default:
 		if !e.AllowsHost(t) {
 			return refuse(CodeEgressNotAllowed, c, t)

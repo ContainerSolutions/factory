@@ -433,7 +433,8 @@ func TestClassifyClient(t *testing.T) {
 // reflection without calling a method, so they aren't asserted (the types' doc says so).
 func TestModelLoginsRedact(t *testing.T) {
 	type outer struct{ Login any }
-	for _, v := range []any{AnthropicAuth{OAuthToken: oauthTok, APIKey: apiKey}, ChatGPTLogin{AccessToken: accessTok, AccountID: accountID}} {
+	model := ModelEndpoint{URL: &url.URL{Scheme: "http", Host: "spark.example"}, APIKey: modelKey}
+	for _, v := range []any{AnthropicAuth{OAuthToken: oauthTok, APIKey: apiKey}, ChatGPTLogin{AccessToken: accessTok, AccountID: accountID}, model, &model} {
 		var js, text strings.Builder
 		lj, lt := slog.New(slog.NewJSONHandler(&js, nil)), slog.New(slog.NewTextHandler(&text, nil))
 		nested := []any{v, []any{v}, map[string]any{"a": v}, outer{v}, &outer{v}}
@@ -456,6 +457,9 @@ func TestModelLoginsRedact(t *testing.T) {
 			outs["json key"] = fmt.Sprint(string(b), err)
 		case ChatGPTLogin:
 			b, err := json.Marshal(map[ChatGPTLogin]int{k: 1})
+			outs["json key"] = fmt.Sprint(string(b), err)
+		case ModelEndpoint:
+			b, err := json.Marshal(map[ModelEndpoint]int{k: 1})
 			outs["json key"] = fmt.Sprint(string(b), err)
 		}
 		for name, out := range outs {

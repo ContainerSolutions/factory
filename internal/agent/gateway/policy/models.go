@@ -87,3 +87,30 @@ func DecideModel(host, method string, u *url.URL, carrier bool) Code {
 	}
 	return CodeModelPath
 }
+
+// modelEndpointRoutes are the only requests the model endpoint takes (gateway.md, the model
+// endpoint): an OpenAI-compatible server's chat completions and its model list.
+var modelEndpointRoutes = []struct {
+	method string
+	path   pathRule
+}{
+	{http.MethodPost, pathRule{"/v1/chat/completions", exact}},
+	{http.MethodGet, pathRule{"/v1/models", exact}},
+	{http.MethodGet, pathRule{"/v1/models/", segment}},
+}
+
+// DecideModelEndpoint applies the model endpoint's route to a request, before the endpoint is
+// read: the canonical-path check (bad-path), then exactly POST /v1/chat/completions, GET
+// /v1/models or GET /v1/models/<id> (one segment), compared case-sensitively with any query;
+// every other request is model-path.
+func DecideModelEndpoint(method string, u *url.URL) Code {
+	if !Canonical(u) {
+		return CodeBadPath
+	}
+	for _, r := range modelEndpointRoutes {
+		if r.method == method && r.path.match(u.Path) {
+			return ""
+		}
+	}
+	return CodeModelPath
+}

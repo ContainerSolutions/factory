@@ -20,7 +20,7 @@ func TestRefusals(t *testing.T) {
 		{CodeBadTarget, 400, "refused: the CONNECT target is not host:port"},
 		{CodePort, 403, "refused: this host is served on port 443 only"},
 		{CodePlainHTTP, 403, "refused: plain HTTP to an intercepted host"},
-		{CodePlainOnly, 403, "refused: the dispatcher is served over plain HTTP through the proxy"},
+		{CodePlainOnly, 403, "refused: this host is served over plain HTTP through the proxy"},
 		{CodeAuthHost, 403, "refused: auth.openai.com is not reachable from workspaces (the gateway refreshes the login)"},
 		{CodePushRefused, 403, "push refused: the repository is not writable for this task"},
 		{CodeWebWrite, 403, "refused: github.com takes only GET and HEAD outside git"},

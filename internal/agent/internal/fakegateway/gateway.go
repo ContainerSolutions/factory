@@ -5,6 +5,12 @@
 //     Config.DispatcherRoutes (default POST /api/v1/tasks/{id}/effects) are forwarded, with the
 //     client's Authorization replaced by Bearer <run token>; any other method or path gets a 403,
 //     and a path that isn't canonical a 400.
+//   - Absolute-form HTTP to the model endpoint (ModelHost, on port 80): only POST
+//     /v1/chat/completions and GET /v1/models[/<id>] are forwarded to Config.ModelUpstream, with
+//     the client's carriers replaced by Bearer <Config.ModelKey>; any other method, path or port
+//     gets a 403, a path that isn't canonical a 400, a CONNECT a 403, and a gateway without a
+//     model upstream answers 503. These refusals carry their code in RefusalHeader, as the
+//     gateway's do.
 //   - CONNECT to github.com or api.github.com: TLS is terminated with a leaf from a per-instance
 //     CA. git smart HTTP gets Basic x-access-token:<token> for the repo in the path. A repo that
 //     isn't rw fails closed: only a smart-HTTP fetch (GET info/refs?service=git-upload-pack and
@@ -55,6 +61,10 @@ const (
 	// DefaultGitHost and DefaultAPIHost are the intercepted GitHub hosts.
 	DefaultGitHost = "github.com"
 	DefaultAPIHost = "api.github.com"
+	// ModelHost is the model endpoint's name as the VM sees it.
+	ModelHost = "model.factory.internal"
+	// ModelKey is a model endpoint key (vLLM's --api-key) for tests.
+	ModelKey = "sk-fakegateway-model-key-never-in-the-workspace"
 )
 
 // The bodies of the gateway's refusals, which tests and the workspace's logs recognise.
@@ -66,7 +76,13 @@ const (
 	PlainRefused      = "fakegateway: refused: plain HTTP to an intercepted host"
 	BadPath           = "fakegateway: refused: the path is not canonical"
 	NotProxyRequest   = "fakegateway: not a proxy request"
+	ModelPathRefused  = "fakegateway: refused: this path on the model endpoint is not open to workspaces"
+	PlainOnlyRefused  = "fakegateway: refused: this host is served over plain HTTP through the proxy"
+	NoModelEndpoint   = "fakegateway: no model endpoint on this gateway"
 )
+
+// RefusalHeader carries the code of a model endpoint refusal (the gateway's codes).
+const RefusalHeader = "X-Factory-Gateway-Refusal"
 
 // ErrConfig is wrapped by New's errors for a Config it rejects.
 var ErrConfig = errors.New("fakegateway: invalid config")
@@ -76,6 +92,7 @@ const (
 	InjectedNone     = ""
 	InjectedRunToken = "run-token"
 	InjectedAPI      = "api-token"
+	InjectedModelKey = "model-key"
 )
 
 // ClientAuthNone is Record.ClientAuth for a request without an Authorization header. Otherwise
@@ -130,6 +147,11 @@ type Config struct {
 	// Placeholders are the Authorization values that aren't credentials; default
 	// {DefaultPlaceholder}.
 	Placeholders []string
+	// ModelUpstream serves ModelHost's route (the model server), with ModelKey injected; empty:
+	// the route answers 503.
+	ModelUpstream string
+	// ModelKey replaces the carriers on the model route; required with ModelUpstream.
+	ModelKey string
 	// AllowTunnel tunnels CONNECTs (and forwards plain HTTP) to any other host, at any address
 	// (no egress deny list); else they get 403.
 	AllowTunnel bool
@@ -164,6 +186,7 @@ type Gateway struct {
 	ca           *CA
 	dispatcher   *url.URL
 	git, api     *url.URL
+	model        *url.URL
 	repos        map[string]Repo
 	routes       []route
 	placeholders map[string]bool
@@ -241,10 +264,13 @@ func New(cfg Config) (*Gateway, error) {
 	for _, u := range []struct {
 		dst **url.URL
 		raw string
-	}{{&g.dispatcher, cfg.Dispatcher}, {&g.git, cfg.GitUpstream}, {&g.api, cfg.APIUpstream}} {
+	}{{&g.dispatcher, cfg.Dispatcher}, {&g.git, cfg.GitUpstream}, {&g.api, cfg.APIUpstream}, {&g.model, cfg.ModelUpstream}} {
 		if *u.dst, err = parseUpstream(u.raw); err != nil {
 			return nil, err
 		}
+	}
+	if g.model != nil && cfg.ModelKey == "" {
+		return nil, fmt.Errorf("%w: a model upstream without a ModelKey", ErrConfig)
 	}
 	if g.ca == nil {
 		if g.ca, err = NewCA(); err != nil {
@@ -580,6 +606,8 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 			auth, rec.Injected = "Bearer "+g.cfg.RunToken, InjectedRunToken
 		}
 		g.forward(sw, r, g.dispatcher, injectAuth(auth))
+	case host == ModelHost:
+		g.modelRoute(sw, r, &rec)
 	case host == g.cfg.GitHost || host == g.cfg.APIHost:
 		http.Error(sw, PlainRefused, http.StatusForbidden)
 	case g.cfg.AllowTunnel:
@@ -588,6 +616,37 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(sw, TunnelRefused, http.StatusForbidden)
 	}
+}
+
+// modelRoute serves the model endpoint: on port 80 only, POST /v1/chat/completions and GET
+// /v1/models[/<id>] (one segment) are forwarded to ModelUpstream with ModelKey as Bearer, every
+// other carrier and Cookie dropped. Everything is checked before the upstream is: another port,
+// method or path is model-path, a path that isn't canonical bad-path; then no upstream is
+// no-login.
+func (g *Gateway) modelRoute(w http.ResponseWriter, r *http.Request, rec *Record) {
+	p := r.URL.Path
+	id, isModel := strings.CutPrefix(p, "/v1/models/")
+	route := r.Method == http.MethodPost && p == "/v1/chat/completions" ||
+		r.Method == http.MethodGet && (p == "/v1/models" || isModel && id != "" && !strings.Contains(id, "/"))
+	switch port := r.URL.Port(); {
+	case port != "" && port != "80":
+		refuse(w, http.StatusForbidden, "model-path", ModelPathRefused)
+	case !canonical(r.URL):
+		refuse(w, http.StatusBadRequest, "bad-path", BadPath)
+	case !route:
+		refuse(w, http.StatusForbidden, "model-path", ModelPathRefused)
+	case g.model == nil:
+		refuse(w, http.StatusServiceUnavailable, "no-login", NoModelEndpoint)
+	default:
+		rec.Injected = InjectedModelKey
+		g.forward(w, r, g.model, injectAuth("Bearer "+g.cfg.ModelKey))
+	}
+}
+
+// refuse answers a refusal with its code in RefusalHeader.
+func refuse(w http.ResponseWriter, status int, code, body string) {
+	w.Header().Set(RefusalHeader, code)
+	http.Error(w, body, status)
 }
 
 // connect intercepts a CONNECT to GitHost or APIHost, or tunnels or refuses any other.
@@ -599,6 +658,11 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 	var up net.Conn
 	switch {
 	case intercept:
+	case host == ModelHost:
+		rec.Status = http.StatusForbidden
+		g.record(rec)
+		refuse(w, http.StatusForbidden, "plain-only", PlainOnlyRefused)
+		return
 	case !g.cfg.AllowTunnel:
 		rec.Status = http.StatusForbidden
 		g.record(rec)
