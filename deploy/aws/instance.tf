@@ -87,7 +87,8 @@ resource "aws_instance" "factory" {
   vpc_security_group_ids = [aws_security_group.factory.id]
   iam_instance_profile   = aws_iam_instance_profile.dispatcher.name
 
-  # The Elastic IP is its public address.
+  # The Elastic IP is its public address. Once it is attached, the provider reads this back as
+  # true, and it forces replacement: lifecycle ignores it below.
   associate_public_ip_address = false
 
   # A busy spell slows it down rather than billing surplus credits.
@@ -126,8 +127,10 @@ resource "aws_instance" "factory" {
     Name = "factory"
   }
 
+  # A new image is a deliberate -replace (README §9). associate_public_ip_address reads back true
+  # with the Elastic IP attached; without it here, every apply replaced the instance.
   lifecycle {
-    ignore_changes = [ami]
+    ignore_changes = [ami, associate_public_ip_address]
   }
 }
 
