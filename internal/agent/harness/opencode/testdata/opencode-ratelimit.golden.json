@@ -1,0 +1,21 @@
+{
+  "lastError": "The engine is currently overloaded, please try again later",
+  "lastText": "",
+  "progress": [
+    {
+      "Kind": "turn",
+      "Summary": "turn 1",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "error",
+      "Summary": "The engine is currently overloaded, please try again later",
+      "At": "2026-11-17T12:00:00Z"
+    }
+  ],
+  "rateLimited": [
+    "2026-11-17T12:02:00Z"
+  ],
+  "sessionId": "ses_4d5e6f7a8fffOpenCodeRun04",
+  "usage": null
+}

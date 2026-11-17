@@ -2,13 +2,14 @@
 // harness-adapters.md §OpenCode, ADR-0010): a model the owner serves behind the gateway's
 // model endpoint, run only in a VM workspace, where the VM is the boundary. Prepare writes
 // opencode.json (one provider at the gateway, with harness.Placeholder as its key, which the
-// gateway replaces) and the flattened skills under the scratch XDG_CONFIG_HOME. Run and
-// Repair come with OC-5. Every opencode name the adapter relies on is in flags.go.
+// gateway replaces) and the flattened skills under the scratch XDG_CONFIG_HOME. Run starts
+// `opencode run --format json` on the prompt, streams its JSON lines into the EventSink, stops
+// on a rate limit or the model server being unreachable, and kills the whole process group
+// when its context ends; Repair resumes the session with the validation problems. Every
+// opencode name the adapter relies on is in flags.go.
 package opencode
 
 import (
-	"context"
-	"errors"
 	"maps"
 	"time"
 
@@ -26,8 +27,12 @@ const Name = config.HarnessOpenCode
 const AuthSelfHosted = "selfHosted"
 
 // DefaultThrottle is how long a rate-limited agent waits (harness-adapters.md: 429,
-// overloaded or 503 → now+2m).
+// overloaded or 503 → now+2m) when the error gives no reset.
 const DefaultThrottle = 2 * time.Minute
+
+// OutageThrottle is how long the agent waits when the gateway can't reach the model server
+// (its upstream or timeout answer: the server or the tunnel is down).
+const OutageThrottle = 5 * time.Minute
 
 // DefaultKillGrace is how long opencode gets to exit after SIGTERM before its process group
 // is killed.
@@ -43,7 +48,7 @@ type Options struct {
 	Clock clock.Clock
 	// KillGrace is the SIGTERM-to-SIGKILL delay on cancel. Default: DefaultKillGrace.
 	KillGrace time.Duration
-	// Throttle is the wait on a rate limit. Default: DefaultThrottle.
+	// Throttle is the wait on a rate limit without a reset. Default: DefaultThrottle.
 	Throttle time.Duration
 	// ContextWindow and MaxOutput are the served model's limits in tokens, from the run
 	// bundle's Model (the owner's agent config). Prepare refuses a run without them.
@@ -87,17 +92,4 @@ func (a *Adapter) Capabilities() v1alpha1.AdapterCapabilities {
 		EffortMapping: maps.Clone(effortMapping),
 		Features:      []string{"structured-output", "mcp", "skills-dir"},
 	}
-}
-
-// errNoRun is what Run and Repair return until OC-5 (vmrun builds no opencode adapter yet).
-var errNoRun = errors.New("opencode: this agent can't run opencode yet")
-
-// Run implements harness.Adapter.
-func (a *Adapter) Run(context.Context, harness.Workspace, v1alpha1.Task, string, harness.EventSink) (harness.Raw, error) {
-	return harness.Raw{}, errNoRun
-}
-
-// Repair implements harness.Adapter.
-func (a *Adapter) Repair(context.Context, harness.Workspace, []string, harness.EventSink) (harness.Raw, error) {
-	return harness.Raw{}, errNoRun
 }

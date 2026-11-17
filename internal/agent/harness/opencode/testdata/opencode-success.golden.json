@@ -1,0 +1,55 @@
+{
+  "lastError": "",
+  "lastText": "```json\n{\"status\":\"done\",\"outcome\":\"pr-opened\",\"summary\":\"opened acme/docs#13\"}\n```",
+  "progress": [
+    {
+      "Kind": "turn",
+      "Summary": "turn 1",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "tool",
+      "Summary": "$ git checkout -b fx/docs-13 …",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "turn",
+      "Summary": "turn 2",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "tool",
+      "Summary": "mcp factory.pr_open",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "turn",
+      "Summary": "turn 3",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "message",
+      "Summary": "```json …",
+      "At": "2026-11-17T12:00:00Z"
+    }
+  ],
+  "rateLimited": null,
+  "sessionId": "ses_1a2b3c4d5effOpenCodeRun01",
+  "usage": [
+    {
+      "InputTokens": 12000,
+      "OutputTokens": 400,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 12800,
+      "OutputTokens": 200,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 13040,
+      "OutputTokens": 60,
+      "CostUSD": null
+    }
+  ]
+}

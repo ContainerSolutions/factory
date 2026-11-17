@@ -1,0 +1,21 @@
+{
+  "lastError": "Bad Gateway: factory gateway: the upstream is unreachable",
+  "lastText": "",
+  "progress": [
+    {
+      "Kind": "turn",
+      "Summary": "turn 1",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "error",
+      "Summary": "Bad Gateway: factory gateway: the upstream is unreachable",
+      "At": "2026-11-17T12:00:00Z"
+    }
+  ],
+  "rateLimited": [
+    "2026-11-17T12:05:00Z"
+  ],
+  "sessionId": "ses_5e6f7a8b9fffOpenCodeRun05",
+  "usage": null
+}
