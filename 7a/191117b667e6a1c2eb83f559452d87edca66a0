@@ -3,3 +3,7 @@ pass 1: CORE-TEST-001 (fp 14f0a55aa17b) fixed: catalog/catalog_test.go TestOpenc
 
 lisa-design:
 - Supersedes "only the existing TestCapabilitiesFiles count and the no-capabilities golden change": catalog/catalog_test.go also gets TestOpencodeOverride (the spec's verification "a command override to opencode validates against each TaskSpec", kept in CI); still no descriptor-vs-adapter test.
+
+lisa-selfreview:
+pass 2 (strict): request_changes
+- [nit] CORE-STYLE-001 catalog/catalog_test.go TestOpencodeOverride doc: "The defaults stay the owner's." reads as a claim the test checks. Fix: say it doesn't check the defaults.
