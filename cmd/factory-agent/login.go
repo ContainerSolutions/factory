@@ -20,10 +20,11 @@ type loginDeps struct {
 	// Getenv reads XDG_STATE_HOME for the state dir on linux (host.Env.StateDir); default
 	// os.Getenv.
 	Getenv func(string) string
-	// Stdin is where `login claude` reads setup-token's output; default os.Stdin.
+	// Stdin is where `login claude` reads setup-token's output, and `login opencode` the
+	// model server's key; default os.Stdin.
 	Stdin io.Reader
-	// IsTerminal says whether Stdin is a terminal, where `login claude` prompts for the paste
-	// first; default stdinIsTerminal.
+	// IsTerminal says whether Stdin is a terminal, where those prompt for the paste first;
+	// default stdinIsTerminal.
 	IsTerminal func() bool
 }
 
@@ -37,7 +38,7 @@ func stdinIsTerminal() bool {
 func loginCommand() command {
 	return command{
 		name:    "login",
-		summary: "store the owner's claude or codex login for VM workspaces (supervise)",
+		summary: "store the owner's claude, codex or opencode login for VM workspaces (supervise)",
 		run: func(_ context.Context, args []string, stdout, stderr io.Writer) int {
 			return runLogin(args, stdout, stderr, loginDeps{})
 		},
@@ -45,7 +46,7 @@ func loginCommand() command {
 }
 
 func loginUsage(w io.Writer) {
-	fmt.Fprint(w, `usage: factory-agent login <claude|codex> [flags]   (supervise.md)
+	fmt.Fprint(w, `usage: factory-agent login <claude|codex|opencode> [flags]   (supervise.md)
 
   claude                 reads claude setup-token's output on stdin and stores the one token in it.
                          Run claude setup-token on its own (it is interactive) and copy what it
@@ -58,14 +59,16 @@ func loginUsage(w io.Writer) {
                          on this machine first: install the codex CLI, then codex login (with
                          ChatGPT). Don't copy another machine's auth.json: both would refresh the
                          same login, each spending the other's refresh token.
+  opencode               reads the model server's API key (vLLM's --api-key) on stdin, as
+                         login claude reads its paste: pbpaste | factory-agent login opencode
 
-Each goes to <state-dir>/logins/{claude,codex}.json (0600, in a 0700 directory); the
+Each goes to <state-dir>/logins/{claude,codex,opencode}.json (0600, in a 0700 directory); the
 workspace gateway adds it to the model hosts' requests, and refreshes the codex login there
 (the file then holds the newer tokens). --state-dir defaults to the agent's.
 `)
 }
 
-// maxStdinToken bounds what login claude reads on stdin (setup-token's output, pasted).
+// maxStdinToken bounds what login claude and login opencode read on stdin.
 const maxStdinToken = 64 << 10
 
 func runLogin(args []string, stdout, stderr io.Writer, d loginDeps) int {
@@ -78,7 +81,7 @@ func runLogin(args []string, stdout, stderr io.Writer, d loginDeps) int {
 	case "help", "-h", "--help":
 		loginUsage(stdout)
 		return 0
-	case "claude", "codex":
+	case "claude", "codex", "opencode":
 	default:
 		fmt.Fprintf(stderr, "factory-agent login: unknown login %q\n\n", which)
 		loginUsage(stderr)
@@ -107,8 +110,8 @@ func runLogin(args []string, stdout, stderr io.Writer, d loginDeps) int {
 		fmt.Fprintf(stderr, "factory-agent login %s: unexpected arguments %v\n", which, fs.Args())
 		return 2
 	}
-	if which == "claude" && *authJSON != "" {
-		fmt.Fprintln(stderr, "factory-agent login claude: --auth-json is codex's")
+	if which != "codex" && *authJSON != "" {
+		fmt.Fprintf(stderr, "factory-agent login %s: --auth-json is codex's\n", which)
 		return 2
 	}
 	fail := func(err error) int {
@@ -123,9 +126,13 @@ func runLogin(args []string, stdout, stderr io.Writer, d loginDeps) int {
 		*stateDir = (&host.Env{Home: home, Getenv: d.Getenv}).StateDir()
 	}
 	store := login.ForStateDir(*stateDir)
-	if which == "claude" {
+	if which != "codex" {
 		if d.IsTerminal() {
-			fmt.Fprintln(stderr, "Paste `claude setup-token`'s output, then press Enter and Ctrl-D.")
+			paste := "`claude setup-token`'s output"
+			if which == "opencode" {
+				paste = "the model server's API key"
+			}
+			fmt.Fprintf(stderr, "Paste %s, then press Enter and Ctrl-D.\n", paste)
 		}
 		b, err := io.ReadAll(io.LimitReader(d.Stdin, maxStdinToken+1))
 		if err != nil {
@@ -134,14 +141,18 @@ func runLogin(args []string, stdout, stderr io.Writer, d loginDeps) int {
 		if len(b) > maxStdinToken {
 			return fail(fmt.Errorf("stdin is over %d bytes", maxStdinToken))
 		}
-		tok, err := login.ClaudeToken(string(b))
-		if err != nil {
+		file, save := login.OpenCodeFile, store.SaveOpenCode
+		in := string(b)
+		if which == "claude" {
+			file, save = login.ClaudeFile, store.SaveClaude
+			if in, err = login.ClaudeToken(in); err != nil {
+				return fail(err)
+			}
+		}
+		if err := save(in); err != nil {
 			return fail(err)
 		}
-		if err := store.SaveClaude(tok); err != nil {
-			return fail(err)
-		}
-		fmt.Fprintln(stdout, "stored the claude login in", filepath.Join(store.Path, login.ClaudeFile))
+		fmt.Fprintf(stdout, "stored the %s login in %s\n", which, filepath.Join(store.Path, file))
 		return 0
 	}
 	path := *authJSON

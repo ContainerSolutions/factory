@@ -69,6 +69,12 @@ func TestLogin(t *testing.T) {
 			}
 		}},
 		{name: "codex, no auth.json", args: []string{"codex"}, code: 1, err: "auth.json: log codex in on this machine first"},
+		{name: "opencode", args: []string{"opencode"}, stdin: "  spark-key-secret\n", check: func(t *testing.T, s login.Store) {
+			if key, err := s.OpenCode(); err != nil || key != "spark-key-secret" {
+				t.Errorf("opencode login: %v", err)
+			}
+		}},
+		{name: "opencode, empty stdin", args: []string{"opencode"}, stdin: "\n", code: 1, err: "the key is empty"},
 		{name: "unknown", args: []string{"gemini"}, code: 2, err: "unknown login"},
 		{name: "none", args: nil, code: 2, err: "usage"},
 	}

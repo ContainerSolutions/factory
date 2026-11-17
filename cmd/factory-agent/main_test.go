@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/login"
 	"github.com/ContainerSolutions/factory/internal/agent/probe"
 )
 
@@ -77,6 +78,21 @@ func probeOpts(missing string) probe.Options {
 
 func homeIn(dir string) config.Options {
 	return config.Options{Home: func() (string, error) { return dir, nil }}
+}
+
+// loginProbe offers a harness by its stored login, opencode as selfHosted; one without its login
+// is dropped, naming the login command.
+func TestLoginProbe(t *testing.T) {
+	store := login.ForStateDir(t.TempDir())
+	if err := store.SaveOpenCode("spark-key"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Harnesses: map[string]config.Harness{config.HarnessOpenCode: {Models: []string{"q"}}, config.HarnessCodex: {Models: []string{"m"}}}}
+	rep := probe.Run(context.Background(), cfg, loginProbe(store))
+	if h := rep.Capabilities.Harnesses; len(h) != 1 || h[0].Name != config.HarnessOpenCode || h[0].Auth != "selfHosted" ||
+		len(rep.Dropped) != 1 || !strings.Contains(rep.Dropped[0].Reason, "run `factory-agent login codex`") {
+		t.Errorf("report %+v", rep)
+	}
 }
 
 func TestProbeCommand(t *testing.T) {

@@ -263,6 +263,8 @@ func TestWriteRefuses(t *testing.T) {
 		{"a token in task.json", func(_ *Manifest, f *Files) { f.Task.Spec.Inputs = map[string]any{"x": []any{"a", ghsToken}} }, TaskFile + ".spec.inputs"},
 		{"codex for claude", func(_ *Manifest, f *Files) { f.Task = testTask("claude-code") }, "codex"},
 		{"no codex account for codex", func(_ *Manifest, f *Files) { f.Codex = nil }, "codex"},
+		{"model limits for codex", func(_ *Manifest, f *Files) { f.Model = &Model{ContextWindow: 8192, MaxOutput: 1024} }, "model"},
+		{"no model limits for opencode", func(_ *Manifest, f *Files) { f.Task, f.Codex = testTask("opencode"), nil }, "model"},
 		{"skills without a dir", func(_ *Manifest, f *Files) { f.SkillsDir = "" }, "skills"},
 		{"a skill not in the dir", func(m *Manifest, _ *Files) {
 			m.Skills = append(m.Skills, Skill{Name: "gone", Plugin: "ccf", Dir: "skills/ccf/skills/gone"})
@@ -370,6 +372,7 @@ func TestValidate(t *testing.T) {
 		{"a NoProxy URL", func(m *Manifest) { m.Gateway.NoProxy = []string{"http://x.example.com"} }, "gateway.noProxy[0]"},
 		{"a NoProxy single label", func(m *Manifest) { m.Gateway.NoProxy = []string{"intranet"} }, "gateway.noProxy[0]"},
 		{"a partial codex account", func(m *Manifest) { m.Codex = &CodexAccount{AccountID: "a"} }, "codex"},
+		{"no model output", func(m *Manifest) { m.Model = &Model{ContextWindow: 131072} }, "model"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -1101,12 +1101,12 @@ func TestInitRootBeforeVMs(t *testing.T) {
 	}
 }
 
-// harnessLineREs are the only lines of the provisioning script that may name claude or
-// codex: comments, pins, the install lines and the [ -x ] checks. None runs either binary.
+// harnessLineREs are the only lines of the provisioning script that may name claude, codex or
+// opencode: comments, pins, the install lines and the [ -x ] checks. None runs a harness.
 var harnessLineREs = []*regexp.Regexp{
 	regexp.MustCompile(`^#`),
-	regexp.MustCompile(`^(CLAUDE_CODE|CODEX)_VERSION=[A-Za-z0-9.-]+$`),
-	regexp.MustCompile(`^CODEX_(CODE_MODE_HOST_)?SHA256_(amd64|arm64)=[0-9a-f]{64}$`),
+	regexp.MustCompile(`^(CLAUDE_CODE|CODEX|OPENCODE)_VERSION=[A-Za-z0-9.-]+$`),
+	regexp.MustCompile(`^(CODEX_(CODE_MODE_HOST_)?|OPENCODE_)SHA256_(amd64|arm64)=[0-9a-f]{64}$`),
 	// set_arch's list of the per-architecture pins: names only.
 	regexp.MustCompile(`^ARCH_PINS=\([A-Z0-9_ ]+\)$`),
 	regexp.MustCompile(`^echo "== harness CLIs \(installed, never run\)"$`),
@@ -1123,7 +1123,7 @@ var harnessLineREs = []*regexp.Regexp{
 	regexp.MustCompile(`^if ! claude_code_installed; then$`),
 	regexp.MustCompile(`^sudo npm install -g --prefix /usr/local --no-fund --no-audit --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@\$CLAUDE_CODE_VERSION"$`),
 	regexp.MustCompile(`^claude_code_installed \|\| \{ echo "claude-code's native binary isn't in place: \$CLAUDE_CODE_DIR/bin/claude\.exe" >&2; exit 1; \}$`),
-	regexp.MustCompile(`^\[ -x /usr/local/bin/codex \] \|\| \{ echo "[^"$` + "`" + `]*" >&2; exit 1; \}$`),
+	regexp.MustCompile(`^\[ -x /usr/local/bin/(codex|opencode) \] \|\| \{ echo "[^"$` + "`" + `]*" >&2; exit 1; \}$`),
 	regexp.MustCompile(`^if \[ "\$\(cat /var/lib/factory/codex\.tar\.sha256 2>/dev/null \|\| true\)" != "\$CODEX_SHA256" \] \|\| \[ ! -x /usr/local/bin/codex \]; then$`),
 	regexp.MustCompile(`^fetch "https://github\.com/openai/codex/releases/download/\$CODEX_VERSION/codex-\$TRIPLE_ARCH-unknown-linux-musl\.tar\.gz" "\$CODEX_SHA256" "\$TMP/codex\.tar\.gz"$`),
 	regexp.MustCompile(`^mkdir "\$TMP/codex"$`),
@@ -1138,11 +1138,18 @@ var harnessLineREs = []*regexp.Regexp{
 	regexp.MustCompile(`^tar -xzf "\$TMP/codex-code-mode-host\.tar\.gz" -C "\$TMP/codex-code-mode-host" --no-same-owner$`),
 	regexp.MustCompile(`^sudo install -m 0755 "\$TMP/codex-code-mode-host/codex-code-mode-host-\$TRIPLE_ARCH-unknown-linux-musl" /usr/local/bin/codex-code-mode-host$`),
 	regexp.MustCompile(`^echo "\$CODEX_CODE_MODE_HOST_SHA256" \| sudo tee /var/lib/factory/codex-code-mode-host\.tar\.sha256 >/dev/null$`),
+	// opencode, installed the same way from its own archive.
+	regexp.MustCompile(`^if \[ "\$\(cat /var/lib/factory/opencode\.tar\.sha256 2>/dev/null \|\| true\)" != "\$OPENCODE_SHA256" \] \|\| \[ ! -x /usr/local/bin/opencode \]; then$`),
+	regexp.MustCompile(`^fetch "https://github\.com/anomalyco/opencode/releases/download/\$OPENCODE_VERSION/opencode-linux-\$NODE_ARCH\.tar\.gz" "\$OPENCODE_SHA256" "\$TMP/opencode\.tar\.gz"$`),
+	regexp.MustCompile(`^mkdir "\$TMP/opencode"$`),
+	regexp.MustCompile(`^tar -xzf "\$TMP/opencode\.tar\.gz" -C "\$TMP/opencode" --no-same-owner$`),
+	regexp.MustCompile(`^sudo install -m 0755 "\$TMP/opencode/opencode" /usr/local/bin/opencode$`),
+	regexp.MustCompile(`^echo "\$OPENCODE_SHA256" \| sudo tee /var/lib/factory/opencode\.tar\.sha256 >/dev/null$`),
 }
 
-var harnessRE = regexp.MustCompile(`(?i)claude|codex`)
+var harnessRE = regexp.MustCompile(`(?i)claude|codex|opencode`)
 
-// harnessLines are the script's lines that name claude or codex outside harnessLineREs.
+// harnessLines are the script's lines that name a harness outside harnessLineREs.
 func harnessLines(script string) []string {
 	var bad []string
 	for l := range strings.Lines(script) {
@@ -1246,9 +1253,9 @@ func imageLines(script string) []string {
 
 func TestProvisionScript(t *testing.T) {
 	if bad := harnessLines(string(provisionScript)); len(bad) > 0 {
-		t.Errorf("provision/base.sh names claude or codex outside the install lines and existence checks:\n%s", strings.Join(bad, "\n"))
+		t.Errorf("provision/base.sh names a harness outside the install lines and existence checks:\n%s", strings.Join(bad, "\n"))
 	}
-	for _, l := range []string{"claude --version", "/usr/local/bin/codex --help", `[ -x /usr/local/bin/codex ] && codex login`, `"$(command -v claude)" -p hi`, "x=claude; $x", `"$CLAUDE_CODE_DIR/bin/claude.exe" --version`, `claude_code_installed && "$CLAUDE_CODE_NATIVE_DIR/claude" -p hi`, "/usr/local/bin/codex-code-mode-host --help", `[ -x /usr/local/bin/codex-code-mode-host ] && codex-code-mode-host`} {
+	for _, l := range []string{"claude --version", "/usr/local/bin/codex --help", `[ -x /usr/local/bin/codex ] && codex login`, `"$(command -v claude)" -p hi`, "x=claude; $x", `"$CLAUDE_CODE_DIR/bin/claude.exe" --version`, `claude_code_installed && "$CLAUDE_CODE_NATIVE_DIR/claude" -p hi`, "/usr/local/bin/codex-code-mode-host --help", `[ -x /usr/local/bin/codex-code-mode-host ] && codex-code-mode-host`, "opencode --version", `[ -x /usr/local/bin/opencode ] && opencode run hi`} {
 		if bad := harnessLines(string(provisionScript) + l + "\n"); len(bad) != 1 {
 			t.Errorf("the check misses %q", l)
 		}
@@ -1256,6 +1263,7 @@ func TestProvisionScript(t *testing.T) {
 	for _, w := range []string{"set -euo pipefail", "KIND_VERSION=v0.33.0", "KUBECTL_VERSION=v1.37.1", `main "$@" </dev/null`,
 		"CODEX_SHA256_amd64=beb339e8ecd9ba057a6bb2dc81ad8ca474812edfbf0fc5056ca818797648dde4", "CODEX_SHA256_arm64=a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4",
 		"CODEX_CODE_MODE_HOST_SHA256_amd64=314263128ba6592e7e807c265deeaf928a692b72dcbfeb5e0b20c9423b703529", "CODEX_CODE_MODE_HOST_SHA256_arm64=284356aefb197f00b76b912efdfdbae8ccf3ea1f89b976dde064b7ccb43214ef",
+		"OPENCODE_SHA256_amd64=47734e08968b30cc22a0bffb6d9feeed76ad4aa743213a12122040392d09a057", "OPENCODE_SHA256_arm64=5b68c1f4c5e75b4134e664cc8f36d634d64208d4fcfe5bcf3b48bab699c2dbac",
 		"GH_PR_REVIEW_VERSION=v1.6.2", "GH_PR_REVIEW_SHA256_amd64=2b7d4f2416f195e98010cb3e2b5684b285808e62864f89dea8497dbe691d7ed0", "GH_PR_REVIEW_SHA256_arm64=fea079f78e7224200d23de847b6210134ccec1a4d2dcff96ca8ca4ce1060fdde",
 		"GH_STACK_VERSION=v0.2.0", "GH_STACK_SHA256_amd64=577065033b49d4505730ea0ad43ab1b0374b0d9b1308e9765647a6aa8eba3cb7", "GH_STACK_SHA256_arm64=d29684746f337a580667605b34877e5624792bcc390e61473a050bd4839557bf",
 		"ispinned: true",

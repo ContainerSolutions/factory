@@ -211,9 +211,11 @@ Every setting is a flag (after `bash -s --`) or an environment variable, the fla
 | `--enrollment-token-file PATH` | `FACTORY_ENROLLMENT_TOKEN` (the token itself) | none: **required**, unless the host is already enrolled or `~/.config/factory-agent/enrollment-token` exists; the default mode asks for it (not echoed) |
 | `--pool NAME` | `FACTORY_POOL` | `local` |
 | `--host NAME` | `FACTORY_HOST` | the machine's short host name, lower-cased |
-| `--harnesses LIST` | `FACTORY_HARNESSES` | `codex,claude-code` (at least one of the two) |
+| `--harnesses LIST` | `FACTORY_HARNESSES` | `codex,claude-code` (one or more of `codex`, `claude-code`, `opencode`) |
 | `--codex-models LIST`, `--codex-default MODEL`, `--codex-efforts LIST` | `FACTORY_CODEX_MODELS`, `_DEFAULT`, `_EFFORTS` | `gpt-6.1-sol`, `gpt-6.1-sol`, `low,medium,high` |
 | `--claude-models LIST`, `--claude-default MODEL`, `--claude-efforts LIST` | `FACTORY_CLAUDE_MODELS`, `_DEFAULT`, `_EFFORTS` | `claude-sonnet-5-5,claude-opus-5-5`, `claude-sonnet-5-5`, `low,medium,high,max` |
+| `--opencode-url URL` | `FACTORY_OPENCODE_URL` | none: **required** with `opencode`. The model server's root, without `/v1` ([The DGX Spark](#the-dgx-spark-opencode)) |
+| `--opencode-models LIST`, `--opencode-default MODEL`, `--opencode-efforts LIST` | `FACTORY_OPENCODE_MODELS`, `_DEFAULT`, `_EFFORTS` | `qwen3-coder-next`, `qwen3-coder-next`, `low,medium,high` |
 | `--max-concurrent N` | `FACTORY_MAX_CONCURRENT` | `1` (`lending: {unlimited: true, maxConcurrent: N}`) |
 | `--cpus N`, `--memory NGi`, `--disk NGi` | `FACTORY_CPUS`, `FACTORY_MEMORY`, `FACTORY_DISK` | `6`, `8Gi`, `60Gi` (each VM workspace's `workspace.size`: 1 to 16, 2Gi to 64Gi, 20Gi to 500Gi) |
 
@@ -226,7 +228,7 @@ It runs as you, on an Apple-silicon Mac (tart) or a Linux x86-64 host (kata), an
 3. installs them to `~/.local/bin` (`FACTORY_PREFIX`), mode 0755;
 4. writes `~/.config/factory-agent/agent.yaml` (0600) and the enrollment token file (0600). **An existing `agent.yaml` is kept unless `--force`** (the default mode asks, default no; `--quiet` keeps it): replacing it first copies it to `agent.yaml.bak-<UTC time>` (0600). A kept one isn't rewritten, and the other steps still run;
 5. runs `factory-agent host init --driver tart --agent-linux …` or `--driver kata` (`--yes` with `--quiet`), which asks for sudo itself;
-6. offers `factory-agent login claude` (paste the `claude setup-token` token) and `factory-agent login codex` (after `codex login`), each skippable; `--quiet` skips both and prints the commands;
+6. offers `factory-agent login claude` (paste the `claude setup-token` token), `factory-agent login codex` (after `codex login`) and, with opencode, `factory-agent login opencode` (paste the model server's API key), each skippable; `--quiet` skips them and prints the commands;
 7. installs supervise as a launchd user agent (`~/Library/LaunchAgents/com.containersolutions.factory-agent.plist`) or a systemd user service (`~/.config/systemd/user/factory-agent.service`; `loginctl enable-linger` keeps it running while you are logged out), logging to `supervise.log` in the agent's state dir.
 
 The other flags, which combine with both modes: `--dry-run` prints every step and command and changes nothing (it downloads nothing either); `--no-service` skips step 7; `--force` replaces an existing `agent.yaml`. (`--yes` is replaced by `--quiet`.) To undo it, it prints the commands at the end: `launchctl bootout gui/$UID/com.containersolutions.factory-agent` and remove the plist (Mac), or `systemctl --user disable --now factory-agent` and remove the unit (Linux); then remove the binaries from `~/.local/bin`, and `~/.config/factory-agent` and the state dir if you want them gone. `factory-agent host init`'s own changes stay ([workspace-host.md](../../design/workstreams/agent/LLD/workspace-host.md)).
@@ -279,6 +281,23 @@ On an Ubuntu x86-64 machine (KVM, cgroup v2, systemd, at least 120 GiB free on `
 3. In the config (step 2), `workspace: {driver: kata}` (the default on Linux) and the `lending.maxConcurrent` you want: supervise caps it by memory, `(physical memory − 4 GiB) / workspace.size.memory`, and by 63, with a warning.
 
 Then step 4. `sudo -n /usr/local/libexec/factory-agent/kata-helper list` shows the running VMs. The first run on a new host follows the checklist in [workspace-kata.md §The owner's run](../../design/workstreams/agent/LLD/workspace-kata.md#the-owners-run).
+
+### The DGX Spark (opencode)
+
+The `opencode` harness runs tasks on a model you serve: vLLM on the DGX Spark, reached over a tunnel ([ADR-0010](../../design/adr/0010-self-hosted-models-through-opencode.md)). The VM workspace calls `model.factory.internal`; the agent host's gateway forwards to your server with its API key, which never enters the VM ([gateway.md §The model endpoint](../../design/workstreams/agent/LLD/gateway.md#the-model-endpoint)).
+
+1. **vLLM on the Spark**, bound to its tailnet address only. The flags are indicative: check them against your vLLM and model.
+
+   ```bash
+   vllm serve <the Qwen3-Coder-Next checkpoint, FP8 or NVFP4> --host <the Spark's tailnet IP> --port 8000 \
+     --served-model-name qwen3-coder-next --enable-auto-tool-choice --tool-call-parser qwen3_coder \
+     --api-key <the key> --max-model-len 131072
+   ```
+
+2. **Tailscale** between the agent hosts and the Spark, with an ACL that lets the agent hosts reach the Spark on port 8000 only. The traffic is encrypted, so the endpoint's `url` can be plain `http`; MagicDNS resolves the Spark's name on the agent host.
+3. **The key**, on each agent host: copy it, then `pbpaste | factory-agent login opencode` (on Linux: run `factory-agent login opencode`, paste, then Enter and Ctrl-D). It goes to `logins/opencode.json` (0600) in the agent's state dir.
+4. **The config**: `agent.yaml.example`'s `opencode` block. `models` are vLLM's `--served-model-name`s; `endpoint.url` is the server's root without `/v1` (`http://spark.<tailnet>.ts.net:8000`), and `contextWindow` its `--max-model-len`. One Spark serves every agent, and each stream slows as more join: start with `lending.maxConcurrent: 2`.
+5. **Check a run**: dispatch a task with its harness overridden to opencode. Its transcript's `factory.egress` lines show `injected: model-endpoint` on `/v1/chat/completions`, and no `models.dev` or `opncd.ai`.
 
 ## 9. First dev dispatch (use case 1 on mock-docs)
 

@@ -45,6 +45,17 @@ harnesses:
     models: [claude-sonnet-5-5, claude-opus-5-5]   # docs-review asks claude-{sonnet,opus}-5-* at high
     efforts: [low, medium, high, max]
     default: claude-sonnet-5-5
+  # Optional: a model you serve (vLLM on a DGX Spark, README §The DGX Spark), offered once
+  # `factory-agent login opencode` stored its API key. Drop the block on a host without one.
+  opencode:
+    models: [qwen3-coder-next]                 # vLLM's --served-model-name
+    efforts: [low, medium, high]
+    default: qwen3-coder-next
+    endpoint:
+      url: http://spark.your-tailnet.ts.net:8000   # the server's root, no /v1; http only over a tunnel that encrypts
+      # caFile: ~/.config/factory-agent/spark-ca.pem   # PEM certificates for an https url; default the system roots
+      contextWindow: 131072                    # vLLM's --max-model-len; default 131072
+      # maxOutput: 16384                       # the most a reply may take; default 16384
 
 # Your consent: what this agent may take. Either unlimited: true (only maxConcurrent then
 # applies), or a list of queues plus optional limits. SIGHUP to supervise re-reads this block.
@@ -54,7 +65,7 @@ lending:
   # Instead of unlimited:
   # queues: [poc]
   # ruleSets: [dev-release-docs, dev-docs-epic]
-  # harnesses: [codex, claude-code]
+  # harnesses: [codex, claude-code, opencode]
   # maxRunsPerDay: 10
   # maxTokensPerDay: 2000000
   # hours: "Mon-Fri 08:00-20:00 Europe/Lisbon"   # [days] HH:MM-HH:MM [zone]; default zone UTC

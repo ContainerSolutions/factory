@@ -1,6 +1,8 @@
 package config
 
 import (
+	"encoding/pem"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -105,9 +107,33 @@ func TestParsePoll(t *testing.T) {
 	}
 }
 
+// An opencode block: the endpoint's limits default, and its CA file is read.
+func TestParseOpenCode(t *testing.T) {
+	srv := httptest.NewTLSServer(nil)
+	srv.Close()
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Parse([]byte(strings.Replace(validYAML, "workRoot:", "  opencode:\n    models: [qwen3-coder-next]\n    endpoint: {url: https://spark.example.ts.net:8000, caFile: "+ca+"}\nworkRoot:", 1)), opts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := c.Harnesses[HarnessOpenCode].Endpoint
+	if e == nil || *e != (Endpoint{URL: "https://spark.example.ts.net:8000", CAFile: ca, ContextWindow: DefaultContextWindow, MaxOutput: DefaultMaxOutput}) {
+		t.Fatalf("endpoint %+v", e)
+	}
+	if pool, err := e.RootCAs(); err != nil || pool == nil {
+		t.Errorf("RootCAs = %v, %v", pool, err)
+	}
+}
+
 func TestParseInvalid(t *testing.T) {
 	base := func(repl ...string) string {
 		return strings.NewReplacer(repl...).Replace(validYAML)
+	}
+	oc := func(endpoint string) string {
+		return base("workRoot:", "  opencode:\n    models: [q]\n    endpoint: {"+endpoint+"}\nworkRoot:")
 	}
 	tests := []struct {
 		name string
@@ -140,6 +166,13 @@ func TestParseInvalid(t *testing.T) {
 		{"duplicate model", base("[gpt-5-codex]", "[gpt-5-codex, gpt-5-codex]"), []string{"models[1]"}},
 		{"bad effort", base("[low, medium, high]", "[low, extreme]"), []string{"harnesses.codex.efforts[1]: \"extreme\""}},
 		{"default not a model", base("    default: claude-sonnet-5-5", "    default: claude-haiku"), []string{"default: \"claude-haiku\" is not one of models"}},
+		{"opencode without an endpoint", base("workRoot:", "  opencode: {models: [q]}\nworkRoot:"), []string{"harnesses.opencode.endpoint: required"}},
+		{"an endpoint on codex", base("    default: gpt-5-codex\n", "    default: gpt-5-codex\n    endpoint: {url: http://s.example:8000}\n"), []string{"harnesses.codex.endpoint: only opencode"}},
+		{"an endpoint ending in /v1", oc("url: http://spark.example.ts.net:8000/v1/"), []string{"harnesses.opencode.endpoint.url: drop the /v1"}},
+		{"a relative endpoint", oc("url: spark.example.ts.net"), []string{"endpoint.url: must be an absolute http(s) URL"}},
+		{"an endpoint with user info", oc("url: 'http://u:p@spark:8000'"), []string{"endpoint.url: must not carry user info"}},
+		{"a missing CA file", oc("url: https://spark:8000, caFile: /nonexistent/ca.pem"), []string{"endpoint.caFile: not a readable file"}},
+		{"a negative context window", oc("url: http://spark:8000, contextWindow: -1"), []string{"endpoint: contextWindow and maxOutput must not be negative"}},
 		{"lends nothing", base("  unlimited: true\n", "  maxConcurrent: 1\n"), []string{"lending: set unlimited: true or list the queues"}},
 		{"unlimited with lists", base("  unlimited: true\n", "  unlimited: true\n  queues: [poc]\n  hours: 09:00-17:00\n"), []string{"lending: unlimited lends everything; drop queues, hours"}},
 		{"negative concurrency", base("  unlimited: true\n", "  unlimited: true\n  maxConcurrent: -1\n"), []string{"lending.maxConcurrent: must not be negative"}},

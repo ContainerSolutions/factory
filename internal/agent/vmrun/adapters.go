@@ -11,6 +11,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/agent/harness"
 	"github.com/ContainerSolutions/factory/internal/agent/harness/claudecode"
 	"github.com/ContainerSolutions/factory/internal/agent/harness/codex"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/opencode"
 	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
 	"github.com/ContainerSolutions/factory/internal/clock"
 )
@@ -25,7 +26,7 @@ type adapterOptions struct {
 
 // taskAdapters builds the adapters for b's task: only its harness (workspace-run.md §Sequence,
 // step 5), with a config.Harness made from the task's resolved harness (no Probe runs). codex gets the bundle's
-// codex/account.json as its Account.
+// codex/account.json as its Account, opencode the bundle's Model as its limits.
 func taskAdapters(b *runbundle.Bundle, o adapterOptions) (map[string]harness.Adapter, error) {
 	h := b.Task.Spec.Harness
 	if h == nil || h.Resolved == nil || h.Resolved.Name == "" {
@@ -50,6 +51,12 @@ func taskAdapters(b *runbundle.Bundle, o adapterOptions) (map[string]harness.Ada
 		}
 		acct := *b.Manifest.Codex
 		ad = codex.New(codex.Options{Config: cfg, Binary: bin, Clock: o.Clock, Account: &acct})
+	case config.HarnessOpenCode:
+		m := b.Manifest.Model
+		if m == nil {
+			return nil, errors.New("an opencode task's bundle has no model limits")
+		}
+		ad = opencode.New(opencode.Options{Config: cfg, Binary: bin, Clock: o.Clock, ContextWindow: m.ContextWindow, MaxOutput: m.MaxOutput})
 	default:
 		return nil, fmt.Errorf("no adapter for harness %q", r.Name)
 	}

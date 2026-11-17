@@ -25,7 +25,7 @@ func TestPipelineEndToEnd(t *testing.T) {
 		fakeRun{Stream: "opencode-multistep.jsonl", Result: `{"status":"done","outcome":"shipped","summary":"x"}`},
 		fakeRun{Stream: "opencode-success.jsonl"})
 	sink := &harnesstest.Sink{}
-	a := New(Options{Binary: fo.Binary, ContextWindow: 131072, MaxOutput: 16384}) // the limits stand for the bundle's Model (OC-6)
+	a := New(Options{Binary: fo.Binary, ContextWindow: harnesstest.ModelLimits.ContextWindow, MaxOutput: harnesstest.ModelLimits.MaxOutput}) // the bundle's Model, as vmrun builds it
 	h := v1alpha1.HarnessResolved{Name: Name, Version: "1.19.6", Auth: AuthSelfHosted, Model: "qwen3-coder", ReasoningEffort: "high"}
 	p, job := e.Pipeline(a, e.Job(h, []string{"pr-opened"}), "FACTORY_OPENCODE_KEY="+ownerKey)
 	out, err := p.Run(context.Background(), job, sink)

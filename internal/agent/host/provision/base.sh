@@ -16,7 +16,7 @@
 # machine's into NAME. It is idempotent: a section whose pinned version is already there is
 # skipped.
 #
-# The harness CLIs (claude-code, codex) are installed and never run here, not even with
+# The harness CLIs (claude-code, codex, opencode) are installed and never run here, not even with
 # --version: their presence is checked by reading the files ([ -x ], claude's ELF magic, cmp,
 # readlink). vm_test.go's TestProvisionScript enforces it.
 #
@@ -132,6 +132,15 @@ CODEX_SHA256_arm64=a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461ff
 CODEX_CODE_MODE_HOST_SHA256_amd64=314263128ba6592e7e807c265deeaf928a692b72dcbfeb5e0b20c9423b703529
 CODEX_CODE_MODE_HOST_SHA256_arm64=284356aefb197f00b76b912efdfdbae8ccf3ea1f89b976dde064b7ccb43214ef
 
+# opencode: https://github.com/anomalyco/opencode/releases/tag/v1.19.6, the release the opencode
+# adapter was written against (internal/agent/harness/opencode/flags.go lists the same digests:
+# bump both together). Each sha256 is opencode-linux-<x64|arm64>.tar.gz's digest in GitHub's
+# releases API. The archive holds the one executable, opencode, at its root
+# (packages/opencode/script/build.ts tars dist/<name>/bin).
+OPENCODE_VERSION=v1.19.6
+OPENCODE_SHA256_amd64=47734e08968b30cc22a0bffb6d9feeed76ad4aa743213a12122040392d09a057
+OPENCODE_SHA256_arm64=5b68c1f4c5e75b4134e664cc8f36d634d64208d4fcfe5bcf3b48bab699c2dbac
+
 # The gh extensions the worker's base tooling needs (worker.md, deploy/poc/README.md). They are
 # installed without gh, the way `gh extension install --pin <tag>` installs a binary extension:
 # gh extension install needs a gh login, which the base build doesn't have. Each pin is the
@@ -166,7 +175,7 @@ GIF_PACKAGES=(ffmpeg ttyd fonts-jetbrains-mono gcc libc6-dev xz-utils)
 WS_USER=admin
 
 # The per-architecture sha256s set_arch picks: NAME is NAME_amd64 or NAME_arm64.
-ARCH_PINS=(KIND_SHA256 KUBECTL_SHA256 NODE_SHA256 GO_SHA256 VHS_SHA256 RUSTC_SHA256 CARGO_SHA256 RUST_STD_SHA256 CODEX_SHA256 CODEX_CODE_MODE_HOST_SHA256 GH_PR_REVIEW_SHA256 GH_STACK_SHA256)
+ARCH_PINS=(KIND_SHA256 KUBECTL_SHA256 NODE_SHA256 GO_SHA256 VHS_SHA256 RUSTC_SHA256 CARGO_SHA256 RUST_STD_SHA256 CODEX_SHA256 CODEX_CODE_MODE_HOST_SHA256 OPENCODE_SHA256 GH_PR_REVIEW_SHA256 GH_STACK_SHA256)
 
 TMP=""
 # Set by set_arch: dpkg's architecture (amd64, arm64) and the names release assets give it:
@@ -461,6 +470,15 @@ section_harnesses() {
 		echo "$CODEX_CODE_MODE_HOST_SHA256" | sudo tee /var/lib/factory/codex-code-mode-host.tar.sha256 >/dev/null
 	fi
 	[ -x /usr/local/bin/codex-code-mode-host ] || { echo "codex's code-mode host is missing: /usr/local/bin/codex-code-mode-host" >&2; exit 1; }
+
+	if [ "$(cat /var/lib/factory/opencode.tar.sha256 2>/dev/null || true)" != "$OPENCODE_SHA256" ] || [ ! -x /usr/local/bin/opencode ]; then
+		fetch "https://github.com/anomalyco/opencode/releases/download/$OPENCODE_VERSION/opencode-linux-$NODE_ARCH.tar.gz" "$OPENCODE_SHA256" "$TMP/opencode.tar.gz"
+		mkdir "$TMP/opencode"
+		tar -xzf "$TMP/opencode.tar.gz" -C "$TMP/opencode" --no-same-owner
+		sudo install -m 0755 "$TMP/opencode/opencode" /usr/local/bin/opencode
+		echo "$OPENCODE_SHA256" | sudo tee /var/lib/factory/opencode.tar.sha256 >/dev/null
+	fi
+	[ -x /usr/local/bin/opencode ] || { echo "opencode is missing: /usr/local/bin/opencode" >&2; exit 1; }
 }
 
 section_cleanup() {

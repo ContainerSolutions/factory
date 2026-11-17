@@ -83,6 +83,20 @@ func TestStore(t *testing.T) {
 	if _, err := s.Codex(); !errors.Is(err, ErrNoLogin) {
 		t.Errorf("Codex before a login: %v", err)
 	}
+	if _, err := s.OpenCode(); !errors.Is(err, ErrNoLogin) {
+		t.Errorf("OpenCode before a login: %v", err)
+	}
+	for _, bad := range []string{" \n", "one\ntwo", "a\x1bkey"} {
+		if err := s.SaveOpenCode(bad); err == nil {
+			t.Errorf("SaveOpenCode(%q) accepted", bad)
+		}
+	}
+	if err := s.SaveOpenCode(" spark key-1\n"); err != nil {
+		t.Fatal(err)
+	}
+	if key, err := s.OpenCode(); err != nil || key != "spark key-1" {
+		t.Errorf("OpenCode: %v", err)
+	}
 	for _, bad := range []string{"", "  \n", "two words"} {
 		if err := s.SaveClaude(bad); err == nil {
 			t.Errorf("SaveClaude(%q) accepted", bad)
@@ -108,7 +122,7 @@ func TestStore(t *testing.T) {
 	if err != nil || fi.Mode().Perm() != 0o700 {
 		t.Errorf("the store dir: %v %v", fi.Mode(), err)
 	}
-	for _, f := range []string{ClaudeFile, CodexFile} {
+	for _, f := range []string{ClaudeFile, CodexFile, OpenCodeFile} {
 		fi, err := os.Stat(filepath.Join(s.Path, f))
 		if err != nil || fi.Mode().Perm() != 0o600 {
 			t.Errorf("%s: %v %v", f, fi.Mode(), err)

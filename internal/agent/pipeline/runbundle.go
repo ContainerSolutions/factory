@@ -23,12 +23,13 @@ import (
 
 // BundleExtras are what a run bundle holds beyond the job (workspace-run.md
 // §pipeline.PrepareBundle): the gateway's CA (the public half), the dispatcher's URL as the
-// VM sees it ("": runbundle.DefaultDispatcherURL) and the codex account, set exactly when the
-// task's harness is codex.
+// VM sees it ("": runbundle.DefaultDispatcherURL), the codex account, set exactly when the
+// task's harness is codex, and the served model's limits, exactly when it is opencode.
 type BundleExtras struct {
 	CA         []byte
 	Dispatcher string
 	Codex      *runbundle.CodexAccount
+	Model      *runbundle.Model
 }
 
 // PrepareBundle writes job's run bundle at dir, on the host, before a VM exists
@@ -125,7 +126,7 @@ func (p *Pipeline) PrepareBundle(ctx context.Context, job *runner.Job, dir strin
 		RunID: runID, LeaseID: job.Lease.Lease.Id, TaskID: id, StartedAt: start.UTC(),
 		Dispatcher: x.Dispatcher, Git: gitAccess(job.Git), Skills: skills,
 	}
-	f := runbundle.Files{Task: task, Prompt: raw, Context: items, OutputSchema: schema, CA: x.CA, Codex: x.Codex}
+	f := runbundle.Files{Task: task, Prompt: raw, Context: items, OutputSchema: schema, CA: x.CA, Codex: x.Codex, Model: x.Model}
 	if len(skills) > 0 {
 		f.SkillsDir = r.ws.Skills
 	}

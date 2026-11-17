@@ -1,6 +1,7 @@
 // Package login is the supervisor's store of the owner's model logins (supervise.md, "The
-// workspace runner"): the Claude token `factory-agent login claude` reads on stdin and the codex
-// ChatGPT login `factory-agent login codex` imports from codex's auth.json. Each is a file under
+// workspace runner"): the Claude token `factory-agent login claude` reads on stdin, the codex
+// ChatGPT login `factory-agent login codex` imports from codex's auth.json, and the model
+// server's API key `factory-agent login opencode` reads on stdin. Each is a file under
 // <statedir>/logins (0700), written 0600 through a temp file and a rename. The gateway reads the
 // claude login on every request, so a re-import applies to the next one. The codex login is the
 // gateway's chatgpt.Refresher's Store (ChatGPT): it refreshes the tokens and writes them back
@@ -25,6 +26,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/ContainerSolutions/factory/internal/agent/gateway/chatgpt"
 )
@@ -34,8 +36,9 @@ const Dir = "logins"
 
 // The store's files.
 const (
-	ClaudeFile = "claude.json"
-	CodexFile  = "codex.json"
+	ClaudeFile   = "claude.json"
+	CodexFile    = "codex.json"
+	OpenCodeFile = "opencode.json"
 )
 
 // maxFile bounds a login file and an imported auth.json.
@@ -113,6 +116,35 @@ func (s Store) Claude() (string, error) {
 		return "", fmt.Errorf("%s: no token: %w", ClaudeFile, ErrNoLogin)
 	}
 	return f.OAuthToken, nil
+}
+
+type openCodeFile struct {
+	APIKey string `json:"apiKey"`
+}
+
+// SaveOpenCode stores key, the model server's API key (vLLM's --api-key), surrounding white
+// space trimmed. Its format is the owner's: it must only be non-empty and printable.
+func (s Store) SaveOpenCode(key string) error {
+	key = strings.TrimSpace(key)
+	switch {
+	case key == "":
+		return errors.New("login opencode: the key is empty")
+	case strings.IndexFunc(key, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0:
+		return errors.New("login opencode: the key is not one line of printable characters")
+	}
+	return s.write(OpenCodeFile, openCodeFile{APIKey: key})
+}
+
+// OpenCode is the stored model server key; ErrNoLogin when there is none.
+func (s Store) OpenCode() (string, error) {
+	var f openCodeFile
+	if err := s.read(OpenCodeFile, &f); err != nil {
+		return "", err
+	}
+	if f.APIKey == "" {
+		return "", fmt.Errorf("%s: no key: %w", OpenCodeFile, ErrNoLogin)
+	}
+	return f.APIKey, nil
 }
 
 // Codex is the owner's codex ChatGPT login: the tokens, the account identifiers the run bundle
