@@ -9,6 +9,11 @@
       "harness": "claude-code",
       "effortMapping": { "low": "low", "medium": "medium", "high": "high", "max": "max" },
       "features": ["structured-output", "mcp", "plugins"]
+    },
+    {
+      "harness": "opencode",
+      "effortMapping": { "low": "low", "medium": "medium", "high": "high" },
+      "features": ["structured-output", "mcp", "skills-dir"]
     }
   ],
   "knownModels": {

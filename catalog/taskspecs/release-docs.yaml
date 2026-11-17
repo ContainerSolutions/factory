@@ -30,7 +30,7 @@ spec:
   skills:
     - { source: ccf-skills, ref: v0.10.0, use: [docs-release, docs-style, docs-gif, ccf-test, sidebyside] }
   harness:
-    allowed: [{ name: codex, models: ["gpt-{5,6}*"], reasoningEffort: "*" }, { name: claude-code, models: ["claude-*-5-*"], reasoningEffort: "*" }]
+    allowed: [{ name: codex, models: ["gpt-{5,6}*"], reasoningEffort: "*" }, { name: claude-code, models: ["claude-*-5-*"], reasoningEffort: "*" }, { name: opencode, models: "*", reasoningEffort: "*" }]
     default: { name: codex, config: { model: "gpt-{5,6}*", reasoningEffort: high } }
   workspace:
     repos:
