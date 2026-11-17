@@ -10,3 +10,9 @@ lisa-design:
 - XDG_DATA_HOME is not set (LLD wins over the spec): system setup's ~/.local/share stays.
 - Run/Repair return errNoRun until OC-5; runEnv (OPENCODE_CONFIG + four switches) is the helper OC-5's Run uses.
 - Codex's flattenSkills/linkPluginBins/copyTree and writeNew moved verbatim to clirun (FlattenSkills, WriteNew); codex's tests cover them unchanged.
+
+lisa-selfreview:
+pass 1 (strict): CORE-SIZE-001 [blocker] — the PR counted 1306 lines (ccfr: additions+deletions outside testdata), 277 of them codex's flattening moved to clirun (130 out, 144 in).
+pass 1 fix: dropped the duplicate clirun skills test (codex's TestVMPrepare/TestPreparePluginBins/TestPrepareSkillClash cover the moved code unchanged), the ordered `rules` type (encoding/json sorts map keys and "*" sorts first), reverted the clirun package-doc edit, condensed flags.go/opencode.go/prepare.go comments and the tests' checkConfig: now 1120 counted (990 with the move counted once, as the spec counts it).
+deferred to reviewers: still over 1000 by ccfr's count; the remaining size is the spec's required pieces (flags.go with its source citations, Prepare, runEnv, tests) plus the mandated move. Needs a size-exception label or a split of the clirun move into its own PR — reviewer's call.
+no other findings: lint 0 issues, go test -race green except the known macOS-only TestBaseScriptRuns.
