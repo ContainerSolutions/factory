@@ -7,3 +7,8 @@ lisa-design:
 - ModelEndpoint redacts whole (String is "gateway.ModelEndpoint{redacted}", URL included), as AnthropicAuth does; nothing logs the server's URL at info.
 - gatewaycases did not exist (PR 10 never landed): this PR creates it with only the model route's rows; moving the fake's whole TestRoutes table is PR 10's. The fake sets X-Factory-Gateway-Refusal only on its model-route refusals, from its own constants, so the shared rows compare codes.
 - The fake's model route needs ModelKey with ModelUpstream (New refuses it otherwise), mirroring the gateway's empty-key refusal; with no ModelUpstream the route answers 503 no-login after the route checks.
+
+lisa-selfreview:
+pass 1 (strict): request_changes
+- [nit] X:style/doc-comment-overlong-line internal/agent/gateway/policy/hosts.go:5 package doc line over the 100-column wrap (fp ef4f63a84473)
+- [nit] X:maintainability/unused-exported-constant internal/agent/internal/gatewaycases/gatewaycases.go:22 RefusalHeader unused by both runners (fp 4c186ef9724b)
