@@ -36,7 +36,7 @@ func TestParseStreams(t *testing.T) {
 			p.line(l)
 		}
 		got, err := json.MarshalIndent(map[string]any{"progress": s.Events, "usage": s.Usages, "rateLimited": s.Limits,
-			"sessionId": p.sessionID, "lastText": p.lastText, "lastError": p.lastError}, "", "  ")
+			"sessionId": p.sessionID, "lastText": p.lastText, "lastError": p.lastError, "recovered": p.recovered}, "", "  ")
 		if err != nil {
 			t.Fatal(err)
 		}

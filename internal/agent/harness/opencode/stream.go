@@ -39,6 +39,7 @@ type parser struct {
 	turns     int
 	lastText  string
 	lastError string
+	recovered bool // a step finished after the last error: opencode carried on (a compacted overflow)
 	limited   bool
 	until     time.Time
 }
@@ -101,6 +102,7 @@ func (p *parser) line(b []byte) {
 		p.turns++
 		p.progress(harness.KindTurn, fmt.Sprintf("turn %d", p.turns), now)
 	case ev.Type == evStepFinish && ev.Part != nil && ev.Part.Tokens != nil:
+		p.recovered = p.lastError != ""
 		t := ev.Part.Tokens
 		in, out := int64(t.Input+t.Cache.Read+t.Cache.Write), int64(t.Output+t.Reasoning)
 		if in > 0 || out > 0 {
@@ -114,7 +116,7 @@ func (p *parser) line(b []byte) {
 		p.progress(harness.KindMessage, clirun.FirstLine(ev.Part.Text), now)
 	case ev.Type == evError:
 		msg, detail := errorText(ev.Error)
-		p.lastError = msg
+		p.lastError, p.recovered = msg, false
 		p.progress(harness.KindError, clirun.FirstLine(msg), now)
 		p.throttle(detail, b)
 	}

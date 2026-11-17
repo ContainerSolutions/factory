@@ -64,6 +64,7 @@
     }
   ],
   "rateLimited": null,
+  "recovered": false,
   "sessionId": "ses_2b3c4d5e6fffOpenCodeRun02",
   "usage": [
     {

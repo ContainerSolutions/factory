@@ -117,7 +117,9 @@ func (a *Adapter) exec(ctx context.Context, ws harness.Workspace, s session, pro
 	switch {
 	case p.limited:
 		return raw, p.sessionID, fmt.Errorf("opencode: rate limited until %s: %s", p.until.UTC().Format(time.RFC3339), clirun.Clip(p.lastError, maxDetail))
-	case exit.Err != nil:
+	// opencode exits 1 after any error, also one it carried on from (a compacted context
+	// overflow): then the Raw goes to the pipeline, which checks the Result and repairs.
+	case exit.Err != nil && !p.recovered:
 		return raw, p.sessionID, fmt.Errorf("opencode: %w: %s", exit.Err, clirun.Clip(cmp.Or(p.lastError, tail), maxDetail))
 	}
 	return raw, p.sessionID, nil

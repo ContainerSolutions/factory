@@ -176,7 +176,8 @@ const (
 // step_start (a model call starts), step_finish (it ended: part.tokens), tool_use (a tool part
 // that completed or failed: part.tool, part.state.input), text (a finished text part:
 // part.text) and error (a session error, or the prompt's: error, which a session error has as
-// {name, data: {message, statusCode, responseBody, …}}). After an error run exits 1.
+// {name, data: {message, statusCode, responseBody, …}}). After an error run exits 1, also
+// after one the session carried on from (a ContextOverflowError, compacted: processor.ts).
 // read from packages/opencode/src/cli/cmd/run.ts (emit, loop) and
 // packages/schema/src/v1/session.ts (the parts, APIError)
 const (

@@ -71,14 +71,15 @@ func TestRun(t *testing.T) {
 	}
 }
 
-func TestRunFailures(t *testing.T) {
+func TestRunNonZeroExit(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
 		name      string
 		run       fakeRun
-		wantErr   string
+		wantErr   string // none: the Raw goes to the pipeline
 		wantLimit time.Time
 	}{
+		{"an error opencode carried on from", fakeRun{Stream: "opencode-overflow-recovered.jsonl", Exit: 1}, "", time.Time{}},
 		{"429 in the stream", fakeRun{Stream: "opencode-ratelimit.jsonl", Exit: 1}, "rate limited until 2026-11-17T12:02:00Z: The engine is currently overloaded", t0.Add(DefaultThrottle)},
 		{"the gateway's upstream refusal", fakeRun{Stream: "opencode-gateway-upstream.jsonl", Exit: 1}, "rate limited until 2026-11-17T12:05:00Z: Bad Gateway", t0.Add(OutageThrottle)},
 		{"the gateway's no-login", fakeRun{Stream: "opencode-failed.jsonl", Exit: 1}, "exit status 1: Service Unavailable: factory gateway: no model login", time.Time{}},
@@ -89,9 +90,9 @@ func TestRunFailures(t *testing.T) {
 			t.Parallel()
 			a, ws, _ := prepared(t, tt.run)
 			s := &harnesstest.Recorder{}
-			_, err := a.Run(context.Background(), ws, task("qwen3-coder", "", ""), "p", s)
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("err %v, want %q", err, tt.wantErr)
+			raw, err := a.Run(context.Background(), ws, task("qwen3-coder", "", ""), "p", s)
+			if tt.wantErr == "" && (err != nil || string(raw.Result) != okResult) || tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
+				t.Errorf("err %v, result %q, want %q", err, raw.Result, tt.wantErr)
 			}
 			if tt.wantLimit.IsZero() != (len(s.Limits) == 0) || (len(s.Limits) > 0 && (len(s.Limits) != 1 || !s.Limits[0].Equal(tt.wantLimit))) {
 				t.Errorf("rate limits %v, want %v", s.Limits, tt.wantLimit)
