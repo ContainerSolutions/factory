@@ -194,7 +194,7 @@ The VM sends plain absolute-form HTTP to the synthetic name through `HTTP_PROXY`
 
 ```go
 type ModelEndpoint struct {
-    URL     *url.URL       // the server's root (http://spark.example.ts.net:8000); a path in it is a prefix
+    URL     *url.URL       // the server's root, without /v1 (http://spark.example.ts.net:8000); a path in it is a prefix
     APIKey  string         // vLLM's --api-key
     RootCAs *x509.CertPool // for an https URL; nil: UpstreamRoots (the system roots by default)
 }
@@ -202,7 +202,7 @@ type ModelEndpoint struct {
 
 - **Redacted:** `String`, `Format`, `GoString`, `LogValue`, `MarshalJSON` and `MarshalText` never show `APIKey`, as `AnthropicAuth`'s don't.
 - **Validated by `New`:** `URL` must pass the `Dispatcher` rule (`validDispatcher`: absolute http or https, a host, no user info, query or fragment), and `APIKey` must not be empty. The errors are `*ConfigError{Field}`, without a value.
-- **Filled by the supervisor** for an opencode task only (OC-6): the agent config's endpoint `url` and `caFile`, and the key from `factory-agent login opencode`.
+- **Filled by the supervisor** for an opencode task only (OC-6): the agent config's endpoint `url` and `caFile`, and the key from `factory-agent login opencode`. The `url` is the server's root without `/v1` (not vLLM's usual `http://host:8000/v1`), since the VM's requests already carry `/v1`; OC-6's config validation refuses a path ending in `/v1` or `/v1/`, with a message saying to drop it.
 
 **The upstream** is `URL`, as for the dispatcher: its scheme and host, its path joined in front of the request's, and `Host` set to it. Every carrier is stripped, then `Authorization: Bearer <APIKey>` is set; `Cookie` is stripped. The body is streamed, never buffered or retried.
 
