@@ -27,6 +27,9 @@ func TestHostClasses(t *testing.T) {
 		{"GITHUB.COM.", GitHub, true, true, CookiesStripped},
 		{"api.github.com", GitHubAPI, true, true, CookiesStripped},
 		{"dispatcher.factory.internal", Dispatcher, false, true, CookiesStripped},
+		{"model.factory.internal", ModelEndpoint, false, true, CookiesStripped},
+		{"Model.Factory.Internal.", ModelEndpoint, false, true, CookiesStripped},
+		{"spark.model.factory.internal", Ordinary, false, false, CookiesUntouched},
 		// Exact names only: a name under an intercepted host, or above it, is ordinary.
 		{"downloads.claude.ai", Ordinary, false, false, CookiesUntouched},
 		{"api.openai.com", Ordinary, false, false, CookiesUntouched}, // departure D1
@@ -230,6 +233,8 @@ func TestDecideConnect(t *testing.T) {
 		{"auth host, another port", Egress{}, "auth.openai.com:8443", Refuse, CodeAuthHost, AuthOpenAI},
 		{"dispatcher", Egress{}, "dispatcher.factory.internal:80", Refuse, CodePlainOnly, Dispatcher},
 		{"dispatcher on 443", Egress{}, "dispatcher.factory.internal:443", Refuse, CodePlainOnly, Dispatcher},
+		{"model endpoint", Egress{}, "model.factory.internal:443", Refuse, CodePlainOnly, ModelEndpoint},
+		{"model endpoint on 80", deny, "model.factory.internal:80", Refuse, CodePlainOnly, ModelEndpoint},
 		{"api.openai.com tunnelled (D1)", Egress{}, "api.openai.com:443", Tunnel, "", Ordinary},
 		{"ordinary, default", Egress{}, "downloads.claude.ai:443", Tunnel, "", Ordinary},
 		{"ordinary, another port", Egress{}, "example.com:22", Tunnel, "", Ordinary},
@@ -291,6 +296,11 @@ func TestDecidePlain(t *testing.T) {
 		{"deny-by-default, listed", deny, "http", "mirror.example.com", Forward, "", Ordinary, 80},
 		{"deny-by-default, not listed", deny, "http", "example.com", Refuse, CodeEgressNotAllowed, Ordinary, 80},
 		{"deny-by-default keeps the dispatcher", deny, "http", "dispatcher.factory.internal", ToDispatcher, "", Dispatcher, 80},
+		{"model endpoint", Egress{}, "http", "model.factory.internal", ToModelEndpoint, "", ModelEndpoint, 80},
+		{"model endpoint normalised, on 80", Egress{}, "http", "MODEL.factory.internal.:80", ToModelEndpoint, "", ModelEndpoint, 80},
+		{"model endpoint on another port", Egress{}, "http", "model.factory.internal:8000", Refuse, CodeModelPath, ModelEndpoint, 8000},
+		{"model endpoint over https", Egress{}, "https", "model.factory.internal", Refuse, CodeNotProxy, Ordinary, 0},
+		{"deny-by-default keeps the model endpoint", deny, "http", "model.factory.internal", ToModelEndpoint, "", ModelEndpoint, 80},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

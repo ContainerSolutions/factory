@@ -41,6 +41,14 @@ func TestNewRefuses(t *testing.T) {
 		{"dispatcher with user info", "Dispatcher", func(c *Config) { c.Dispatcher = &url.URL{Scheme: "https", Host: "h", User: url.User("u")} }},
 		{"dispatcher not http", "Dispatcher", func(c *Config) { c.Dispatcher = &url.URL{Scheme: "ftp", Host: "h"} }},
 		{"no dispatcher token", "DispatcherToken", func(c *Config) { c.DispatcherToken = nil }},
+		{"model endpoint without a URL", "ModelEndpoint.URL", func(c *Config) { c.ModelEndpoint = &ModelEndpoint{APIKey: modelKey} }},
+		{"model endpoint with user info", "ModelEndpoint.URL", func(c *Config) {
+			c.ModelEndpoint = &ModelEndpoint{URL: &url.URL{Scheme: "http", Host: "h", User: url.UserPassword("u", modelKey)}, APIKey: modelKey}
+		}},
+		{"model endpoint with a fragment", "ModelEndpoint.URL", func(c *Config) {
+			c.ModelEndpoint = &ModelEndpoint{URL: &url.URL{Scheme: "https", Host: "h", Fragment: "f"}, APIKey: modelKey}
+		}},
+		{"model endpoint without a key", "ModelEndpoint.APIKey", func(c *Config) { c.ModelEndpoint = &ModelEndpoint{URL: &url.URL{Scheme: "http", Host: "h"}} }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -50,6 +58,9 @@ func TestNewRefuses(t *testing.T) {
 			ce, isCE := errors.AsType[*ConfigError](err)
 			if !isCE || ce.Field != tt.field || !errors.Is(err, ErrConfig) {
 				t.Fatalf("New: %v, want a ConfigError for %s", err, tt.field)
+			}
+			if strings.Contains(err.Error(), secrets[0]) {
+				t.Errorf("the error holds the key: %v", err)
 			}
 		})
 	}

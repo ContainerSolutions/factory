@@ -48,6 +48,9 @@ func (g *Gateway) plain(w http.ResponseWriter, r *http.Request, start time.Time)
 	case policy.ToDispatcher:
 		rec.Mode = ModeDispatcher
 		g.toDispatcher(w, r, &rec)
+	case policy.ToModelEndpoint:
+		rec.Mode = ModeModel
+		g.toModelEndpoint(w, r, &rec)
 	default:
 		rec.Status, rec.Refusal = writeRefusal(w, d.Refusal, "")
 	}

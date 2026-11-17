@@ -1,12 +1,14 @@
 package gateway
 
 import (
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
@@ -18,6 +20,7 @@ const (
 	InjectedAnthropicOAuth = "anthropic-oauth" // AnthropicAuth.OAuthToken as Bearer
 	InjectedAnthropicKey   = "anthropic-key"   // AnthropicAuth.APIKey as X-Api-Key
 	InjectedChatGPT        = "chatgpt"         // ChatGPTLogin.AccessToken as Bearer on chatgpt.com
+	InjectedModelEndpoint  = "model-endpoint"  // ModelEndpoint.APIKey as Bearer on the model endpoint
 )
 
 // ChatGPTAccountHeader is the header chatgpt.com gets the login's account id in.
@@ -76,6 +79,37 @@ func (l ChatGPTLogin) MarshalJSON() ([]byte, error) { return json.Marshal(l.Stri
 
 // MarshalText is the redacted form (slog's text handler, encoding/xml, map keys).
 func (l ChatGPTLogin) MarshalText() ([]byte, error) { return []byte(l.String()), nil }
+
+// ModelEndpoint is the self-hosted model server an opencode task's model.factory.internal
+// route reaches (gateway.md, the model endpoint): an OpenAI-compatible /v1 API, such as vLLM's.
+// String, Format, GoString, LogValue, MarshalJSON and MarshalText redact it whole, with
+// AnthropicAuth's limits: pass it by pointer or hold it only in exported fields.
+type ModelEndpoint struct {
+	// URL is the server's root, without /v1 (http://spark.example.ts.net:8000); a path in it is
+	// a prefix of the request's. Absolute http or https, without user info, query or fragment.
+	URL *url.URL
+	// APIKey is sent as Bearer (vLLM's --api-key); required.
+	APIKey string
+	// RootCAs verifies an https URL; nil: Config.UpstreamRoots.
+	RootCAs *x509.CertPool
+}
+
+func (ModelEndpoint) String() string { return "gateway.ModelEndpoint{redacted}" }
+
+// Format redacts every verb, %#v included.
+func (m ModelEndpoint) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, m.String()) }
+
+// GoString redacts.
+func (m ModelEndpoint) GoString() string { return m.String() }
+
+// LogValue redacts.
+func (m ModelEndpoint) LogValue() slog.Value { return slog.StringValue(m.String()) }
+
+// MarshalJSON is the redacted form as a JSON string.
+func (m ModelEndpoint) MarshalJSON() ([]byte, error) { return json.Marshal(m.String()) }
+
+// MarshalText is the redacted form (slog's text handler, encoding/xml, map keys).
+func (m ModelEndpoint) MarshalText() ([]byte, error) { return []byte(m.String()), nil }
 
 // routeCredentials is the class's rule and the headers to set after the carriers are stripped:
 // the model hosts' (anthropicRoute, chatgptRoute), else routeIntercepted's Authorization. It answers a refusal

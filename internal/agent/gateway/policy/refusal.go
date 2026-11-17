@@ -56,7 +56,7 @@ var refusals = map[Code]refusal{
 	CodeBadTarget:        {http.StatusBadRequest, "refused: the CONNECT target is not host:port"},
 	CodePort:             {http.StatusForbidden, "refused: this host is served on port 443 only"},
 	CodePlainHTTP:        {http.StatusForbidden, "refused: plain HTTP to an intercepted host"},
-	CodePlainOnly:        {http.StatusForbidden, "refused: the dispatcher is served over plain HTTP through the proxy"},
+	CodePlainOnly:        {http.StatusForbidden, "refused: this host is served over plain HTTP through the proxy"},
 	CodeAuthHost:         {http.StatusForbidden, "refused: auth.openai.com is not reachable from workspaces (the gateway refreshes the login)"},
 	CodePushRefused:      {http.StatusForbidden, "push refused: the repository is not writable for this task"},
 	CodeWebWrite:         {http.StatusForbidden, "refused: github.com takes only GET and HEAD outside git"},

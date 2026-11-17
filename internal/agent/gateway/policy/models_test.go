@@ -77,3 +77,43 @@ func TestDecideModel(t *testing.T) {
 		})
 	}
 }
+
+// TestDecideModelEndpoint has a row per row of the model endpoint's route (gateway.md): each
+// method and path, another method, another path, and the non-canonical forms.
+func TestDecideModelEndpoint(t *testing.T) {
+	tests := []struct {
+		name, method, uri string
+		want              Code
+	}{
+		{"chat completions", "POST", "/v1/chat/completions", ""},
+		{"chat completions with a query", "POST", "/v1/chat/completions?stream=true", ""},
+		{"models", "GET", "/v1/models", ""},
+		{"a model", "GET", "/v1/models/qwen3-coder-next", ""},
+		{"GET chat completions", "GET", "/v1/chat/completions", CodeModelPath},
+		{"POST models", "POST", "/v1/models", CodeModelPath},
+		{"HEAD models", "HEAD", "/v1/models", CodeModelPath},
+		{"TRACE", "TRACE", "/v1/chat/completions", CodeModelPath},
+		{"lower-case post", "post", "/v1/chat/completions", CodeModelPath},
+		{"completions", "POST", "/v1/completions", CodeModelPath},
+		{"responses", "POST", "/v1/responses", CodeModelPath},
+		{"embeddings", "POST", "/v1/embeddings", CodeModelPath},
+		{"vLLM's metrics", "GET", "/metrics", CodeModelPath},
+		{"vLLM's tokenize", "POST", "/tokenize", CodeModelPath},
+		{"under a model", "GET", "/v1/models/org/model", CodeModelPath},
+		{"case differs", "POST", "/V1/chat/completions", CodeModelPath},
+		{"the root", "GET", "/", CodeModelPath},
+		{"models prefix only", "GET", "/v1/models/", CodeBadPath},
+		{"a trailing slash", "POST", "/v1/chat/completions/", CodeBadPath},
+		{"dot dot", "GET", "/v1/models/../../metrics", CodeBadPath},
+		{"double slash", "POST", "//v1/chat/completions", CodeBadPath},
+		{"encoded slash", "GET", "/v1/models/org%2Fmodel", CodeBadPath},
+		{"not canonical, another method", "DELETE", "/v1/models/../x", CodeBadPath},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := DecideModelEndpoint(tt.method, mustURL(t, tt.uri)); got != tt.want {
+				t.Errorf("DecideModelEndpoint(%s %s) = %q, want %q", tt.method, tt.uri, got, tt.want)
+			}
+		})
+	}
+}

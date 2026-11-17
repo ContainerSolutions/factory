@@ -9,9 +9,10 @@
 // stripped; a WebSocket upgrade passes through. github.com gets the git credentials by repo
 // (Basic), with every repo that isn't rw fail-closed to the two fetch forms, and api.github.com
 // the task token on reads (GET, HEAD, and POST /graphql when the document only queries). The
-// dispatcher's name serves only POST effects, over its own transport, with
-// Config.DispatcherToken. The Anthropic hosts get Config.Anthropic's credential when the VM sent
-// a carrier, and chatgpt.com Config.ChatGPT's account id and, with Authorization, its access
+// dispatcher's name serves only POST effects, with Config.DispatcherToken, and the model
+// endpoint's only its chat completions and model list, with Config.ModelEndpoint's key, each over
+// its own transport. The Anthropic hosts get Config.Anthropic's credential when the VM sent a
+// carrier, and chatgpt.com Config.ChatGPT's account id and, with Authorization, its access
 // token; the model hosts keep only the infrastructure cookies. Every record classifies the VM's
 // carriers (none, placeholder, other) and names the credential class added, never a value.
 package gateway
@@ -70,8 +71,11 @@ type Config struct {
 	// injected in: it returns the login to resend the request with once (the Refresher's
 	// Unauthorized). nil: the client gets the 401.
 	ChatGPTUnauthorized func(ctx context.Context, used string) (ChatGPTLogin, error)
-	// UpstreamRoots verifies the intercepted hosts' upstreams, and an https dispatcher; default
-	// the system roots.
+	// ModelEndpoint is the model server model.factory.internal reaches; nil: none (an opencode
+	// task's gateway has one, and every other gateway's route answers no-login).
+	ModelEndpoint *ModelEndpoint
+	// UpstreamRoots verifies the intercepted hosts' upstreams, an https dispatcher, and an https
+	// model endpoint without its own RootCAs; default the system roots.
 	UpstreamRoots *x509.CertPool
 	// Egress is the task's mode and allow list, extra denied prefixes and open addresses.
 	Egress policy.Egress
@@ -146,6 +150,7 @@ type Gateway struct {
 	forward      *http.Transport // plain HTTP to ordinary hosts
 	upstream     *http.Transport // TLS to the intercepted hosts
 	dispatcher   *http.Transport // Config.Dispatcher only, without the egress check
+	model        *http.Transport // Config.ModelEndpoint's URL only, without the egress check; nil without one
 	srv          *http.Server
 	inner        *http.Server // the requests inside intercepted tunnels
 	queue        *connQueue   // inner's listener
@@ -177,10 +182,14 @@ func New(cfg Config) (*Gateway, error) {
 		return nil, &ConfigError{Field: "Sink"}
 	case cfg.CA == nil:
 		return nil, &ConfigError{Field: "CA"}
-	case !validDispatcher(cfg.Dispatcher):
+	case !validUpstream(cfg.Dispatcher):
 		return nil, &ConfigError{Field: "Dispatcher"}
 	case cfg.DispatcherToken == nil:
 		return nil, &ConfigError{Field: "DispatcherToken"}
+	case cfg.ModelEndpoint != nil && !validUpstream(cfg.ModelEndpoint.URL):
+		return nil, &ConfigError{Field: "ModelEndpoint.URL"}
+	case cfg.ModelEndpoint != nil && cfg.ModelEndpoint.APIKey == "":
+		return nil, &ConfigError{Field: "ModelEndpoint.APIKey"}
 	}
 	clients := map[netip.Addr]bool{}
 	for i, a := range cfg.Clients {
@@ -226,7 +235,14 @@ func New(cfg Config) (*Gateway, error) {
 		TLSHandshakeTimeout: tlsHandshakeTimeout, ResponseHeaderTimeout: responseHeaderTimeout,
 		IdleConnTimeout: idleTimeout, MaxIdleConnsPerHost: 16,
 	}
-	g.dispatcher = g.newDispatcherTransport()
+	g.dispatcher = g.newFixedTransport(cfg.Dispatcher, cfg.UpstreamRoots, errDispatcherAddr)
+	if m := cfg.ModelEndpoint; m != nil {
+		roots := m.RootCAs
+		if roots == nil {
+			roots = cfg.UpstreamRoots
+		}
+		g.model = g.newFixedTransport(m.URL, roots, errModelAddr)
+	}
 	g.srv = &http.Server{
 		Handler: http.HandlerFunc(g.handle), ReadHeaderTimeout: readHeaderTimeout,
 		MaxHeaderBytes: maxHeaderBytes, IdleTimeout: idleTimeout,
@@ -249,9 +265,9 @@ func New(cfg Config) (*Gateway, error) {
 	return g, nil
 }
 
-// validDispatcher: an absolute http or https URL with a host and without user info, query or
-// fragment.
-func validDispatcher(u *url.URL) bool {
+// validUpstream is the dispatcher's and the model endpoint's URL rule: an absolute http or https
+// URL with a host and without user info, query or fragment.
+func validUpstream(u *url.URL) bool {
 	return u != nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" &&
 		u.User == nil && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && u.Opaque == ""
 }
@@ -340,6 +356,9 @@ func (g *Gateway) Close() error {
 		g.forward.CloseIdleConnections()
 		g.upstream.CloseIdleConnections()
 		g.dispatcher.CloseIdleConnections()
+		if g.model != nil {
+			g.model.CloseIdleConnections()
+		}
 
 		g.mu.Lock()
 		g.done = true
