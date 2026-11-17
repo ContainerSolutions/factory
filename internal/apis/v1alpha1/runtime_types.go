@@ -281,8 +281,9 @@ type TaskHarness struct {
 
 // HarnessResolved is the concrete harness config chosen when an agent leased the task.
 type HarnessResolved struct {
-	Name            string `json:"name"`
-	Version         string `json:"version,omitzero"`
+	Name    string `json:"name"`
+	Version string `json:"version,omitzero"`
+	// Auth is subscription, apiKey, accessToken, cloud or selfHosted.
 	Auth            string `json:"auth,omitzero"`
 	Model           string `json:"model,omitzero"`
 	ReasoningEffort string `json:"reasoningEffort,omitzero"`

@@ -1988,7 +1988,7 @@ components:
           $ref: '#/components/schemas/UsageDelta'
     UsageDelta:
       type: object
-      description: Usage since the previous heartbeat. `costUSD` is null for subscription runs.
+      description: Usage since the previous heartbeat. `costUSD` is null unless the run is billed by an API key (subscription and selfHosted runs carry none).
       properties:
         inputTokens:
           type: integer
@@ -3718,7 +3718,7 @@ components:
         version:
           type: string
         auth:
-          description: Auth is subscription, apiKey, accessToken or cloud.
+          description: Auth is subscription, apiKey, accessToken, cloud or selfHosted.
           type: string
         models:
           type: array
@@ -3777,6 +3777,7 @@ components:
         version:
           type: string
         auth:
+          description: Auth is subscription, apiKey, accessToken, cloud or selfHosted.
           type: string
         model:
           type: string
@@ -4462,6 +4463,7 @@ components:
         version:
           type: string
         auth:
+          description: Auth is subscription, apiKey, accessToken, cloud or selfHosted.
           type: string
         effectiveConfig:
           $ref: '#/components/schemas/EffectiveConfig'

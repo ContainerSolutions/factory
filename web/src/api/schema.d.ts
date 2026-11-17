@@ -1101,7 +1101,7 @@ export interface components {
             progress?: components["schemas"]["ProgressEvent"][];
             usage?: components["schemas"]["UsageDelta"];
         };
-        /** @description Usage since the previous heartbeat. `costUSD` is null for subscription runs. */
+        /** @description Usage since the previous heartbeat. `costUSD` is null unless the run is billed by an API key (subscription and selfHosted runs carry none). */
         UsageDelta: {
             /** Format: int64 */
             inputTokens?: number;
@@ -1918,7 +1918,7 @@ export interface components {
         HarnessOffer: {
             name: string;
             version?: string;
-            /** @description Auth is subscription, apiKey, accessToken or cloud. */
+            /** @description Auth is subscription, apiKey, accessToken, cloud or selfHosted. */
             auth?: string;
             models?: string[];
             /**
@@ -1943,6 +1943,7 @@ export interface components {
         HarnessResolved: {
             name: string;
             version?: string;
+            /** @description Auth is subscription, apiKey, accessToken, cloud or selfHosted. */
             auth?: string;
             model?: string;
             reasoningEffort?: string;
@@ -2224,6 +2225,7 @@ export interface components {
         ResultHarness: {
             name: string;
             version?: string;
+            /** @description Auth is subscription, apiKey, accessToken, cloud or selfHosted. */
             auth?: string;
             effectiveConfig: components["schemas"]["EffectiveConfig"];
             usage: components["schemas"]["Usage"];

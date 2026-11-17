@@ -468,7 +468,7 @@ spec:
     harnesses:
       - name: claude-code
         version: "2.x"
-        auth: apiKey                             # subscription | apiKey | cloud (Bedrock/Vertex)
+        auth: apiKey                             # subscription | apiKey | accessToken | cloud (Bedrock/Vertex) | selfHosted
         models: [claude-sonnet-5-5, claude-haiku-5-5, claude-opus-5-5]
         reasoningEffort: [low, medium, high, max]
       - name: codex
@@ -560,4 +560,4 @@ status:
 }
 ```
 
-`costUSD` is `null` for subscription runs (Codex on owners' plans), so their budgets count **runs and tokens**. API-key runs (Claude) report `costUSD` and also count against USD budgets.
+`costUSD` is `null` for subscription runs (Codex on owners' plans) and self-hosted ones (`selfHosted`: a model the owner's organisation serves itself, through opencode), so their budgets count **runs and tokens**. API-key runs (Claude) report `costUSD` and also count against USD budgets.
