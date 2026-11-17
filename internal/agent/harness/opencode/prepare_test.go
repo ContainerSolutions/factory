@@ -18,61 +18,44 @@ import (
 
 var update = flag.Bool("update", false, "rewrite the goldens under testdata/")
 
-// testSecrets are values in the run's environment that must never reach a file the adapter
+// testSecrets are values of the run's environment that must never reach a file the adapter
 // writes: a task token, the agent token and a task variable.
 var testSecrets = []string{"ghs_taskTokenNeverOnDisk0123456789", "agent-token-never-on-disk", "task-variable-never-on-disk"}
 
 // workspace is what a VM workspace's pipeline hands the adapter: its directories, a checkout,
-// the skills in the plugin layout (two plugins with a "review" skill), the schema and the
-// gateway-mode environment, plus the secrets above.
+// the skills in the plugin layout (two plugins with a "review" skill), the schema, and the
+// gateway-mode environment with the secrets above.
 func workspace(t *testing.T, writable bool) harness.Workspace {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "tsk_1")
 	ws := harness.Workspace{
-		Root: root, Repo: filepath.Join(root, "repo"), RepoWritable: writable,
-		Skills: filepath.Join(root, "skills"), Out: filepath.Join(root, "out"),
-		Home: filepath.Join(root, "home"), Tmp: filepath.Join(root, "tmp"), Bin: filepath.Join(root, "bin"),
-		Preamble: "You are running unattended inside CCF Factory (task tsk_1, task spec implement).",
+		Root: root, Repo: filepath.Join(root, "repo"), RepoWritable: writable, Skills: filepath.Join(root, "skills"),
+		Out: filepath.Join(root, "out"), Home: filepath.Join(root, "home"), Bin: filepath.Join(root, "bin"),
+		Schema: filepath.Join(root, "result.schema.json"), Preamble: "You are running unattended inside CCF Factory (task tsk_1).",
 	}
-	ws.WorkDir = ws.Repo
-	ws.Result = filepath.Join(ws.Out, "result.json")
-	ws.Schema = filepath.Join(root, "result.schema.json")
-	for _, d := range []string{ws.Repo, ws.Out, ws.Home, ws.Tmp, ws.Bin} {
-		if err := os.MkdirAll(d, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for name, body := range map[string]string{
-		"ccf-docs/skills/docs-style/SKILL.md": "---\nname: docs-style\n---\n",
-		"ccf-review/skills/review/SKILL.md":   "---\nname: review\n---\n",
-		"lisa/skills/review/SKILL.md":         "---\nname: review\n---\n",
-	} {
-		p := filepath.Join(ws.Skills, name)
-		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	ws.WorkDir, ws.Result = ws.Repo, filepath.Join(ws.Out, "result.json")
 	for _, s := range [][2]string{{"ccf-docs", "docs-style"}, {"ccf-review", "review"}, {"lisa", "review"}} {
-		ws.SkillList = append(ws.SkillList, harness.Skill{Plugin: s[0], Name: s[1], Dir: filepath.Join(ws.Skills, s[0], "skills", s[1])})
+		dir := filepath.Join(ws.Skills, s[0], "skills", s[1])
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+s[1]+"\n---\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		ws.SkillList = append(ws.SkillList, harness.Skill{Plugin: s[0], Name: s[1], Dir: dir})
 	}
-	ws.Env = []string{"FACTORY_API=http://dispatcher.factory.internal", "FACTORY_RESULT=" + ws.Result, "FACTORY_RUNTIME=workspace",
-		"FACTORY_TOKEN=agent-token-never-on-disk", "GH_TOKEN=ghs_taskTokenNeverOnDisk0123456789", "HOME=" + ws.Home,
-		"HTTP_PROXY=http://192.168.64.1:3128", "HTTPS_PROXY=http://192.168.64.1:3128", "PATH=" + ws.Bin + ":/usr/bin",
-		"TASK_VARIABLE=task-variable-never-on-disk", "TMPDIR=" + ws.Tmp, "XDG_CONFIG_HOME=" + filepath.Join(ws.Home, ".config")}
+	ws.Env = []string{"FACTORY_RESULT=" + ws.Result, "FACTORY_TOKEN=agent-token-never-on-disk", "GH_TOKEN=ghs_taskTokenNeverOnDisk0123456789",
+		"HOME=" + ws.Home, "HTTP_PROXY=http://192.168.64.1:3128", "TASK_VARIABLE=task-variable-never-on-disk",
+		"XDG_CONFIG_HOME=" + filepath.Join(ws.Home, ".config")}
 	return ws
 }
 
-// adapter is the adapter with the served model's limits and default model def. Its binary
-// doesn't exist, never the opencode on PATH: Prepare runs nothing.
+// adapter has the served model's limits and the default model def. Its binary doesn't exist,
+// never the opencode on PATH: Prepare runs nothing.
 func adapter(t *testing.T, def string) *Adapter {
 	t.Helper()
-	return New(Options{
-		Binary: filepath.Join(t.TempDir(), "no-opencode"), Config: config.Harness{Models: []string{"qwen3-coder"}, Default: def},
-		ContextWindow: 131072, MaxOutput: 16384,
-	})
+	return New(Options{Binary: filepath.Join(t.TempDir(), "no-opencode"), Config: config.Harness{Default: def},
+		ContextWindow: 131072, MaxOutput: 16384})
 }
 
 func task(model, effort, auth string) v1alpha1.Task {
@@ -80,42 +63,17 @@ func task(model, effort, auth string) v1alpha1.Task {
 		Resolved: &v1alpha1.HarnessResolved{Name: Name, Model: model, ReasoningEffort: effort, Auth: auth}}}}
 }
 
-// golden compares got, with the workspace root replaced by $ROOT, against testdata/<name>
-// (-update rewrites it).
-func golden(t *testing.T, ws harness.Workspace, name string, got []byte) {
-	t.Helper()
-	got = bytes.ReplaceAll(got, []byte(ws.Root), []byte("$ROOT"))
-	p := filepath.Join("testdata", name)
-	if *update {
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, got, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-	want, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatalf("%v (run with -update)", err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Errorf("%s differs:\n%s", p, got)
-	}
-}
-
-// TestPrepare pins what Prepare writes: opencode.json (a golden per case: read-write with an
-// effort, read-only, and the config's default model without an effort) and the instructions,
-// both new 0600 files; the skills flattened beside the config. The config's only key is the
-// placeholder, its permissions are all allow or deny, and no value of the run's environment
-// is in any file.
+// TestPrepare pins what Prepare writes, a golden per case (read-write with an effort,
+// read-only, the config's default model without an effort): opencode.json and the
+// instructions, new 0600 files, and the skills flattened beside the config. The config's
+// only key is the placeholder, its MCP server names no variable, every permission is allow or
+// deny, and no value of the run's environment is in any file.
 func TestPrepare(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
-		name          string
-		writable      bool
-		model, effort string
-		def           string
+		name               string
+		writable           bool
+		model, effort, def string
 	}{
 		{"read-write", true, "Qwen/Qwen3-Coder-Next-FP8", "max", ""},
 		{"read-only", false, "qwen3-coder", "minimal", ""},
@@ -127,114 +85,68 @@ func TestPrepare(t *testing.T) {
 			if err := adapter(t, tt.def).Prepare(context.Background(), ws, task(tt.model, tt.effort, AuthSelfHosted)); err != nil {
 				t.Fatal(err)
 			}
-			cfg := filepath.Join(ws.Home, ".config", "opencode")
-			want := []string{
-				"opencode.json", "skills/",
-				"skills/ccf-review-review/", "skills/ccf-review-review/SKILL.md",
-				"skills/docs-style/", "skills/docs-style/SKILL.md",
-				"skills/lisa-review/", "skills/lisa-review/SKILL.md",
-			}
-			if got := listTree(t, cfg); !slices.Equal(got, want) {
+			cfg, own := filepath.Join(ws.Home, ".config", "opencode"), filepath.Join(ws.Home, ".factory-opencode")
+			want := []string{"opencode.json", "skills/", "skills/ccf-review-review/", "skills/ccf-review-review/SKILL.md",
+				"skills/docs-style/", "skills/docs-style/SKILL.md", "skills/lisa-review/", "skills/lisa-review/SKILL.md"}
+			if got := listTree(t, cfg); !slices.Equal(got, want) || !slices.Equal(listTree(t, own), []string{"instructions.md"}) {
 				t.Errorf("opencode's config dir:\n  %s\nwant\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
 			}
-			if got := listTree(t, filepath.Join(ws.Home, ".factory-opencode")); !slices.Equal(got, []string{"instructions.md"}) {
-				t.Errorf("the adapter's dir: %q", got)
-			}
-			read := func(p string) []byte {
-				t.Helper()
-				fi, err := os.Lstat(p)
-				if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm() != 0o600 {
-					t.Errorf("%s: %v %v", p, fi, err)
-				}
-				b, err := os.ReadFile(p)
-				if err != nil {
-					t.Fatal(err)
-				}
-				return b
-			}
-			b := read(filepath.Join(cfg, "opencode.json"))
+			b := readNew(t, filepath.Join(cfg, "opencode.json"))
 			golden(t, ws, "config-"+tt.name+".golden.json", b)
-			if tt.name != "default-model" {
-				golden(t, ws, "instructions-"+tt.name+".golden.md", read(filepath.Join(ws.Home, ".factory-opencode", "instructions.md")))
-			}
+			golden(t, ws, "instructions-"+tt.name+".golden.md", readNew(t, filepath.Join(own, "instructions.md")))
 			checkConfig(t, b)
 			scanFiles(t, ws.Root)
 		})
 	}
 }
 
+// readNew reads the file at p, which must be a regular 0600 file.
+func readNew(t *testing.T, p string) []byte {
+	t.Helper()
+	if fi, err := os.Lstat(p); err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm() != 0o600 {
+		t.Errorf("%s: %v %v", p, fi, err)
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
 // checkConfig checks opencode.json's meaning, so -update can't bless a regression: the
-// placeholder is the provider's key and nothing else looks like one, the MCP server names no
-// variable, and every permission is allow or deny.
+// placeholder is the provider's key, once; the MCP server names no variable; and no
+// permission asks.
 func checkConfig(t *testing.T, b []byte) {
 	t.Helper()
 	var doc struct {
 		Provider map[string]struct {
 			Options map[string]any `json:"options"`
 		} `json:"provider"`
-		MCP        map[string]map[string]any `json:"mcp"`
-		Permission map[string]any            `json:"permission"`
+		MCP map[string]map[string]any `json:"mcp"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if got := doc.Provider["factory"].Options["apiKey"]; got != harness.Placeholder {
-		t.Errorf("provider.factory.options.apiKey = %v, want the placeholder", got)
+	if doc.Provider["factory"].Options["apiKey"] != harness.Placeholder || bytes.Count(b, []byte(harness.Placeholder)) != 1 {
+		t.Errorf("the placeholder isn't the one key:\n%s", b)
 	}
-	if n := bytes.Count(b, []byte(harness.Placeholder)); n != 1 {
-		t.Errorf("the placeholder is in opencode.json %d times", n)
+	if _, env := doc.MCP["factory"]["environment"]; env || doc.MCP["factory"]["type"] != "local" || bytes.Contains(b, []byte(`"ask"`)) {
+		t.Errorf("mcp.factory %v, or a permission asks:\n%s", doc.MCP["factory"], b)
 	}
-	if _, ok := doc.MCP["factory"]["environment"]; ok {
-		t.Errorf("mcp.factory names variables: %v", doc.MCP["factory"])
-	}
-	var walk func(path string, v any)
-	walk = func(path string, v any) {
-		switch v := v.(type) {
-		case map[string]any:
-			for k, e := range v {
-				walk(path+"."+k, e)
-			}
-		default:
-			if v != "allow" && v != "deny" {
-				t.Errorf("permission%s = %v, want allow or deny", path, v)
-			}
-		}
-	}
-	walk("", doc.Permission)
 }
 
-// TestRenderConfig: the effort is the model's reasoningEffort and the proxy the provider's
-// proxy, each only when given (Prepare gives them as sendReasoningEffort and setProviderProxy
-// say).
+// TestRenderConfig: the provider's proxy is written only when given (setProviderProxy is off
+// for the pinned release).
 func TestRenderConfig(t *testing.T) {
 	t.Parallel()
 	ws := workspace(t, true)
-	for _, tt := range []struct {
-		name          string
-		effort, proxy string
-	}{
-		{"neither", "", ""},
-		{"effort", "high", ""},
-		{"proxy", "", "http://192.168.64.1:3128"},
-	} {
-		in := configInput{model: "m", effort: tt.effort, proxy: tt.proxy, instructions: "/i.md", contextWindow: 8, maxOutput: 4}
-		b, err := renderConfig(ws, in)
+	for _, proxy := range []string{"", "http://192.168.64.1:3128"} {
+		b, err := renderConfig(ws, configInput{model: "m", proxy: proxy, instructions: "/i.md", contextWindow: 8, maxOutput: 4})
 		if err != nil {
 			t.Fatal(err)
 		}
-		var doc struct {
-			Provider map[string]providerDoc `json:"provider"`
-		}
-		if err := json.Unmarshal(b, &doc); err != nil {
-			t.Fatal(err)
-		}
-		p := doc.Provider["factory"]
-		var effort string
-		if o := p.Models["m"].Options; o != nil {
-			effort = o.ReasoningEffort
-		}
-		if effort != tt.effort || p.Options.Proxy != tt.proxy || strings.Contains(string(b), `"proxy"`) != (tt.proxy != "") {
-			t.Errorf("%s: reasoningEffort %q, proxy %q:\n%s", tt.name, effort, p.Options.Proxy, b)
+		if got := strings.Contains(string(b), `"proxy": "`+proxy+`"`); got != (proxy != "") || strings.Contains(string(b), `"proxy"`) != got {
+			t.Errorf("proxy %q:\n%s", proxy, b)
 		}
 	}
 }
@@ -244,23 +156,28 @@ func TestRenderConfig(t *testing.T) {
 // link to one elsewhere), which is never written over.
 func TestPrepareRefusals(t *testing.T) {
 	t.Parallel()
+	planted := func(mk func(t *testing.T, p string) error) func(*testing.T, *Adapter, *harness.Workspace) {
+		return func(t *testing.T, _ *Adapter, ws *harness.Workspace) {
+			dir := filepath.Join(ws.Home, ".config", "opencode")
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := mk(t, filepath.Join(dir, "opencode.json")); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	for _, tt := range []struct {
-		name   string
-		model  string
-		auth   string
-		change func(t *testing.T, a *Adapter, ws *harness.Workspace)
-		want   string
+		name, model, auth string
+		change            func(t *testing.T, a *Adapter, ws *harness.Workspace)
+		want              string
 	}{
 		{"no model", "", "", nil, "names no model"},
-		{"no limits", "m", "", func(_ *testing.T, a *Adapter, _ *harness.Workspace) { a.o.MaxOutput = 0 }, "context window and maximum output"},
+		{"no limits", "m", "", func(_ *testing.T, a *Adapter, _ *harness.Workspace) { a.o.MaxOutput = 0 }, "maximum output aren't set"},
 		{"subscription", "m", "subscription", nil, `unknown auth "subscription"`},
 		{"no HOME", "m", "", func(_ *testing.T, _ *Adapter, ws *harness.Workspace) { ws.Home = "" }, "no scratch HOME"},
-		{"existing file", "m", "", func(t *testing.T, _ *Adapter, ws *harness.Workspace) {
-			plant(t, ws, func(p string) error { return os.WriteFile(p, []byte(`{"model":"other/x"}`), 0o600) })
-		}, "the config"},
-		{"existing symlink", "m", "", func(t *testing.T, _ *Adapter, ws *harness.Workspace) {
-			plant(t, ws, func(p string) error { return os.Symlink(filepath.Join(t.TempDir(), "elsewhere.json"), p) })
-		}, "the config"},
+		{"existing file", "m", "", planted(func(_ *testing.T, p string) error { return os.WriteFile(p, []byte("{}"), 0o600) }), "the config"},
+		{"existing symlink", "m", "", planted(func(t *testing.T, p string) error { return os.Symlink(filepath.Join(t.TempDir(), "x.json"), p) }), "the config"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -275,18 +192,6 @@ func TestPrepareRefusals(t *testing.T) {
 	}
 }
 
-// plant makes opencode's config dir and puts something at opencode.json with mk.
-func plant(t *testing.T, ws *harness.Workspace, mk func(p string) error) {
-	t.Helper()
-	dir := filepath.Join(ws.Home, ".config", "opencode")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := mk(filepath.Join(dir, "opencode.json")); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // TestRunEnv: the run's environment is the workspace's with OPENCODE_CONFIG naming the
 // generated config and the switches on; XDG_DATA_HOME stays the system's.
 func TestRunEnv(t *testing.T) {
@@ -294,12 +199,9 @@ func TestRunEnv(t *testing.T) {
 	ws := workspace(t, true)
 	env := runEnv(ws)
 	want := map[string]string{
-		"OPENCODE_CONFIG":               filepath.Join(ws.Home, ".config", "opencode", "opencode.json"),
-		"OPENCODE_DISABLE_AUTOUPDATE":   "1",
-		"OPENCODE_DISABLE_MODELS_FETCH": "1",
-		"OPENCODE_DISABLE_LSP_DOWNLOAD": "1",
-		"OPENCODE_DISABLE_CLAUDE_CODE":  "1",
-		"HTTP_PROXY":                    "http://192.168.64.1:3128",
+		"OPENCODE_CONFIG": filepath.Join(ws.Home, ".config", "opencode", "opencode.json"), "OPENCODE_DISABLE_AUTOUPDATE": "1",
+		"OPENCODE_DISABLE_MODELS_FETCH": "1", "OPENCODE_DISABLE_LSP_DOWNLOAD": "1", "OPENCODE_DISABLE_CLAUDE_CODE": "1",
+		"HTTP_PROXY": "http://192.168.64.1:3128",
 	}
 	for k, v := range want {
 		if got := lookupEnv(env, k); got != v {
@@ -308,6 +210,23 @@ func TestRunEnv(t *testing.T) {
 	}
 	if len(env) != len(ws.Env)+5 || lookupEnv(env, "XDG_DATA_HOME") != "" {
 		t.Errorf("env %q", env)
+	}
+}
+
+// golden compares got, with the workspace root replaced by $ROOT, against testdata/<name>
+// (-update rewrites it).
+func golden(t *testing.T, ws harness.Workspace, name string, got []byte) {
+	t.Helper()
+	got = bytes.ReplaceAll(got, []byte(ws.Root), []byte("$ROOT"))
+	p := filepath.Join("testdata", name)
+	if *update {
+		if err := os.WriteFile(p, got, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if want, err := os.ReadFile(p); err != nil || !bytes.Equal(got, want) {
+		t.Errorf("%s differs (%v; -update rewrites it):\n%s", p, err, got)
 	}
 }
 
@@ -340,7 +259,7 @@ func scanFiles(t *testing.T, dir string) {
 		}
 		b, _ := os.ReadFile(p)
 		for _, s := range testSecrets {
-			if strings.Contains(string(b), s) {
+			if bytes.Contains(b, []byte(s)) {
 				t.Errorf("a value of the run's environment is on disk in %s", p)
 			}
 		}

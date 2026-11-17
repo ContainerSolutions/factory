@@ -1,18 +1,9 @@
 // Package opencode is the OpenCode harness adapter (design/workstreams/agent/LLD/
-// harness-adapters.md §OpenCode, ADR-0010): a model the owner serves (vLLM on the DGX Spark)
-// behind the gateway's model endpoint. It runs only in a VM workspace (`factory-agent run`,
-// workspace-run.md §opencode), where the VM is the boundary.
-//
-// Prepare writes the run's config under the pipeline's scratch XDG_CONFIG_HOME:
-// opencode/opencode.json (one provider, factory, at the gateway's model endpoint with
-// harness.Placeholder as its key; the task's model with the served model's limits; the
-// Effector's MCP server; every permission allow or deny) and opencode/skills/, the task's
-// skills flattened as for codex; and the instructions file the config names, in
-// <home>/.factory-opencode/. The gateway outside the VM replaces the placeholder with the model
-// server's key. Run, its stream and Repair come with OC-5.
-//
-// Every opencode name the adapter relies on is in flags.go, with the pinned release's source
-// file it was read from, or UNVERIFIED where the source can't settle it.
+// harness-adapters.md §OpenCode, ADR-0010): a model the owner serves behind the gateway's
+// model endpoint, run only in a VM workspace, where the VM is the boundary. Prepare writes
+// opencode.json (one provider at the gateway, with harness.Placeholder as its key, which the
+// gateway replaces) and the flattened skills under the scratch XDG_CONFIG_HOME. Run and
+// Repair come with OC-5. Every opencode name the adapter relies on is in flags.go.
 package opencode
 
 import (
@@ -44,8 +35,7 @@ const DefaultKillGrace = 5 * time.Second
 
 // Options configure an Adapter.
 type Options struct {
-	// Config is the opencode harness's config: vmrun makes it from the task's resolved harness
-	// (Default is the model when the task names none).
+	// Config is the opencode harness's config (Default is the model when the task names none).
 	Config config.Harness
 	// Binary is the opencode executable. Default: "opencode" on PATH.
 	Binary string
@@ -89,8 +79,7 @@ func New(o Options) *Adapter {
 // Name implements harness.Adapter.
 func (a *Adapter) Name() string { return Name }
 
-// Capabilities implements harness.Adapter: low, medium and high (minimal and max map onto
-// them, nativeEffort) and opencode's features. structured-output is the Result through
+// Capabilities implements harness.Adapter. structured-output is the Result through
 // $FACTORY_RESULT, which the pipeline validates and repairs.
 func (a *Adapter) Capabilities() v1alpha1.AdapterCapabilities {
 	return v1alpha1.AdapterCapabilities{
@@ -100,8 +89,7 @@ func (a *Adapter) Capabilities() v1alpha1.AdapterCapabilities {
 	}
 }
 
-// errNoRun is what Run and Repair return until OC-5 brings them (vmrun builds no opencode
-// adapter before OC-6).
+// errNoRun is what Run and Repair return until OC-5 (vmrun builds no opencode adapter yet).
 var errNoRun = errors.New("opencode: this agent can't run opencode yet")
 
 // Run implements harness.Adapter.

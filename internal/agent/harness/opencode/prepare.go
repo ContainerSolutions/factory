@@ -20,12 +20,10 @@ const (
 	instructionsFile = "instructions.md"
 )
 
-// Prepare implements harness.Adapter: the task runs on the model server's key (selfHosted), on
-// its resolved model or the config's default, with the served model's limits set. It writes
-// instructions.md (the headless preamble, the Result schema's path and, for a read-only
-// checkout, that it may not be changed) in <home>/.factory-opencode/, and, under the scratch
-// XDG_CONFIG_HOME's opencode/, renderConfig's opencode.json (new, 0600, never over an
-// existing file or link) and skills/, the task's skills flattened (clirun.FlattenSkills).
+// Prepare implements harness.Adapter: on the model server's key (selfHosted), the resolved
+// model or the config's default, and the served model's limits, it writes instructions.md in
+// <home>/.factory-opencode/ and, in the scratch XDG_CONFIG_HOME's opencode/, opencode.json
+// (new, 0600, never over an existing file or link) and the flattened skills/.
 func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, t v1alpha1.Task) error {
 	var res v1alpha1.HarnessResolved
 	if h := t.Spec.Harness; h != nil && h.Resolved != nil {
@@ -82,13 +80,12 @@ type configInput struct {
 	contextWindow, maxOutput           int
 }
 
-// renderConfig is opencode.json: the one provider, factory, at the gateway's model endpoint
-// with the placeholder key (and in.proxy when set); in.model with its limits and in.effort
-// when set, and nothing else enabled; no update check and no sharing; the instructions file;
-// the Effector's MCP server, which inherits the run's environment, so no variable is named or
-// written; and permissions. No value from the run's environment is in it.
+// renderConfig is opencode.json: the one provider at the gateway with the placeholder key,
+// in.model with its limits (and in.effort, in.proxy when set), no update check or sharing,
+// the instructions, the Effector's MCP server and permissions. No variable's value is in it.
 func renderConfig(ws harness.Workspace, in configInput) ([]byte, error) {
-	model := modelDoc{ToolCall: true, Limit: modelLimit{Context: in.contextWindow, Output: in.maxOutput}}
+	model := modelDoc{ToolCall: true}
+	model.Limit.Context, model.Limit.Output = in.contextWindow, in.maxOutput
 	if in.effort != "" {
 		model.Options = &modelOptions{ReasoningEffort: in.effort}
 	}
@@ -116,18 +113,17 @@ func renderConfig(ws harness.Workspace, in configInput) ([]byte, error) {
 }
 
 // permissions allow everything but a push and, for a read-only primary checkout, an edit
-// outside out/ (the Result's directory, as the path relative to the checkout opencode
-// matches). Nothing in the VM stops a shell write: the instructions say not to, and the
-// gateway refuses the push.
+// outside out/, the Result's directory (a shell write isn't stopped: the gateway refuses the
+// push).
 func permissions(ws harness.Workspace) permissionDoc {
-	edit := rules{{permAll, permAllow}}
+	edit := map[string]string{permAll: permAllow}
 	if ws.Repo != "" && !ws.RepoWritable {
-		edit = rules{{permAll, permDeny}}
+		edit[permAll] = permDeny
 		if rel, err := filepath.Rel(ws.Repo, ws.Out); ws.Out != "" && err == nil {
-			edit = append(edit, [2]string{filepath.ToSlash(rel) + "/*", permAllow})
+			edit[filepath.ToSlash(rel)+"/*"] = permAllow
 		}
 	}
-	return permissionDoc{All: permAllow, Edit: edit, Bash: rules{{permAll, permAllow}, {gitPushPattern, permDeny}}}
+	return permissionDoc{All: permAllow, Edit: edit, Bash: map[string]string{permAll: permAllow, gitPushPattern: permDeny}}
 }
 
 // instructions is the file opencode.json's instructions names: the headless preamble, the
@@ -143,9 +139,8 @@ func instructions(ws harness.Workspace) string {
 	return s
 }
 
-// runEnv is opencode's environment for a run: ws.Env with OPENCODE_CONFIG naming the
-// generated config and runSwitches set. XDG_DATA_HOME stays the system's, so opencode's
-// sessions and logs go to the run user's ~/.local/share/opencode in the VM.
+// runEnv is OC-5's run environment: ws.Env with OPENCODE_CONFIG and runSwitches set.
+// XDG_DATA_HOME stays the system's: opencode's sessions go to the VM's ~/.local/share.
 func runEnv(ws harness.Workspace) []string {
 	env := clirun.WithEnv(ws.Env, envConfig, filepath.Join(xdgConfigHome(ws), configDir, configFile))
 	for _, k := range runSwitches {
@@ -154,8 +149,7 @@ func runEnv(ws harness.Workspace) []string {
 	return env
 }
 
-// xdgConfigHome is the run's XDG_CONFIG_HOME, where opencode looks: ws.Env's (the pipeline's
-// scratch <home>/.config), else <home>/.config as without it.
+// xdgConfigHome is ws.Env's XDG_CONFIG_HOME (the pipeline's <home>/.config), else the default.
 func xdgConfigHome(ws harness.Workspace) string {
 	if v := lookupEnv(ws.Env, envXDGConfigHome); filepath.IsAbs(v) {
 		return v
