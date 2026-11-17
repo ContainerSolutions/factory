@@ -1,8 +1,8 @@
-// Package clirun is what the harness adapters (codex, claudecode) share to drive a coding
-// agent's CLI: running it in its own process group and killing the whole group when the
-// run ends, splitting its stdout into lines for the stream parser, keeping a bounded
-// transcript and stderr tail, and the text helpers their parsers need (rate-limit resets,
-// versions, summaries).
+// Package clirun is what the harness adapters (codex, claudecode, opencode) share to drive a
+// coding agent's CLI: running it in its own process group and killing the whole group when
+// the run ends, splitting its stdout into lines for the stream parser, keeping a bounded
+// transcript and stderr tail, the text helpers their parsers need (rate-limit resets,
+// versions, summaries), and the flat skills layout codex and opencode discover.
 package clirun
 
 import (
