@@ -62,8 +62,8 @@ resource "aws_cloudwatch_log_group" "factory" {
 resource "aws_ssm_parameter" "image" {
   name = "/factory/prod/image"
   type = "String"
-  # factory v0.3.1
-  insecure_value = "ghcr.io/containersolutions/factory@sha256:998782592a065458f8bbce5602a8ddf38c26bf3c9db6bd676056612f5b62a0df"
+  # factory v0.3.2
+  insecure_value = "ghcr.io/containersolutions/factory@sha256:f438039b8c078048f07902a0fa1240f6dc3b18b2be45891fed6e68fa8e6edf5d"
 }
 
 resource "aws_ssm_parameter" "caddy_image" {
