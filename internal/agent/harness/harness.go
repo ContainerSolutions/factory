@@ -24,7 +24,7 @@ const Placeholder = "factory-placeholder-not-a-credential"
 // Repair when the Result was invalid. Run and Repair return when the harness exits or ctx is
 // done; the pipeline cancels ctx on a limit (wall-clock, turns, cost) or a rate limit.
 type Adapter interface {
-	// Name is the harness's name: codex, claude-code.
+	// Name is the harness's name: codex, claude-code, opencode.
 	Name() string
 	// Capabilities is static per adapter version: the effort mapping and features.
 	Capabilities() v1alpha1.AdapterCapabilities

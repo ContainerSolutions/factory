@@ -42,6 +42,9 @@ const DefaultWorkRoot = "~/.factory-agent/work"
 const (
 	HarnessCodex      = "codex"
 	HarnessClaudeCode = "claude-code"
+	// HarnessOpenCode isn't in Harnesses yet: an agent config can name it once its endpoint
+	// block exists (OC-6).
+	HarnessOpenCode = "opencode"
 )
 
 // Harnesses lists the known harness names.
