@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 1: LLD tool summaries match toolSummary (no fetch/agent); LLD says the fake records the config dir listing; Repair before Run has a test; the pipeline test's comment no longer claims vmrun builds the adapter.
