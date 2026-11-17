@@ -10,6 +10,8 @@ package config
 
 import (
 	"bytes"
+	"cmp"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,13 +44,17 @@ const DefaultWorkRoot = "~/.factory-agent/work"
 const (
 	HarnessCodex      = "codex"
 	HarnessClaudeCode = "claude-code"
-	// HarnessOpenCode isn't in Harnesses yet: an agent config can name it once its endpoint
-	// block exists (OC-6).
-	HarnessOpenCode = "opencode"
+	HarnessOpenCode   = "opencode"
 )
 
 // Harnesses lists the known harness names.
-func Harnesses() []string { return []string{HarnessClaudeCode, HarnessCodex} }
+func Harnesses() []string { return []string{HarnessClaudeCode, HarnessCodex, HarnessOpenCode} }
+
+// The served model's limits when the opencode endpoint gives none, in tokens.
+const (
+	DefaultContextWindow = 131072
+	DefaultMaxOutput     = 16384
+)
 
 // Efforts are the normalised reasoning efforts a harness may offer (harness-adapters.md's
 // effort mappings).
@@ -73,7 +79,7 @@ type Config struct {
 	Host string `json:"host,omitzero"`
 	// Labels are the capability labels to advertise.
 	Labels []string `json:"labels,omitzero"`
-	// Harnesses configures each harness by name (codex, claude-code).
+	// Harnesses configures each harness by name (codex, claude-code, opencode).
 	Harnesses map[string]Harness `json:"harnesses"`
 	// WorkRoot holds the per-task scratch workspaces; default ~/.factory-agent/work.
 	WorkRoot string `json:"workRoot,omitzero"`
@@ -100,6 +106,64 @@ type Harness struct {
 	Efforts []string `json:"efforts,omitzero"`
 	// Default is the model used when a task asks for none; one of Models.
 	Default string `json:"default,omitzero"`
+	// Endpoint is the model server opencode runs against: required for opencode, refused on
+	// the other harnesses.
+	Endpoint *Endpoint `json:"endpoint,omitzero"`
+}
+
+// Endpoint is the model server the gateway's model endpoint forwards to (gateway.md §The model
+// endpoint) and the served model's limits. Its key is `factory-agent login opencode`'s.
+type Endpoint struct {
+	// URL is the server's root, without /v1 (the VM's requests carry it): absolute http(s),
+	// without user info, query or fragment. Plain http is for a tunnel that encrypts.
+	URL string `json:"url"`
+	// CAFile holds the PEM certificates an https URL is verified with; default the system
+	// roots. A leading ~/ is expanded.
+	CAFile string `json:"caFile,omitzero"`
+	// ContextWindow and MaxOutput are the served model's limits in tokens (opencode.json's);
+	// default DefaultContextWindow and DefaultMaxOutput.
+	ContextWindow int `json:"contextWindow,omitzero"`
+	MaxOutput     int `json:"maxOutput,omitzero"`
+}
+
+// RootCAs is CAFile's certificates; nil without one (the system roots).
+func (e Endpoint) RootCAs() (*x509.CertPool, error) {
+	if e.CAFile == "" {
+		return nil, nil
+	}
+	b, _, err := readFile(e.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("endpoint.caFile: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(b) {
+		return nil, errors.New("endpoint.caFile: holds no PEM certificate")
+	}
+	return pool, nil
+}
+
+// validate checks a completed endpoint. Its messages carry no value: a URL refused for its
+// user info holds a password.
+func (e Endpoint) validate() []string {
+	var probs []string
+	u, err := url.Parse(e.URL)
+	switch {
+	case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
+		probs = append(probs, "endpoint.url: must be an absolute http(s) URL")
+	case u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "":
+		probs = append(probs, "endpoint.url: must not carry user info, a query or a fragment")
+	case strings.HasSuffix(u.Path, "/v1") || strings.HasSuffix(u.Path, "/v1/"):
+		probs = append(probs, "endpoint.url: drop the /v1: it is the server's root (the workspace's requests carry /v1)")
+	}
+	if e.CAFile != "" && !filepath.IsAbs(e.CAFile) {
+		probs = append(probs, "endpoint.caFile: must be absolute or start with ~/")
+	} else if _, err := e.RootCAs(); err != nil {
+		probs = append(probs, "endpoint.caFile: not a readable file of PEM certificates")
+	}
+	if e.ContextWindow < 0 || e.MaxOutput < 0 {
+		probs = append(probs, "endpoint: contextWindow and maxOutput must not be negative")
+	}
+	return probs
 }
 
 // The poll block's defaults: the long poll (P3 §Agents poll briefly). Its rules are the
@@ -338,7 +402,13 @@ func (c *Config) complete(o Options) error {
 		*p = v
 		return err
 	}
-	for _, p := range []*string{&c.EnrollmentTokenFile, &c.WorkRoot} {
+	paths := []*string{&c.EnrollmentTokenFile, &c.WorkRoot}
+	if e := c.Harnesses[HarnessOpenCode].Endpoint; e != nil {
+		e.ContextWindow = cmp.Or(e.ContextWindow, DefaultContextWindow)
+		e.MaxOutput = cmp.Or(e.MaxOutput, DefaultMaxOutput)
+		paths = append(paths, &e.CAFile)
+	}
+	for _, p := range paths {
 		if err := expand(p); err != nil {
 			return err
 		}
@@ -442,6 +512,14 @@ func (h Harness) validate(name string) []string {
 	}
 	if h.Default != "" && !slices.Contains(h.Models, h.Default) {
 		add("default: %q is not one of models", h.Default)
+	}
+	switch {
+	case name == HarnessOpenCode && h.Endpoint == nil:
+		add("endpoint: required (the model server's url)")
+	case name == HarnessOpenCode:
+		probs = append(probs, h.Endpoint.validate()...)
+	case h.Endpoint != nil:
+		add("endpoint: only opencode has one")
 	}
 	return probs
 }

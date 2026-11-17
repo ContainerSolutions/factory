@@ -335,7 +335,7 @@ Checked against [workspace-host.md](workspace-host.md#the-vm-steps-p1-2):
 | bash, git, `update-ca-certificates` | Ubuntu 24.04's bash; apt's `git` and `ca-certificates` |
 | systemd dockerd reading `/etc/docker/daemon.json` | docker-ce from Docker's repo, enabled; `admin` in `docker` |
 | curl ≥ 7.86 (CIDRs in `NO_PROXY`) | Ubuntu 24.04's curl 8.5 |
-| the pinned claude and codex | `/usr/local/bin/claude` (2.1.304), `/usr/local/bin/codex` (rust-v0.163.0) |
+| the pinned claude, codex and opencode | `/usr/local/bin/claude` (2.1.304), `/usr/local/bin/codex` (rust-v0.163.0), `/usr/local/bin/opencode` (v1.19.6) |
 | root when needed | `admin` with passwordless sudo |
 | gh with its extensions | gh and the pinned `gh-pr-review`, `gh-stack` for `admin` (found through `XDG_DATA_HOME`) |
 | docs-gif's GIF tools | Playwright 1.63.0 (`npx --no playwright`, `npm root -g`) with its Chromium in `/opt/ms-playwright` (found through `PLAYWRIGHT_BROWSERS_PATH`), vhs with ttyd, ffmpeg, gifski |

@@ -285,12 +285,11 @@ func (e *E2E) Pipeline(a harness.Adapter, job *runner.Job, extra ...string) (*pi
 	if err := os.WriteFile(ca, gw.CA().CertPEM(), 0o600); err != nil {
 		e.t.Fatal(err)
 	}
-	x := pipeline.BundleExtras{CA: gw.CA().CertPEM()}
-	if h := job.Lease.Task.Spec.Harness; h != nil && h.Resolved != nil && h.Resolved.Name == "codex" {
-		acct := CodexAccount
-		x.Codex = &acct
+	var name string
+	if h := job.Lease.Task.Spec.Harness; h != nil && h.Resolved != nil {
+		name = h.Resolved.Name
 	}
-	b, err := runbundle.Read(e.BundleJob(job, x))
+	b, err := runbundle.Read(e.BundleJob(job, extras(name, gw.CA().CertPEM())))
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -378,19 +377,31 @@ const GatewayCA = "-----BEGIN CERTIFICATE-----\nZmFrZS1nYXRld2F5LWNh\n-----END C
 // CodexAccount is the account a Bundle of a codex task names.
 var CodexAccount = runbundle.CodexAccount{AccountID: "acct_test", UserID: "user_test", PlanType: "pro"}
 
+// ModelLimits are the served model's limits a Bundle of an opencode task carries.
+var ModelLimits = runbundle.Model{ContextWindow: 131072, MaxOutput: 16384}
+
 // Bundle writes the run bundle of Job(h, outcomes) with pipeline.PrepareBundle, against the
 // dispatcher and the git server, into a new directory under the test's TempDir, and returns
 // the directory and the job. The bundle has GatewayCA, the default dispatcher URL and, for a
-// codex task, CodexAccount.
+// codex task, CodexAccount, for an opencode one ModelLimits.
 func (e *E2E) Bundle(h v1alpha1.HarnessResolved, outcomes []string) (string, *runner.Job) {
 	e.t.Helper()
 	job := e.Job(h, outcomes)
-	x := pipeline.BundleExtras{CA: []byte(GatewayCA)}
-	if h.Name == "codex" {
+	return e.BundleJob(job, extras(h.Name, []byte(GatewayCA))), job
+}
+
+// extras are the bundle extras of a task of harness name: ca, and CodexAccount or ModelLimits.
+func extras(name string, ca []byte) pipeline.BundleExtras {
+	x := pipeline.BundleExtras{CA: ca}
+	switch name {
+	case "codex":
 		acct := CodexAccount
 		x.Codex = &acct
+	case "opencode":
+		m := ModelLimits
+		x.Model = &m
 	}
-	return e.BundleJob(job, x), job
+	return x
 }
 
 // BundleJob writes job's run bundle with x, as Bundle does, and returns its directory.

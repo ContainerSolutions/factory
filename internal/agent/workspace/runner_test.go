@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ContainerSolutions/factory/internal/agent/config"
 	"github.com/ContainerSolutions/factory/internal/agent/gateway"
 	"github.com/ContainerSolutions/factory/internal/agent/gateway/policy"
 	"github.com/ContainerSolutions/factory/internal/agent/gitcred"
@@ -48,9 +49,11 @@ func TestMain(m *testing.M) {
 
 const (
 	wsTaskID = "tsk_ws1"
-	// claudeToken and codexToken are the owner's logins: never in the bundle or the transcript.
+	// claudeToken, codexToken and openCodeKey are the owner's logins: never in the bundle or
+	// the transcript.
 	claudeToken = "claude-oauth-login-never-in-a-vm-0123"
 	codexToken  = "codex-access-login-never-in-a-vm-0123"
+	openCodeKey = "spark-vllm-key-never-in-a-vm-0123"
 )
 
 // The VM's addresses: the gateway listens on loopback, and the VM's address is one the agent
@@ -903,7 +906,8 @@ func TestRunnerCancel(t *testing.T) {
 }
 
 // The harness's login comes from the store: none fails the run before a VM exists; codex's
-// account reaches the bundle.
+// account and opencode's model limits reach the bundle, and only an opencode task's gateway gets
+// the model endpoint.
 func TestRunnerLogins(t *testing.T) {
 	t.Parallel()
 	t.Run("no claude login", func(t *testing.T) {
@@ -920,6 +924,13 @@ func TestRunnerLogins(t *testing.T) {
 		r := newRig(t, v1alpha1.HarnessResolved{Name: "codex", Model: "m"}, nil)
 		wantFailed(runner.ReasonHarnessError, "login codex")(t, r.run(context.Background()))
 	})
+	endpoint := &config.Endpoint{URL: "http://spark.example.ts.net:8000", ContextWindow: 131072, MaxOutput: 16384}
+	t.Run("no opencode login", func(t *testing.T) {
+		t.Parallel()
+		r := newRig(t, v1alpha1.HarnessResolved{Name: "opencode", Model: "m"}, nil)
+		r.opts.OpenCode = endpoint
+		wantFailed(runner.ReasonHarnessError, "login opencode")(t, r.run(context.Background()))
+	})
 	t.Run("claude", func(t *testing.T) {
 		t.Parallel()
 		o := runbundle.Outcome{Status: runner.StatusDone, Result: doneResult()}
@@ -934,31 +945,54 @@ func TestRunnerLogins(t *testing.T) {
 			t.Errorf("the transcript holds the claude login: %s", text)
 		}
 	})
-	t.Run("codex", func(t *testing.T) {
-		t.Parallel()
-		var manifest runbundle.Manifest
-		o := runbundle.Outcome{Status: runner.StatusDone, Result: doneResult()}
-		done := finishWith(o)
-		r := newRig(t, v1alpha1.HarnessResolved{Name: "codex", Model: "m"}, func(ctx context.Context, r *rig, out string, enc *runbundle.Encoder) error {
-			b, err := os.ReadFile(r.driver.vm("ws-"+wsTaskID, BundleDir+"/"+runbundle.ManifestFile))
-			if err == nil {
-				err = json.Unmarshal(b, &manifest)
+	for _, tt := range []struct {
+		name  string
+		save  func(login.Store) error
+		check func(t *testing.T, r *rig, m runbundle.Manifest)
+	}{
+		{"codex", func(s login.Store) error {
+			return s.SaveCodex(login.Codex{AccessToken: codexToken, AccountID: "acct_1", UserID: "user_1", PlanType: "pro"})
+		}, func(t *testing.T, r *rig, m runbundle.Manifest) {
+			if m.Codex == nil || *m.Codex != (runbundle.CodexAccount{AccountID: "acct_1", UserID: "user_1", PlanType: "pro"}) || m.Model != nil || r.gwCfg.ModelEndpoint != nil {
+				t.Errorf("the bundle's codex account %+v and model %+v, the gateway's model endpoint %v", m.Codex, m.Model, r.gwCfg.ModelEndpoint)
 			}
-			if err != nil {
-				return err
+		}},
+		{"opencode", func(s login.Store) error { return s.SaveOpenCode(openCodeKey) }, func(t *testing.T, r *rig, m runbundle.Manifest) {
+			e, gw := r.gwCfg.ModelEndpoint, r.gwCfg
+			if m.Model == nil || *m.Model != (runbundle.Model{ContextWindow: 131072, MaxOutput: 16384}) || m.Codex != nil || e == nil ||
+				e.URL.String() != endpoint.URL || e.APIKey != openCodeKey || e.RootCAs != nil || gw.ChatGPT != nil || gw.Anthropic != nil {
+				t.Errorf("the bundle's model %+v, the gateway's model endpoint %v", m.Model, e)
 			}
-			return done(ctx, r, out, enc)
+			if text, _ := r.uploaded(); strings.Contains(text, openCodeKey) {
+				t.Errorf("the transcript holds the opencode key: %s", text)
+			}
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var manifest runbundle.Manifest
+			o := runbundle.Outcome{Status: runner.StatusDone, Result: doneResult()}
+			done := finishWith(o, `{"type":"x","echo":"`+openCodeKey+`"}`)
+			r := newRig(t, v1alpha1.HarnessResolved{Name: tt.name, Model: "m"}, func(ctx context.Context, r *rig, out string, enc *runbundle.Encoder) error {
+				b, err := os.ReadFile(r.driver.vm("ws-"+wsTaskID, BundleDir+"/"+runbundle.ManifestFile))
+				if err == nil {
+					err = json.Unmarshal(b, &manifest)
+				}
+				if err != nil {
+					return err
+				}
+				return done(ctx, r, out, enc)
+			})
+			r.opts.OpenCode = endpoint
+			if err := tt.save(login.ForStateDir(r.state)); err != nil {
+				t.Fatal(err)
+			}
+			if out := r.run(context.Background()); out.Status != runner.StatusDone {
+				t.Fatalf("outcome %+v", out)
+			}
+			tt.check(t, r, manifest)
 		})
-		if err := login.ForStateDir(r.state).SaveCodex(login.Codex{AccessToken: codexToken, AccountID: "acct_1", UserID: "user_1", PlanType: "pro"}); err != nil {
-			t.Fatal(err)
-		}
-		if out := r.run(context.Background()); out.Status != runner.StatusDone {
-			t.Fatalf("outcome %+v", out)
-		}
-		if manifest.Codex == nil || *manifest.Codex != (runbundle.CodexAccount{AccountID: "acct_1", UserID: "user_1", PlanType: "pro"}) {
-			t.Errorf("the bundle's codex account %+v", manifest.Codex)
-		}
-	})
+	}
 }
 
 // The supervisor's own clock: no time left refuses the run; past the wall clock plus Overrun

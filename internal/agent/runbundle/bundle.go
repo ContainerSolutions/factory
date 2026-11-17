@@ -81,6 +81,8 @@ type Manifest struct {
 	Skills []Skill `json:"skills,omitempty"`
 	// Codex is set only when the task's harness is codex.
 	Codex *CodexAccount `json:"codex,omitempty"`
+	// Model is set only when the task's harness is opencode.
+	Model *Model `json:"model,omitempty"`
 }
 
 // Gateway is what the VM needs to use its gateway; its address is the --proxy flag.
@@ -129,6 +131,13 @@ type CodexAccount struct {
 	PlanType  string `json:"planType"`
 }
 
+// Model is the served model's limits in tokens, for opencode.json: the owner's agent config
+// knows them (its opencode endpoint), the dispatcher doesn't.
+type Model struct {
+	ContextWindow int `json:"contextWindow"`
+	MaxOutput     int `json:"maxOutput"`
+}
+
 // Files is what Write lays out beside bundle.json.
 type Files struct {
 	// Task is the lease's Task (never the Lease: it has the credentials).
@@ -146,6 +155,8 @@ type Files struct {
 	CA []byte
 	// Codex is the account, only when the task's harness is codex.
 	Codex *CodexAccount
+	// Model is the served model's limits, only when the task's harness is opencode.
+	Model *Model
 }
 
 // Bundle is a bundle Read and validated.
@@ -345,11 +356,14 @@ func (m Manifest) Validate() error {
 	if c := m.Codex; c != nil && (c.AccountID == "" || c.UserID == "" || c.PlanType == "") {
 		return invalid("codex", "needs an account id, a user id and a plan type")
 	}
+	if l := m.Model; l != nil && (l.ContextWindow <= 0 || l.MaxOutput <= 0) {
+		return invalid("model", "needs a positive context window and max output")
+	}
 	return nil
 }
 
-// validateTask checks the manifest against task.json: the task id, the context items and
-// the codex account.
+// validateTask checks the manifest against task.json: the task id, the context items, the
+// codex account and the model's limits.
 func (m Manifest) validateTask(t v1alpha1.Task) error {
 	if t.Metadata.ID != m.TaskID {
 		return invalid("taskId", "%q is not task.json's %q", m.TaskID, t.Metadata.ID)
@@ -372,9 +386,15 @@ func (m Manifest) validateTask(t v1alpha1.Task) error {
 			return invalid("context", "the task's item %d isn't listed", i)
 		}
 	}
-	codex := t.Spec.Harness != nil && t.Spec.Harness.Resolved != nil && t.Spec.Harness.Resolved.Name == "codex"
-	if codex != (m.Codex != nil) {
+	var name string
+	if t.Spec.Harness != nil && t.Spec.Harness.Resolved != nil {
+		name = t.Spec.Harness.Resolved.Name
+	}
+	if (name == "codex") != (m.Codex != nil) {
 		return invalid("codex", "is set exactly when the task's harness is codex")
+	}
+	if (name == "opencode") != (m.Model != nil) {
+		return invalid("model", "is set exactly when the task's harness is opencode")
 	}
 	return nil
 }
@@ -419,7 +439,8 @@ func checkPath(field, p string, required bool) error {
 // leftover dir+".tmp", writes everything there (directories 0700, files 0600, a skill's
 // executable files 0700), fsyncs the files and renames it to dir. A failure removes the
 // temp dir. Write sets what it lays out in m (Version when 0, the default Dispatcher, the
-// file names, Context from the task and f.Context, Codex from f) and refuses what Read would.
+// file names, Context from the task and f.Context, Codex and Model from f) and refuses what
+// Read would.
 func Write(dir string, m Manifest, f Files) (err error) {
 	if m.Version == 0 {
 		m.Version = Version
@@ -435,7 +456,7 @@ func Write(dir string, m Manifest, f Files) (err error) {
 	if len(f.CA) > 0 {
 		m.Gateway.CAFile = CAFile
 	}
-	m.Codex = f.Codex
+	m.Codex, m.Model = f.Codex, f.Model
 	m.Context = nil
 	files := map[string][]byte{PromptFile: f.Prompt}
 	if m.OutputSchema != "" {

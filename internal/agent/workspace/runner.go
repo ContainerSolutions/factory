@@ -92,6 +92,9 @@ type RunnerOptions struct {
 	Spec Spec
 	// KeepWorkspace stops each workspace instead of destroying it, and keeps runs/<task>/.
 	KeepWorkspace bool
+	// OpenCode is the agent config's opencode endpoint (the model server and the served model's
+	// limits); nil without one, which fails an opencode task.
+	OpenCode *config.Endpoint
 	// GatewayPort is the gateway's port on the VM's gateway address: workspace.gatewayPort,
 	// the one the host's firewall (the pf anchor, the kata nft table) opens.
 	// DefaultGatewayPort when zero.
@@ -314,7 +317,7 @@ func (w *wsRun) execute(ctx context.Context) runner.Outcome {
 	if h == nil || h.Resolved == nil || h.Resolved.Name == "" {
 		return w.failed(runner.ReasonHarnessError, errors.New("the task has no resolved harness"))
 	}
-	logins, acct, err := w.loadLogins(h.Resolved.Name)
+	logins, x, err := w.loadLogins(h.Resolved.Name)
 	if err != nil {
 		return w.failed(runner.ReasonHarnessError, err)
 	}
@@ -327,7 +330,8 @@ func (w *wsRun) execute(ctx context.Context) runner.Outcome {
 	}
 	defer w.release(ctx)
 	bundle := filepath.Join(w.runDir, "bundle")
-	if err := w.r.o.Pipeline.PrepareBundle(ctx, w.job, bundle, pipeline.BundleExtras{CA: gwCA.CertPEM(), Codex: acct}); err != nil {
+	x.CA = gwCA.CertPEM()
+	if err := w.r.o.Pipeline.PrepareBundle(ctx, w.job, bundle, x); err != nil {
 		if ctx.Err() != nil {
 			return cancelled()
 		}
@@ -379,28 +383,50 @@ type modelLogins struct {
 	anthropic           func(context.Context) (gateway.AnthropicAuth, error)
 	chatgpt             func(context.Context) (gateway.ChatGPTLogin, error)
 	chatgptUnauthorized func(ctx context.Context, used string) (gateway.ChatGPTLogin, error)
+	model               *gateway.ModelEndpoint
 }
 
 // loadLogins checks the harness's login is in the store, keeps its secrets for redaction, and
 // returns the gateway's sources (claude's read from the store on every request, codex's from
-// the runner's chatgpt.Refresher) and, for codex, the bundle's account.
-func (w *wsRun) loadLogins(name string) (modelLogins, *runbundle.CodexAccount, error) {
+// the runner's chatgpt.Refresher, opencode's model endpoint from the config's endpoint and the
+// stored key) and the bundle's extras: codex's account, or opencode's model limits.
+func (w *wsRun) loadLogins(name string) (ml modelLogins, x pipeline.BundleExtras, err error) {
 	store := w.r.logins
 	switch name {
 	case config.HarnessClaudeCode:
 		tok, err := store.Claude()
 		if err != nil {
-			return modelLogins{}, nil, fmt.Errorf("the claude login (run `claude setup-token`, copy its token, then `pbpaste | factory-agent login claude`): %w", err)
+			return ml, x, fmt.Errorf("the claude login (run `claude setup-token`, copy its token, then `pbpaste | factory-agent login claude`): %w", err)
 		}
 		w.extra = append(w.extra, tok)
 		return modelLogins{anthropic: func(context.Context) (gateway.AnthropicAuth, error) {
 			tok, err := store.Claude()
 			return gateway.AnthropicAuth{OAuthToken: tok}, err
-		}}, nil, nil
+		}}, x, nil
+	case config.HarnessOpenCode:
+		e := w.r.o.OpenCode
+		if e == nil {
+			return ml, x, errors.New("the opencode endpoint: the agent config's harnesses.opencode has none")
+		}
+		key, err := store.OpenCode()
+		if err != nil {
+			return ml, x, fmt.Errorf("the opencode login (pipe the model server's API key to `factory-agent login opencode`): %w", err)
+		}
+		w.extra = append(w.extra, key)
+		u, err := url.Parse(e.URL) // config.Load checked it
+		if err != nil {
+			return ml, x, errors.New("the opencode endpoint's url doesn't parse")
+		}
+		roots, err := e.RootCAs()
+		if err != nil {
+			return ml, x, err
+		}
+		x.Model = &runbundle.Model{ContextWindow: e.ContextWindow, MaxOutput: e.MaxOutput}
+		return modelLogins{model: &gateway.ModelEndpoint{URL: u, APIKey: key, RootCAs: roots}}, x, nil
 	case config.HarnessCodex:
 		c, err := store.Codex()
 		if err != nil {
-			return modelLogins{}, nil, fmt.Errorf("the codex login (run `factory-agent login codex`): %w", err)
+			return ml, x, fmt.Errorf("the codex login (run `factory-agent login codex`): %w", err)
 		}
 		w.extra = append(w.extra, c.AccessToken, c.RefreshToken)
 		ref := w.r.chatgpt
@@ -413,9 +439,9 @@ func (w *wsRun) loadLogins(name string) (modelLogins, *runbundle.CodexAccount, e
 				l, err := ref.Unauthorized(ctx, used)
 				return gateway.ChatGPTLogin{AccessToken: l.AccessToken, AccountID: l.AccountID}, err
 			},
-		}, &runbundle.CodexAccount{AccountID: c.AccountID, UserID: c.UserID, PlanType: c.PlanType}, nil
+		}, pipeline.BundleExtras{Codex: &runbundle.CodexAccount{AccountID: c.AccountID, UserID: c.UserID, PlanType: c.PlanType}}, nil
 	}
-	return modelLogins{}, nil, nil
+	return ml, x, nil
 }
 
 // freshRunDir replaces a leftover runs/<task>/ (a killed supervisor's) with an empty one, 0700.
@@ -490,7 +516,7 @@ func (w *wsRun) startGateway(ctx context.Context, netw Network, gwCA *ca.CA, log
 	}
 	g, err := w.r.newGateway(gateway.Config{
 		TaskID: w.id, RunID: runID, Clients: []netip.Addr{netw.VM}, CA: gwCA, Git: w.job.Git,
-		Dispatcher: disp, DispatcherToken: dispToken,
+		Dispatcher: disp, DispatcherToken: dispToken, ModelEndpoint: logins.model,
 		Anthropic: logins.anthropic, ChatGPT: logins.chatgpt, ChatGPTUnauthorized: logins.chatgptUnauthorized,
 		Egress: taskEgress(w.job.Lease.Task.Spec.Environment),
 		Sink:   w.egress, Clock: w.r.clk, Logger: w.log,

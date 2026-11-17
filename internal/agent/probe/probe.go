@@ -8,6 +8,7 @@
 package probe
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os/exec"
@@ -24,14 +25,15 @@ type Prober interface {
 }
 
 // Configured is the default Prober: the offer is the local config's models, efforts and
-// default, with the harness's subscription login assumed (the PoC runs both harnesses on
-// their owners' subscriptions, 10-poc.md). The adapters replace it with real detection.
-type Configured struct{ Name string }
+// default, with Auth, by default subscription (the PoC runs codex and claude-code on their
+// owners' subscriptions, 10-poc.md; opencode is selfHosted). The adapters replace it with real
+// detection.
+type Configured struct{ Name, Auth string }
 
 // Probe implements Prober.
 func (c Configured) Probe(_ context.Context, h config.Harness) (v1alpha1.HarnessOffer, error) {
 	return v1alpha1.HarnessOffer{
-		Name: c.Name, Auth: "subscription",
+		Name: c.Name, Auth: cmp.Or(c.Auth, "subscription"),
 		Models: slices.Clone(h.Models), DefaultModel: h.Default, ReasoningEffort: slices.Clone(h.Efforts),
 	}, nil
 }

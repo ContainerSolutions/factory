@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/ContainerSolutions/factory/internal/agent/config"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/opencode"
 	"github.com/ContainerSolutions/factory/internal/agent/host"
 	"github.com/ContainerSolutions/factory/internal/agent/katahelper"
 	"github.com/ContainerSolutions/factory/internal/agent/login"
@@ -122,10 +123,12 @@ var errWarmBaseKata = errors.New("--warm-base is the tart driver's, not kata's")
 
 // loginProbe offers each configured harness whose model login is in the store: the harnesses
 // run in the VM, so the host has no binary to probe, and a task without its login would fail.
+// opencode's offer is selfHosted (the model server's key), the others' subscription.
 func loginProbe(store login.Store) probe.Options {
 	logins := map[string]func() error{
 		config.HarnessClaudeCode: func() error { _, err := store.Claude(); return err },
 		config.HarnessCodex:      func() error { _, err := store.Codex(); return err },
+		config.HarnessOpenCode:   func() error { _, err := store.OpenCode(); return err },
 	}
 	o := probe.Options{Harnesses: map[string]probe.Prober{}}
 	for name, has := range logins {
@@ -144,7 +147,11 @@ func (p loginProber) Probe(ctx context.Context, h config.Harness) (v1alpha1.Harn
 		which := strings.TrimSuffix(p.name, "-code")
 		return v1alpha1.HarnessOffer{}, fmt.Errorf("no %s login (run `factory-agent login %s`): %w", which, which, err)
 	}
-	return probe.Configured{Name: p.name}.Probe(ctx, h)
+	c := probe.Configured{Name: p.name}
+	if p.name == config.HarnessOpenCode {
+		c.Auth = opencode.AuthSelfHosted
+	}
+	return c.Probe(ctx, h)
 }
 
 // supervisor builds supervise's Runner.
@@ -293,7 +300,7 @@ func (s *supervisor) newRunner(ctx context.Context, cfg *config.Config) (runner.
 	}
 	return workspace.NewRunner(workspace.RunnerOptions{
 		Driver: drv, Pipeline: p, StateDir: s.stateDir, Spec: spec, KeepWorkspace: s.keep,
-		GatewayPort: w.GatewayPort, Listen: s.d.Listen, Logger: s.log,
+		OpenCode: cfg.Harnesses[config.HarnessOpenCode].Endpoint, GatewayPort: w.GatewayPort, Listen: s.d.Listen, Logger: s.log,
 	})
 }
 

@@ -54,7 +54,7 @@ func TestDeployAgentExample(t *testing.T) {
 	}
 
 	// Every key the loader knows appears in the example, set or commented out.
-	for _, typ := range []reflect.Type{reflect.TypeFor[config.Config](), reflect.TypeFor[config.Harness](), reflect.TypeFor[v1alpha1.Lending](), reflect.TypeFor[config.Poll]()} {
+	for _, typ := range []reflect.Type{reflect.TypeFor[config.Config](), reflect.TypeFor[config.Harness](), reflect.TypeFor[config.Endpoint](), reflect.TypeFor[v1alpha1.Lending](), reflect.TypeFor[config.Poll]()} {
 		for f := range typ.Fields() {
 			key, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 			if key == "" || key == "-" {

@@ -30,13 +30,18 @@
 #   --dispatcher URL        FACTORY_DISPATCHER      none: required. https, or http on a loopback host
 #   --pool NAME             FACTORY_POOL            local
 #   --host NAME             FACTORY_HOST            this machine's short host name, lower-cased
-#   --harnesses LIST        FACTORY_HARNESSES       codex,claude-code (at least one of the two)
+#   --harnesses LIST        FACTORY_HARNESSES       codex,claude-code (at least one of those and opencode)
 #   --codex-models LIST     FACTORY_CODEX_MODELS    gpt-6.1-sol
 #   --codex-default MODEL   FACTORY_CODEX_DEFAULT   gpt-6.1-sol
 #   --codex-efforts LIST    FACTORY_CODEX_EFFORTS   low,medium,high
 #   --claude-models LIST    FACTORY_CLAUDE_MODELS   claude-sonnet-5-5,claude-opus-5-5
 #   --claude-default MODEL  FACTORY_CLAUDE_DEFAULT  claude-sonnet-5-5
 #   --claude-efforts LIST   FACTORY_CLAUDE_EFFORTS  low,medium,high,max
+#   --opencode-url URL      FACTORY_OPENCODE_URL    none: required with opencode. The model server's
+#                                                   root, without /v1 (http over a tunnel that encrypts)
+#   --opencode-models LIST  FACTORY_OPENCODE_MODELS qwen3-coder-next (vLLM's --served-model-name)
+#   --opencode-default MODEL FACTORY_OPENCODE_DEFAULT qwen3-coder-next
+#   --opencode-efforts LIST FACTORY_OPENCODE_EFFORTS low,medium,high
 #   --max-concurrent N      FACTORY_MAX_CONCURRENT  1 (tasks at once; lending is unlimited)
 #   --cpus N                FACTORY_CPUS            6 (each VM workspace's, 1 to 16)
 #   --memory NGi            FACTORY_MEMORY          8Gi (2Gi to 64Gi)
@@ -71,15 +76,19 @@ default_codex_efforts=low,medium,high
 default_claude_models=claude-sonnet-5-5,claude-opus-5-5
 default_claude_default=claude-sonnet-5-5
 default_claude_efforts=low,medium,high,max
+default_opencode_models=qwen3-coder-next
+default_opencode_default=qwen3-coder-next
+default_opencode_efforts=low,medium,high
 default_max_concurrent=1
 default_cpus=6
 default_memory=8Gi
 default_disk=60Gi
 
 # The settings that take a value (their flags with _ for -), and their values once resolved.
-settings="dispatcher pool host harnesses codex_models codex_default codex_efforts claude_models claude_default claude_efforts max_concurrent cpus memory disk"
+settings="dispatcher pool host harnesses codex_models codex_default codex_efforts claude_models claude_default claude_efforts opencode_url opencode_models opencode_default opencode_efforts max_concurrent cpus memory disk"
 v_dispatcher="" v_pool="" v_host="" v_harnesses="" v_codex_models="" v_codex_default="" v_codex_efforts=""
 v_claude_models="" v_claude_default="" v_claude_efforts="" v_max_concurrent="" v_cpus="" v_memory="" v_disk=""
+v_opencode_url="" v_opencode_models="" v_opencode_default="" v_opencode_efforts=""
 
 dry_run=0
 quiet=0
@@ -232,11 +241,17 @@ invalid() {
 		echo "$v: want an https URL without credentials, query or fragment, or http on a loopback host (localhost, 127.x.x.x, [::1])"
 		;;
 	pool | host) [[ "$v" =~ $name_re ]] || echo "$v: want lower-case letters, digits and '-', starting with a letter or a digit" ;;
-	harnesses) list_problem "$v" "$name_re" "codex claude-code" ;;
-	codex_models | claude_models) list_problem "$v" "$model_re" ;;
-	codex_efforts | claude_efforts) list_problem "$v" "$name_re" "minimal low medium high max" ;;
+	harnesses) list_problem "$v" "$name_re" "codex claude-code opencode" ;;
+	codex_models | claude_models | opencode_models) list_problem "$v" "$model_re" ;;
+	codex_efforts | claude_efforts | opencode_efforts) list_problem "$v" "$name_re" "minimal low medium high max" ;;
 	codex_default) in_list "$v" "$v_codex_models" || echo "$v is not one of the models ($v_codex_models)" ;;
 	claude_default) in_list "$v" "$v_claude_models" || echo "$v is not one of the models ($v_claude_models)" ;;
+	opencode_default) in_list "$v" "$v_opencode_models" || echo "$v is not one of the models ($v_opencode_models)" ;;
+	opencode_url)
+		case "$v" in */v1 | */v1/) echo "$v: drop the /v1: the url is the model server's root" && return 0 ;; esac
+		[[ "$v" =~ ^https?://([A-Za-z0-9][A-Za-z0-9.-]*|\[[0-9A-Fa-f:]+\])(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$ ]] ||
+			echo "$v: want an http(s) URL without credentials, query or fragment"
+		;;
 	max_concurrent) [[ "$v" =~ ^[1-9][0-9]{0,2}$ ]] || echo "$v: want a whole number from 1 to 999" ;;
 	cpus) [[ "$v" =~ ^([1-9]|1[0-6])$ ]] || echo "$v: want a whole number from 1 to 16" ;;
 	memory | disk)
@@ -388,7 +403,7 @@ fi
 setting pool "$default_pool" "Pool"
 setting host "$host_default" "Host name"
 if [ "$write_config" = 1 ]; then
-	setting harnesses "$default_harnesses" "Harnesses (codex, claude-code)"
+	setting harnesses "$default_harnesses" "Harnesses (codex, claude-code, opencode)"
 	yaml_harnesses=""
 	if in_list codex "$v_harnesses"; then
 		setting codex_models "$default_codex_models" "codex models"
@@ -409,6 +424,20 @@ if [ "$write_config" = 1 ]; then
     models: $(yaml_list "$v_claude_models")
     efforts: $(yaml_list "$v_claude_efforts")
     default: $v_claude_default"
+	fi
+	if in_list opencode "$v_harnesses"; then
+		setting opencode_url "" "opencode's model server URL (its root, without /v1)"
+		[ -n "$v_opencode_url" ] || die "--quiet: missing opencode's model server URL (--opencode-url URL or FACTORY_OPENCODE_URL); nothing was changed"
+		setting opencode_models "$default_opencode_models" "opencode models (vLLM's --served-model-name)"
+		setting opencode_default "$(default_model "$v_opencode_models" "$default_opencode_default")" "opencode default model"
+		setting opencode_efforts "$default_opencode_efforts" "opencode efforts (from minimal, low, medium, high, max)"
+		yaml_harnesses="$yaml_harnesses
+  opencode:
+    models: $(yaml_list "$v_opencode_models")
+    efforts: $(yaml_list "$v_opencode_efforts")
+    default: $v_opencode_default
+    endpoint:
+      url: $v_opencode_url"
 	fi
 	setting max_concurrent "$default_max_concurrent" "Tasks at once"
 	setting cpus "$default_cpus" "CPUs per VM workspace"
@@ -540,7 +569,7 @@ else
 fi
 
 # 7. The model logins, which only the gateway holds.
-say "the model logins (each skippable; later: $agent login claude|codex)"
+say "the model logins (each skippable; later: $agent login claude|codex|opencode)"
 if [ "$dry_run" = 0 ] && confirm "Store a claude login now (paste the token claude setup-token printed)?" n; then
 	claude_token=""
 	ask claude_token "Paste the claude setup-token token (not echoed): " silent
@@ -553,6 +582,16 @@ if [ "$dry_run" = 0 ] && confirm "Import the codex login (after codex login on t
 	"$agent" login codex
 else
 	say "  codex: codex login (with ChatGPT), then: $agent login codex"
+fi
+if in_list opencode "$v_harnesses"; then
+	if [ "$dry_run" = 0 ] && confirm "Store opencode's model server API key now (vLLM's --api-key)?" n; then
+		opencode_key=""
+		ask opencode_key "Paste the model server's API key (not echoed): " silent
+		printf '%s\n' "$opencode_key" | "$agent" login opencode
+		unset opencode_key
+	else
+		say "  opencode: pipe the model server's API key to: $agent login opencode"
+	fi
 fi
 
 # 8. supervise as a service, running as this user (supervise.md: the workspaces are the user's).

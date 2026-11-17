@@ -193,10 +193,12 @@ func example(t *testing.T) *config.Config {
 	return cfg
 }
 
-// checkDefaults fails unless cfg's harnesses, lending and workspace size are the example's.
+// checkDefaults fails unless cfg's harnesses, lending and workspace size are the example's
+// (but its optional opencode, which install.sh writes only when asked).
 func checkDefaults(t *testing.T, cfg *config.Config) {
 	t.Helper()
 	want := example(t)
+	delete(want.Harnesses, config.HarnessOpenCode)
 	if !reflect.DeepEqual(cfg.Harnesses, want.Harnesses) {
 		t.Errorf("harnesses %+v; agent.yaml.example has %+v", cfg.Harnesses, want.Harnesses)
 	}
@@ -313,20 +315,23 @@ func TestInstallScriptDefaults(t *testing.T) {
 	ex := example(t)
 	size := (config.Workspace{}).WithDefaults("linux").Size
 	join := func(l []string) string { return strings.Join(l, ",") }
-	codex, claude := ex.Harnesses[config.HarnessCodex], ex.Harnesses[config.HarnessClaudeCode]
+	codex, claude, oc := ex.Harnesses[config.HarnessCodex], ex.Harnesses[config.HarnessClaudeCode], ex.Harnesses[config.HarnessOpenCode]
 	want := map[string]string{
-		"pool":           ex.Pool,
-		"harnesses":      "codex,claude-code", // the example's two (checkDefaults compares the maps)
-		"codex_models":   join(codex.Models),
-		"codex_default":  codex.Default,
-		"codex_efforts":  join(codex.Efforts),
-		"claude_models":  join(claude.Models),
-		"claude_default": claude.Default,
-		"claude_efforts": join(claude.Efforts),
-		"max_concurrent": strconv.Itoa(ex.MaxConcurrent()),
-		"cpus":           strconv.Itoa(size.CPUs),
-		"memory":         size.Memory,
-		"disk":           size.Disk,
+		"pool":             ex.Pool,
+		"harnesses":        "codex,claude-code", // the example's but its optional opencode (checkDefaults compares the maps)
+		"codex_models":     join(codex.Models),
+		"codex_default":    codex.Default,
+		"codex_efforts":    join(codex.Efforts),
+		"claude_models":    join(claude.Models),
+		"claude_default":   claude.Default,
+		"claude_efforts":   join(claude.Efforts),
+		"opencode_models":  join(oc.Models),
+		"opencode_default": oc.Default,
+		"opencode_efforts": join(oc.Efforts),
+		"max_concurrent":   strconv.Itoa(ex.MaxConcurrent()),
+		"cpus":             strconv.Itoa(size.CPUs),
+		"memory":           size.Memory,
+		"disk":             size.Disk,
 	}
 	if !reflect.DeepEqual(defaults, want) {
 		t.Errorf("install.sh's defaults %v\nagent.yaml.example's %v", defaults, want)
@@ -371,6 +376,16 @@ func TestInstallScriptWrites(t *testing.T) {
 				}
 				if cfg.Workspace == nil || cfg.Workspace.Size != (config.WorkspaceSize{CPUs: 4, Memory: "6Gi", Disk: "60Gi"}) {
 					t.Errorf("workspace %+v", cfg.Workspace)
+				}
+			},
+		},
+		{
+			name: "opencode", env: quietEnv("FACTORY_OPENCODE_URL", "http://spark.example.ts.net:8000"), args: []string{"--harnesses", "opencode"},
+			check: func(t *testing.T, cfg *config.Config) {
+				want := config.Harness{Models: []string{"qwen3-coder-next"}, Efforts: []string{"low", "medium", "high"}, Default: "qwen3-coder-next",
+					Endpoint: &config.Endpoint{URL: "http://spark.example.ts.net:8000", ContextWindow: config.DefaultContextWindow, MaxOutput: config.DefaultMaxOutput}}
+				if h := cfg.Harnesses; len(h) != 1 || !reflect.DeepEqual(h[config.HarnessOpenCode], want) {
+					t.Errorf("harnesses %+v", h)
 				}
 			},
 		},
@@ -512,7 +527,9 @@ func TestInstallScriptRefuses(t *testing.T) {
 		{"a bad version", "Linux", "x86_64", quietEnv("FACTORY_VERSION", "main; rm -rf /"), nil, []string{"is not a vX.Y.Z tag"}},
 		{"--yes", "Linux", "x86_64", ok, []string{"--yes"}, []string{"--yes is replaced by --quiet"}},
 		{"the token as a flag", "Linux", "x86_64", ok, []string{"--enrollment-token", "x"}, []string{"no flag takes the token itself"}},
-		{"an unknown harness", "Linux", "x86_64", ok, []string{"--harnesses", "codex,gemini"}, []string{"--harnesses (FACTORY_HARNESSES): gemini is not one of codex claude-code"}},
+		{"an unknown harness", "Linux", "x86_64", ok, []string{"--harnesses", "codex,gemini"}, []string{"--harnesses (FACTORY_HARNESSES): gemini is not one of codex claude-code opencode"}},
+		{"opencode without its url", "Linux", "x86_64", ok, []string{"--harnesses", "opencode"}, []string{"--quiet: missing opencode's model server URL"}},
+		{"an opencode url with /v1", "Linux", "x86_64", ok, []string{"--harnesses", "opencode", "--opencode-url", "http://spark:8000/v1"}, []string{"--opencode-url (FACTORY_OPENCODE_URL): http://spark:8000/v1: drop the /v1"}},
 		{"an unknown effort", "Linux", "x86_64", ok, []string{"--codex-efforts", "low,huge"}, []string{"--codex-efforts (FACTORY_CODEX_EFFORTS): huge is not one of"}},
 		{"a default not in the models", "Linux", "x86_64", ok, []string{"--claude-default", "claude-haiku-5-5"}, []string{"--claude-default (FACTORY_CLAUDE_DEFAULT): claude-haiku-5-5 is not one of the models"}},
 		{"too little memory", "Linux", "x86_64", ok, []string{"--memory", "1Gi"}, []string{"--memory (FACTORY_MEMORY): 1Gi: want 2Gi to 64Gi"}},

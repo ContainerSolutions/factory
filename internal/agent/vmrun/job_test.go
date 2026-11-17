@@ -12,6 +12,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/agent/harness"
 	"github.com/ContainerSolutions/factory/internal/agent/harness/claudecode"
 	"github.com/ContainerSolutions/factory/internal/agent/harness/codex"
+	"github.com/ContainerSolutions/factory/internal/agent/harness/opencode"
 	"github.com/ContainerSolutions/factory/internal/agent/pipeline"
 	"github.com/ContainerSolutions/factory/internal/agent/runbundle"
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
@@ -76,7 +77,8 @@ func TestJobFromBundle(t *testing.T) {
 	}
 }
 
-// taskAdapters builds only the task's harness; codex gets the bundle's account.
+// taskAdapters builds only the task's harness; codex gets the bundle's account, opencode its
+// model limits.
 func TestAdapters(t *testing.T) {
 	t.Parallel()
 	clk := clock.NewFake(time.Date(2026, 10, 22, 9, 0, 0, 0, time.UTC))
@@ -104,9 +106,17 @@ func TestAdapters(t *testing.T) {
 		t.Errorf("auth.json %s %v", auth, err)
 	}
 
+	b = jobBundle("", config.HarnessOpenCode)
+	b.Manifest.Model = &runbundle.Model{ContextWindow: 131072, MaxOutput: 16384}
+	ads, err = taskAdapters(b, adapterOptions{Clock: clk})
+	if _, ok := ads[config.HarnessOpenCode].(*opencode.Adapter); err != nil || !ok || len(ads) != 1 {
+		t.Errorf("opencode: %v %v", ads, err)
+	}
+
 	for name, mk := range map[string]func() *runbundle.Bundle{
-		"codex without an account": func() *runbundle.Bundle { return jobBundle("", config.HarnessCodex) },
-		"an unknown harness":       func() *runbundle.Bundle { return jobBundle("", "gemini") },
+		"codex without an account":      func() *runbundle.Bundle { return jobBundle("", config.HarnessCodex) },
+		"opencode without model limits": func() *runbundle.Bundle { return jobBundle("", config.HarnessOpenCode) },
+		"an unknown harness":            func() *runbundle.Bundle { return jobBundle("", "gemini") },
 		"no resolved harness": func() *runbundle.Bundle {
 			b := jobBundle("", "codex")
 			b.Task.Spec.Harness = nil
@@ -122,12 +132,12 @@ func TestAdapters(t *testing.T) {
 func TestHarnessBins(t *testing.T) {
 	t.Parallel()
 	h := harnessBins{}
-	for _, s := range []string{"codex=/opt/codex", "claude-code=/opt/claude"} {
+	for _, s := range []string{"codex=/opt/codex", "claude-code=/opt/claude", "opencode=/opt/opencode"} {
 		if err := h.Set(s); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := h.String(); got != "claude-code=/opt/claude,codex=/opt/codex" {
+	if got := h.String(); got != "claude-code=/opt/claude,codex=/opt/codex,opencode=/opt/opencode" {
 		t.Errorf("String %q", got)
 	}
 	for _, s := range []string{"codex", "codex=", "gemini=/g"} {

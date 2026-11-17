@@ -295,7 +295,7 @@ func TestBaseScriptRuns(t *testing.T) {
 				t.Fatalf("the run ended before gifski's download:\n%s\nstderr:\n%s", log, stderr)
 			}
 			for name, sums := range pins {
-				if strings.HasPrefix(name, "CODEX_") {
+				if strings.HasPrefix(name, "CODEX_") || strings.HasPrefix(name, "OPENCODE_") {
 					continue // after the claude-code check, which the stubs can't pass
 				}
 				if !strings.Contains(log, sums[c.arch]+"  ") {
