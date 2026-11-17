@@ -1,2 +1,5 @@
 lisa-addressed:
 pass 2: workspace-host.md names opencode beside claude and codex (never run; TestProvisionScript's three names; OC-4's digests).
+
+lisa-selfreview:
+pass 3 (strict): approve, no findings. Not covered by a test (lean): the runner's error for an opencode task when the config has no endpoint (config validation already requires one).
