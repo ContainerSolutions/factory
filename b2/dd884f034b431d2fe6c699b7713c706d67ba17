@@ -1,0 +1,8 @@
+lisa-design:
+- Event, field, tool and flag names are read from anomalyco/opencode@v1.19.6 (run.ts emit/loop, schema/v1/session.ts, session/processor.ts, session/retry.ts, provider/error.ts, tool/*.ts, mcp/catalog.ts); each is marked "read from" in flags.go. Only the rate wording of vLLM's own answers stays UNVERIFIED.
+- Usage input = tokens.input + cache.read + cache.write (opencode's input excludes both, getUsage), output = output + reasoning: the model's real counts, as claude counts cached input. The spec said input + cache read; cache.write is 0 on vLLM anyway.
+- The error classification text is data.message + data.responseBody + "HTTP <statusCode>" (never the raw line: timestamps could contain 429/503). no-login is checked first (not a throttle), then the gateway's upstream/timeout bodies (now+5m, built from policy.Code.Response so they can't drift), then rateLimitWords (ResetTime, else now+2m).
+- factory-session.json holds only sessionId, model and workDir: opencode.json (written by Prepare, reloaded by the repair) already holds the permissions and the effort, so a read-only flag or effort in the record would be dead state. LLD updated.
+- The --file fallback (promptOnStdin=false) puts fileMessage before the flags because run's --file is an array option that swallows any following positional.
+- Repair doesn't rewrite the session record: the pipeline repairs at most once.
+- Test streams are hand-written from the source's shapes (a # comment line at the top, which the fake drops). The parse goldens marshal the Recorder directly; semantics are pinned by TestRun/TestRunFailures/TestPipelineEndToEnd, not a separate semantics test, to stay under 1000 counted lines.
