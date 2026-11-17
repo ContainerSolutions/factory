@@ -1,0 +1,12 @@
+lisa-addressed:
+---
+Comment (design/workstreams/agent/LLD/gateway.md:197):
+**[Should-fix] An endpoint URL ending in /v1 doubles the prefix**
+
+`ModelEndpoint.URL` is the server's root and its path is joined in front of the request's, while the VM's `baseURL` already ends in `/v1`. vLLM's own docs (and every Codex/Claude Code integration guide) give the endpoint as `http://host:8000/v1`, so an owner who copies that into the agent config gets `/v1/v1/chat/completions` upstream and a 404 on every model call, with nothing in the LLD saying the URL must exclude `/v1`.
+
+**Why:** The documented vLLM convention conflicts with the route's path join, a likely misconfiguration on the owner's first setup.
+**Fix:** State in §The model endpoint (and in the OC-6 pointer under 'Filled by the supervisor') that the agent config's endpoint `url` is the server's root without `/v1`, and that OC-6's config validation refuses a path ending in `/v1` (or `/v1/`) with a message saying to drop it.
+**Severity basis:** no rule matched; decision tree: likely to cause a future bug.
+
+<sub>ccf-review · c1a05be0389c · rules@a2047481e6e9</sub>
