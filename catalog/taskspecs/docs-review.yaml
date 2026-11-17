@@ -15,7 +15,9 @@ spec:
   instructions: { template: prompts/docs-review.md.tmpl, headless: true }
   skills: [{ source: ccf-skills, ref: v0.10.0, use: ["ccf-review:review", docs-style, docs-verify, ccf-test] }]
   requires: { labels: [] }
-  harness: { default: { name: claude-code, config: { model: "claude-{sonnet,opus}-5-*", reasoningEffort: high } } }
+  harness:
+    allowed: [{ name: claude-code, models: "claude-{sonnet,opus}-5-*", reasoningEffort: high }, { name: opencode, models: "*", reasoningEffort: "*" }]
+    default: { name: claude-code, config: { model: "claude-{sonnet,opus}-5-*", reasoningEffort: high } }
   workspace: { checkout: read-only }
   identity: reviewer
   permissions: { pull_requests: write, contents: read }

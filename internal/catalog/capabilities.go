@@ -24,8 +24,10 @@ const (
 )
 
 // defaultHarnesses is the embedded default for `factory validate`: the codex and claude-code
-// adapters with the models and efforts of the PoC agents (design/10-poc.md). The AGT
-// adapters' static descriptors replace it once they exist (AGT-S1).
+// adapters with the models and efforts of the PoC agents (design/10-poc.md), and opencode
+// without known models, as the models an opencode endpoint serves are its owner's
+// (harness-adapters LLD §OpenCode). The AGT adapters' static descriptors replace it once they
+// exist (AGT-S1).
 //
 //go:embed defaults/harnesses.json
 var defaultHarnesses []byte

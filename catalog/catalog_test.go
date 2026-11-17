@@ -213,6 +213,23 @@ func TestCodexModels(t *testing.T) {
 	}
 }
 
+// TestOpencodeOverride: every TaskSpec runs opencode when a command asks for it (a redispatch
+// with args.harness {name: opencode}), whatever model the agent's endpoint serves, as the
+// scheduler resolves a request (harness-adapters LLD §OpenCode). It doesn't check the defaults:
+// which harness they name is the owner's call.
+func TestOpencodeOverride(t *testing.T) {
+	c := load(t)
+	if len(c.TaskSpecs) == 0 {
+		t.Fatal("no TaskSpecs")
+	}
+	off := patterns.Offer{Harness: "opencode", Models: []string{"served-model"}, DefaultModel: "served-model", Efforts: []string{"low", "medium", "high"}}
+	for _, name := range keys(c.TaskSpecs) {
+		if _, err := patterns.Resolve(c.TaskSpecs[name].Constraints, patterns.Request{Harness: "opencode"}, off); err != nil {
+			t.Errorf("%s: an opencode override doesn't resolve: %v", name, err)
+		}
+	}
+}
+
 // prodDocs is the real docs repo: only the prod (poc-*) RuleSets may write to it.
 const prodDocs = "compliance-framework/docs"
 

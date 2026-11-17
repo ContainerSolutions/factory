@@ -320,13 +320,14 @@ func TestScope(t *testing.T) {
 }
 
 func TestCapabilitiesFiles(t *testing.T) {
-	if got := DefaultCapabilities(); len(got) != 2 || got[0].Harness != "codex" || got[1].Harness != "claude-code" {
+	if got := DefaultCapabilities(); len(got) != 3 || got[0].Harness != "codex" || got[1].Harness != "claude-code" || got[2].Harness != "opencode" {
 		t.Errorf("default capabilities = %v", got)
 	}
-	if got := DefaultKnownModels(); !slices.Equal(got["claude-code"], []string{"claude-sonnet-5-5", "claude-opus-5-5"}) {
+	got := DefaultKnownModels()
+	if _, opencode := got["opencode"]; opencode || !slices.Equal(got["claude-code"], []string{"claude-sonnet-5-5", "claude-opus-5-5"}) {
 		t.Errorf("default known models = %v", got)
 	}
-	if caps, err := ParseCapabilities(defaultHarnesses); err != nil || len(caps) != 2 {
+	if caps, err := ParseCapabilities(defaultHarnesses); err != nil || len(caps) != 3 {
 		t.Errorf("the embedded file as --capabilities: %v, %v", caps, err)
 	}
 	for _, bad := range []string{`[{"harness": ""}]`, `[{"harness": "a"}, {"harness": "a"}]`, `[{"harness": "a", "x": 1}]`, `nope`} {
