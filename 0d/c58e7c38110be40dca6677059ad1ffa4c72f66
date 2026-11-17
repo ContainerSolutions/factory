@@ -1,0 +1,2 @@
+lisa-design:
+default_tags removed from the aws provider on purpose: the live kit was applied without them (resources carry only their Name tags), so main matches what is deployed. Owner's call; don't re-add.
