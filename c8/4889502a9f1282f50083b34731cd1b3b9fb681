@@ -2,3 +2,8 @@ lisa-design:
 - Only NotMatched records drop Inputs (in Evaluation.Records); Matched, ActionError and WhereError keep them for debugging. SuppressedByFinal/Duplicate never had inputs.
 - Match.Inputs and the engine are deliberately unchanged: the dry-run evaluation API and the rules goldens read them. The record itself stays (rule, reason, event, at) for the "why" view and replay history; replay's sameDecision ignores inputs.
 - No contract change: v1alpha1.Decision.Inputs is already optional (omitzero).
+
+lisa-selfreview:
+pass 1 (verdict: approve)
+- [should-fix, CORE-DOC-001, 4c5b59e27ee4] web/src/components/workitem/WorkItemTimeline.vue:21: the doc comment says each not-fired row shows the inputs `where` saw; not-matched records now have none (the template already guards on inputs). Deferred: web/ is never changed in the same PR as Go code (AGENTS.md) and the task forbids touching web/; listed in the PR body.
+- Verified: TestRecords fails without the evaluation.go change and passes with it. make reviewable: check-generated, lint (0 issues), catalog (66/66), openapi-lint pass; go test fails only internal/agent/host/provision TestBaseScriptRuns, which fails identically on origin/main on macOS (no /etc/os-release).
