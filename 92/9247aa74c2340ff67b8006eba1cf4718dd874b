@@ -1,0 +1,6 @@
+lisa-design:
+- A TaskSpec that had only harness.default now has an explicit harness.allowed whose first entry is the default's own constraint (same name, models pattern and effort): the same constraint the catalog derived from the default before (derivedConstraint), so nothing it accepted changes; opencode is the second entry.
+- opencode is allowed as { models: "*", reasoningEffort: "*" } in every TaskSpec, and no knownModels entry: the served model names are the owner's, so no model check applies (ADR-0010, harness-adapters.md §OpenCode).
+- No descriptor-vs-adapter test: none exists for codex or claude-code, and internal/catalog (pure) can't import internal/agent. Only the existing TestCapabilitiesFiles count and the no-capabilities golden (its "known harnesses" list) change.
+- No comment lines in the TaskSpecs: none of them explains its harness choice.
+- Defaults unchanged: the owner flips them after his smoke run.
