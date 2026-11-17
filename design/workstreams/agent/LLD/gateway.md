@@ -1,6 +1,6 @@
 # LLD — The workspace gateway (AGT)
 
-> Workstream: [AGT](../../definitions.md#agt-agent) · Tasks: P1 phase 4 · Packages: `internal/agent/gateway`, `internal/agent/gateway/{policy,ca,chatgpt}`, `internal/agent/host` (the `gatewayca` step)
+> Workstream: [AGT](../../definitions.md#agt-agent) · Tasks: P1 phase 4, OC-3 ([the model endpoint](#the-model-endpoint), [ADR-0010](../../../adr/0010-self-hosted-models-through-opencode.md)) · Packages: `internal/agent/gateway`, `internal/agent/gateway/{policy,ca,chatgpt}`, `internal/agent/host` (the `gatewayca` step)
 > Design: [P1 §3](../../../proposals/P1-agent-workspaces.md#3-the-gateway-every-credential-outside-the-vm), [§5](../../../proposals/P1-agent-workspaces.md#5-credentials-injected-by-the-gateway-never-in-the-workspace), Decisions 4, 6, 7 and 9 · Phase 0: [Q4](../../../proposals/P1-phase0-report.md#q4-does-claude-code-work-behind-a-tls-intercepting-gateway-with-a-placeholder-token), [Q5](../../../proposals/P1-phase0-report.md#q5-can-the-gateway-carry-codexs-subscription-auth), [egress](../../../proposals/P1-phase0-report.md#the-gateway-and-egress-on-the-mac) · The VM side: [workspace-run.md](workspace-run.md#phase-4s-gateway)
 
 The gateway is the workspace's only TCP route out and the only holder of its credentials. (The VM's DNS still goes to the Mac's resolver, outside the gateway and its log: [Risks](#risks-and-open-questions), item 9.) It's an explicit forward proxy (absolute-form HTTP and CONNECT) that TLS-intercepts only the credentialed hosts, adds their credentials and applies the per-host rules below. Every other host gets a plain tunnel, after an egress check. It replaces Phase 0's mitmproxy addon (`gw.py`) and implements the policy the test-only `fakegateway` (#109) models. One gateway runs per workspace (Decision 7), as a library inside the phase 5 supervisor, which starts it on the workspace's gateway address and closes it with the workspace.
@@ -34,10 +34,10 @@ The gateway is the workspace's only TCP route out and the only holder of its cre
 
 | Package | What | Rules |
 |---|---|---|
-| `internal/agent/gateway/policy` | the decisions: host classes, the github.com, api.github.com and dispatcher rules, the egress check, the cookie filter, the refusal codes and bodies | **pure**, like `internal/rules`: no network, no clock, no I/O. Table-tested per row of [the host table](#the-host-table) |
+| `internal/agent/gateway/policy` | the decisions: host classes, the github.com, api.github.com, dispatcher and model-endpoint rules, the egress check, the cookie filter, the refusal codes and bodies | **pure**, like `internal/rules`: no network, no clock, no I/O. Table-tested per row of [the host table](#the-host-table) |
 | `internal/agent/gateway/ca` | the agent host's CA: `Generate`, `Load`, leaf minting and the leaf cache | crypto and files only |
 | `internal/agent/gateway/chatgpt` | `Login`, the `Store` interface, `Refresher` (proactive and on-401 refresh, single-flight, write-back) | one `Refresher` per supervisor, shared by its gateways |
-| `internal/agent/gateway` | the proxy: listener, CONNECT, tunnels and their ClientHello peek, interception, upstream transports (the dispatcher's included), the egress dialer, the egress log, `Close` | uses the three above |
+| `internal/agent/gateway` | the proxy: listener, CONNECT, tunnels and their ClientHello peek, interception, upstream transports (the fixed-upstream one included), the egress dialer, the egress log, `Close` | uses the three above |
 | `internal/agent/host` | the `gatewayca` step and `host init --rotate-ca` | as the other steps ([workspace-host.md](workspace-host.md#steps-tart-driver)) |
 
 No new dependency: TLS, `httputil.ReverseProxy` (which already passes a `101 Switching Protocols` through by hijacking both sides) and `net/netip` are the standard library's. No `factory-agent` subcommand is added: a manual entry would need a subscription store and a lease, both phase 5's, and would be one more credential path to review. Tests drive the library in process.
@@ -60,6 +60,7 @@ type Config struct {
     Dispatcher    *url.URL         // the supervisor's dispatcher base URL (http or https), required; its own transport
     Anthropic     *AnthropicAuth   // nil: none. Only for a claude task
     ChatGPT       ChatGPTSource    // nil: none. Only for a codex task (*chatgpt.Refresher)
+    ModelEndpoint *ModelEndpoint   // nil: none. Only for an opencode task; see [the model endpoint](#the-model-endpoint)
     Egress        policy.Egress    // the task's mode and allow list, extra denied prefixes, open addresses
     Sink          Sink             // the egress log; required
     Clock         clock.Clock      // records' times and durations (the CA has its own)
@@ -87,10 +88,10 @@ func (g *Gateway) Serve(ctx context.Context, ln net.Listener) error // until ctx
 func (g *Gateway) Close() error                     // idempotent; see [Close](#close)
 ```
 
-- **The supervisor (phase 5)**, per lease: loads the CA (`ca.Load`, so a rotated CA applies to the next workspace without a restart), builds the `Config` from the job (`Egress.Mode` and `Egress.AllowHosts` from the Task's `spec.environment.egress`, which the compiler copies from the TaskSpec's `workspace.environment.egress`; a Task without one gets the zero `Egress`, `default`), `net.Listen("tcp", <gateway address>:<workspace.gatewayPort>)` after the driver's `Start`, runs `Serve` in a goroutine, and closes the gateway after `Destroy`. It gives a gateway only its task's model credential: a claude task's gateway has no ChatGPT login, and a codex task's has no Claude token.
+- **The supervisor (phase 5)**, per lease: loads the CA (`ca.Load`, so a rotated CA applies to the next workspace without a restart), builds the `Config` from the job (`Egress.Mode` and `Egress.AllowHosts` from the Task's `spec.environment.egress`, which the compiler copies from the TaskSpec's `workspace.environment.egress`; a Task without one gets the zero `Egress`, `default`), `net.Listen("tcp", <gateway address>:<workspace.gatewayPort>)` after the driver's `Start`, runs `Serve` in a goroutine, and closes the gateway after `Destroy`. It gives a gateway only its task's model credential: a claude task's gateway has no ChatGPT login, a codex task's has no Claude token, and only an opencode task's has a `ModelEndpoint`.
 - **Lease refresh needs no new call.** The worker's heartbeat already swaps refreshed git tokens into `job.Git` (`Set`, `SetReads`), and the gateway reads it on every request, as `gitcred` does. `DispatcherToken` is the lease's run token (#101), which lives exactly as long as the lease and isn't refreshed. A lease without one (a dispatcher from before run tokens) gets the agent token instead, logged at debug; it is read on every request, so a re-registered agent token applies at once.
 - **The git host is `github.com`** (`policy.GitHost`), not a knob: the CA's name constraints list it ([the CA](#the-ca)), so another host (GitHub Enterprise) would need a new CA and a contract for it. Credentials whose `host` isn't `github.com` are never used.
-- `New` refuses: an empty `TaskID`, `RunID`, `Clients` or `Sink`; a nil `DispatcherToken`; an invalid `Clients` address (unspecified, with a zone); an `AllowHosts` entry `v1alpha1.ValidateHost` refuses; a `Dispatcher` that isn't an absolute http(s) URL without user info, query or fragment; an `AnthropicAuth` with neither or both fields. Errors are `*ConfigError{Field}` and never carry a value.
+- `New` refuses: an empty `TaskID`, `RunID`, `Clients` or `Sink`; a nil `DispatcherToken`; an invalid `Clients` address (unspecified, with a zone); an `AllowHosts` entry `v1alpha1.ValidateHost` refuses; a `Dispatcher` that isn't an absolute http(s) URL without user info, query or fragment; an `AnthropicAuth` with neither or both fields; a `ModelEndpoint` whose `URL` fails the `Dispatcher` rule or whose `APIKey` is empty. Errors are `*ConfigError{Field}` and never carry a value.
 
 ## The host table
 
@@ -104,15 +105,16 @@ Host names are compared lower-cased and without a trailing dot, exactly (no suff
 | `github.com` | see [github.com](#githubcom) | `Basic x-access-token:<token>` by the repo in the path | receive-pack for a repo that isn't rw, malformed git requests, non-`GET`/`HEAD` web requests |
 | `api.github.com` | `GET`, `HEAD`, any path but `/graphql` (in any spelling: it can't be checked there); `POST /graphql` (exactly, no query) when the body is a read ([GraphQL](#graphql-reads)) | `Authorization: Bearer <task token>` (the lease's `gitCredential`); none when it's empty | every other request: 403 `api-write` |
 | `dispatcher.factory.internal` (`runbundle.DefaultDispatcherURL`) | absolute-form `http` only, on port 80 (another port is `dispatcher-route`); see [the dispatcher](#the-dispatcher) | `Authorization: Bearer <DispatcherToken()>` | every other route: 403 `dispatcher-route`; CONNECT: 403 `plain-only` |
+| `model.factory.internal` (`policy.ModelEndpointHost`) | absolute-form `http` only, on port 80: `POST /v1/chat/completions`, `GET /v1/models` and `GET /v1/models/<id>` (one segment); see [the model endpoint](#the-model-endpoint) | every carrier stripped, then `Authorization: Bearer <ModelEndpoint.APIKey>` | another method or path, or another port: 403 `model-path`; a path that isn't canonical: 400 `bad-path`; CONNECT: 403 `plain-only`; all before the endpoint is read. No `ModelEndpoint`: 503 `no-login` |
 | everything else | CONNECT: a tunnel; absolute-form `http`: forwarded | none; only `Proxy-Authorization` is dropped | the [egress check](#egress) |
 
 ### Carriers and cookies
 
 **Carriers** are `Authorization`, `Proxy-Authorization`, `X-Api-Key` and URL user info. On every injected route all of them are stripped before the credential is set, so the VM's placeholder is replaced and never compared (workspace-run.md: "always replace, never match placeholders"). For the audit, each record says what the VM sent in its carriers (`client`: `none`, `placeholder` when every carrier is `harness.Placeholder` in the forms the fake's `classify` accepts, else `other`). An `other` is logged as a warning, without its value: a credential reached the VM.
 
-**`Cookie` isn't a carrier on the model hosts.** codex keeps a process-wide cookie jar for chatgpt.com, shared by its HTTP and WebSocket transports, that holds only Cloudflare's infrastructure cookies and the `__oailb` load-balancer cookie (`codex-rs/http-client/src/chatgpt_cloudflare_cookies.rs` at rust-v0.163.0). They come from chatgpt.com's own `Set-Cookie`, which the gateway passes back, so after the first response every codex request carries them, and Phase 0's `gw.py` forwarded them. So on chatgpt.com and the Anthropic hosts (Cloudflare fronts them too) the gateway keeps only the cookies named in `policy.InfraCookies`, codex's allow list: `__cf_bm`, `__cflb`, `__cfruid`, `__cfseq`, `__cfwaitingroom`, `__oailb`, `_cfuvid`, `cf_clearance`, `cf_ob_info`, `cf_use_ob` and any `cf_chl_*`. It drops every other cookie (a session cookie the VM shouldn't have), and removes the header when none is left. Cookies don't count for `client`. On github.com, api.github.com and the dispatcher, `Cookie` is stripped. Tunnels and plain forwarding carry no credential and leave it alone.
+**`Cookie` isn't a carrier on the model hosts.** codex keeps a process-wide cookie jar for chatgpt.com, shared by its HTTP and WebSocket transports, that holds only Cloudflare's infrastructure cookies and the `__oailb` load-balancer cookie (`codex-rs/http-client/src/chatgpt_cloudflare_cookies.rs` at rust-v0.163.0). They come from chatgpt.com's own `Set-Cookie`, which the gateway passes back, so after the first response every codex request carries them, and Phase 0's `gw.py` forwarded them. So on chatgpt.com and the Anthropic hosts (Cloudflare fronts them too) the gateway keeps only the cookies named in `policy.InfraCookies`, codex's allow list: `__cf_bm`, `__cflb`, `__cfruid`, `__cfseq`, `__cfwaitingroom`, `__oailb`, `_cfuvid`, `cf_clearance`, `cf_ob_info`, `cf_use_ob` and any `cf_chl_*`. It drops every other cookie (a session cookie the VM shouldn't have), and removes the header when none is left. Cookies don't count for `client`. On github.com, api.github.com, the dispatcher and the model endpoint, `Cookie` is stripped. Tunnels and plain forwarding carry no credential and leave it alone.
 
-**Inside an intercepted tunnel** each request must be in origin form: a `CONNECT`, an absolute-form request and `OPTIONS *` get 400 `not-proxy`, never forwarded. Its `Host` is normalised like the CONNECT's host (lower-cased, a trailing dot and a `:443` port removed) and must then be that host; another port, or another name, is 400 `host-mismatch`. Its upstream is always that host on 443, never a name taken from the request. The TLS handshake's SNI must be empty or that host (else the handshake fails). The canonical-path check (`RawPath == ""` and `path.Clean(Path) == Path`, else 400 `bad-path`) runs only where a path is matched (github.com, the dispatcher, and the model hosts on a request their path list gates): api.github.com takes encoded branch names (`feature%2Fx`), and its rule is the method alone.
+**Inside an intercepted tunnel** each request must be in origin form: a `CONNECT`, an absolute-form request and `OPTIONS *` get 400 `not-proxy`, never forwarded. Its `Host` is normalised like the CONNECT's host (lower-cased, a trailing dot and a `:443` port removed) and must then be that host; another port, or another name, is 400 `host-mismatch`. Its upstream is always that host on 443, never a name taken from the request. The TLS handshake's SNI must be empty or that host (else the handshake fails). The canonical-path check (`RawPath == ""` and `path.Clean(Path) == Path`, else 400 `bad-path`) runs only where a path is matched (github.com, the dispatcher, the model endpoint, and the model hosts on a request their path list gates): api.github.com takes encoded branch names (`feature%2Fx`), and its rule is the method alone.
 
 ### Refusals and errors
 
@@ -126,20 +128,20 @@ Every answer the gateway makes itself is `text/plain; charset=utf-8`, with `X-Fa
 | `bad-target` | 400 | `refused: the CONNECT target is not host:port` |
 | `port` | 403 | `refused: this host is served on port 443 only` |
 | `plain-http` | 403 | `refused: plain HTTP to an intercepted host` |
-| `plain-only` | 403 | `refused: the dispatcher is served over plain HTTP through the proxy` |
+| `plain-only` | 403 | `refused: this host is served over plain HTTP through the proxy` (the dispatcher and the model endpoint; OC-3 rewords it, since it named the dispatcher) |
 | `auth-host` | 403 | `refused: auth.openai.com is not reachable from workspaces (the gateway refreshes the login)` |
 | `push-refused` | 403 | `push refused: the repository is not writable for this task` |
 | `web-write` | 403 | `refused: github.com takes only GET and HEAD outside git` |
 | `api-write` | 403 | `refused: api.github.com is read-only for workspaces` |
 | `dispatcher-route` | 403 | `refused: the dispatcher route is not open to workspaces` |
-| `model-path` | 403 | `refused: this path on a model host is not open to workspaces` (a model host's request that would get the login, on a path off the host's list) |
+| `model-path` | 403 | `refused: this path on a model host is not open to workspaces` (a model host's request that would get the login, on a path off the host's list; on the model endpoint, a request off its route or on another port) |
 | `egress-not-allowed` | 403 | `refused: the task's egress policy does not allow this host` |
 | `egress-denied` | 403 | `refused: the destination is a denied address (<class>)`, class one of `unspecified`, `loopback`, `private`, `cgnat`, `link-local`, `ula`, `multicast`, `reserved`, `documentation`, `agent-host`, `extra` |
 | `resolve` | 502 | `the destination's name does not resolve` |
 | `upstream` | 502 | `the upstream is unreachable` (dial or TLS failure; the error is logged at debug, never sent: it can hold addresses) |
 | `timeout` | 504 | `the upstream timed out` |
 | `closing` | 503 | `the gateway is closing` |
-| `no-login` | 503 | `no model login for this host on this agent host` (chatgpt.com when `ChatGPT.Current` has no token at all) |
+| `no-login` | 503 | `no model login for this host on this agent host` (chatgpt.com when `ChatGPT.Current` has no token at all; the model endpoint when the gateway has no `ModelEndpoint`. The body names no host, so it serves both unchanged) |
 | `sni-mismatch` | — | none: the tunnel's ClientHello names another host; the connection is closed after the `200` ([tunnels](#tunnels)) |
 | `not-tls` | — | none: under deny-by-default, a tunnel to port 443 that doesn't start with a ClientHello; closed after the `200` |
 | `peer` | — | none: a peer outside `Clients` is closed at accept |
@@ -170,7 +172,7 @@ These are the fake's rows (rw repos pass any git request, read and unknown repos
 
 The only route is `POST /api/v1/tasks/<TaskID>/effects`: the path is compared segment by segment, after the canonical-path check, with `<TaskID>` exactly `Config.TaskID`; any query is allowed, as for the fake. It's fixed in `policy`, with no `Config` knob, so a supervisor can't widen it by mistake. The upstream is `Config.Dispatcher`: its scheme and host, its path joined in front of the request's, and `Host` set to it. That upstream is the supervisor's own configuration (on the Mac, `127.0.0.1:8800`; on the Linux supervisor an https URL), so it skips the egress check, which exists to stop VM-chosen destinations.
 
-**The dispatcher has its own transport.** The egress dialer's `Control` refuses loopback, so it can't carry `127.0.0.1:8800`. The dispatcher's `http.Transport` dials with a plain `net.Dialer` (10 s, no `Control`) and only `Config.Dispatcher`'s host and port (the scheme's default when it has none): its `DialContext` refuses any other address, so a request can't redirect it. For an https dispatcher it verifies with `UpstreamRoots` (the system roots by default; the tests' httptest CA). HTTP/1.1, no proxy (`Proxy: nil`). This is the only dial in the gateway that bypasses the egress dialer; the `chatgpt` refresher's client is its own ([refresh](#chatgpt-refresh)) and isn't the gateway's.
+**The dispatcher has its own transport.** The egress dialer's `Control` refuses loopback, so it can't carry `127.0.0.1:8800`. The dispatcher's `http.Transport` dials with a plain `net.Dialer` (10 s, no `Control`) and only `Config.Dispatcher`'s host and port (the scheme's default when it has none): its `DialContext` refuses any other address, so a request can't redirect it. For an https dispatcher it verifies with `UpstreamRoots` (the system roots by default; the tests' httptest CA). HTTP/1.1, no proxy (`Proxy: nil`). OC-3 generalises it into the fixed-upstream transport, which [the model endpoint](#the-model-endpoint) shares. They are the only dials in the gateway that bypass the egress dialer; the `chatgpt` refresher's client is its own ([refresh](#chatgpt-refresh)) and isn't the gateway's.
 
 | Route (`/api/v1`) | Run token (#101) | Through the gateway | Why |
 |---|---|---|---|
@@ -178,6 +180,37 @@ The only route is `POST /api/v1/tasks/<TaskID>/effects`: the path is compared se
 | `GET /tasks/{id}/prompt`, `/output-schema`, `/context/{n}` | yes | no | in the bundle (`PrepareBundle` on the host) |
 | `PUT /runs/{id}/transcript` | yes | no | the supervisor uploads after re-redacting and adding `factory.egress` lines; a VM upload could replace them |
 | anything else | no | no | — |
+
+### The model endpoint
+
+**Decided (OC-3, [ADR-0010](../../../adr/0010-self-hosted-models-through-opencode.md)):** an opencode task's model is a server the owner runs: vLLM on the DGX Spark, with an OpenAI-compatible `/v1` API, reached over a tunnel. The VM reaches it as `model.factory.internal` (`policy.ModelEndpointHost`, class `ModelEndpoint`), a route built like the dispatcher's, for the same two reasons:
+
+- **The server's address is one the egress check denies:** Tailscale's `100.64.0.0/10` (`cgnat`), a WireGuard or LAN range (`private`), or `127.0.0.1` for an SSH tunnel (`loopback`). `OpenAddrs` would open it to anything in the VM, not only the model client, and give the gateway nowhere to inject the key.
+- **The URL is the owner's configuration,** not something the VM chose, so it skips the egress check as the dispatcher does.
+
+The VM sends plain absolute-form HTTP to the synthetic name through `HTTP_PROXY`. The CA, its name constraints and the `gatewayca` step don't change, since nothing is intercepted.
+
+**The route** is fixed in `policy` (`DecideModelEndpoint`), with no `Config` knob: `POST /v1/chat/completions`, `GET /v1/models` and `GET /v1/models/<id>` (one segment), compared after the canonical-path check, case-sensitive, with any query. Anything else, and another port, is 403 `model-path`; a CONNECT is 403 `plain-only`. These checks come before the endpoint is read; then a gateway without one answers 503 `no-login`.
+
+```go
+type ModelEndpoint struct {
+    URL     *url.URL       // the server's root (http://spark.example.ts.net:8000); a path in it is a prefix
+    APIKey  string         // vLLM's --api-key
+    RootCAs *x509.CertPool // for an https URL; nil: UpstreamRoots (the system roots by default)
+}
+```
+
+- **Redacted:** `String`, `Format`, `GoString`, `LogValue`, `MarshalJSON` and `MarshalText` never show `APIKey`, as `AnthropicAuth`'s don't.
+- **Validated by `New`:** `URL` must pass the `Dispatcher` rule (`validDispatcher`: absolute http or https, a host, no user info, query or fragment), and `APIKey` must not be empty. The errors are `*ConfigError{Field}`, without a value.
+- **Filled by the supervisor** for an opencode task only (OC-6): the agent config's endpoint `url` and `caFile`, and the key from `factory-agent login opencode`.
+
+**The upstream** is `URL`, as for the dispatcher: its scheme and host, its path joined in front of the request's, and `Host` set to it. Every carrier is stripped, then `Authorization: Bearer <APIKey>` is set; `Cookie` is stripped. The body is streamed, never buffered or retried.
+
+**The fixed-upstream transport.** OC-3 turns `newDispatcherTransport` into one constructor for a URL and its roots, used by both routes. It dials with a plain `net.Dialer` (10 s, no `Control`), and only the URL's host and port (the scheme's default when it has none), refusing any other address. It uses no proxy and HTTP/1.1, verifies with the roots, and waits up to 5 minutes for response headers ([limits](#limits-and-timeouts)), which a long prompt's prefill on the Spark needs.
+
+**Streaming.** opencode asks for a stream, and vLLM answers `text/event-stream`. `httputil.ReverseProxy` flushes that type at once, whatever `FlushInterval` is, so tokens reach the VM as they come. A stream has no body timeout: the run's wall clock and `Close` end a stuck one.
+
+**The key on the tunnel.** With an `http` URL the key travels in clear from the agent host to the server, so an `http` URL is for a tunnel that encrypts (Tailscale, WireGuard, SSH); anything else uses https. The gateway can't tell the two apart and doesn't try.
 
 ## Egress
 
@@ -264,10 +297,10 @@ Every request, refusals included, is one `Record`. The supervisor (phase 5) writ
 {"type":"factory.egress","at":"2026-10-22T10:00:00.123Z","mode":"intercept","method":"POST","host":"api.anthropic.com","port":443,"path":"/v1/messages","status":200,"injected":"anthropic-oauth","client":"placeholder","refusal":"","up":1834,"down":20511,"ms":5120}
 ```
 
-- **`mode`** says where the request was handled: `connect` (an intercepted host's CONNECT itself), `intercept` (a request inside one), `tunnel` (any other CONNECT: one line per tunnel, written when it closes, with its bytes), `forward` (plain HTTP), `dispatcher` or `accept` (a peer outside `Clients`). A non-empty `refusal` marks a refusal, whatever the mode.
-- **`injected`:** `""`, `anthropic-oauth`, `anthropic-key`, `chatgpt`, `git:<owner>/<repo>`, `github-api` or `dispatcher-token`. **`refusal`:** one of the codes in the tables above.
+- **`mode`** says where the request was handled: `connect` (an intercepted host's CONNECT itself), `intercept` (a request inside one), `tunnel` (any other CONNECT: one line per tunnel, written when it closes, with its bytes), `forward` (plain HTTP), `dispatcher`, `model` (the [model endpoint](#the-model-endpoint)) or `accept` (a peer outside `Clients`). A non-empty `refusal` marks a refusal, whatever the mode.
+- **`injected`:** `""`, `anthropic-oauth`, `anthropic-key`, `chatgpt`, `git:<owner>/<repo>`, `github-api`, `dispatcher-token` or `model-endpoint`. **`refusal`:** one of the codes in the tables above.
 - **`path`:** the URL path only, never the query, cut at 512 bytes on a UTF-8 boundary; empty for CONNECT and tunnels.
-- **What is never logged:** header values, bodies, queries, or the resolved addresses.
+- **What is never logged:** header values, bodies, queries, or the resolved addresses. A model-endpoint record's host is `model.factory.internal` on port 80, never the server's URL.
 - **Upgrades** are logged with status 101 when they end. `at` is the request's start, on the injected clock; `ms` is its duration.
 - **A cap of 50,000 records per gateway;** after that, one `{"type":"factory.egress-truncated","dropped":N}` at `Close`. An `npm install` makes thousands of requests, and the transcript's cap is 20 MB.
 
@@ -311,6 +344,7 @@ Never the real Anthropic, OpenAI or GitHub: every upstream is an `httptest` TLS 
 | 7 GitHub, dispatcher | a table per row of [github.com](#githubcom) and [the dispatcher](#the-dispatcher): the status, the refusal code, whether the upstream was reached, the `Authorization` it got; carriers and `Cookie` stripped; `plain-http` to github.com; `plain-only` (a CONNECT to the dispatcher); the dispatcher on another port (`dispatcher-route`); the dispatcher transport reaching a `127.0.0.1` httptest dispatcher (which the egress dialer refuses) and an https one through `UpstreamRoots`, and refusing to dial any other address; a heartbeat's `Set` applied to the next request; `git clone` and a refused `git push` through the gateway |
 | 8 model injection | the Anthropic presence rule in both modes; chatgpt.com's injection and account header, only with `Authorization`; the cookie filter: a chatgpt.com request with `__oailb`, `_cfuvid` and a `session` cookie reaches upstream with the first two only and records `client: placeholder`; `plain-http` to a model host; `auth.openai.com` refused (CONNECT and plain); the retrying `RoundTripper` over a fake `ChatGPTSource`: a 401 retried once, a body over 1 MiB not retried, a 401 whose body is over 64 KiB passed through unchanged, a failed refresh passing the 401 on; `no-login` (503) when the source has no token |
 | 9 refresher | on a fake clock: proactive by `exp` and, without one, by `LastRefresh`; on 401 when `used` is already stale; single flight (N concurrent callers, one call); a re-imported store; write-back and a failed `Save` retried; the endpoint and client id from the provenance, else the constants; the import refusing a bad `Issuer`; a 200 without `access_token` keeping the old one and saving the new refresh token; a 200 with a bad body not retried; permanent failures (401, 400 `invalid_grant`, `REFRESH_TOKEN_REUSED` upper-case in `error.code`) and transient ones (5xx, network) with their backoff; the placeholder never sent |
+| OC-3 model endpoint | a table per [route](#the-model-endpoint) row (each method and path, another method, another path, a path that isn't canonical, another port, a CONNECT, no `ModelEndpoint`): the status, the refusal code, whether the upstream was reached and the `Authorization` it got; carriers and `Cookie` stripped; the URL's path prefix joined; an SSE stream passed through as it comes (the client reads the first event before the server sends the last); the fixed transport reaching a `127.0.0.1` httptest server, which the egress dialer refuses, and an https one through `RootCAs`, and refusing to dial any other address; `New`'s refusals; the reworded `plain-only` body. The route is added to the fakegateway and to `gatewaycases` |
 | 10 conformance | `gatewaycases` run by both the fake and the gateway; `vmrun`'s in-process end-to-end test also through the real gateway, with the no-credential walk ([workspace-run.md](workspace-run.md#tests), layer 4) |
 
 Every table asserts that no record and no log line contains a token (the redactor's patterns and the test's literal tokens), as the fake's `assertNoTokens` does.
@@ -329,6 +363,8 @@ A gh stack on phase 3's. The sizes count `_test.go` files, as ccf-review's size 
 8. feat(agent): gateway model injection: the Anthropic and chatgpt.com routes, the cookie filter, `auth.openai.com`, the retrying `RoundTripper` over `ChatGPTSource` (~700: ~300, ~400).
 9. feat(agent): the `chatgpt` refresher: `Login` with its provenance, `Store`, `Refresher` with single flight and write-back (~900: ~400, ~500).
 10. test(agent): `gatewaycases` shared with the fakegateway, and `vmrun` end to end through the real gateway (~600).
+
+OC-3, in the OpenCode stack: feat(agent): the gateway's model-endpoint route: `policy`'s class and route, `Config.ModelEndpoint`, the fixed-upstream transport shared with the dispatcher, the reworded `plain-only` body, and the route in the fakegateway and `gatewaycases` (~700).
 
 PRs 2 to 5 and 7 to 10 build on darwin and linux; PR 6 only adds a step to the tart list (the kata list is phase 9's). None needs #100 or #101 merged: the egress mode and the run token come in as `Config` values, which phase 5 fills from the contract.
 
@@ -349,6 +385,7 @@ Each item is a constant, a `Config` field or a check, so a fix doesn't change th
 7. Softnet drops a VM's packets from an address it wasn't leased (the client pin's precondition; phase 5's manual check).
 8. Departures D1 to D5 from `gw.py` ([the table](#departures-from-phase-0s-gwpy)).
 9. The model hosts' path allow-lists cover every call claude-code and codex make; phase 8's first run checks the egress log for `model-path` refusals. Phase 0 names codex's analytics call without its path: it is allowed only if it is under `/backend-api/codex/`. Other `wham` and `ps` paths (codex's usage, for one) are refused until a run shows a harness needs them; `/api/oauth/` stays refused whatever a run shows.
+10. opencode calls its provider only on the model endpoint's route, and vLLM's streamed answers pass `ReverseProxy` as sent; the owner's first opencode run checks the egress log for `model-path` refusals and for `injected: model-endpoint` on `/v1/chat/completions`.
 
 Phase 8's first codex run through the real gateway checks 3, 4, 6 and 8; phase 5's manual check covers 7. A forced refresh against the real endpoint checks 1, 2 and, for an owner whose `auth.json` has provenance, 5; it's run by the owner, never by an agent.
 

@@ -1,6 +1,6 @@
 # LLD — Workspace runtime: `factory-agent run` (AGT)
 
-> Workstream: [AGT](../../definitions.md#agt-agent) · Tasks: P1 phase 3 · Packages: `internal/agent/runbundle`, `internal/agent/vmrun`, `internal/agent/envrun`, `internal/agent/pipeline`, `internal/agent/harness/{claudecode,codex}`, `internal/agent/effector`, `cmd/factory-agent`
+> Workstream: [AGT](../../definitions.md#agt-agent) · Tasks: P1 phase 3 · Packages: `internal/agent/runbundle`, `internal/agent/vmrun`, `internal/agent/envrun`, `internal/agent/pipeline`, `internal/agent/harness/{claudecode,codex,opencode}`, `internal/agent/effector`, `cmd/factory-agent`
 > Design: [P1 §2](../../../proposals/P1-agent-workspaces.md#2-the-workspace-and-factory-agent-run), [§3](../../../proposals/P1-agent-workspaces.md#3-the-gateway-every-credential-outside-the-vm), [§4](../../../proposals/P1-agent-workspaces.md#4-the-environment-is-declared-in-the-taskspec), [§5](../../../proposals/P1-agent-workspaces.md#5-credentials-injected-by-the-gateway-never-in-the-workspace) · Phase 0: [Q4 (claude)](../../../proposals/P1-phase0-report.md#q4-does-claude-code-work-behind-a-tls-intercepting-gateway-with-a-placeholder-token), [Q5 (codex)](../../../proposals/P1-phase0-report.md#q5-can-the-gateway-carry-codexs-subscription-auth) · Base image: [workspace-host.md](workspace-host.md#the-vm-steps-p1-2)
 
 `factory-agent run` is the runtime inside a VM workspace. It reads the **run bundle** the supervisor wrote, builds a `runner.Job` from it with every token empty, and runs the existing `Pipeline.Run` with different sources: the bundle for the prompt, context, schema and skills; git through the gateway, with no credential helper; an environment runner in place of the local stack; and a file in place of the transcript upload. The host runtime (`factory-agent worker`, removed in phase 10) kept its behaviour byte for byte: every new `pipeline.Options` field's zero value is today's behaviour, and every existing pipeline, harness and worker test passes unchanged.
@@ -54,13 +54,14 @@ type Manifest struct {
     OutputSchema string        // "output-schema.json", or "" (404)
     Skills       []Skill       // {Name, Plugin, Dir}: harness.Skill, Dir relative to the bundle
     Codex        *CodexAccount // {AccountID, UserID, PlanType}; nil unless the harness is codex
+    Model        *Model        // {ContextWindow, MaxOutput int}: the served model's limits; nil unless the harness is opencode
 }
 type GitAccess struct {
     Provider, Host, Repo string
     Permissions map[string]string // the credential's permissions (contents: read|write, …)
     Reads []GitRead               // {Repo string; ReadRepos []string}: the read credentials' scopes
 }
-type Files struct { Task v1alpha1.Task; Prompt []byte; Context map[int][]byte; OutputSchema []byte; SkillsDir string; CA []byte; Codex *CodexAccount }
+type Files struct { Task v1alpha1.Task; Prompt []byte; Context map[int][]byte; OutputSchema []byte; SkillsDir string; CA []byte; Codex *CodexAccount; Model *Model }
 type Bundle struct { Dir string; Manifest Manifest; Task v1alpha1.Task; Prompt []byte; Context map[int]apiclient.TaskContext; OutputSchema []byte /* nil: 404 */; CAFile string }
 
 func Write(dir string, m Manifest, f Files) error // atomic: writes dir + ".tmp", then renames it to dir
@@ -73,7 +74,7 @@ func (m Manifest) Validate() error
 - **No token field anywhere.** `GitAccess` is the lease's `gitCredential` and `readCredentials` without their `token`; `task.json` is the Task, which by contract carries no credential (the lease carries them beside it). `CodexAccount` holds identifiers, not credentials (P1 §5). A test walks every exported type of the package with reflection and fails on a field named `*Token*`, `*Secret*`, `*Key*` or `*Password*`. At run time `Write` and `Read` scan every string of the manifest and `task.json` for token shapes and refuse a match (naming the field, never the value); the scan covers the external type (`v1alpha1.Task`) the name walk stops at. A match refuses the bundle, so the shapes are the real tokens', between non-identifier boundaries, and a repo `acme/sk-platform` or a host `sk-registry.example.com` passes: GitHub's `gh[opsur]_` (36+ alphanumerics) and `github_pat_` (82+), Anthropic's `sk-ant-` and OpenAI's `sk-proj-`/`sk-svcacct-`/`sk-admin-` keys (80+) and legacy `sk-` (48), the factory's `rtk_`, `enr_` and `arf_` (exactly 43 base64url characters) and `agt_<id>.<43>`, a JWT, a `Bearer`/`Basic` credential and a private key block. A context file's content is not shape-scanned: it is untrusted provider text, where a token-shaped example in an issue body is no credential of the run's, and refusing the bundle over it would only make runs fail. `PrepareBundle` checks every byte it writes for the job's real tokens instead ([below](#pipelinepreparebundle-host-side)).
 - **`Write`** refuses an existing `dir` (the supervisor writes each run's bundle once), removes a leftover `dir.tmp`, writes everything into `dir.tmp` (directories 0700, files 0600, a skill's executable files 0700, as the pipeline's `materialise` does), fsyncs the files, then renames `dir.tmp` to `dir`. A failure removes `dir.tmp`. The driver's `Put` copies the tree to `/var/lib/factory/run`, owned by root and read-only to everyone (files 0444, directories and executable files 0555), so the run's user, `admin`, can read it and not change it (phase 5).
 - **`Read`** opens the bundle through an `os.Root`, so no manifest path leaves it, reads `bundle.json`, `task.json`, the prompt, the context files and the schema, each capped at the bound the pipeline applies to it on the host (the prompt 1 MiB, `maxPrompt`; a context item 4 MiB, `maxContext`; the schema 1 MiB, `maxSchema`; `bundle.json` and `task.json` 1 MiB), and runs `Validate`. `Write` refuses the same sizes, so an oversize item fails on the host before a VM exists, never in it. It doesn't read the skills: they were bounded when they were materialised (run-pipeline.md §Skills: 50 MB and 5,000 entries per plugin).
-- **`Validate`** checks: `Version == 1`; `RunID` starts with `run_` (a `rtk_` value is refused by name: it's the run token's prefix); `TaskID` and `LeaseID` are set and `TaskID` is `task.json`'s; `Dispatcher` is an absolute `http`/`https` URL without user info, query or fragment; every file path is relative, clean and without `..`; each `Context` index is a non-repo item of the Task's `spec.context`, listed once, with a `File` exactly when it isn't `Gone`; each `Skills` entry's `Dir` is under `skills/` and names one plugin; `Gateway.NoProxy` entries are hosts (`v1alpha1.ValidateHost`) or CIDRs; `Codex` is set exactly when `spec.harness.resolved.name` is `codex`, with all three fields non-empty. Every failure is a `*runbundle.ValidationError{Field, Message}`.
+- **`Validate`** checks: `Version == 1`; `RunID` starts with `run_` (a `rtk_` value is refused by name: it's the run token's prefix); `TaskID` and `LeaseID` are set and `TaskID` is `task.json`'s; `Dispatcher` is an absolute `http`/`https` URL without user info, query or fragment; every file path is relative, clean and without `..`; each `Context` index is a non-repo item of the Task's `spec.context`, listed once, with a `File` exactly when it isn't `Gone`; each `Skills` entry's `Dir` is under `skills/` and names one plugin; `Gateway.NoProxy` entries are hosts (`v1alpha1.ValidateHost`) or CIDRs; `Codex` is set exactly when `spec.harness.resolved.name` is `codex`, with all three fields non-empty; `Model` is set exactly when it is `opencode`, with both fields positive (OC-6). Every failure is a `*runbundle.ValidationError{Field, Message}`.
 - **The outcome** (`outcome.go`): the wire `Outcome{Status, Reason, ThrottledUntil, Result, Transcript}`, where `Transcript` is the transcript's file name under `out/` (or empty). `Validate` checks `Status` and `Reason` against `runner.Statuses()` and `runner.Reasons()` (the one list of each), and allows `ThrottledUntil` only on a throttled outcome. `WriteOutcome` writes through a temp file and a rename. `ReadOutcome(outDir, now)` refuses an `outDir` that isn't a real directory (a symlink included) and an `outcome.json` that isn't a regular file with one link (opened `O_NONBLOCK`, then fstat'd, so a FIFO can't block it), caps it at 2 MiB (`MaxOutcomeBytes`), validates it and clamps its throttle (`ClampThrottle`; [trust model](#trust-model)).
 - **The events** (`events.go`): `Event{Type, At, Start, Step, Progress, Usage, Outcome}`, one pointer per type; `Encoder` (one JSON line per event, at most 64 KiB, `MaxEventBytes`; serialised by a mutex, since the Sink is called from several goroutines) and `Decoder` (refuses a line over the cap, skips unknown types, so a newer VM can talk to an older supervisor, and refuses negative or non-finite usage, as the dispatcher does). `StepOf` cuts a step's error at 8 KiB (`MaxStepError`) on a UTF-8 boundary, so the step event still fits its line. A decoding error names the field and the JSON kind, never the value.
 
@@ -279,6 +280,17 @@ The adapters run only here, where the VM is the boundary (P1 §2 step 3; phase 1
 - **Invocation:** `--sandbox danger-full-access` (`sandboxDangerFullAccess`). `[mcp_servers.factory]` keeps `default_tools_approval_mode = "approve"`; with full disk access and `approval_policy = "never"` codex wouldn't ask anyway (harness-adapters.md, gap 3).
 - **An API-key run is refused** in the VM (Prepare): codex's `OPENAI_API_KEY` path has no gateway injection in the PoC.
 
+### opencode
+
+[ADR-0010](../../../adr/0010-self-hosted-models-through-opencode.md); the adapter is [harness-adapters.md §OpenCode](harness-adapters.md#opencode).
+
+- **The binary** is `/usr/local/bin/opencode`, a pinned release that `base.sh` installs, sha256-checked per arch, as it does codex (OC-6). The tart and kata images both get it through `base.sh`.
+- **The config** is in a scratch directory: `opencode/opencode.json` (also named by `OPENCODE_CONFIG`) and the flattened skills, under the pipeline's scratch `XDG_CONFIG_HOME` (`<home>/.config`). Its one provider, `factory`, has `baseURL` `http://model.factory.internal/v1` and `apiKey` `harness.Placeholder`. The gateway replaces the bearer with the owner's key ([gateway.md](gateway.md#the-model-endpoint)), so the VM never learns the model server's address or key.
+- **The proxy is set twice.** The model call reaches the gateway through `HTTP_PROXY`, as the dispatcher's does. But opencode is a Bun binary: its `fetch` isn't Node's, `NODE_USE_ENV_PROXY` doesn't govern it, and compiled Bun binaries have been seen ignoring `HTTP_PROXY`. So the provider's `proxy` option is also set to the run's `HTTP_PROXY`, which is `--proxy` (harness-adapters.md, UNVERIFIED item 3). A missed proxy fails closed, because the VM has no other route out.
+- **No credential in the bundle.** opencode's only bundle field is `Model{ContextWindow, MaxOutput}` ([types](#types)): the served model's limits for `opencode.json`'s `limit.context` and `limit.output`. Only the owner knows them, so they come from the agent config's opencode endpoint (OC-6). The key and the server's URL stay on the agent host.
+- **The environment** adds opencode's switches (no autoupdate, no models.dev, no LSP downloads, no `.claude/` from the repo). `XDG_DATA_HOME` stays system setup's, so gh still finds its extensions from the agent's shell commands; opencode's sessions go there, in the VM.
+- **A read-only checkout:** `permission.edit` is `deny`, and the instructions say not to change it. Nothing in the VM stops a shell write, and the gateway refuses the push.
+
 ## The Effector in the workspace runtime
 
 - **No `FACTORY_TOKEN`:** the client sends no `Authorization` header, which already works; the gateway adds the run token for `dispatcher.factory.internal`. The default HTTP client honours `HTTP_PROXY` (`http.ProxyFromEnvironment`), and the dispatcher's name isn't in `NO_PROXY`. A 401's message becomes "the dispatcher refused the run's credentials" in both runtimes (it named the agent token).
@@ -289,7 +301,7 @@ The adapters run only here, where the VM is the boundary (P1 §2 step 3; phase 1
 ## `pipeline.PrepareBundle` (host side)
 
 ```go
-type BundleExtras struct { CA []byte; Dispatcher string; Codex *runbundle.CodexAccount }
+type BundleExtras struct { CA []byte; Dispatcher string; Codex *runbundle.CodexAccount; Model *runbundle.Model }
 func (p *Pipeline) PrepareBundle(ctx context.Context, job *runner.Job, dir string, x BundleExtras) error
 ```
 
@@ -338,6 +350,7 @@ Specified in [gateway.md](gateway.md); in short:
 - github.com: Basic auth by the repo in the path; `git-receive-pack` refused for repos that aren't rw for the task.
 - api.github.com: GET only, `Authorization` replaced.
 - Anthropic: the bearer replaced, or `x-api-key` set. chatgpt.com: the bearer and `chatgpt-account-id` replaced.
+- `model.factory.internal` (OC-3): the owner's model server, for an opencode task only, with the bearer replaced ([gateway.md](gateway.md#the-model-endpoint)).
 - **Always replace, never match placeholders.**
 - Every other host: a tunnel or a forward after the egress check, under the Task's `spec.environment.egress` (`default`, or `deny-by-default` with its `allow` list); the hosts above aren't subject to the mode ([gateway.md](gateway.md#egress)).
 
