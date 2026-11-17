@@ -211,7 +211,7 @@ Every setting is a flag (after `bash -s --`) or an environment variable, the fla
 | `--enrollment-token-file PATH` | `FACTORY_ENROLLMENT_TOKEN` (the token itself) | none: **required**, unless the host is already enrolled or `~/.config/factory-agent/enrollment-token` exists; the default mode asks for it (not echoed) |
 | `--pool NAME` | `FACTORY_POOL` | `local` |
 | `--host NAME` | `FACTORY_HOST` | the machine's short host name, lower-cased |
-| `--harnesses LIST` | `FACTORY_HARNESSES` | `codex,claude-code` (at least one of those and `opencode`) |
+| `--harnesses LIST` | `FACTORY_HARNESSES` | `codex,claude-code` (one or more of `codex`, `claude-code`, `opencode`) |
 | `--codex-models LIST`, `--codex-default MODEL`, `--codex-efforts LIST` | `FACTORY_CODEX_MODELS`, `_DEFAULT`, `_EFFORTS` | `gpt-6.1-sol`, `gpt-6.1-sol`, `low,medium,high` |
 | `--claude-models LIST`, `--claude-default MODEL`, `--claude-efforts LIST` | `FACTORY_CLAUDE_MODELS`, `_DEFAULT`, `_EFFORTS` | `claude-sonnet-5-5,claude-opus-5-5`, `claude-sonnet-5-5`, `low,medium,high,max` |
 | `--opencode-url URL` | `FACTORY_OPENCODE_URL` | none: **required** with `opencode`. The model server's root, without `/v1` ([The DGX Spark](#the-dgx-spark-opencode)) |

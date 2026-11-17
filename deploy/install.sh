@@ -30,7 +30,7 @@
 #   --dispatcher URL        FACTORY_DISPATCHER      none: required. https, or http on a loopback host
 #   --pool NAME             FACTORY_POOL            local
 #   --host NAME             FACTORY_HOST            this machine's short host name, lower-cased
-#   --harnesses LIST        FACTORY_HARNESSES       codex,claude-code (at least one of those and opencode)
+#   --harnesses LIST        FACTORY_HARNESSES       codex,claude-code (one or more of codex, claude-code, opencode)
 #   --codex-models LIST     FACTORY_CODEX_MODELS    gpt-6.1-sol
 #   --codex-default MODEL   FACTORY_CODEX_DEFAULT   gpt-6.1-sol
 #   --codex-efforts LIST    FACTORY_CODEX_EFFORTS   low,medium,high

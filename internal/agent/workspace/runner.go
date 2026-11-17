@@ -419,7 +419,7 @@ func (w *wsRun) loadLogins(name string) (ml modelLogins, x pipeline.BundleExtras
 		}
 		roots, err := e.RootCAs()
 		if err != nil {
-			return ml, x, err
+			return ml, x, fmt.Errorf("the opencode endpoint: %w", err)
 		}
 		x.Model = &runbundle.Model{ContextWindow: e.ContextWindow, MaxOutput: e.MaxOutput}
 		return modelLogins{model: &gateway.ModelEndpoint{URL: u, APIKey: key, RootCAs: roots}}, x, nil

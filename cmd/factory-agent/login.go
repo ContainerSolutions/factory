@@ -128,7 +128,10 @@ func runLogin(args []string, stdout, stderr io.Writer, d loginDeps) int {
 	store := login.ForStateDir(*stateDir)
 	if which != "codex" {
 		if d.IsTerminal() {
-			paste := map[string]string{"claude": "`claude setup-token`'s output", "opencode": "the model server's API key"}[which]
+			paste := "`claude setup-token`'s output"
+			if which == "opencode" {
+				paste = "the model server's API key"
+			}
 			fmt.Fprintf(stderr, "Paste %s, then press Enter and Ctrl-D.\n", paste)
 		}
 		b, err := io.ReadAll(io.LimitReader(d.Stdin, maxStdinToken+1))
