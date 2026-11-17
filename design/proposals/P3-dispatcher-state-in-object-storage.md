@@ -12,7 +12,7 @@
 
 P2's file store keeps the dispatcher's state in a local directory and allows one writer: it
 holds an exclusive flock on the dir. The next step (IMPROVEMENTS.md, "a shippable factory") runs
-our own instance at `factory.container-solutions.com` on Cloud Run or Lambda:
+our own instance at `factory.ccf.container-solutions.com` on Cloud Run or Lambda:
 
 - **No local disk survives.** An instance's filesystem is gone when it scales to zero.
 - **Several instances run at once.** The platform starts a second instance under load, and
