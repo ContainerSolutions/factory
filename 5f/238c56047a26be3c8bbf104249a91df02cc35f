@@ -1,0 +1,3 @@
+lisa-design:
+- Pin by the multi-arch OCI image index digest (not a per-platform manifest, not the v0.4.0 tag): the t4g instance resolves its arm64 image from the index, and a digest can't move under the dispatcher the way a tag can. Same kind of pin as v0.3.1/v0.3.2.
+- Only aws_ssm_parameter.image changes: user_data does not carry the digest (the boot script reads /factory/prod/image at unit start), so the apply updates the parameter in place and replaces no instance.
