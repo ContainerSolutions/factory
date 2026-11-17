@@ -101,9 +101,16 @@ func TestRunFailures(t *testing.T) {
 }
 
 // TestRepair: the repair resumes the run's session; without one, a new run gets the prompt
-// first. Either asks for the Result only.
+// first. Either asks for the Result only. Without a run there is nothing to repair.
 func TestRepair(t *testing.T) {
 	t.Parallel()
+	t.Run("nothing to repair", func(t *testing.T) {
+		t.Parallel()
+		a, ws, fo := prepared(t)
+		if _, err := a.Repair(context.Background(), ws, nil, &harnesstest.Recorder{}); err == nil || len(fo.calls()) != 0 {
+			t.Errorf("Repair before Run = %v", err)
+		}
+	})
 	for _, tt := range []struct {
 		name, session string
 		run           fakeRun
