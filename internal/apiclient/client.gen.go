@@ -816,7 +816,7 @@ type HarnessResolved = v1alpha1.HarnessResolved
 type HeartbeatRequest struct {
 	Progress []ProgressEvent `json:"progress,omitempty"`
 
-	// Usage Usage since the previous heartbeat. `costUSD` is null for subscription runs.
+	// Usage Usage since the previous heartbeat. `costUSD` is null unless the run is billed by an API key (subscription and selfHosted runs carry none).
 	Usage *UsageDelta `json:"usage,omitempty"`
 }
 
@@ -1264,7 +1264,7 @@ type TrustRule = v1alpha1.TrustRule
 // Usage Usage is what a run consumed.
 type Usage = v1alpha1.Usage
 
-// UsageDelta Usage since the previous heartbeat. `costUSD` is null for subscription runs.
+// UsageDelta Usage since the previous heartbeat. `costUSD` is null unless the run is billed by an API key (subscription and selfHosted runs carry none).
 type UsageDelta struct {
 	CostUSD      *float32 `json:"costUSD,omitempty"`
 	InputTokens  *int64   `json:"inputTokens,omitempty"`

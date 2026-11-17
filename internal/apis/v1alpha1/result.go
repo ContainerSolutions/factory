@@ -43,8 +43,9 @@ type Suggestion struct {
 
 // ResultHarness is the harness that ran, its effective config and usage.
 type ResultHarness struct {
-	Name            string          `json:"name"`
-	Version         string          `json:"version,omitzero"`
+	Name    string `json:"name"`
+	Version string `json:"version,omitzero"`
+	// Auth is subscription, apiKey, accessToken, cloud or selfHosted.
 	Auth            string          `json:"auth,omitzero"`
 	EffectiveConfig EffectiveConfig `json:"effectiveConfig"`
 	Usage           Usage           `json:"usage"`
@@ -56,7 +57,8 @@ type EffectiveConfig struct {
 	ReasoningEffort string `json:"reasoningEffort,omitzero"`
 }
 
-// Usage is what a run consumed. CostUSD is null for subscription runs.
+// Usage is what a run consumed. CostUSD is null unless the run is billed by an API key
+// (subscription and selfHosted runs carry none).
 type Usage struct {
 	InputTokens  int64    `json:"inputTokens"`
 	OutputTokens int64    `json:"outputTokens"`
@@ -82,7 +84,7 @@ type AdapterCapabilities struct {
 type HarnessOffer struct {
 	Name    string `json:"name"`
 	Version string `json:"version,omitzero"`
-	// Auth is subscription, apiKey, accessToken or cloud.
+	// Auth is subscription, apiKey, accessToken, cloud or selfHosted.
 	Auth   string   `json:"auth,omitzero"`
 	Models []string `json:"models,omitzero"`
 	// DefaultModel is the model the harness uses when none is asked for; resolution prefers
