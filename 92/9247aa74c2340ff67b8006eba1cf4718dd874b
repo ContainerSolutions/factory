@@ -4,3 +4,8 @@ lisa-design:
 - No descriptor-vs-adapter test: none exists for codex or claude-code, and internal/catalog (pure) can't import internal/agent. Only the existing TestCapabilitiesFiles count and the no-capabilities golden (its "known harnesses" list) change.
 - No comment lines in the TaskSpecs: none of them explains its harness choice.
 - Defaults unchanged: the owner flips them after his smoke run.
+
+lisa-selfreview:
+pass 1 (strict): request_changes
+- [must-fix] CORE-TEST-001 catalog/taskspecs/*.yaml harness.allowed: nothing pins that every TaskSpec accepts an opencode override (fp 14f0a55aa17b). Fix: a catalog/catalog_test.go test resolving {name: opencode} against each TaskSpec's constraints.
+- [nit] CORE-STYLE-001 internal/catalog/capabilities.go defaultHarnesses comment cites ADR-0010 for "no known models", which ADR-0010 doesn't say; harness-adapters.md §OpenCode does. Fix: cite the LLD.
