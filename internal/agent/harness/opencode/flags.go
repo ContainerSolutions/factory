@@ -148,8 +148,9 @@ type permissionDoc struct {
 
 // ---- run ----------------------------------------------------------------------------------
 
-// The run flags OC-5 uses: --format json streams the session's events as JSON lines,
-// --model is <provider>/<model> (split at the first "/"), --file the stdin fallback.
+// The run flags: --format json streams the session's events as JSON lines, --model is
+// <provider>/<model> (split at the first "/"), --session resumes a session of the data dir
+// (run exits 1 with "Session not found" on an unknown one), --file the stdin fallback.
 // read from packages/opencode/src/cli/cmd/run.ts
 const (
 	cmdRun      = "run"
@@ -160,9 +161,55 @@ const (
 	flagFile    = "--file"
 )
 
-// promptOnStdin sends the prompt on stdin, which run reads whenever it isn't a terminal.
+// promptOnStdin sends the prompt on stdin, which run reads whenever it isn't a terminal and
+// appends to the message arguments. Off, the prompt is a --file and the message fileMessage,
+// before the flags: --file takes every path that follows it.
 // read from packages/opencode/src/cli/cmd/run.ts
-const promptOnStdin = true
+const (
+	promptOnStdin = true
+	fileMessage   = "Follow the instructions in the attached file."
+)
+
+// ---- The JSON stream ----------------------------------------------------------------------
+
+// Each stdout line is {type, timestamp, sessionID, …}, every one naming the session:
+// step_start (a model call starts), step_finish (it ended: part.tokens), tool_use (a tool part
+// that completed or failed: part.tool, part.state.input), text (a finished text part:
+// part.text) and error (a session error, or the prompt's: error, which a session error has as
+// {name, data: {message, statusCode, responseBody, …}}). After an error run exits 1, also
+// after one the session carried on from (a ContextOverflowError, compacted: processor.ts).
+// read from packages/opencode/src/cli/cmd/run.ts (emit, loop) and
+// packages/schema/src/v1/session.ts (the parts, APIError)
+const (
+	evStepStart  = "step_start"
+	evStepFinish = "step_finish"
+	evToolUse    = "tool_use"
+	evText       = "text"
+	evError      = "error"
+)
+
+// The built-in tools a tool event's summary names, with the input it shows: bash's command,
+// the file tools' filePath, glob's and grep's pattern and skill's name. An MCP tool is
+// <server>_<tool>.
+// read from packages/opencode/src/tool/{shell/id,edit,write,read,glob,grep,skill}.ts
+// and packages/opencode/src/mcp/catalog.ts
+const (
+	toolBash   = "bash"
+	toolEdit   = "edit"
+	toolWrite  = "write"
+	toolRead   = "read"
+	toolGlob   = "glob"
+	toolGrep   = "grep"
+	toolSkill  = "skill"
+	mcpToolSep = "_"
+)
+
+// rateLimitWords, found case-insensitively in an error (its message, response body and HTTP
+// status) or the last stderr line after a failed exit, say the model server is rate limiting
+// or overloaded. opencode retries those itself first, up to 5 times (read from
+// packages/opencode/src/session/retry.ts), and reports the last one as an error.
+// UNVERIFIED (owner to verify on a VM workspace run): the wording vLLM's answers take.
+var rateLimitWords = []string{"429", "too many requests", "rate limit", "rate_limit", "overloaded", "503", "service unavailable"}
 
 // ---- Switches -----------------------------------------------------------------------------
 

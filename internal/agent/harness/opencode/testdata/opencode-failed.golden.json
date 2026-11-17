@@ -1,0 +1,20 @@
+{
+  "lastError": "Service Unavailable: factory gateway: no model login for this host on this agent host",
+  "lastText": "",
+  "progress": [
+    {
+      "Kind": "turn",
+      "Summary": "turn 1",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "error",
+      "Summary": "Service Unavailable: factory gateway: no model login for this host on this agent host",
+      "At": "2026-11-17T12:00:00Z"
+    }
+  ],
+  "rateLimited": null,
+  "recovered": false,
+  "sessionId": "ses_6f7a8b9cafffOpenCodeRun06",
+  "usage": null
+}

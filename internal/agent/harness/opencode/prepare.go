@@ -25,17 +25,11 @@ const (
 // <home>/.factory-opencode/ and, in the scratch XDG_CONFIG_HOME's opencode/, opencode.json
 // (new, 0600, never over an existing file or link) and the flattened skills/.
 func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, t v1alpha1.Task) error {
-	var res v1alpha1.HarnessResolved
-	if h := t.Spec.Harness; h != nil && h.Resolved != nil {
-		res = *h.Resolved
-	}
+	res := resolved(t)
 	if res.Auth != "" && res.Auth != AuthSelfHosted {
 		return fmt.Errorf("opencode: unknown auth %q: opencode runs on the model server's key (%s)", res.Auth, AuthSelfHosted)
 	}
-	in := configInput{model: res.Model, contextWindow: a.o.ContextWindow, maxOutput: a.o.MaxOutput}
-	if in.model == "" {
-		in.model = a.o.Config.Default
-	}
+	in := configInput{model: a.model(res), contextWindow: a.o.ContextWindow, maxOutput: a.o.MaxOutput}
 	if in.model == "" {
 		return errors.New("opencode: the task names no model and the opencode config has no default (there is none for a self-hosted server)")
 	}
@@ -72,6 +66,22 @@ func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, t v1alpha1.Ta
 		return fmt.Errorf("opencode skills: %w", err)
 	}
 	return nil
+}
+
+// resolved is t's resolved harness, or none.
+func resolved(t v1alpha1.Task) v1alpha1.HarnessResolved {
+	if h := t.Spec.Harness; h != nil && h.Resolved != nil {
+		return *h.Resolved
+	}
+	return v1alpha1.HarnessResolved{}
+}
+
+// model is the run's model: the resolved one, else the config's default.
+func (a *Adapter) model(res v1alpha1.HarnessResolved) string {
+	if res.Model != "" {
+		return res.Model
+	}
+	return a.o.Config.Default
 }
 
 // configInput is what opencode.json depends on besides the workspace.

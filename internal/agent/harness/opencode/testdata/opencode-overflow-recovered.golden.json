@@ -1,0 +1,76 @@
+{
+  "lastError": "This model's maximum context length is 131072 tokens. However, you requested 147590 tokens (131206 in the messages, 16384 in the completion). Please reduce the length of the messages or completion.",
+  "lastText": "{\"status\":\"done\",\"outcome\":\"pr-opened\",\"summary\":\"opened acme/docs#13\"}",
+  "progress": [
+    {
+      "Kind": "turn",
+      "Summary": "turn 1",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "tool",
+      "Summary": "read docs/install.md",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "error",
+      "Summary": "This model's maximum context length is 131072 tokens. However, you requested 147590 tokens (131206 in the messages, 16384 in the completion). Please reduce the length of the messages or completion.",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "turn",
+      "Summary": "turn 2",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "message",
+      "Summary": "## Goal …",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "turn",
+      "Summary": "turn 3",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "tool",
+      "Summary": "mcp factory.pr_open",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "turn",
+      "Summary": "turn 4",
+      "At": "2026-11-17T12:00:00Z"
+    },
+    {
+      "Kind": "message",
+      "Summary": "{\"status\":\"done\",\"outcome\":\"pr-opened\",\"summary\":\"opened acme/docs#13\"}",
+      "At": "2026-11-17T12:00:00Z"
+    }
+  ],
+  "rateLimited": null,
+  "recovered": true,
+  "sessionId": "ses_3c4d5e6f7fffOpenCodeRun03",
+  "usage": [
+    {
+      "InputTokens": 120000,
+      "OutputTokens": 300,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 98000,
+      "OutputTokens": 500,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 3900,
+      "OutputTokens": 300,
+      "CostUSD": null
+    },
+    {
+      "InputTokens": 4240,
+      "OutputTokens": 60,
+      "CostUSD": null
+    }
+  ]
+}
