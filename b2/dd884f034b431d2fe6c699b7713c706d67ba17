@@ -6,3 +6,12 @@ lisa-design:
 - The --file fallback (promptOnStdin=false) puts fileMessage before the flags because run's --file is an array option that swallows any following positional.
 - Repair doesn't rewrite the session record: the pipeline repairs at most once.
 - Test streams are hand-written from the source's shapes (a # comment line at the top, which the fake drops). The parse goldens marshal the Recorder directly; semantics are pinned by TestRun/TestRunFailures/TestPipelineEndToEnd, not a separate semantics test, to stay under 1000 counted lines.
+
+lisa-selfreview:
+pass 1 (strict): request_changes
+- should-fix 4249d4ea7e01 lld-tool-summaries-stale: LLD lists fetch/agent summaries the parser no longer produces -> fix
+- should-fix 8456d9d660c0 repair-without-run-untested: Repair before Run has no test -> fix
+- nit 1ac2af012dbb lld-fake-records-config: LLD says the fake records opencode.json -> fix
+- nit 073c4a0a2166 pipeline-comment-vmrun: comment says vmrun builds the adapter (only from OC-6) -> fix
+- question 990c84f9808d file-fallback-unexercised: const-gated --file fallback has no test -> PR body
+- question 232c0d26d0e2 compaction-error-exit-1: a run recovered by compaction exits 1 and fails -> PR body
