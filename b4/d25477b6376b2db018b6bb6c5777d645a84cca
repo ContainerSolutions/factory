@@ -1,0 +1,12 @@
+lisa-design:
+- Pinned anomalyco/opencode v1.19.6 (latest stable with Linux binaries on 2026-11-17); every name in flags.go was read from that tag's source via the contents API, never by running the binary.
+- No provider `proxy` option (setProviderProxy const false): v1.19.6 has none (provider.ts hands options to the AI SDK factory, which ignores it); the proxy is HTTP_PROXY from the environment. LLD updated (Change from the design).
+- No `environment` map on mcp.factory: local MCP servers inherit opencode's env (mcp/index.ts), and {env:NAME} is pasted raw into the config text before parsing (config/variable.ts), so a value with a quote would break the config. LLD updated.
+- permission starts with "*": "allow" (last match wins; overrides opencode's default asks for doom_loop, external_directory, *.env): an "ask" is auto-rejected by `run` and a rejection ends the loop, a deny only fails the tool call.
+- Read-only checkout: edit is deny except "<out relative to the checkout>/*" so the write tool can still write $FACTORY_RESULT (claude's hook allows out/ too). Edit patterns are paths relative to the worktree (tool/write.ts).
+- Bash deny pattern is "git push *" (LLD), which also matches a bare `git push` (wildcard.ts trailing " *").
+- `$schema` is written because opencode rewrites a config file without it.
+- No ContextWindow/MaxOutput defaults (spec said 131072/16384): the LLD (wins) refuses a bundle without Model, so Prepare refuses zero limits.
+- XDG_DATA_HOME is not set (LLD wins over the spec): system setup's ~/.local/share stays.
+- Run/Repair return errNoRun until OC-5; runEnv (OPENCODE_CONFIG + four switches) is the helper OC-5's Run uses.
+- Codex's flattenSkills/linkPluginBins/copyTree and writeNew moved verbatim to clirun (FlattenSkills, WriteNew); codex's tests cover them unchanged.
