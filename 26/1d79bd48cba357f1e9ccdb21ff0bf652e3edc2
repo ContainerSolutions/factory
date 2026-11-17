@@ -1,2 +1,5 @@
 lisa-addressed:
 pass 2: TestOpencodeOverride's doc comment says it doesn't check the defaults.
+
+lisa-selfreview:
+pass 3 (strict): approve, no findings. make reviewable: only TestBaseScriptRuns fails (macOS-only, no /etc/os-release).
