@@ -1,0 +1,6 @@
+lisa-design:
+- The endpoint is harnesses.opencode.endpoint on config.Harness (refused on the other harnesses); Parse fills contextWindow/maxOutput (131072/16384) and expands caFile, so every consumer sees non-zero limits. Its validation messages name no value (a url can hold user info).
+- The runner gets only that endpoint (RunnerOptions.OpenCode), not the whole config; loadLogins returns pipeline.BundleExtras (codex's account or opencode's Model) so execute only adds the CA.
+- runbundle.Model lives in bundle.json only (no separate file as codex/account.json has): the adapter reads it from the manifest; Validate requires it exactly for opencode, both limits positive.
+- agent.yaml.example's opencode block is live (deploykit_test needs every Harnesses() entry), marked optional; install.sh keeps codex,claude-code as the default harnesses and writes opencode only when chosen, so checkDefaults ignores the example's opencode.
+- login opencode checks only non-empty and printable (vLLM keys are arbitrary; spaces allowed); the install.sh opencode login prompt shows only when opencode is configured in this run.
