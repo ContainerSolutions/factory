@@ -1,2 +1,5 @@
 lisa-addressed:
 pass 2: the opencode wall-clock test's bound comment says slow is the margin itself; workspace-run.md says "the VM", not "a 2-CPU VM".
+
+lisa-selfreview:
+pass 3 (strict): approve, no findings. Checked: descendantGroups BFS and exclusions (own group, pid's group, pgid<=1), the mutex on detachedGroups, gotOutcome's happens-before (read after <-relayed), Run's finish-then-release order on every early return, the new runner subtests and the opencode repro failing on the old code (Linux container), lint as GOOS=linux.
