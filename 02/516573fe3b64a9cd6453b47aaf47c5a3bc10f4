@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 2: the opencode wall-clock test's bound comment says slow is the margin itself; workspace-run.md says "the VM", not "a 2-CPU VM".
