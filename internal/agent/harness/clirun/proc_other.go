@@ -21,3 +21,9 @@ func killGroup(pid int) error {
 	_ = p.Kill()
 	return nil
 }
+
+// detachedGroups is unix's: without process groups there are none.
+type detachedGroups struct{}
+
+func (*detachedGroups) terminate(int) {}
+func (*detachedGroups) kill()         {}

@@ -2,16 +2,21 @@ package opencode
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/ContainerSolutions/factory/internal/agent/harness"
 	"github.com/ContainerSolutions/factory/internal/agent/harness/harnesstest"
 	"github.com/ContainerSolutions/factory/internal/agent/runner"
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // TestPipelineEndToEnd runs the pipeline with the opencode adapter on the fake opencode, as a
@@ -75,5 +80,67 @@ func TestPipelineEndToEnd(t *testing.T) {
 	}
 	if len(sink.Events()) == 0 {
 		t.Error("no progress reached the worker")
+	}
+}
+
+// TestPipelineWallClockStopsDetachedCommands (tsk_aa0555463f611aac56ec: a yarn build ran on in
+// the VM past the run's wall clock): at the wall clock the run ends failed{limit} with its
+// transcript, within the runner's margin, although opencode ignores SIGTERM and a command it
+// started in a session of its own ignores it too and holds opencode's output open. On Linux, as
+// in the VM, the command is killed with opencode.
+func TestPipelineWallClockStopsDetachedCommands(t *testing.T) {
+	t.Parallel()
+	e := harnesstest.NewE2E(t, "tsk_01JOPENCODEWALL", "Build the site.\n")
+	clk := clock.NewFake(time.Now())
+	e.Clock = clk
+	fo := newFakeOpencode(t, fakeRun{Stream: "opencode-multistep.jsonl", Detached: true})
+	t.Cleanup(func() {
+		if pids := fo.pids(); len(pids) == 2 {
+			_ = syscall.Kill(pids[1], syscall.SIGKILL) // the command; clirun reaped opencode
+		}
+	})
+	a := New(Options{Binary: fo.Binary, Clock: clk, KillGrace: 200 * time.Millisecond,
+		ContextWindow: harnesstest.ModelLimits.ContextWindow, MaxOutput: harnesstest.ModelLimits.MaxOutput})
+	job := e.Job(v1alpha1.HarnessResolved{Name: Name, Version: "1.19.6", Auth: AuthSelfHosted, Model: "qwen3-coder"}, []string{"pr-opened"})
+	job.StartedAt = clk.Now()
+	p, job := e.Pipeline(a, job)
+	type ended struct {
+		out runner.Outcome
+		err error
+	}
+	done := make(chan ended, 1)
+	go func() {
+		out, err := p.Run(context.Background(), job, &harnesstest.Sink{})
+		done <- ended{out, err}
+	}()
+	for deadline := time.Now().Add(slow); len(fo.pids()) < 2; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the fake opencode never started its command")
+		}
+	}
+	pids := fo.pids()
+	clk.Advance(10 * time.Minute) // the task's maxWallClock
+	var r ended
+	select {
+	case r = <-done:
+	case <-time.After(slow): // a minute, the runner's DefaultMargin; an idle machine takes well under a second
+		t.Fatal("the run didn't end at its wall clock")
+	}
+	if r.err != nil || r.out.Status != runner.StatusFailed || r.out.Reason != runner.ReasonLimit || r.out.TranscriptRef == "" {
+		t.Fatalf("outcome %+v, err %v: want failed{limit} with a transcript", r.out, r.err)
+	}
+	if types := e.TranscriptTypes(); !slices.Contains(types, "factory.opencode-exec") || !slices.Contains(types, "tool_use") {
+		t.Errorf("transcript types %v", types)
+	}
+	if runtime.GOOS != "linux" {
+		return // no /proc: only opencode's own group is signalled
+	}
+	for _, pid := range pids {
+		for deadline := time.Now().Add(slow); syscall.Kill(pid, 0) == nil && time.Now().Before(deadline); {
+			time.Sleep(20 * time.Millisecond)
+		}
+		if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+			t.Errorf("process %d survived the wall clock", pid)
+		}
 	}
 }
