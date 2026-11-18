@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 1: DefaultMargin's doc names controllers.DefaultWallClockGrace; wsRun.reported renamed gotOutcome (the VM's outcome event came); the opencode wall-clock test's cleanup kills only the detached child, not the fake opencode clirun reaped.
