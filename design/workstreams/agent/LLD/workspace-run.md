@@ -360,7 +360,7 @@ Specified in [gateway.md](gateway.md); in short:
 - Decodes the events and relays `progress` and `usage` to the worker's `runner.Sink`; `step` events go to its log.
 - Cancels with SIGTERM, then SIGKILL after its grace, then `Destroy`. Its backstop cancels the run `DefaultOverrun` (1 min) past the VM's deadline, at the wall clock: without an `outcome` event the run is `failed{limit}`; after one, the outcome is collected, as after the down budget.
 - Collects `out/outcome.json` and `out/transcript.jsonl.gz` (nothing else: the agent's scratch shares `out/`) after the `outcome` event or the exit, and treats it as untrusted ([trust model](#trust-model)). Exit 3 or 4 without an outcome is `failed{harness-error}`. The transcript is uploaded before `Destroy`, which a busy VM can make slow.
-- At the VM's deadline the harness's whole tree is stopped: `clirun` signals its process group and the groups of its descendants that left it, such as a build opencode's shell tool started in a session of its own, which would otherwise keep a 2-CPU VM busy through the wrap-up ([harness-adapters.md](harness-adapters.md)).
+- At the VM's deadline the harness's whole tree is stopped: `clirun` signals its process group and the groups of its descendants that left it, such as a build opencode's shell tool started in a session of its own, which would otherwise keep the VM busy through the wrap-up ([harness-adapters.md](harness-adapters.md)).
 
 ## Tests
 

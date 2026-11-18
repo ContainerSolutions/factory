@@ -123,7 +123,7 @@ func TestPipelineWallClockStopsDetachedCommands(t *testing.T) {
 	var r ended
 	select {
 	case r = <-done:
-	case <-time.After(slow): // well within the runner's DefaultMargin
+	case <-time.After(slow): // a minute, the runner's DefaultMargin; an idle machine takes well under a second
 		t.Fatal("the run didn't end at its wall clock")
 	}
 	if r.err != nil || r.out.Status != runner.StatusFailed || r.out.Reason != runner.ReasonLimit || r.out.TranscriptRef == "" {
