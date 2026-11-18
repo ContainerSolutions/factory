@@ -4,3 +4,6 @@ lisa-design:
 - A checkout's own .opencode/ still gets the install (OPENCODE_DISABLE_PROJECT_CONFIG would skip it but also drops the repo's opencode config and skills); none of the target repos has one so far.
 - ripgrep 15.1.0 from its release (opencode's pinned VERSION and asset targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-gnu — the release has only those linux builds of each arch), in its own section before playwright so TestBaseScriptRuns' stubbed run (which ends at the GIF tools' file check) exercises its pins and asset names. No trailing [ -x ] check: sudo install under set -e already fails a bad archive.
 - skipPluginInstall lives in its own file (plugin.go) and Prepare only gains the call: F1 edits prepare.go's instructions() in parallel.
+
+lisa-selfreview:
+pass 1 (approve): no blocker/must-fix/should-fix. Deferred nit: pluginVersion ("1.19.6") mirrors the pinned opencode release; opencode's skip check reads only the package name, so a missed bump is harmless, and flags.go's names are all re-read from source at a new tag anyway.
