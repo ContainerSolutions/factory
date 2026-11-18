@@ -95,8 +95,8 @@ func TestPipelineWallClockStopsDetachedCommands(t *testing.T) {
 	e.Clock = clk
 	fo := newFakeOpencode(t, fakeRun{Stream: "opencode-multistep.jsonl", Detached: true})
 	t.Cleanup(func() {
-		for _, pid := range fo.pids() {
-			_ = syscall.Kill(pid, syscall.SIGKILL)
+		if pids := fo.pids(); len(pids) == 2 {
+			_ = syscall.Kill(pids[1], syscall.SIGKILL) // the command; clirun reaped opencode
 		}
 	})
 	a := New(Options{Binary: fo.Binary, Clock: clk, KillGrace: 200 * time.Millisecond,

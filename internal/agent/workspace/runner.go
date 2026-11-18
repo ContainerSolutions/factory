@@ -55,7 +55,8 @@ const (
 	// DefaultMargin is how long before the task's wall clock the VM's own deadline fires
 	// (--remaining is what is left of the wall clock less the margin): the harness is stopped and
 	// the outcome and the transcript are written before the wall clock, and the dispatcher's
-	// grace past it (2 minutes) is left to collect, upload and complete while the lease holds.
+	// grace past it (controllers.DefaultWallClockGrace, 2 minutes) is left to collect, upload
+	// and complete while the lease holds.
 	DefaultMargin = time.Minute
 	// DefaultOverrun is how long past the VM's deadline the runner lets the VM run before it
 	// cancels it: with DefaultMargin, at the task's wall clock.
@@ -300,7 +301,7 @@ type wsRun struct {
 
 	extra      []string // the model logins' secrets: redacted too
 	created    bool     // Create was called: release destroys (or stops) the workspace
-	reported   bool     // the VM sent its outcome event (set by exec's relay)
+	gotOutcome bool     // the VM sent its outcome event (set by exec's relay)
 	egress     *egressLog
 	gatewayOn  bool   // the gateway served: its records belong in the transcript
 	transcript []byte // the VM's transcript, sanitised; nil when it has none
@@ -375,7 +376,7 @@ func (w *wsRun) execute(ctx context.Context) runner.Outcome {
 	switch {
 	case ctx.Err() != nil:
 		return cancelled()
-	case errors.Is(cause, errOverrun) && !w.reported:
+	case errors.Is(cause, errOverrun) && !w.gotOutcome:
 		return w.failed(runner.ReasonLimit, errOverrun)
 	}
 	// An outcome sent before the backstop stands, as after the down budget.
@@ -602,7 +603,7 @@ func (w *wsRun) exec(ctx context.Context, proxy string, remaining time.Duration)
 	go func() {
 		defer close(relayed)
 		w.relay(pr, func() {
-			w.reported = true
+			w.gotOutcome = true
 			t := w.r.clk.NewTimer(w.r.o.DownBudget)
 			go func() {
 				defer t.Stop()
