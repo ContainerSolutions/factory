@@ -1,0 +1,6 @@
+lisa-design:
+- The margin lives in the supervisor (workspace.Runner: --remaining = wall clock left less Margin), not in vmrun: the VM keeps --remaining's meaning (its deadline) and needs no change; the pipeline's LimitError text still names the task's maxWallClock although the run stops a minute earlier.
+- Overrun now counts from the VM's deadline (default 1 min), so the backstop fires at the task's wall clock, not at the dispatcher's lease end (wall clock + 2 min grace), where it used to coincide.
+- After the backstop, an outcome event already received stands (collected, as after DownBudget): with the earlier backstop a slow environment down would otherwise throw away a finished run's outcome.
+- The transcript upload (finish) runs before release (Destroy), as supervise.md already described; the worker's complete still follows Destroy (Runner.Run's contract unchanged).
+- Detached descendants are found through /proc (Linux only: the workspaces are Linux VMs; no x/sys dependency, not in the allow-list) at the cancel, while the harness lives, and their groups get SIGTERM then SIGKILL after the harness exits. A harness that exits on its own leaves its detached commands to the VM's Destroy, as before. No cgroup or PR_SET_CHILD_SUBREAPER (a reaper loop would race os/exec's Wait).
