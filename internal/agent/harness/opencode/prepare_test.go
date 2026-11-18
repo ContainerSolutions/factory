@@ -126,6 +126,29 @@ func readNew(t *testing.T, p string) []byte {
 	return b
 }
 
+// TestSkillNames: each skill is one line, a plugin's as <plugin>:<skill>, one without a
+// plugin as itself; nothing without skills.
+func TestSkillNames(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name   string
+		skills []harness.Skill
+		want   string
+	}{
+		{"none", nil, ""},
+		{"with and without a plugin", []harness.Skill{{Name: "local"}, {Plugin: "ccf-docs", Name: "docs-style"}},
+			"\n- `local` → `local`\n- `ccf-docs:docs-style` → `docs-style`\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := skillNames(tt.skills)
+			if (tt.want == "") != (got == "") || !strings.HasSuffix(got, tt.want) {
+				t.Errorf("skillNames = %q, want it to end with %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // checkConfig checks opencode.json's meaning, so -update can't bless a regression: the
 // placeholder is the provider's key, once; the MCP server names no variable; and no
 // permission asks.
