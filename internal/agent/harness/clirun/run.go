@@ -51,7 +51,9 @@ type Exit struct {
 // Run runs p to its end. The harness leads its own process group: when ctx ends the whole
 // group gets SIGTERM, the harness SIGKILL after KillGrace, and whatever is left of the group
 // SIGKILL once the harness has exited (always, so commands it left running don't outlive the
-// run). The error is only a failure to start; how the harness ended is in Exit.
+// run). When ctx ends, the groups of its descendants that left its group (commands it started
+// in a session of their own, found through /proc: Linux only) get the same signals. The error
+// is only a failure to start; how the harness ended is in Exit.
 func Run(ctx context.Context, p Process) (Exit, error) {
 	lw := &lineWriter{fn: p.Line}
 	if lw.fn == nil {
@@ -64,13 +66,18 @@ func Run(ctx context.Context, p Process) (Exit, error) {
 	cmd.Stdin = p.Stdin
 	cmd.Stdout, cmd.Stderr = lw, stderr
 	inOwnGroup(cmd)
-	cmd.Cancel = func() error { return terminateGroup(cmd.Process.Pid) }
+	var detached detachedGroups
+	cmd.Cancel = func() error {
+		detached.terminate(cmd.Process.Pid)
+		return terminateGroup(cmd.Process.Pid)
+	}
 	cmd.WaitDelay = p.KillGrace
 	if err := cmd.Start(); err != nil {
 		return Exit{}, fmt.Errorf("start: %w", err)
 	}
 	waitErr := cmd.Wait()
 	_ = killGroup(cmd.Process.Pid)
+	detached.kill()
 	if errors.Is(waitErr, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Success() {
 		waitErr = nil // the harness exited 0; a command it left behind held its output open
 	}

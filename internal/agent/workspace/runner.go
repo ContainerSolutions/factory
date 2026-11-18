@@ -52,9 +52,14 @@ const (
 	// DefaultGatewayPort is the gateway's port on the VM's gateway address when GatewayPort is
 	// zero: workspace.gatewayPort's default, which the host's firewall opens.
 	DefaultGatewayPort = config.DefaultGatewayPort
-	// DefaultOverrun is how long past the task's wall clock the runner lets the VM run before
-	// it cancels it: the VM's own deadline (--remaining) fires first and writes the outcome.
-	DefaultOverrun = 2 * time.Minute
+	// DefaultMargin is how long before the task's wall clock the VM's own deadline fires
+	// (--remaining is what is left of the wall clock less the margin): the harness is stopped and
+	// the outcome and the transcript are written before the wall clock, and the dispatcher's
+	// grace past it (2 minutes) is left to collect, upload and complete while the lease holds.
+	DefaultMargin = time.Minute
+	// DefaultOverrun is how long past the VM's deadline the runner lets the VM run before it
+	// cancels it: with DefaultMargin, at the task's wall clock.
+	DefaultOverrun = time.Minute
 	// DefaultDownBudget is how long the runner waits for factory-agent run to exit after its
 	// outcome event (its environment's down, at most --down-timeout).
 	DefaultDownBudget = pipeline.StackDownTimeout + 30*time.Second
@@ -102,10 +107,11 @@ type RunnerOptions struct {
 	// Listen opens the gateway's listener on addr; default a TCP listener on it (tests listen
 	// elsewhere).
 	Listen func(ctx context.Context, addr netip.AddrPort) (net.Listener, error)
-	// Overrun and DownBudget: DefaultOverrun and DefaultDownBudget when zero.
-	Overrun, DownBudget time.Duration
-	Clock               clock.Clock
-	Logger              *slog.Logger
+	// Margin, Overrun and DownBudget: DefaultMargin, DefaultOverrun and DefaultDownBudget when
+	// zero.
+	Margin, Overrun, DownBudget time.Duration
+	Clock                       clock.Clock
+	Logger                      *slog.Logger
 }
 
 // Runner runs each leased task in its own workspace VM, behind a gateway that holds every
@@ -147,6 +153,9 @@ func NewRunner(o RunnerOptions) (*Runner, error) {
 	}
 	if o.GatewayPort == 0 {
 		o.GatewayPort = DefaultGatewayPort
+	}
+	if o.Margin <= 0 {
+		o.Margin = DefaultMargin
 	}
 	if o.Overrun <= 0 {
 		o.Overrun = DefaultOverrun
@@ -211,10 +220,13 @@ func (r *Runner) Run(ctx context.Context, job *runner.Job, sink runner.Sink) (ru
 	if start.IsZero() {
 		start = r.clk.Now()
 	}
-	w := &wsRun{r: r, job: job, sink: sink, id: id, name: name, deadline: start.Add(wall), spec: spec, capped: capped,
+	w := &wsRun{r: r, job: job, sink: sink, id: id, name: name, deadline: start.Add(wall - r.o.Margin), spec: spec, capped: capped,
 		runDir: filepath.Join(r.o.StateDir, "runs", id), log: r.log.With("task", id, "workspace", name), egress: &egressLog{}}
-	out := w.execute(ctx)
-	return w.finish(ctx, out), nil
+	// The transcript is uploaded before the workspace is destroyed: a VM slow to stop must not
+	// cost the run its transcript.
+	out := w.finish(ctx, w.execute(ctx))
+	w.release(ctx)
+	return out, nil
 }
 
 // cappedLimit is a task's limit that asked for more than the agent's workspace.size: Requested is
@@ -280,7 +292,7 @@ type wsRun struct {
 	job      *runner.Job
 	sink     runner.Sink
 	id, name string
-	deadline time.Time
+	deadline time.Time     // the VM's: the task's wall clock less Margin
 	spec     Spec          // the workspace's size (taskSize)
 	capped   []cappedLimit // the task's limits taskSize capped: noted at Create
 	runDir   string
@@ -288,6 +300,7 @@ type wsRun struct {
 
 	extra      []string // the model logins' secrets: redacted too
 	created    bool     // Create was called: release destroys (or stops) the workspace
+	reported   bool     // the VM sent its outcome event (set by exec's relay)
 	egress     *egressLog
 	gatewayOn  bool   // the gateway served: its records belong in the transcript
 	transcript []byte // the VM's transcript, sanitised; nil when it has none
@@ -310,8 +323,7 @@ func cancelled() runner.Outcome {
 	return runner.Outcome{Status: runner.StatusFailed, Reason: runner.ReasonCancelled}
 }
 
-// execute is the lease's sequence up to the outcome; the workspace is released on every
-// return.
+// execute is the lease's sequence up to the outcome; Run releases the workspace after it.
 func (w *wsRun) execute(ctx context.Context) runner.Outcome {
 	h := w.job.Lease.Task.Spec.Harness
 	if h == nil || h.Resolved == nil || h.Resolved.Name == "" {
@@ -328,7 +340,6 @@ func (w *wsRun) execute(ctx context.Context) runner.Outcome {
 	if err := w.freshRunDir(); err != nil {
 		return w.failed(runner.ReasonHarnessError, fmt.Errorf("the run directory: %w", err))
 	}
-	defer w.release(ctx)
 	bundle := filepath.Join(w.runDir, "bundle")
 	x.CA = gwCA.CertPEM()
 	if err := w.r.o.Pipeline.PrepareBundle(ctx, w.job, bundle, x); err != nil {
@@ -364,9 +375,10 @@ func (w *wsRun) execute(ctx context.Context) runner.Outcome {
 	switch {
 	case ctx.Err() != nil:
 		return cancelled()
-	case errors.Is(cause, errOverrun):
+	case errors.Is(cause, errOverrun) && !w.reported:
 		return w.failed(runner.ReasonLimit, errOverrun)
 	}
+	// An outcome sent before the backstop stands, as after the down budget.
 	return w.collect(ctx, execErr)
 }
 
@@ -568,8 +580,8 @@ func taskEgress(env *v1alpha1.Environment) policy.Egress {
 }
 
 // exec runs factory-agent run in the VM and relays its events until it exits. It stops the run
-// (Exec's SIGTERM) when ctx ends, when the task's wall clock plus Overrun has passed, and when
-// the run hasn't exited DownBudget after its outcome event; cause says which of the last two.
+// (Exec's SIGTERM) when ctx ends, when the VM's deadline plus Overrun has passed, and when the
+// run hasn't exited DownBudget after its outcome event; cause says which of the last two.
 func (w *wsRun) exec(ctx context.Context, proxy string, remaining time.Duration) (error, error) {
 	argv := []string{AgentCommand, "run", "--bundle", BundleDir, "--system-setup", "on",
 		"--proxy", proxy, "--remaining", remaining.String()}
@@ -589,7 +601,8 @@ func (w *wsRun) exec(ctx context.Context, proxy string, remaining time.Duration)
 	relayed := make(chan struct{})
 	go func() {
 		defer close(relayed)
-		w.relay(execCtx, pr, func() {
+		w.relay(pr, func() {
+			w.reported = true
 			t := w.r.clk.NewTimer(w.r.o.DownBudget)
 			go func() {
 				defer t.Stop()
@@ -615,7 +628,7 @@ func (w *wsRun) exec(ctx context.Context, proxy string, remaining time.Duration)
 // relay decodes the VM's events into the sink: progress (rebuilt: a known kind, the message
 // redacted and cut, stamped now, no data) and usage; steps go to the log at debug (VM text). outcome is called once, at the outcome
 // event. It drains r to the end, so Exec never blocks on it.
-func (w *wsRun) relay(ctx context.Context, r io.Reader, outcome func()) {
+func (w *wsRun) relay(r io.Reader, outcome func()) {
 	defer func() { _, _ = io.Copy(io.Discard, r) }()
 	dec := runbundle.NewDecoder(r)
 	seen := false
@@ -652,7 +665,7 @@ func (w *wsRun) relay(ctx context.Context, r io.Reader, outcome func()) {
 		case runbundle.EventStep:
 			w.log.Debug("workspace step", "step", w.redact(e.Step.Name), "state", e.Step.State, "ms", e.Step.MS, "err", w.redact(e.Step.Error))
 		case runbundle.EventOutcome:
-			if !seen && ctx.Err() == nil {
+			if !seen {
 				seen = true
 				outcome()
 			}
