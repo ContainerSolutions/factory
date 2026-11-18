@@ -2,3 +2,6 @@ lisa-addressed:
 pass 1:
 - CORE-TEST-001: TestSkillNames covers a plugin-less skill (named as itself) and no skills.
 - CORE-STYLE-001: the LLD's System prompt row says the name opencode knows each skill by, for the <plugin>:<skill> a prompt names.
+
+lisa-selfreview:
+pass 2 (strict): approve, no findings.
