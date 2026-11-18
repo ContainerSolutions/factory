@@ -285,9 +285,9 @@ func TestBaseScriptRuns(t *testing.T) {
 		arch, mode, other string
 		assets            []string
 	}{
-		{"amd64", "image", "arm64", []string{"/kind-linux-amd64", "/bin/linux/amd64/kubectl", "/v1.6.2/linux-amd64\n", "/v0.2.0/linux-amd64\n", "-linux-x64.tar.gz", "go1.26.9.linux-amd64.tar.gz", "_Linux_x86_64.tar.gz", "-x86_64-unknown-linux-gnu.tar.xz"}},
+		{"amd64", "image", "arm64", []string{"/kind-linux-amd64", "/bin/linux/amd64/kubectl", "/v1.6.2/linux-amd64\n", "/v0.2.0/linux-amd64\n", "-linux-x64.tar.gz", "go1.26.9.linux-amd64.tar.gz", "_Linux_x86_64.tar.gz", "-x86_64-unknown-linux-gnu.tar.xz", "/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz"}},
 		{"amd64", "vm", "arm64", []string{"/kind-linux-amd64", "-linux-x64.tar.gz"}},
-		{"arm64", "", "amd64", []string{"/kind-linux-arm64", "/bin/linux/arm64/kubectl", "/v1.6.2/linux-arm64\n", "/v0.2.0/linux-arm64\n", "-linux-arm64.tar.gz", "go1.26.9.linux-arm64.tar.gz", "_Linux_arm64.tar.gz", "-aarch64-unknown-linux-gnu.tar.xz"}},
+		{"arm64", "", "amd64", []string{"/kind-linux-arm64", "/bin/linux/arm64/kubectl", "/v1.6.2/linux-arm64\n", "/v0.2.0/linux-arm64\n", "-linux-arm64.tar.gz", "go1.26.9.linux-arm64.tar.gz", "_Linux_arm64.tar.gz", "-aarch64-unknown-linux-gnu.tar.xz", "/ripgrep-15.1.0-aarch64-unknown-linux-gnu.tar.gz"}},
 	} {
 		t.Run(c.arch+"-"+c.mode, func(t *testing.T) {
 			log, stderr, _ := runBase(t, c.arch, c.mode)
