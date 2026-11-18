@@ -3,3 +3,8 @@ lisa-design:
 - So a clash copy (<plugin>-<name>/) gets `name: <plugin>-<name>` in its copied SKILL.md (clirun.setSkillName), else the instructions' `ccf-review:review → ccf-review-review` would name a skill opencode doesn't have. Done in the shared clirun copy: codex's clash copies get it too (harmless whether codex keys by folder or by name). Only when folder != name; non-clash copies are byte-for-byte.
 - Not taken: registering skills as `<plugin>:<skill>` in the copies, because prompts also name plain skills (`docs-style`) and the catalog's `use:` lists mix both forms.
 - clirun.FlatSkills is the one naming rule; flattenSkills uses it, opencode's instructions list it. Codex's AGENTS.md is unchanged (spec: no evidence it needs it).
+
+lisa-selfreview:
+pass 1 (strict): request_changes
+- [must-fix] CORE-TEST-001 opencode/prepare.go skillNames: the plugin-less line (a skill named as itself) has no test.
+- [nit] CORE-STYLE-001 harness-adapters.md System prompt row: unclear wording "the name of each <plugin>:<skill> here".
