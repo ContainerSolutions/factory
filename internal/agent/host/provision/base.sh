@@ -141,6 +141,16 @@ OPENCODE_VERSION=v1.19.6
 OPENCODE_SHA256_amd64=47734e08968b30cc22a0bffb6d9feeed76ad4aa743213a12122040392d09a057
 OPENCODE_SHA256_arm64=5b68c1f4c5e75b4134e664cc8f36d634d64208d4fcfe5bcf3b48bab699c2dbac
 
+# ripgrep: https://github.com/BurntSushi/ripgrep/releases/tag/15.1.0, the version opencode
+# v1.19.6 downloads from github.com at run time when rg isn't on PATH, for its grep and glob
+# tools (packages/core/src/ripgrep/binary.ts, VERSION). The assets are opencode's too: the
+# release builds x86_64 linux for musl only and aarch64 linux for glibc only (RIPGREP_TARGET).
+# Each sha256 is the asset's .sha256 file in the release, which matches its digest in GitHub's
+# releases API. The archive holds rg in ripgrep-<version>-<target>/.
+RIPGREP_VERSION=15.1.0
+RIPGREP_SHA256_amd64=1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599
+RIPGREP_SHA256_arm64=2b661c6ef508e902f388e9098d9c4c5aca72c87b55922d94abdba830b4dc885e
+
 # The gh extensions the worker's base tooling needs (worker.md, deploy/poc/README.md). They are
 # installed without gh, the way `gh extension install --pin <tag>` installs a binary extension:
 # gh extension install needs a gh login, which the base build doesn't have. Each pin is the
@@ -175,23 +185,25 @@ GIF_PACKAGES=(ffmpeg ttyd fonts-jetbrains-mono gcc libc6-dev xz-utils)
 WS_USER=admin
 
 # The per-architecture sha256s set_arch picks: NAME is NAME_amd64 or NAME_arm64.
-ARCH_PINS=(KIND_SHA256 KUBECTL_SHA256 NODE_SHA256 GO_SHA256 VHS_SHA256 RUSTC_SHA256 CARGO_SHA256 RUST_STD_SHA256 CODEX_SHA256 CODEX_CODE_MODE_HOST_SHA256 OPENCODE_SHA256 GH_PR_REVIEW_SHA256 GH_STACK_SHA256)
+ARCH_PINS=(KIND_SHA256 KUBECTL_SHA256 NODE_SHA256 GO_SHA256 VHS_SHA256 RUSTC_SHA256 CARGO_SHA256 RUST_STD_SHA256 CODEX_SHA256 CODEX_CODE_MODE_HOST_SHA256 OPENCODE_SHA256 RIPGREP_SHA256 GH_PR_REVIEW_SHA256 GH_STACK_SHA256)
 
 TMP=""
 # Set by set_arch: dpkg's architecture (amd64, arm64) and the names release assets give it:
-# node's (x64, arm64), vhs's (x86_64, arm64) and the target triples' (x86_64, aarch64).
+# node's (x64, arm64), vhs's (x86_64, arm64), the target triples' (x86_64, aarch64) and
+# ripgrep's whole target.
 ARCH=""
 NODE_ARCH=""
 VHS_ARCH=""
 TRIPLE_ARCH=""
+RIPGREP_TARGET=""
 
 # set_arch picks this machine's architecture: its asset names and its half of each pin pair.
 # Any architecture but amd64 and arm64 is an error.
 set_arch() {
 	ARCH="$(dpkg --print-architecture)"
 	case "$ARCH" in
-	amd64) NODE_ARCH=x64 VHS_ARCH=x86_64 TRIPLE_ARCH=x86_64 ;;
-	arm64) NODE_ARCH=arm64 VHS_ARCH=arm64 TRIPLE_ARCH=aarch64 ;;
+	amd64) NODE_ARCH=x64 VHS_ARCH=x86_64 TRIPLE_ARCH=x86_64 RIPGREP_TARGET=x86_64-unknown-linux-musl ;;
+	arm64) NODE_ARCH=arm64 VHS_ARCH=arm64 TRIPLE_ARCH=aarch64 RIPGREP_TARGET=aarch64-unknown-linux-gnu ;;
 	*)
 		echo "base.sh: unsupported architecture $ARCH (amd64 or arm64)" >&2
 		exit 1
@@ -371,6 +383,17 @@ section_go() {
 	sudo ln -sfn /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 }
 
+section_ripgrep() {
+	echo "== ripgrep $RIPGREP_VERSION"
+	if [ "$(cat /var/lib/factory/ripgrep.tar.sha256 2>/dev/null || true)" != "$RIPGREP_SHA256" ] || [ ! -x /usr/local/bin/rg ]; then
+		fetch "https://github.com/BurntSushi/ripgrep/releases/download/$RIPGREP_VERSION/ripgrep-$RIPGREP_VERSION-$RIPGREP_TARGET.tar.gz" "$RIPGREP_SHA256" "$TMP/ripgrep.tar.gz"
+		mkdir "$TMP/ripgrep"
+		tar -xzf "$TMP/ripgrep.tar.gz" -C "$TMP/ripgrep" --no-same-owner
+		sudo install -m 0755 "$TMP/ripgrep/ripgrep-$RIPGREP_VERSION-$RIPGREP_TARGET/rg" /usr/local/bin/rg
+		echo "$RIPGREP_SHA256" | sudo tee /var/lib/factory/ripgrep.tar.sha256 >/dev/null
+	fi
+}
+
 section_playwright() {
 	echo "== playwright $PLAYWRIGHT_VERSION, its system dependencies and its Chromium"
 	local prefix root chrome
@@ -512,6 +535,7 @@ main() {
 	section_gh
 	section_node
 	section_go
+	section_ripgrep
 	section_playwright
 	section_gif_tools
 	section_harnesses

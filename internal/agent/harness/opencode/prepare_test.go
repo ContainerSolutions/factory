@@ -86,10 +86,14 @@ func TestPrepare(t *testing.T) {
 				t.Fatal(err)
 			}
 			cfg, own := filepath.Join(ws.Home, ".config", "opencode"), filepath.Join(ws.Home, ".factory-opencode")
-			want := []string{"opencode.json", "skills/", "skills/ccf-review-review/", "skills/ccf-review-review/SKILL.md",
+			want := []string{"node_modules/", "opencode.json", "package-lock.json", "skills/", "skills/ccf-review-review/", "skills/ccf-review-review/SKILL.md",
 				"skills/docs-style/", "skills/docs-style/SKILL.md", "skills/lisa-review/", "skills/lisa-review/SKILL.md"}
 			if got := listTree(t, cfg); !slices.Equal(got, want) || !slices.Equal(listTree(t, own), []string{"instructions.md"}) {
 				t.Errorf("opencode's config dir:\n  %s\nwant\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
+			}
+			// what opencode's plugin install checks before it skips (flags.go).
+			if lock, want := readNew(t, filepath.Join(cfg, "package-lock.json")), `{"lockfileVersion":3,"packages":{"":{"dependencies":{"@opencode-ai/plugin":"1.19.6"}}}}`+"\n"; string(lock) != want {
+				t.Errorf("package-lock.json = %s, want %s", lock, want)
 			}
 			b := readNew(t, filepath.Join(cfg, "opencode.json"))
 			golden(t, ws, "config-"+tt.name+".golden.json", b)

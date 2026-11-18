@@ -55,6 +55,20 @@ const (
 	skillsDir  = "skills"
 )
 
+// opencode installs pluginPackage at its own version (pluginVersion) in the background into
+// every writable config dir it loads: about 24 MB from registry.npmjs.org on each run, for the
+// plugins a config dir may hold, and the adapter's holds none. No switch turns it off; it is
+// skipped when the dir has a nodeModulesDir and the npmLockFile's root package ("") depends on
+// every package it would add, so Prepare writes both into configDir.
+// read from packages/opencode/src/config/config.ts (the install) and packages/core/src/npm.ts
+// (Npm.install's check)
+const (
+	pluginPackage  = "@opencode-ai/plugin"
+	pluginVersion  = "1.19.6"
+	nodeModulesDir = "node_modules"
+	npmLockFile    = "package-lock.json"
+)
+
 // ---- opencode.json ------------------------------------------------------------------------
 
 const (
