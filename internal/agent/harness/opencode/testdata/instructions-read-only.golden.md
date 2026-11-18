@@ -5,3 +5,9 @@ You are running unattended inside CCF Factory (task tsk_1).
 The Result's JSON Schema is $ROOT/result.schema.json.
 
 The primary checkout, $ROOT/repo, is read-only to you: don't change it (a push to it is refused).
+
+Skills in this run. Where the task names a skill as `<plugin>:<skill>`, load it with the skill tool by the name on the right:
+
+- `ccf-docs:docs-style` → `docs-style`
+- `ccf-review:review` → `ccf-review-review`
+- `lisa:review` → `lisa-review`
