@@ -4,3 +4,9 @@ lisa-design:
 - After the backstop, an outcome event already received stands (collected, as after DownBudget): with the earlier backstop a slow environment down would otherwise throw away a finished run's outcome.
 - The transcript upload (finish) runs before release (Destroy), as supervise.md already described; the worker's complete still follows Destroy (Runner.Run's contract unchanged).
 - Detached descendants are found through /proc (Linux only: the workspaces are Linux VMs; no x/sys dependency, not in the allow-list) at the cancel, while the harness lives, and their groups get SIGTERM then SIGKILL after the harness exits. A harness that exits on its own leaves its detached commands to the VM's Destroy, as before. No cgroup or PR_SET_CHILD_SUBREAPER (a reaper loop would race os/exec's Wait).
+
+lisa-selfreview:
+pass 1 (strict, request_changes):
+- should-fix CORE-DUP-001 runner.go DefaultMargin: the dispatcher's grace restated as a bare 2 minutes; name controllers.DefaultWallClockGrace.
+- should-fix CORE-NAME-001 runner.go wsRun.reported reads as reported to the dispatcher; rename sentOutcome.
+- nit cleanup-kills-reaped-pid opencode/pipeline_test.go: cleanup SIGKILLs the fake opencode's reaped pid; kill only the detached child.
