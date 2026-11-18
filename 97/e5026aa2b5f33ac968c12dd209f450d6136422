@@ -1,2 +1,7 @@
 lisa-addressed:
 pass 1: DefaultMargin's doc names controllers.DefaultWallClockGrace; wsRun.reported renamed gotOutcome (the VM's outcome event came); the opencode wall-clock test's cleanup kills only the detached child, not the fake opencode clirun reaped.
+
+lisa-selfreview:
+pass 2 (strict, request_changes):
+- nit docs opencode/pipeline_test.go: "well within the runner's DefaultMargin" but slow is a minute, the margin itself.
+- nit docs workspace-run.md: "a 2-CPU VM" ties the general rule to one workspace size; say the VM.
