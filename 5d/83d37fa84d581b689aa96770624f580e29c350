@@ -3,3 +3,6 @@ pass 1 CORE-TEST-001 (DryRun freshness): DryRun passes fresh{} again; it reads t
 
 lisa-design:
 - DryRun stays on the cache (fresh{}): the spec asks for the rule controller's create and existing-item paths only; supersedes the earlier DryRun note.
+
+lisa-selfreview:
+pass 2: [nit CORE-STYLE-001] internal/controllers/rule.go observeItem: the doc's "f fresh (freshFor the event it evaluates)" reads unclearly -> fix: say f names the link observed no older than the evaluated event (freshFor), zero for none.
