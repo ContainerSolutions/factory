@@ -1,2 +1,5 @@
 lisa-addressed:
 pass 3 CORE-TEST-001 (zero event time): TestEventObservesItsOwnObjectFresh has an "event with no time" case; it fails without the branch.
+
+lisa-selfreview:
+pass 4 (final, lenient): approve, no findings.
