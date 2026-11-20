@@ -1,0 +1,2 @@
+lisa-addressed:
+pass 1 CORE-TEST-001 (DryRun freshness): DryRun passes fresh{} again; it reads the cache as before. Noted in the PR body as left out.
