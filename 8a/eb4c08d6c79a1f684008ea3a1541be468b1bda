@@ -4,3 +4,6 @@ lisa-design:
 - A zero ev.Time is taken as "now" (freshFor), which refreshes in practice; provider events always carry a time.
 - Replays use the same rule: Replay evaluates the item as it is now, and the bound only refreshes when the cached read predates the event (within one TTL of the event), so replay semantics don't change.
 - DryRun uses freshFor too, to stay "as the rule controller would"; the debounce controller passes fresh{} (it fires after the window, the event is long past, and no where is evaluated).
+
+lisa-selfreview:
+pass 1: [must-fix CORE-TEST-001] internal/controllers/rule.go RuleController.DryRun: DryRun passed r.freshFor(ev) (a provider call per dry run, since the server stamps its event now), untested and beyond the spec's two paths -> fix: DryRun keeps the cache (fresh{}).
