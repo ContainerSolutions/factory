@@ -19,6 +19,7 @@ func TestEventObservesItsOwnObjectFresh(t *testing.T) {
 		existing bool          // the PR already has a work item
 		openedAt time.Duration // pr.opened (the draft observed and cached), after t0
 		readyAt  time.Duration // the pr.ready_for_review event's time, after t0
+		noTime   bool          // the event has no time: taken as now
 		observes int           // the PR's provider observations, pr.opened's included
 		reviews  int           // docs-review tasks dispatched
 	}{
@@ -26,6 +27,7 @@ func TestEventObservesItsOwnObjectFresh(t *testing.T) {
 		{name: "new item, event before the cached read", openedAt: 10 * time.Second, readyAt: 5 * time.Second, observes: 1},
 		{name: "existing item, event after the cached read", existing: true, readyAt: 10 * time.Second, observes: 2, reviews: 1},
 		{name: "existing item, event before the cached read", existing: true, openedAt: 10 * time.Second, readyAt: 5 * time.Second, observes: 1},
+		{name: "existing item, event with no time", existing: true, openedAt: 10 * time.Second, noTime: true, observes: 2, reviews: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, cc, _ := newScopeEnv(t)
@@ -54,6 +56,12 @@ func TestEventObservesItsOwnObjectFresh(t *testing.T) {
 			w := webhook(v1alpha1.EventPRReadyForReview, provider.KindPR, pr, "alice")
 			w.Time = t0.Add(tc.readyAt)
 			evs := e.deliver(w)
+			if tc.noTime {
+				evs[0].Time = time.Time{}
+				if err := e.st.Update(e.ctx, &evs[0]); err != nil {
+					t.Fatal(err)
+				}
+			}
 			e.processEvents()
 
 			st, ok := eventStatus(e, evs[0].ID)
