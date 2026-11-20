@@ -65,17 +65,18 @@ func cacheKey(l v1alpha1.Link) string { return l.Provider + "/" + l.Ref }
 // Observe returns the link's observation, from the cache when it is fresher than the TTL.
 // A missing object is provider.ErrNotFound; one the provider won't show, provider.ErrForbidden.
 func (c *ObservationCache) Observe(ctx context.Context, l v1alpha1.Link) (provider.Observation, error) {
-	obs, _, err := c.observe(ctx, l)
+	obs, _, err := c.observe(ctx, l, time.Time{})
 	return obs, err
 }
 
-// observe is Observe, also returning when the observation was made.
-func (c *ObservationCache) observe(ctx context.Context, l v1alpha1.Link) (provider.Observation, time.Time, error) {
+// observe is Observe, also returning when the observation was made. A cached observation made
+// before since is observed again, however fresh (a zero since takes any).
+func (c *ObservationCache) observe(ctx context.Context, l v1alpha1.Link, since time.Time) (provider.Observation, time.Time, error) {
 	k := cacheKey(l)
 	c.mu.Lock()
 	e, ok := c.entries[k]
 	c.mu.Unlock()
-	if ok && c.clk.Now().Sub(e.at) < c.ttl {
+	if ok && c.clk.Now().Sub(e.at) < c.ttl && !e.at.Before(since) {
 		return e.obs, e.at, e.err
 	}
 	return c.refresh(ctx, l)
