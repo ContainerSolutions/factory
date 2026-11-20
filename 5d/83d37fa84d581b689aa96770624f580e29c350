@@ -1,2 +1,5 @@
 lisa-addressed:
 pass 1 CORE-TEST-001 (DryRun freshness): DryRun passes fresh{} again; it reads the cache as before. Noted in the PR body as left out.
+
+lisa-design:
+- DryRun stays on the cache (fresh{}): the spec asks for the rule controller's create and existing-item paths only; supersedes the earlier DryRun note.
