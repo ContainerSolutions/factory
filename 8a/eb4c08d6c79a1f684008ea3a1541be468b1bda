@@ -1,0 +1,6 @@
+lisa-design:
+- The freshness bound lives in ObservationCache.observe(ctx, l, since): a cached entry made before since is observed again; since is set only for the event's own link (cacheKey(eventLink(ev))), every other link keeps the TTL cache. The TTL is unchanged.
+- ev.Time is the delivery's ReceivedAt on the dispatcher's clock (both normalisers), the same clock that stamps cache entries, so the comparison needs no skew handling.
+- A zero ev.Time is taken as "now" (freshFor), which refreshes in practice; provider events always carry a time.
+- Replays use the same rule: Replay evaluates the item as it is now, and the bound only refreshes when the cached read predates the event (within one TTL of the event), so replay semantics don't change.
+- DryRun uses freshFor too, to stay "as the rule controller would"; the debounce controller passes fresh{} (it fires after the window, the event is long past, and no where is evaluated).
