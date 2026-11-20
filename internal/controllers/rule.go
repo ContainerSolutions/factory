@@ -653,7 +653,7 @@ func (r *RuleController) DryRun(ctx context.Context, ev v1alpha1.Event, wiID str
 	} else if link, ok := eventLink(ev); ok {
 		wi.Spec.Links = []v1alpha1.Link{link}
 	}
-	obs, err := r.observeItem(ctx, wiID, wi.Spec.Links, r.freshFor(ev))
+	obs, err := r.observeItem(ctx, wiID, wi.Spec.Links, fresh{})
 	if err != nil {
 		return rules.Evaluation{}, err
 	}
