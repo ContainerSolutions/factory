@@ -1,2 +1,5 @@
 lisa-addressed:
 pass 2 CORE-STYLE-001 (observeItem doc): reworded to name f as the link observed no older than the evaluated event.
+
+lisa-selfreview:
+pass 3: [must-fix CORE-TEST-001] internal/controllers/rule.go freshFor: the zero ev.Time branch (taken as now, so the cached read is refreshed) had no test -> fix: a table case with the event's time cleared in the store.
