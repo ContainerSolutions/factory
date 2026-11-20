@@ -337,9 +337,10 @@ func (r *RuleController) skipped(ctx context.Context, ev v1alpha1.Event, link v1
 	r.log.DebugContext(ctx, msg, "event", ev.ID, "type", ev.Type, "link", link.Ref)
 }
 
-// observeItem observes a work item's links for an evaluation, f fresh (freshFor the event it
-// evaluates). A link the provider won't show is evaluated as gone, so the other links still
-// count; it is reported once at WARN (until it observes again), not on every evaluation.
+// observeItem observes a work item's links for an evaluation; f is the link observed no older
+// than the evaluated event (freshFor), the zero value for none. A link the provider won't show
+// is evaluated as gone, so the other links still count; it is reported once at WARN (until it
+// observes again), not on every evaluation.
 func (r *RuleController) observeItem(ctx context.Context, wiID string, links []v1alpha1.Link, f fresh) (observations, error) {
 	obs, err := observeLinks(ctx, r.opts.Cache, links, f)
 	if err != nil {
