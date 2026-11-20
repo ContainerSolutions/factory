@@ -242,13 +242,24 @@ func (o observations) forbiddenErr(links []v1alpha1.Link) error {
 	return nil
 }
 
-// observeLinks observes every link through the cache. A transient error fails the whole view
-// (the reconcile is retried). A link the provider won't show (forbidden) is evaluated as gone
-// and recorded in forbidden, for the caller to report.
-func observeLinks(ctx context.Context, cache *ObservationCache, links []v1alpha1.Link) (observations, error) {
+// fresh names the link a view must not observe as it was before a time: the evaluated event's
+// own object. The zero value names none.
+type fresh struct {
+	key   string    // the link's cacheKey
+	since time.Time // a cached observation made before it is observed again
+}
+
+// observeLinks observes every link through the cache, the fresh one no older than its since. A
+// transient error fails the whole view (the reconcile is retried). A link the provider won't
+// show (forbidden) is evaluated as gone and recorded in forbidden, for the caller to report.
+func observeLinks(ctx context.Context, cache *ObservationCache, links []v1alpha1.Link, f fresh) (observations, error) {
 	out := observations{byLink: map[string]provider.Observation{}, at: map[string]time.Time{}, gone: map[string]bool{}, forbidden: map[string]error{}}
 	for _, l := range links {
-		obs, at, err := cache.observe(ctx, l)
+		var since time.Time
+		if f.key != "" && cacheKey(l) == f.key {
+			since = f.since
+		}
+		obs, at, err := cache.observe(ctx, l, since)
 		switch {
 		case isNotFound(err):
 			out.gone[cacheKey(l)] = true

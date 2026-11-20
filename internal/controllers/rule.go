@@ -190,6 +190,22 @@ func eventLink(ev v1alpha1.Event) (v1alpha1.Link, bool) {
 	return v1alpha1.Link{}, false
 }
 
+// freshFor is the link an evaluation of ev must observe fresh: the event's own object, which a
+// cached observation made before the event no longer describes (a pr.ready_for_review, within
+// the TTL of the read its pr.opened cached, would still see a draft). An event with no time is
+// taken as happening now. The item's other links keep the cache.
+func (r *RuleController) freshFor(ev v1alpha1.Event) fresh {
+	l, ok := eventLink(ev)
+	if !ok {
+		return fresh{}
+	}
+	since := ev.Time
+	if since.IsZero() {
+		since = r.opts.Clock.Now()
+	}
+	return fresh{key: cacheKey(l), since: since}
+}
+
 // linkedWorkItem returns the work item whose links have link, from the spec.links index ("" for
 // none; in name order, the oldest id wins if two claim it). Its empty answer leads to a create
 // (workItemFor) or a drop (the provider controller's intake filter), so a lookup that finds
@@ -281,7 +297,7 @@ func (r *RuleController) workItemFor(ctx context.Context, cat *catalog.Catalog, 
 	// object observed when a where reads item (item.pr and the like), and permissive rails.
 	view := unobserved
 	if rules.ReadsItem(cat, ev, unobserved) {
-		obs, err := observeLinks(ctx, r.opts.Cache, wi.Spec.Links)
+		obs, err := observeLinks(ctx, r.opts.Cache, wi.Spec.Links, r.freshFor(ev))
 		if err != nil {
 			return "", err
 		}
@@ -321,11 +337,12 @@ func (r *RuleController) skipped(ctx context.Context, ev v1alpha1.Event, link v1
 	r.log.DebugContext(ctx, msg, "event", ev.ID, "type", ev.Type, "link", link.Ref)
 }
 
-// observeItem observes a work item's links for an evaluation. A link the provider won't show
+// observeItem observes a work item's links for an evaluation; f is the link observed no older
+// than the evaluated event (freshFor), the zero value for none. A link the provider won't show
 // is evaluated as gone, so the other links still count; it is reported once at WARN (until it
 // observes again), not on every evaluation.
-func (r *RuleController) observeItem(ctx context.Context, wiID string, links []v1alpha1.Link) (observations, error) {
-	obs, err := observeLinks(ctx, r.opts.Cache, links)
+func (r *RuleController) observeItem(ctx context.Context, wiID string, links []v1alpha1.Link, f fresh) (observations, error) {
+	obs, err := observeLinks(ctx, r.opts.Cache, links, f)
 	if err != nil {
 		return observations{}, err
 	}
@@ -395,7 +412,7 @@ func (r *RuleController) processLocked(ctx context.Context, cat *catalog.Catalog
 	if err != nil {
 		return nil, err
 	}
-	obs, err := r.observeItem(ctx, wiID, wi.Spec.Links)
+	obs, err := r.observeItem(ctx, wiID, wi.Spec.Links, r.freshFor(ev))
 	if err != nil {
 		return nil, err
 	}
@@ -637,7 +654,7 @@ func (r *RuleController) DryRun(ctx context.Context, ev v1alpha1.Event, wiID str
 	} else if link, ok := eventLink(ev); ok {
 		wi.Spec.Links = []v1alpha1.Link{link}
 	}
-	obs, err := r.observeItem(ctx, wiID, wi.Spec.Links)
+	obs, err := r.observeItem(ctx, wiID, wi.Spec.Links, fresh{})
 	if err != nil {
 		return rules.Evaluation{}, err
 	}

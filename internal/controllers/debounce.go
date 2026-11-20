@@ -111,7 +111,7 @@ func (d *DebounceController) fireLocked(ctx context.Context, cat *catalog.Catalo
 	if err != nil {
 		return err
 	}
-	obs, err := r.observeItem(ctx, wi.Metadata.Name, wi.Spec.Links)
+	obs, err := r.observeItem(ctx, wi.Metadata.Name, wi.Spec.Links, fresh{}) // after the window: the event is long past
 	if err != nil {
 		return err
 	}
