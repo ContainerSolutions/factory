@@ -4,3 +4,9 @@ lisa-design:
 - No persistence for the on-disk state: a replaced instance starts empty (accepted for the PoC). Root volume stays 8 GB.
 - The switch command adds chmod -R go= after aws s3 sync: NewFileBucket refuses a root dir group/others can access, and sync creates it 0755.
 - AWS_REGION stays in factory-run's docker run: harmless with a file:// URL, and keeping it avoids touching what the S3 SDK path needs if the URL is ever switched back.
+
+lisa-selfreview:
+pass 1 (strict):
+- [must-fix, key switch-races-first-boot] README §9 switch command: if sent while the new instance's user data is still running, `systemctl enable --now factory` can start the dispatcher mid-sync on a partial copy. Fix: start the command with `cloud-init status --wait`.
+- [should-fix, CORE-DOC-001] README §9: webhooks are lost until the copy replaces the new instance's state, not only during the replacement. Fix: say so.
+- [dismissed, CORE-DUP-001] /var/lib/factory in state.tf, the template and README: both terraform literals are pinned by tests/instance.tftest.hcl and tests/state.tftest.hcl; the README commands run on the box, where tofu output is not available.
