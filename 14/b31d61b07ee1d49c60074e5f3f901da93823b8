@@ -1,5 +1,0 @@
-lisa-design:
-- Row 8 removed outright (no deprecated no-op flag): an old --anti-affinity-wait now fails flag parsing, deliberately; the commit is marked breaking.
-- Row constants keep their numbers (rowMatch stays 9, a one-line comment marks the gap) so the diff stays small; only ordering matters (blockingReason picks the furthest row).
-- lends lost its static parameter: otherCapable was its only static caller.
-- api/openapi.yaml's reason description and web/ still list anti-affinity: contracts change in their own PR and web never changes with Go (AGENTS.md); nothing emits it now.
