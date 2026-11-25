@@ -675,9 +675,9 @@ func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
 // fieldPerms are the permissions an installation token needs for GraphQL fields, as GitHub
 // checks them: Commit objects (a PR's commits, its merge commit, a review's commit) need
 // contents, a commit's check suites checks, a check suite's workflow run actions, its status
-// rollup and status statuses. The server
-// matches the query text, so it is stricter than GitHub, which checks only the fields it
-// resolves (an issue's observation doesn't reach the PR fragment's commits).
+// rollup and status statuses. The server matches the query text, so it is stricter than
+// GitHub, which checks only the fields it resolves (an issue's observation doesn't reach the
+// PR fragment's commits).
 var fieldPerms = []struct {
 	field *regexp.Regexp
 	perm  string
