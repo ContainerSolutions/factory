@@ -1,0 +1,5 @@
+lisa-design:
+- Pin the OCI image INDEX digest (sha256:a3adcb2e...), not the arm64 manifest, same kind of pin as v0.4.0/v0.5.0: one value serves amd64 and arm64 (t4g).
+- No change to /factory/prod/args: v0.5.0..v0.6.0 touches nothing under cmd/ (serve flags unchanged).
+- Rollback to v0.5.0 is safe: git diff v0.5.0 v0.6.0 -- internal/store is empty.
+- PR body keeps #280's conditional (#278 not yet applied) wording: #278 is merged but nothing shows it applied, and this run must not query AWS.
