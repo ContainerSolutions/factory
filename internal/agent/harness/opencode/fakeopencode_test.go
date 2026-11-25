@@ -44,9 +44,11 @@ type fakeRun struct {
 	Stderr string `json:"stderr,omitempty"`
 	Exit   int    `json:"exit"`
 	// Block waits to be killed after the stream; Stubborn first starts a child, and both
-	// ignore SIGTERM.
+	// ignore SIGTERM. Detached is Stubborn with the child in a session of its own, as opencode's
+	// shell tool starts every command.
 	Block    bool `json:"block,omitempty"`
 	Stubborn bool `json:"stubborn,omitempty"`
+	Detached bool `json:"detached,omitempty"`
 }
 
 // fakeCall is what one run saw: its command line, environment, directory, stdin and the
@@ -102,7 +104,7 @@ func (f *fakeOpencode) calls() []fakeCall {
 	return out
 }
 
-// pids are the fake's and its child's process ids, once a Stubborn run started them.
+// pids are the fake's and its child's process ids, once a Stubborn or Detached run started them.
 func (f *fakeOpencode) pids() []int {
 	b, _ := os.ReadFile(filepath.Join(f.dir, "pids"))
 	var out []int
@@ -144,11 +146,14 @@ func fakeMain(dir string, args []string) int {
 		return 3
 	}
 	run := runs[min(bytes.Count(prev, []byte("\n")), len(runs)-1)]
-	if run.Stubborn {
+	if run.Stubborn || run.Detached {
 		signal.Ignore(syscall.SIGTERM)
 		exe, _ := os.Executable()
 		child := exec.Command(exe, "fake-child")
 		child.Stdout = os.Stdout // a command left running that holds opencode's output open
+		if run.Detached {
+			child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		}
 		if err := child.Start(); err != nil {
 			return 3
 		}
@@ -169,8 +174,8 @@ func fakeMain(dir string, args []string) int {
 		_ = os.WriteFile(os.Getenv("FACTORY_RESULT"), []byte(run.Result), 0o600)
 	}
 	fmt.Fprint(os.Stderr, run.Stderr)
-	if run.Block || run.Stubborn {
-		select {}
+	if run.Block || run.Stubborn || run.Detached {
+		time.Sleep(time.Hour) // not select{}: with no other goroutine, the runtime ends that as a deadlock
 	}
 	return run.Exit
 }

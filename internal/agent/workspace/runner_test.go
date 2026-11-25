@@ -378,11 +378,13 @@ func TestRunnerSuccess(t *testing.T) {
 		`{"type":"factory.egress","mode":"forward","host":"forged.example"}`,
 		`not json`,
 	))
+	r.opts.Pipeline = recordUpload{Bundler: r.opts.Pipeline, d: r.driver}
 	out := r.run(context.Background())
 	if out.Status != runner.StatusDone || out.Result == nil || out.Result.Outcome != "pr-opened" || out.TranscriptRef == "" {
 		t.Fatalf("outcome %+v", out)
 	}
-	if got := r.driver.Calls(); !slices.Equal(got, []string{"create", "start", "put", "exec", "get", "destroy"}) {
+	// The transcript is uploaded before the workspace is destroyed.
+	if got := r.driver.Calls(); !slices.Equal(got, []string{"create", "start", "put", "exec", "get", "upload", "destroy"}) {
 		t.Errorf("driver calls %v", got)
 	}
 	if r.driver.spec != (Spec{CPU: DefaultCPU, MemoryMiB: DefaultMemoryMiB}) {
@@ -392,7 +394,8 @@ func TestRunnerSuccess(t *testing.T) {
 	if want := []string{AgentCommand, "run", "--bundle", BundleDir, "--system-setup", "on", "--proxy", "http://127.0.0.1:3128", "--remaining"}; len(argv) != len(want)+1 || !slices.Equal(argv[:len(want)], want) {
 		t.Fatalf("argv %v", argv)
 	}
-	if d, err := time.ParseDuration(argv[len(argv)-1]); err != nil || d <= 9*time.Minute || d > 10*time.Minute {
+	// The task's 10 minutes less DefaultMargin.
+	if d, err := time.ParseDuration(argv[len(argv)-1]); err != nil || d <= 8*time.Minute || d > 9*time.Minute {
 		t.Errorf("--remaining %s", argv[len(argv)-1])
 	}
 	// The bundle reached the VM without a credential.
@@ -432,6 +435,19 @@ func TestRunnerSuccess(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(r.state, "gateway-ca")); err != nil {
 		t.Errorf("no gateway CA: %v", err)
 	}
+}
+
+// recordUpload records the transcript's upload among the driver's calls, to check their order.
+type recordUpload struct {
+	Bundler
+	d *fakeDriver
+}
+
+func (u recordUpload) StoreTranscript(ctx context.Context, job *runner.Job, parts [][]byte, extra ...string) (string, error) {
+	u.d.mu.Lock()
+	u.d.calls = append(u.d.calls, "upload")
+	u.d.mu.Unlock()
+	return u.Bundler.StoreTranscript(ctx, job, parts, extra...)
 }
 
 // The VM's progress events are rebuilt on the host: its Data and an unknown Kind never reach the
@@ -995,34 +1011,62 @@ func TestRunnerLogins(t *testing.T) {
 	}
 }
 
-// The supervisor's own clock: no time left refuses the run; past the wall clock plus Overrun
-// the run is stopped (failed{limit}); a run that doesn't exit DownBudget after its outcome
-// event is stopped and its outcome collected anyway.
+// The supervisor's own clock: no time left before the VM's deadline (the wall clock less
+// Margin) refuses the run; at the wall clock (the VM's deadline plus Overrun) the run is
+// stopped (failed{limit}), or, once it sent its outcome, its outcome collected; a run that
+// doesn't exit DownBudget after its outcome event is stopped and its outcome collected anyway.
 func TestRunnerDeadlines(t *testing.T) {
 	t.Parallel()
 	block := func(ctx context.Context, _ *rig, _ string, _ *runbundle.Encoder) error {
 		<-ctx.Done()
 		return ctx.Err()
 	}
-	t.Run("no time left", func(t *testing.T) {
-		t.Parallel()
-		r := newRig(t, v1alpha1.HarnessResolved{Name: fake.Name, Model: "m"}, block)
-		r.job.StartedAt = time.Now().Add(-11 * time.Minute)
-		wantFailed(runner.ReasonLimit, "no wall clock left")(t, r.run(context.Background()))
-		if got := r.driver.Calls(); slices.Contains(got, "exec") || got[len(got)-1] != "destroy" {
-			t.Errorf("driver calls %v", got)
-		}
-	})
+	for name, ago := range map[string]time.Duration{"no time left": 11 * time.Minute, "less than the margin left": 9*time.Minute + 30*time.Second} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t, v1alpha1.HarnessResolved{Name: fake.Name, Model: "m"}, block)
+			r.job.StartedAt = time.Now().Add(-ago)
+			wantFailed(runner.ReasonLimit, "no wall clock left")(t, r.run(context.Background()))
+			if got := r.driver.Calls(); slices.Contains(got, "exec") || got[len(got)-1] != "destroy" {
+				t.Errorf("driver calls %v", got)
+			}
+		})
+	}
 	t.Run("overrun", func(t *testing.T) {
 		t.Parallel()
 		clk := clock.NewFake(time.Now())
 		r := newRig(t, v1alpha1.HarnessResolved{Name: fake.Name, Model: "m"}, func(ctx context.Context, r *rig, out string, enc *runbundle.Encoder) error {
-			clk.Advance(10*time.Minute + DefaultOverrun) // the VM never ends on its own
+			clk.Advance(10 * time.Minute) // the task's wall clock; the VM never ends on its own
 			return block(ctx, r, out, enc)
 		})
 		r.job.StartedAt = clk.Now()
 		r.opts.Clock = clk
 		wantFailed(runner.ReasonLimit, "past the task's wall clock")(t, r.run(context.Background()))
+	})
+	t.Run("overrun after the outcome", func(t *testing.T) {
+		t.Parallel()
+		clk := clock.NewFake(time.Now())
+		o := runbundle.Outcome{Status: runner.StatusFailed, Reason: runner.ReasonLimit,
+			Result: &v1alpha1.Result{Task: wsTaskID, Status: v1alpha1.ResultFailed, Summary: "limit: the run took longer than 10m0s"}}
+		r := newRig(t, v1alpha1.HarnessResolved{Name: fake.Name, Model: "m"}, func(ctx context.Context, r *rig, out string, enc *runbundle.Encoder) error {
+			writeTranscript(r.t, out, `{"type":"assistant","text":"running the build"}`)
+			o.Transcript = runbundle.TranscriptFile
+			writeOutcome(r.t, out, o)
+			if err := enc.Encode(runbundle.OutcomeEvent(o)); err != nil {
+				return err
+			}
+			clk.Advance(10 * time.Minute) // the backstop, during a hung down
+			<-ctx.Done()
+			return ctx.Err()
+		})
+		r.job.StartedAt = clk.Now()
+		r.opts.Clock = clk
+		r.opts.DownBudget = time.Hour
+		out := r.run(context.Background())
+		wantFailed(runner.ReasonLimit, "took longer than 10m0s")(t, out)
+		if _, types := r.uploaded(); out.TranscriptRef == "" || !slices.Contains(types, "assistant") {
+			t.Errorf("transcript %q (%v), want the VM's", out.TranscriptRef, types)
+		}
 	})
 	t.Run("down budget", func(t *testing.T) {
 		t.Parallel()

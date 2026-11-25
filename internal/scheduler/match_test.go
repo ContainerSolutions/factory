@@ -155,39 +155,6 @@ func TestMatchingTable(t *testing.T) {
 				}}
 			}).Metadata.ID, gus(e, unlimitedLending)
 		}, ReasonNoCapableAgent},
-		// 8. Anti-affinity: a reviewer task skips its author's agent on the author's harness
-		// while another agent can take it (docs-review resolves claude-code).
-		{"8 anti-affinity/author's agent, same harness", func(e *env) (string, string) {
-			a := gus(e, unlimitedLending)
-			e.register("ana", "box", unlimitedLending)
-			e.authored(a, "claude-code", "")
-			return e.task("tsk_a", "docs-review", nil).Metadata.ID, a
-		}, ReasonAntiAffinity},
-		{"8 anti-affinity/author's agent, other harness", func(e *env) (string, string) {
-			a := gus(e, unlimitedLending)
-			e.register("ana", "box", unlimitedLending)
-			e.authored(a, "codex", "")
-			return e.task("tsk_a", "docs-review", nil).Metadata.ID, a
-		}, ""},
-		{"8 anti-affinity/author's result names the harness", func(e *env) (string, string) {
-			a := gus(e, unlimitedLending)
-			e.register("ana", "box", unlimitedLending)
-			e.authored(a, "codex", "claude-code")
-			return e.task("tsk_a", "docs-review", nil).Metadata.ID, a
-		}, ReasonAntiAffinity},
-		{"8 anti-affinity/another agent", func(e *env) (string, string) {
-			a := gus(e, unlimitedLending)
-			b, _ := e.register("ana", "box", unlimitedLending)
-			e.authored(a, "claude-code", "")
-			return e.task("tsk_a", "docs-review", nil).Metadata.ID, b
-		}, ""},
-		{"8 anti-affinity/off", func(e *env) (string, string) {
-			e.s.opts.AntiAffinityWait = AntiAffinityOff
-			a := gus(e, unlimitedLending)
-			e.register("ana", "box", unlimitedLending)
-			e.authored(a, "claude-code", "")
-			return e.task("tsk_a", "docs-review", nil).Metadata.ID, a
-		}, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -315,47 +282,6 @@ func TestFairness(t *testing.T) {
 			t.Fatalf("other agent got %s", grantTask(g))
 		}
 	})
-}
-
-// TestAntiAffinitySoftFallback: when the author's agent is the only one that can take the
-// review on the author's harness, it gets it once the review has waited 10 minutes.
-func TestAntiAffinitySoftFallback(t *testing.T) {
-	e := newEnv(t)
-	gus, _ := e.register("gus", "mbp", &v1alpha1.Lending{Unlimited: true})
-	ana, _ := e.register("ana", "box", &v1alpha1.Lending{Unlimited: true}, codexOffer) // can't run claude-code
-	e.authored(gus, "claude-code", "")
-	e.task("tsk_review", "docs-review", nil)
-	if got := e.explain("tsk_review", gus); got != ReasonAntiAffinity {
-		t.Fatalf("Explain(gus) = %q, want anti-affinity", got)
-	}
-	if got := e.explain("tsk_review", ana); got != ReasonNoCapableAgent {
-		t.Fatalf("Explain(ana) = %q, want no-capable-agent", got)
-	}
-	if err := e.s.Refresh(e.ctx); err != nil {
-		t.Fatal(err)
-	}
-	if got := e.getTask("tsk_review").Status.Reason; got != ReasonAntiAffinity {
-		t.Fatalf("reason = %q, want anti-affinity", got)
-	}
-	e.clk.Advance(9 * time.Minute)
-	if g := e.lease(gus); g != nil {
-		t.Fatalf("leased %s before the 10 minutes", grantTask(g))
-	}
-	e.clk.Advance(time.Minute)
-	e.mustLease(gus, "tsk_review")
-}
-
-// TestAntiAffinityWaitOption: zero takes the default wait, AntiAffinityOff stays off.
-func TestAntiAffinityWaitOption(t *testing.T) {
-	for _, tt := range []struct{ in, want time.Duration }{
-		{0, DefaultAntiAffinityWait},
-		{AntiAffinityOff, AntiAffinityOff},
-		{5 * time.Minute, 5 * time.Minute},
-	} {
-		if got := (Options{AntiAffinityWait: tt.in}).withDefaults().AntiAffinityWait; got != tt.want {
-			t.Errorf("withDefaults(%v) = %v, want %v", tt.in, got, tt.want)
-		}
-	}
 }
 
 // TestRefreshRecordsReason: a pending task's reason is the furthest any agent got.

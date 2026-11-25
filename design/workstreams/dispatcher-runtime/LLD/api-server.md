@@ -79,7 +79,7 @@ factory serve (--catalog-repo URL [--catalog-ref main] [--catalog-path catalog] 
               [--state-dir DIR | --state-url URL [--state-sync-interval 2s] | --state-memory]
               [--auth-provider NAME] [--github-url https://github.com] [--github-api-url URL]
               [--skills-base https://github.com/compliance-framework] [--log-level info] [--log-format json|text]
-              [--anti-affinity-wait 10m] [--dev-fake-providers]
+              [--dev-fake-providers]
 ```
 
 | Flag | Default | Use |
@@ -102,7 +102,6 @@ factory serve (--catalog-repo URL [--catalog-ref main] [--catalog-path catalog] 
 | `--github-url`, `--github-api-url` | `https://github.com`, the auth Provider's `spec.github.apiURL` | OAuth web flow; `GET /user` (UI login only) |
 | `--skills-base` | `https://github.com/compliance-framework` | skill refs resolved with `git ls-remote` (`GitSkills`); empty leaves them unresolved |
 | `--log-level`, `--log-format` | `info`, `json` | `slog` |
-| `--anti-affinity-wait` | `10m` | how long a review waits before its author's agent may take it on the author's harness ([scheduler-and-pools.md](scheduler-and-pools.md) row 8); `0` turns anti-affinity off; the run kit passes `FACTORY_ANTI_AFFINITY_WAIT` |
 | `--dev-fake-providers` | off | **development and tests only**: registers the in-memory fake adapter for `github` |
 
 Environment (names only; values from the secret store — see [rollout](../../poc-rollout/LLD/rollout.md#secrets)). Secrets are read from the environment only (never flags) and never logged; a missing or short one is a startup error that names the variable.

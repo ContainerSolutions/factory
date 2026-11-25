@@ -17,27 +17,20 @@ import (
 // Rows of the LLD's matching table, in the order they are checked. A verdict's row is the
 // first that failed (rowMatch when none did).
 const (
-	rowPool         = 1 // the task's queue's pool is the agent's (else not a candidate)
-	rowQueue        = 2 // queue concurrency → queue-full
-	rowBudget       = 3 // queue and RuleSet budgets → budget
-	rowAgent        = 4 // agent phase, throttling, capacity → agent-busy / agent-throttled
-	rowLending      = 5 // the owner's lending → lending
-	rowLabels       = 6 // requires.labels ⊆ agent labels → no-capable-agent
-	rowHarness      = 7 // patterns.Resolve → no-capable-agent
-	rowAntiAffinity = 8 // a reviewer task on its author's agent and harness → anti-affinity
-	rowMatch        = 9
+	rowPool    = 1 // the task's queue's pool is the agent's (else not a candidate)
+	rowQueue   = 2 // queue concurrency → queue-full
+	rowBudget  = 3 // queue and RuleSet budgets → budget
+	rowAgent   = 4 // agent phase, throttling, capacity → agent-busy / agent-throttled
+	rowLending = 5 // the owner's lending → lending
+	rowLabels  = 6 // requires.labels ⊆ agent labels → no-capable-agent
+	rowHarness = 7 // patterns.Resolve → no-capable-agent
+	// Row 8 (anti-affinity) was removed: harness choice belongs to the TaskSpecs.
+	rowMatch = 9
 )
 
 // ReasonNotInPool is Explain's answer for an agent that isn't a candidate at all: the task's
 // queue feeds another pool (or the queue or pool is gone from the catalog).
 const ReasonNotInPool = "not-in-pool"
-
-// Names the matcher knows.
-const (
-	// IdentityReviewer and IdentityAuthor are the TaskSpec identities anti-affinity compares.
-	IdentityReviewer = "reviewer"
-	IdentityAuthor   = "author"
-)
 
 // verdict is one (task, agent) check.
 type verdict struct {
@@ -53,7 +46,7 @@ func (v verdict) ok() bool { return v.row == rowMatch }
 var errNoCatalog = errors.New("no catalog loaded yet")
 
 // snapshot is what one matching pass reads: the catalog, the agents, the pending and active
-// tasks, and (lazily) budget counters and author agents. The scheduler's mu is held while a
+// tasks, and (lazily) budget counters. The scheduler's mu is held while a
 // snapshot is used.
 type snapshot struct {
 	ctx context.Context
@@ -66,9 +59,8 @@ type snapshot struct {
 	runningByAgent map[string][]*v1alpha1.Task
 	runningByQueue map[string]int
 
-	counters   map[string]v1alpha1.BudgetCounterStatus
-	lastAuthor map[string]authorRun // work item → its last author run
-	taskLevel  map[string]verdict
+	counters  map[string]v1alpha1.BudgetCounterStatus
+	taskLevel map[string]verdict
 }
 
 // loadSnapshot reads the store. The caller holds s.mu.
@@ -84,7 +76,6 @@ func (s *Scheduler) loadSnapshot(ctx context.Context) (*snapshot, error) {
 		runningByAgent: map[string][]*v1alpha1.Task{},
 		runningByQueue: map[string]int{},
 		counters:       map[string]v1alpha1.BudgetCounterStatus{},
-		lastAuthor:     map[string]authorRun{},
 		taskLevel:      map[string]verdict{},
 	}
 	var agents []*v1alpha1.Agent
@@ -180,7 +171,7 @@ func (sn *snapshot) check(t *v1alpha1.Task, a *v1alpha1.Agent) (verdict, error) 
 		return verdict{row: rowAgent, reason: r}, nil
 	}
 	ts := sn.cat.TaskSpecs[t.Spec.TaskSpec.Name]
-	if ok, err := sn.lends(a, t, ts, false); err != nil || !ok {
+	if ok, err := sn.lends(a, t, ts); err != nil || !ok {
 		return verdict{row: rowLending, reason: ReasonLending}, err
 	}
 	if !hasLabels(a, t) {
@@ -189,9 +180,6 @@ func (sn *snapshot) check(t *v1alpha1.Task, a *v1alpha1.Agent) (verdict, error) 
 	resolved, offer := resolveHarness(ts, t, a)
 	if resolved == nil {
 		return verdict{row: rowHarness, reason: ReasonNoCapableAgent}, nil
-	}
-	if ok, err := sn.antiAffinity(t, ts, a, resolved.Name); err != nil || !ok {
-		return verdict{row: rowAntiAffinity, reason: ReasonAntiAffinity}, err
 	}
 	return verdict{row: rowMatch, resolved: resolved, offer: offer}, nil
 }
@@ -256,10 +244,8 @@ func (sn *snapshot) agentReason(a *v1alpha1.Agent, pool *v1alpha1.Pool) string {
 	return ""
 }
 
-// lends is row 5: the owner's lending covers the task. With static, only the queue, RuleSet
-// and harness lists are checked (not the hours or the daily caps), which is what "could this
-// agent ever take it" needs.
-func (sn *snapshot) lends(a *v1alpha1.Agent, t *v1alpha1.Task, ts *catalog.CompiledTaskSpec, static bool) (bool, error) {
+// lends is row 5: the owner's lending covers the task.
+func (sn *snapshot) lends(a *v1alpha1.Agent, t *v1alpha1.Task, ts *catalog.CompiledTaskSpec) (bool, error) {
 	l := a.Spec.Lending
 	switch {
 	case l == nil:
@@ -273,9 +259,6 @@ func (sn *snapshot) lends(a *v1alpha1.Agent, t *v1alpha1.Task, ts *catalog.Compi
 	}
 	if h := requestedHarness(t, ts); len(l.Harnesses) > 0 && h != "" && !slices.Contains(l.Harnesses, h) {
 		return false, nil
-	}
-	if static {
-		return true, nil
 	}
 	if l.Hours != "" {
 		h, err := ParseHours(l.Hours)
@@ -364,107 +347,6 @@ func resolveHarness(ts *catalog.CompiledTaskSpec, t *v1alpha1.Task, a *v1alpha1.
 	return nil, v1alpha1.HarnessOffer{}
 }
 
-// antiAffinity is row 8: a reviewer task skips the agent that ran the work item's last
-// author run when it would run on the same harness (harness is what this lease resolves),
-// unless no other agent could take it and it has waited AntiAffinityWait. AntiAffinityOff
-// turns the row off.
-func (sn *snapshot) antiAffinity(t *v1alpha1.Task, ts *catalog.CompiledTaskSpec, a *v1alpha1.Agent, harness string) (bool, error) {
-	if sn.s.opts.AntiAffinityWait < 0 || ts == nil || ts.Spec.Spec.Identity != IdentityReviewer {
-		return true, nil
-	}
-	author, err := sn.lastAuthorRun(t.Metadata.WorkItem)
-	if err != nil || author.agent != a.Metadata.Name || author.harness != harness {
-		return err == nil, err
-	}
-	held := sn.s.heldSince
-	if other, err := sn.otherCapable(t, ts, a); err != nil || other {
-		delete(held, t.Metadata.ID)
-		return false, err
-	}
-	since, ok := held[t.Metadata.ID]
-	if !ok {
-		since = sn.now
-		held[t.Metadata.ID] = since
-	}
-	return sn.now.Sub(since) >= sn.s.opts.AntiAffinityWait, nil
-}
-
-// otherCapable reports whether an agent other than a, serving in the task's pool, could take
-// t at all (lending lists, labels, harness): the "only Ready agent" test of anti-affinity.
-func (sn *snapshot) otherCapable(t *v1alpha1.Task, ts *catalog.CompiledTaskSpec, a *v1alpha1.Agent) (bool, error) {
-	for _, b := range sn.agents {
-		if b.Metadata.Name == a.Metadata.Name || b.Spec.Pool != a.Spec.Pool || !serving(b, sn.now) {
-			continue
-		}
-		ok, err := sn.lends(b, t, ts, true)
-		if err != nil {
-			return false, err
-		}
-		if !ok || !hasLabels(b, t) {
-			continue
-		}
-		if r, _ := resolveHarness(ts, t, b); r != nil {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// authorRun is the agent and the harness of a work item's last author run ("" when unknown).
-type authorRun struct{ agent, harness string }
-
-// lastAuthorRun is the work item's most recent run of an author task. Its harness is the one
-// the run reported in its result, else the one its task was last leased with.
-func (sn *snapshot) lastAuthorRun(workItem string) (authorRun, error) {
-	if a, ok := sn.lastAuthor[workItem]; ok {
-		return a, nil
-	}
-	var tasks []*v1alpha1.Task
-	if _, err := sn.s.d.Store.List(sn.ctx, v1alpha1.KindTask, store.ListOptions{
-		Field: map[string]string{store.FieldTaskWorkItem: workItem},
-	}, &tasks); err != nil {
-		return authorRun{}, fmt.Errorf("list tasks of %s: %w", workItem, err)
-	}
-	var last *v1alpha1.Run
-	var lastTask *v1alpha1.Task
-	for _, t := range tasks {
-		ts := sn.cat.TaskSpecs[t.Spec.TaskSpec.Name]
-		if ts == nil || ts.Spec.Spec.Identity != IdentityAuthor {
-			continue
-		}
-		var runs []*v1alpha1.Run
-		if _, err := sn.s.d.Store.List(sn.ctx, v1alpha1.KindRun, store.ListOptions{
-			Field: map[string]string{store.FieldRunTask: t.Metadata.ID},
-		}, &runs); err != nil {
-			return authorRun{}, fmt.Errorf("list runs of %s: %w", t.Metadata.ID, err)
-		}
-		for _, r := range runs {
-			if last == nil || runStart(r).After(runStart(last)) {
-				last, lastTask = r, t
-			}
-		}
-	}
-	var author authorRun
-	if last != nil {
-		author.agent = last.Spec.Agent
-		switch {
-		case last.Status != nil && last.Status.Result != nil && last.Status.Result.Harness != nil:
-			author.harness = last.Status.Result.Harness.Name
-		case lastTask.Spec.Harness != nil && lastTask.Spec.Harness.Resolved != nil:
-			author.harness = lastTask.Spec.Harness.Resolved.Name
-		}
-	}
-	sn.lastAuthor[workItem] = author
-	return author, nil
-}
-
-func runStart(r *v1alpha1.Run) time.Time {
-	if r.Status != nil && !r.Status.StartedAt.IsZero() {
-		return r.Status.StartedAt
-	}
-	return r.Metadata.CreatedAt
-}
-
 // preferred is the agent fairness picks for t among the agents in a long poll (minus those
 // in skip) that can take it now: least-recently-leased first, with unlimited agents last
 // (prefer-limited, the default) or first (prefer-unlimited). "" when none can.
@@ -544,8 +426,7 @@ func (sn *snapshot) blockingReason(t *v1alpha1.Task) (string, error) {
 
 // Explain runs the matching table for a task and an agent now and returns the first reason
 // it fails ("" when the agent could take it; ReasonNotInPool when it isn't a candidate;
-// git-credential while the task backs off after a failed mint). It changes nothing but the
-// anti-affinity wait.
+// git-credential while the task backs off after a failed mint). It changes nothing.
 func (s *Scheduler) Explain(ctx context.Context, taskID, agentID string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

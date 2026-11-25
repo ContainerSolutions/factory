@@ -221,7 +221,9 @@ run "user_data_runs_the_containers_and_holds_no_secret" {
     condition = alltrue([
       for s in [
         "docker run --rm",
-        "--state-url s3://factory-state-111122223333/factory",
+        "--state-url file:///var/lib/factory/state",
+        "-v /var/lib/factory:/var/lib/factory",
+        "install -d -o 65532 -g 65532 -m 0700 /var/lib/factory",
         "--public-url https://factory.ccf.container-solutions.com",
         "--log-driver awslogs",
         "awslogs-group=/factory/prod",

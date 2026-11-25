@@ -24,7 +24,6 @@ import (
 	"github.com/ContainerSolutions/factory/internal/catalog"
 	"github.com/ContainerSolutions/factory/internal/provider"
 	"github.com/ContainerSolutions/factory/internal/provider/fake"
-	"github.com/ContainerSolutions/factory/internal/scheduler"
 	"github.com/ContainerSolutions/factory/internal/server"
 	"github.com/ContainerSolutions/factory/internal/store/objectstore"
 )
@@ -516,7 +515,7 @@ func TestParseServeConfig(t *testing.T) {
 			if c.Addr != ":8800" || c.OpsAddr != "127.0.0.1:9090" || c.Retention != 2160*time.Hour || c.LogFormat != "json" ||
 				c.CatalogRepo != testRepo || c.CatalogRef != "main" || c.CatalogPath != "catalog" ||
 				c.DevFakeProviders || c.PublicURL != "http://localhost:8800" || c.DeployEnvironment != "github-pages" || c.StateDir != "" ||
-				c.AntiAffinityWait != scheduler.DefaultAntiAffinityWait || !c.StateMemory || c.StateURL != "" ||
+				!c.StateMemory || c.StateURL != "" ||
 				c.StateSyncInterval != objectstore.DefaultSyncInterval {
 				t.Errorf("defaults %+v", c)
 			}
@@ -627,17 +626,6 @@ func TestParseServeConfig(t *testing.T) {
 			}
 		}},
 		{name: "state dir is a file", args: []string{"--state-dir", file}, bare: true, env: testEnv(), wantErr: []string{"--state-dir", "is not a directory"}},
-		{name: "anti-affinity wait", args: []string{"--anti-affinity-wait", "3m"}, env: testEnv(), check: func(t *testing.T, c serveConfig, _ []string) {
-			if c.AntiAffinityWait != 3*time.Minute {
-				t.Errorf("anti-affinity wait %v", c.AntiAffinityWait)
-			}
-		}},
-		{name: "anti-affinity off", args: []string{"--anti-affinity-wait", "0"}, env: testEnv(), check: func(t *testing.T, c serveConfig, _ []string) {
-			if c.AntiAffinityWait != scheduler.AntiAffinityOff {
-				t.Errorf("anti-affinity wait %v, want off", c.AntiAffinityWait)
-			}
-		}},
-		{name: "negative anti-affinity wait", args: []string{"--anti-affinity-wait", "-1m"}, env: testEnv(), wantErr: []string{"--anti-affinity-wait must not be negative"}},
 		{name: "empty deploy environment", args: []string{"--deploy-environment", " "}, env: testEnv(), wantErr: []string{"--deploy-environment must not be empty"}},
 		{name: "catalog app", args: catalogApp(), env: withKey(), check: func(t *testing.T, c serveConfig, _ []string) {
 			if c.CatalogAppID != 7 || c.CatalogAppKeyRef != catalogKeyRef || c.CatalogAppKey != testCatalogPEM {

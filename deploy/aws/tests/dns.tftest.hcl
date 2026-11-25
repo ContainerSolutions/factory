@@ -106,8 +106,13 @@ run "outputs" {
   command = plan
 
   assert {
-    condition     = output.state_url == "s3://factory-state-111122223333/factory"
-    error_message = "state_url is the bucket's factory prefix"
+    condition     = output.state_url == "file:///var/lib/factory/state"
+    error_message = "state_url is the file:// bucket on the instance's disk"
+  }
+
+  assert {
+    condition     = output.bucket_state_url == "s3://factory-state-111122223333/factory"
+    error_message = "bucket_state_url is the old bucket's factory prefix"
   }
 
   assert {

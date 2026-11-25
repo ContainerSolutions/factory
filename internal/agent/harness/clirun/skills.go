@@ -14,13 +14,38 @@ import (
 )
 
 // FlattenSkills lays ws's skills out flat in dst, the layout codex and opencode discover: each
-// skill folder copied to dst/<name>/ (two plugins' skills of the same name both go in as
-// <plugin>-<name>), and dst/<plugin>/bin linked to each plugin's bin/ (linkPluginBins).
+// skill folder copied to dst/<folder>/ (FlatSkills names the folders), and dst/<plugin>/bin
+// linked to each plugin's bin/ (linkPluginBins).
 func FlattenSkills(ws harness.Workspace, dst string) error {
 	if err := flattenSkills(ws.SkillList, dst); err != nil {
 		return err
 	}
 	return linkPluginBins(ws, dst)
+}
+
+// FlatSkill is one skill in the flat layout: its plugin and name in the workspace, and Folder,
+// the folder FlattenSkills copies it to and the name the harness knows it by.
+type FlatSkill struct {
+	Plugin, Name, Folder string
+}
+
+// FlatSkills is skills in the flat layout, in their order: each skill's folder is its name, or
+// <plugin>-<name> when two plugins' skills share the name. A harness has no plugins, so an
+// adapter can tell the model which name a prompt's <plugin>:<skill> is.
+func FlatSkills(skills []harness.Skill) []FlatSkill {
+	count := map[string]int{}
+	for _, s := range skills {
+		count[s.Name]++
+	}
+	flat := make([]FlatSkill, 0, len(skills))
+	for _, s := range skills {
+		folder := s.Name
+		if count[s.Name] > 1 && s.Plugin != "" {
+			folder = s.Plugin + "-" + s.Name
+		}
+		flat = append(flat, FlatSkill{Plugin: s.Plugin, Name: s.Name, Folder: folder})
+	}
+	return flat
 }
 
 // WriteNew writes b to a new file p (0600); an existing file or symlink at p is an error.
@@ -36,29 +61,58 @@ func WriteNew(p string, b []byte) error {
 	return f.Close()
 }
 
-// flattenSkills copies each skill folder to dst/<name>/. Two plugins' skills of the same name
-// both go in as <plugin>-<name>.
+// flattenSkills copies each skill folder to dst/<folder>/ (FlatSkills). A skill whose folder
+// isn't its name gets the folder as the name in its copied SKILL.md (setSkillName).
 func flattenSkills(skills []harness.Skill, dst string) error {
 	if err := os.MkdirAll(dst, 0o700); err != nil {
 		return err
 	}
-	count := map[string]int{}
-	for _, s := range skills {
-		count[s.Name]++
-	}
 	used := map[string]bool{}
-	for _, s := range skills {
-		name := s.Name
-		if count[name] > 1 && s.Plugin != "" {
-			name = s.Plugin + "-" + s.Name
-		}
+	for i, f := range FlatSkills(skills) {
+		name := f.Folder
 		if name == "" || strings.ContainsAny(name, `/\`) || name == "." || name == ".." || used[name] {
-			return fmt.Errorf("skill %q (plugin %q): can't name its folder", s.Name, s.Plugin)
+			return fmt.Errorf("skill %q (plugin %q): can't name its folder", f.Name, f.Plugin)
 		}
 		used[name] = true
-		if err := copyTree(s.Dir, filepath.Join(dst, name)); err != nil {
+		if err := copyTree(skills[i].Dir, filepath.Join(dst, name)); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
+		if name != f.Name {
+			if err := setSkillName(filepath.Join(dst, name, skillFile), name); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
+// skillFile is a skill folder's definition.
+const skillFile = "SKILL.md"
+
+// setSkillName sets the top-level name in the front matter of the SKILL.md at p (a copy
+// flattenSkills made) to name, adding it if missing. opencode knows a skill by that name, not
+// by its folder (packages/opencode/src/skill/index.ts at v1.19.6), so two plugins' "review"
+// would both be "review" and one would hide the other. A file without front matter is left
+// as it is.
+func setSkillName(p, name string) error {
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return err
+	}
+	lines := strings.SplitAfter(string(b), "\n")
+	if strings.TrimRight(lines[0], "\r\n") != "---" {
+		return nil
+	}
+	for i := 1; i < len(lines); i++ {
+		switch l := strings.TrimRight(lines[i], "\r\n"); {
+		case strings.HasPrefix(l, "name:"):
+			lines[i] = "name: " + name + lines[i][len(l):] // the line's own ending
+		case l == "---":
+			lines = slices.Insert(lines, 1, "name: "+name+lines[0][len("---"):])
+		default:
+			continue
+		}
+		return os.WriteFile(p, []byte(strings.Join(lines, "")), 0o600)
 	}
 	return nil
 }

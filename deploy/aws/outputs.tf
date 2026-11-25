@@ -1,6 +1,11 @@
 output "state_url" {
-  description = "The dispatcher's state, for `factory state ... --state-url`."
+  description = "The dispatcher's live state, on the instance's disk, for `factory state ... --state-url` on the box (README §9)."
   value       = local.state_url
+}
+
+output "bucket_state_url" {
+  description = "The old state bucket, where the state lived before it moved to the instance's disk: the copy source for README §9, Switching from the bucket."
+  value       = local.bucket_state_url
 }
 
 output "instance_id" {

@@ -354,7 +354,7 @@ func runServe(ctx context.Context, cfg serveConfig, d serveDeps, log *slog.Logge
 	}
 	sched, err := scheduler.New(scheduler.Deps{
 		Store: st, Catalog: cs, Conns: pc, Runs: runs,
-	}, scheduler.Options{Clock: clk, Logger: log, AntiAffinityWait: cfg.AntiAffinityWait, Leader: leader})
+	}, scheduler.Options{Clock: clk, Logger: log, Leader: leader})
 	if err != nil {
 		return err
 	}

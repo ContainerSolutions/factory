@@ -20,6 +20,9 @@ done
 systemctl enable --now docker
 
 install -d -m 0755 /etc/caddy /var/lib/caddy
+# The dispatcher's state: a file:// bucket in /var/lib/factory/state on the root volume. The image
+# runs as 65532:65532; the bucket creates its own 0700 directory under this one.
+install -d -o 65532 -g 65532 -m 0700 /var/lib/factory
 
 # factory-run: reads the secrets under /factory/prod/env/ and passes each to the container as an
 # environment variable named by the parameter's last segment. The values go from this script's
@@ -75,6 +78,7 @@ set -f
 exec docker run --rm --name factory --network host \
   --log-driver awslogs --log-opt awslogs-region=${region} \
   --log-opt awslogs-group=${log_group} --log-opt awslogs-stream=factory \
+  -v /var/lib/factory:/var/lib/factory \
   -e AWS_REGION=${region} "$${env_args[@]}" \
   "$image" serve --addr 127.0.0.1:8800 --ops-addr 127.0.0.1:9090 \
   --public-url https://${domain} --state-url ${state_url} \

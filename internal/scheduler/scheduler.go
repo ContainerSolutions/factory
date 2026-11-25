@@ -1,6 +1,6 @@
 // Package scheduler is the registered-pool scheduler (design/workstreams/dispatcher-runtime/
 // LLD/scheduler-and-pools.md): agent registration and tokens, the long-poll lease matcher
-// (queues, budgets, lending, harness resolution, anti-affinity, fairness), heartbeats, lease
+// (queues, budgets, lending, harness resolution, fairness), heartbeats, lease
 // expiry with the queue's retry policy, and abandon.
 //
 // It has no HTTP: the API server (RT-S2-T03) calls Register, Authenticate, UpdateAgent,
@@ -29,15 +29,14 @@ import (
 
 // Defaults for Options and for pools without a lease policy.
 const (
-	DefaultTick             = time.Second
-	DefaultTokenTTL         = 24 * time.Hour
-	DefaultTokenRenewEvery  = 10 * time.Minute
-	DefaultAntiAffinityWait = 10 * time.Minute
-	DefaultMaxWait          = 60 * time.Second
-	DefaultLeaseRetention   = time.Hour
-	DefaultThrottle         = 5 * time.Minute
-	DefaultLeaseTTL         = 2 * time.Minute
-	DefaultHeartbeat        = 30 * time.Second
+	DefaultTick            = time.Second
+	DefaultTokenTTL        = 24 * time.Hour
+	DefaultTokenRenewEvery = 10 * time.Minute
+	DefaultMaxWait         = 60 * time.Second
+	DefaultLeaseRetention  = time.Hour
+	DefaultThrottle        = 5 * time.Minute
+	DefaultLeaseTTL        = 2 * time.Minute
+	DefaultHeartbeat       = 30 * time.Second
 	// DefaultSchedWait bounds the wait for the sched lock, and how long a timeout keeps the
 	// next passes from waiting (P3 §Locks and leases).
 	DefaultSchedWait = 2 * time.Second
@@ -49,9 +48,6 @@ const (
 	// MaxCredentialTTL caps a git credential (design/02 §Safety rails: ≤ 1h).
 	MaxCredentialTTL = time.Hour
 )
-
-// AntiAffinityOff as Options.AntiAffinityWait turns anti-affinity off.
-const AntiAffinityOff time.Duration = -1
 
 // Pool fairness values (Pool.spec.fairness).
 const (
@@ -74,10 +70,6 @@ type Options struct {
 	TokenTTL time.Duration
 	// TokenRenewEvery bounds how often a token's expiry is written. Default 10 min.
 	TokenRenewEvery time.Duration
-	// AntiAffinityWait is how long a reviewer task waits for another agent before its
-	// author's agent may take it on the author's harness (soft anti-affinity). Default
-	// 10 min; AntiAffinityOff (any negative value) turns anti-affinity off.
-	AntiAffinityWait time.Duration
 	// MaxWait caps a long poll. Default 60 s.
 	MaxWait time.Duration
 	// LeaseRetention keeps ended leases, so a retried complete is answered. Default 1 h.
@@ -113,9 +105,6 @@ func (o Options) withDefaults() Options {
 	def(&o.Tick, DefaultTick)
 	def(&o.TokenTTL, DefaultTokenTTL)
 	def(&o.TokenRenewEvery, DefaultTokenRenewEvery)
-	if o.AntiAffinityWait == 0 {
-		o.AntiAffinityWait = DefaultAntiAffinityWait // negative is AntiAffinityOff, kept
-	}
 	def(&o.MaxWait, DefaultMaxWait)
 	def(&o.LeaseRetention, DefaultLeaseRetention)
 	def(&o.Throttle, DefaultThrottle)
@@ -153,9 +142,6 @@ type Scheduler struct {
 	waiting map[string]int
 	// lastLeased is when each agent last got a lease (least-recently-leased first).
 	lastLeased map[string]time.Time
-	// heldSince is when anti-affinity first held a task back with no other agent able to
-	// take it (the 10-minute soft fallback).
-	heldSince map[string]time.Time
 	// mintBackoff holds the pending tasks whose git credentials failed to mint, until when
 	// each isn't offered (mintbackoff.go). An entry goes on a successful mint, when its task
 	// leaves Pending (the tick), and all of them when the catalog changes (mintCatalog is the
@@ -189,7 +175,6 @@ func New(d Deps, opts Options) (*Scheduler, error) {
 		log:         opts.Logger.With("component", "scheduler"),
 		waiting:     map[string]int{},
 		lastLeased:  map[string]time.Time{},
-		heldSince:   map[string]time.Time{},
 		mintBackoff: map[string]mintBackoff{},
 		wakeCh:      make(chan struct{}),
 	}

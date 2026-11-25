@@ -260,7 +260,6 @@ func (s *Scheduler) commitLocked(ctx context.Context, sn *snapshot, t *v1alpha1.
 	}
 
 	s.lastLeased[agentID] = now
-	delete(s.heldSince, taskID)
 	if err := charge(ctx, s.d.Store, budgetScopes(t.Spec.Queue, ruleSetOf(t), agentID, now), v1alpha1.BudgetCounterStatus{Runs: 1}); err != nil {
 		s.log.WarnContext(ctx, "charge lease to budgets", "task", taskID, "err", err)
 	}

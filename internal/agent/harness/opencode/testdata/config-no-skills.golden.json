@@ -1,0 +1,50 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "factory/qwen3-coder",
+  "enabled_providers": [
+    "factory"
+  ],
+  "autoupdate": false,
+  "share": "disabled",
+  "instructions": [
+    "$ROOT/home/.factory-opencode/instructions.md"
+  ],
+  "provider": {
+    "factory": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "http://model.factory.internal/v1",
+        "apiKey": "factory-placeholder-not-a-credential"
+      },
+      "models": {
+        "qwen3-coder": {
+          "tool_call": true,
+          "limit": {
+            "context": 131072,
+            "output": 16384
+          }
+        }
+      }
+    }
+  },
+  "mcp": {
+    "factory": {
+      "type": "local",
+      "command": [
+        "$ROOT/bin/factory",
+        "mcp"
+      ],
+      "enabled": true
+    }
+  },
+  "permission": {
+    "*": "allow",
+    "edit": {
+      "*": "allow"
+    },
+    "bash": {
+      "*": "allow",
+      "git push *": "deny"
+    }
+  }
+}
