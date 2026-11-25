@@ -3,12 +3,14 @@
 How to run our dispatcher at `https://factory.ccf.container-solutions.com` on AWS, in eu-west-2
 ([P4](../../design/proposals/P4-dispatcher-on-aws.md)). The kit is plain OpenTofu resources in
 this directory. One `tofu apply` creates a VPC with one public subnet, an EC2 t4g.micro with an
-Elastic IP, the dispatcher's state bucket (`factory-state-<account>`), the instance's role and a
-read-only role for the state, a CloudWatch log group, the factory's records in the existing
+Elastic IP, the old state bucket (`factory-state-<account>`), the instance's role and a read-only
+role for that bucket, a CloudWatch log group, the factory's records in the existing
 `ccf.container-solutions.com` Route 53 zone, and a status-check alarm. The instance runs
 `factory serve` and Caddy as two containers; Caddy gets the certificate from Let's Encrypt. The
+dispatcher keeps its state on the instance's own disk, in `/var/lib/factory/state` (a `file://`
+bucket); the S3 bucket held it before, and stays as the copy source for the switch (§9). The
 secrets are SSM parameters you put by hand (§5): OpenTofu never sees them. It costs about
-**$13 a month** at list price (P4 §What it costs).
+**$12 a month** at list price (P4 §What it costs, without the bucket's requests).
 
 The kit deploys our instance, so its values are written in: the domain, the region, the instance
 type, the image digests and `serve`'s flags. The one variable is `aws_account_id`. Another
@@ -18,7 +20,7 @@ deployment copies the directory and edits the values.
 |---|---|
 | `versions.tf`, `providers.tf`, `variables.tf` | OpenTofu and the AWS provider, pinned to the one account. |
 | `network.tf` | the VPC, its public subnet, internet gateway and route table. |
-| `state.tf` | the dispatcher's state bucket and its settings (§10). |
+| `state.tf` | the state URL the instance runs on, and the old state bucket and its settings (§10). |
 | `iam.tf` | the instance role and the read-only role. |
 | `instance.tf` | the instance, its security group, Elastic IP, log group and the non-secret parameters (the image digests and `serve`'s flags). |
 | `user_data.sh.tftpl` | the boot script: Docker, `factory-run`, `caddy-run`, the Caddyfile and the two systemd units. |
@@ -180,9 +182,16 @@ Deliveries → Redeliver).
 aws ssm start-session --target "$(tofu output -raw instance_id)"
 ```
 
-**The state, from a laptop.** Assume `factory-state-readonly`: it may read the state and nothing
-else. Your own principal needs `sts:AssumeRole` on it (an admin has it). Add a profile to
-`~/.aws/config`:
+**The state.** It is on the box, in `/var/lib/factory/state`. Read it from a shell there, with the
+`factory` in the running container:
+
+```bash
+sudo docker exec factory factory state tasks --state-url file:///var/lib/factory/state
+```
+
+**The old state bucket, from a laptop.** Assume `factory-state-readonly`: it may read the bucket
+and nothing else. Your own principal needs `sts:AssumeRole` on it (an admin has it). Add a profile
+to `~/.aws/config`:
 
 ```ini
 [profile factory-state]
@@ -193,7 +202,7 @@ region         = eu-west-2
 
 ```bash
 AWS_PROFILE=factory-state AWS_REGION=eu-west-2 \
-  ../../bin/factory state tasks --state-url "$(tofu output -raw state_url)"
+  ../../bin/factory state tasks --state-url "$(tofu output -raw bucket_state_url)"
 ```
 
 `../../bin/factory` is the repo root's build; a `factory` from a release on your `PATH` works too.
@@ -205,14 +214,34 @@ replaces it. Move to the latest one on purpose:
 tofu apply -var aws_account_id=$ACCOUNT -replace=aws_instance.factory
 ```
 
-The new instance starts with an empty disk and loads the state from the bucket. The Elastic IP
-moves to it, so the name stays. Caddy gets a new certificate. A changed `user_data.sh.tftpl`
-replaces the instance the same way.
+The new instance starts with an empty disk, so **with empty state**: the old instance's tasks,
+runs and history go with its root volume. We accept that for the PoC. The Elastic IP moves to it,
+so the name stays. Caddy gets a new certificate. A changed `user_data.sh.tftpl` replaces the
+instance the same way.
+
+**Switching from the bucket (once).** The kit used to keep the state in the S3 bucket. The apply
+that brings in the state on disk changes the boot script, so it replaces the instance. The old
+instance is gone before the new one starts, so the bucket then holds its last state. To carry
+that state over, copy it onto the new instance's disk once the apply is done (the command waits
+for the instance's first boot to finish, so the dispatcher never starts on half a copy):
+
+```bash
+tofu apply -var aws_account_id=$ACCOUNT
+aws ssm send-command --instance-ids "$(tofu output -raw instance_id)" \
+  --document-name AWS-RunShellScript --parameters "commands=[\"cloud-init status --wait >/dev/null && systemctl stop factory && rm -rf /var/lib/factory/state && aws s3 sync $(tofu output -raw bucket_state_url) /var/lib/factory/state --region eu-west-2 && chown -R 65532:65532 /var/lib/factory && chmod -R go= /var/lib/factory/state && systemctl start factory\"]"
+```
+
+The `chmod` matters: `serve` refuses a state directory that group or others can read, and
+`aws s3 sync` makes it 0755. GitHub webhooks sent from the apply until the copy is done are lost:
+the new instance either misses them or records them in the state the copy replaces. Redeliver
+them, as above. The copy is optional: skip it, and the dispatcher carries on with empty state.
 
 ## 10. The state bucket, explained
 
-`serve` checks none of this. If you run the dispatcher on S3 without the kit, set it up the same
-way (`state.tf` and `iam.tf` have the exact settings):
+The dispatcher no longer runs on the bucket: it is only the state from before the switch (§9),
+kept until we decide to remove it. Idle, it costs about $0.02 a month. `serve` checks none of
+this. If you run the dispatcher on S3 without the kit, set it up the same way (`state.tf` and
+`iam.tf` have the exact settings):
 
 | Setting | Why |
 |---|---|

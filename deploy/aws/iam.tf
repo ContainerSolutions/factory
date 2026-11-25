@@ -1,5 +1,7 @@
 # Everything the instance may do, in one place (P4 §The instance role), and the read-only role
-# for reading the state from a laptop. ARNs are built from names known at plan time.
+# for reading the old state bucket from a laptop. The state now lives on the instance's disk
+# (state.tf); the bucket access stays for the copy that switches to it (README §9). ARNs are built
+# from names known at plan time.
 locals {
   state_bucket_arn = "arn:aws:s3:::${aws_s3_bucket.state.bucket}"
   log_group_arn    = "arn:aws:logs:${local.region}:${var.aws_account_id}:log-group:${aws_cloudwatch_log_group.factory.name}"
@@ -75,8 +77,8 @@ resource "aws_iam_role_policy_attachment" "dispatcher_ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# `factory state ... --state-url` from a laptop. Any principal in the account that its own
-# policy allows may assume it.
+# `factory state ... --state-url` on the old state bucket, from a laptop. Any principal in the
+# account that its own policy allows may assume it.
 resource "aws_iam_role" "state_readonly" {
   name = "factory-state-readonly"
 

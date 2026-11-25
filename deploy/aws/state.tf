@@ -1,8 +1,15 @@
-# The dispatcher's state (P3): private, TLS-only, versioned. Only the instance role writes it
-# (iam.tf); the bucket policy only enforces TLS.
+# The dispatcher's state is a file:// bucket on the instance's root volume (P4, amended
+# 2026-11-24): the same layout as the S3 bucket, without its request bill. A replaced instance
+# starts with empty state (README §9).
+#
+# The S3 bucket below held the state before that. It stays, with its settings and roles, as the
+# copy source for the switch (README §9, Switching from the bucket); removing it is a later call.
+# Private, TLS-only, versioned. Only the instance role writes it (iam.tf); the bucket policy only
+# enforces TLS.
 locals {
-  state_prefix = "factory"
-  state_url    = "s3://${aws_s3_bucket.state.bucket}/${local.state_prefix}"
+  state_url        = "file:///var/lib/factory/state"
+  state_prefix     = "factory"
+  bucket_state_url = "s3://${aws_s3_bucket.state.bucket}/${local.state_prefix}"
 }
 
 resource "aws_s3_bucket" "state" {

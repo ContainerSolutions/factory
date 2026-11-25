@@ -40,8 +40,13 @@ run "bucket_is_private" {
   }
 
   assert {
-    condition     = local.state_url == "s3://factory-state-111122223333/factory"
-    error_message = "the state URL must be s3://<bucket>/factory"
+    condition     = local.bucket_state_url == "s3://factory-state-111122223333/factory"
+    error_message = "the old bucket's state URL must be s3://<bucket>/factory"
+  }
+
+  assert {
+    condition     = local.state_url == "file:///var/lib/factory/state"
+    error_message = "the live state must be the file:// bucket on the instance's disk"
   }
 }
 

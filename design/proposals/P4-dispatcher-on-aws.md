@@ -30,6 +30,14 @@ for compliance-framework, from the catalog in `compliance-framework/factory-cata
 1. `https://factory.ccf.container-solutions.com` serves the dispatcher, with a certificate that
    renews itself.
 2. The state is in `s3://<bucket>/factory` in eu-west-2, private to the dispatcher's identity.
+   *Amended 2026-11-24 (Gustavo):* the state moved to `file:///var/lib/factory/state`, a `file://`
+   bucket (the same layout) on the instance's encrypted EBS root volume. Cost Explorer for the
+   account (17–23 November) put the bucket at about $2.90 a month, nearly all requests: about
+   8,000 PUT and LIST a day ($1.30) and 120,000–170,000 GET a day ($1.57), mostly the 2 s sync
+   probing for the next log key; storage was $0.02. RDS was rejected: the cheapest single-AZ
+   db.t4g.micro with 20 GB of gp3 is about $15.80 a month, five times the bucket, and factory
+   has no Postgres store. A replaced instance now starts with empty state, accepted for now. The
+   bucket stays as the copy source for the switch (`deploy/aws/README.md` §9).
 3. The timed work runs on its own, as on the workstation: no tick endpoint, no scheduler.
 4. Secrets live in SSM Parameter Store (SecureString) and are read at start by the instance's
    role. They are never in the image, the repo, the OpenTofu state or the user data. On the
@@ -257,6 +265,9 @@ eu-west-2 list prices, per month, for the setup above:
 | S3: about 100,000 writes and 1,300,000 reads (P3 §What it costs, "VM"), storage well under 1 GB | about $1.10 |
 | CloudWatch Logs, SSM parameters, SNS, Session Manager | $0 at our volume |
 | **Total** | **about $13** (about $9.50 on t4g.nano) |
+
+*Amended 2026-11-24:* the S3 row measured about $2.90, not $1.10 (Goal 2's amendment). With the
+state on the instance's disk it is gone (the idle bucket is about $0.02): **about $12**.
 
 **The free tier doesn't make this $0 for long.** Since 15 July 2025 a new AWS account gets
 $100 in credits (and up to $100 more for trying services) instead of the old 12 months of free

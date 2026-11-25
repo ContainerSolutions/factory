@@ -111,7 +111,8 @@ resource "aws_instance" "factory" {
   }
 
   user_data = local.user_data
-  # A changed script replaces the instance: the state is in the bucket and the Elastic IP moves.
+  # A changed script replaces the instance: the Elastic IP moves, and the state on the old root
+  # volume is lost (README §9).
   user_data_replace_on_change = true
 
   # The units read these on their first start.
