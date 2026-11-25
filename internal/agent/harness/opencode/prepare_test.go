@@ -64,32 +64,45 @@ func task(model, effort, auth string) v1alpha1.Task {
 }
 
 // TestPrepare pins what Prepare writes, a golden per case (read-write with an effort,
-// read-only, the config's default model without an effort): opencode.json and the
-// instructions, new 0600 files, and the skills flattened beside the config. The config's
+// read-only, the config's default model without an effort, no skills): opencode.json and the
+// instructions, new 0600 files, and the skills flattened beside the config. The instructions
+// give each skill's <plugin>:<skill> the name opencode knows it by, the name in its flat
+// SKILL.md (two plugins' "review" are ccf-review-review and lisa-review). The config's
 // only key is the placeholder, its MCP server names no variable, every permission is allow or
 // deny, and no value of the run's environment is in any file.
 func TestPrepare(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
 		name               string
-		writable           bool
+		writable, noSkills bool
 		model, effort, def string
 	}{
-		{"read-write", true, "Qwen/Qwen3-Coder-Next-FP8", "max", ""},
-		{"read-only", false, "qwen3-coder", "minimal", ""},
-		{"default-model", true, "", "", "qwen3-coder"},
+		{"read-write", true, false, "Qwen/Qwen3-Coder-Next-FP8", "max", ""},
+		{"read-only", false, false, "qwen3-coder", "minimal", ""},
+		{"default-model", true, false, "", "", "qwen3-coder"},
+		{"no-skills", true, true, "qwen3-coder", "", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ws := workspace(t, tt.writable)
+			want := []string{"opencode.json", "skills/", "skills/ccf-review-review/", "skills/ccf-review-review/SKILL.md",
+				"skills/docs-style/", "skills/docs-style/SKILL.md", "skills/lisa-review/", "skills/lisa-review/SKILL.md"}
+			if tt.noSkills {
+				ws.SkillList, want = nil, []string{"opencode.json", "skills/"}
+			}
 			if err := adapter(t, tt.def).Prepare(context.Background(), ws, task(tt.model, tt.effort, AuthSelfHosted)); err != nil {
 				t.Fatal(err)
 			}
 			cfg, own := filepath.Join(ws.Home, ".config", "opencode"), filepath.Join(ws.Home, ".factory-opencode")
-			want := []string{"opencode.json", "skills/", "skills/ccf-review-review/", "skills/ccf-review-review/SKILL.md",
-				"skills/docs-style/", "skills/docs-style/SKILL.md", "skills/lisa-review/", "skills/lisa-review/SKILL.md"}
 			if got := listTree(t, cfg); !slices.Equal(got, want) || !slices.Equal(listTree(t, own), []string{"instructions.md"}) {
 				t.Errorf("opencode's config dir:\n  %s\nwant\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
+			}
+			for _, p := range want {
+				if dir, ok := strings.CutSuffix(p, "/SKILL.md"); ok {
+					if b, err := os.ReadFile(filepath.Join(cfg, p)); err != nil || !strings.Contains(string(b), "\nname: "+filepath.Base(dir)+"\n") {
+						t.Errorf("%s doesn't name the skill %s: %q %v", p, filepath.Base(dir), b, err)
+					}
+				}
 			}
 			b := readNew(t, filepath.Join(cfg, "opencode.json"))
 			golden(t, ws, "config-"+tt.name+".golden.json", b)
@@ -111,6 +124,29 @@ func readNew(t *testing.T, p string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// TestSkillNames: each skill is one line, a plugin's as <plugin>:<skill>, one without a
+// plugin as itself; nothing without skills.
+func TestSkillNames(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name   string
+		skills []harness.Skill
+		want   string
+	}{
+		{"none", nil, ""},
+		{"with and without a plugin", []harness.Skill{{Name: "local"}, {Plugin: "ccf-docs", Name: "docs-style"}},
+			"\n- `local` → `local`\n- `ccf-docs:docs-style` → `docs-style`\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := skillNames(tt.skills)
+			if (tt.want == "") != (got == "") || !strings.HasSuffix(got, tt.want) {
+				t.Errorf("skillNames = %q, want it to end with %q", got, tt.want)
+			}
+		})
+	}
 }
 
 // checkConfig checks opencode.json's meaning, so -update can't bless a regression: the
