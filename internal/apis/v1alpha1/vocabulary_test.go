@@ -85,6 +85,7 @@ func TestEffectOpSide(t *testing.T) {
 		{OpPRMerge, SideAPI, true},
 		{OpReviewRequestChanges, SideAPI, true},
 		{OpThreadResolve, SideAPI, true},
+		{OpCIRerun, SideAPI, true},
 		{OpPushBranch, SideGit, true},
 		{OpStackPush, SideGit, true},
 		{OpStackRebase, SideGit, true},
@@ -104,7 +105,7 @@ func TestEffectOpSide(t *testing.T) {
 			git++
 		}
 	}
-	if n := len(EffectOps()); n != 20 || git != 3 {
-		t.Errorf("%d ops (%d git), contracts.md lists 20 (3 git)", n, git)
+	if n := len(EffectOps()); n != 21 || git != 3 {
+		t.Errorf("%d ops (%d git), contracts.md lists 21 (3 git)", n, git)
 	}
 }
