@@ -72,6 +72,10 @@ func (l *rerunLog) get(key string) (provider.EffectResult, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	res, ok := l.done[key]
+	if ok && res.Object != nil {
+		ref := *res.Object // each caller gets its own copy
+		res.Object = &ref
+	}
 	return res, ok
 }
 
@@ -113,13 +117,13 @@ func (c *Conn) applyCIRerun(ctx context.Context, e *effect) (provider.EffectResu
 	tok, err := c.token(ctx, e, ciRerunPerms())
 	if err != nil {
 		if errors.Is(err, provider.ErrInvalid) {
-			return provider.EffectResult{}, fmt.Errorf("ci.rerun needs the %s identity's App to have Actions: write on %s: %w", e.identity, e.repo, err)
+			return provider.EffectResult{}, fmt.Errorf("ci.rerun needs the %s identity's App to have %s on %s: %w", e.identity, actionsWrite, e.repo, err)
 		}
 		return provider.EffectResult{}, err
 	}
 	p, err := c.pull(ctx, tok, e)
 	if err != nil {
-		return provider.EffectResult{}, ciError(err, e.repo)
+		return provider.EffectResult{}, ciError(err, e.repo, "Pull requests: read")
 	}
 	if p.Merged || p.State != "open" {
 		state := p.State
@@ -135,7 +139,7 @@ func (c *Conn) applyCIRerun(ctx context.Context, e *effect) (provider.EffectResu
 	}
 	runs, err := c.headRuns(ctx, tok, e.repo, p.Head.SHA)
 	if err != nil {
-		return provider.EffectResult{}, ciError(err, e.repo)
+		return provider.EffectResult{}, ciError(err, e.repo, actionsWrite)
 	}
 	res := c.result(provider.KindPR, e.repo, e.number, strings.TrimSuffix(p.HTMLURL, "/")+"/checks", false)
 	var rerun []int64
@@ -148,7 +152,7 @@ func (c *Conn) applyCIRerun(ctx context.Context, e *effect) (provider.EffectResu
 			path = fmt.Sprintf("repos/%s/actions/runs/%d/rerun", e.repo, r.ID)
 		}
 		if _, err := c.minter.Do(ctx, tok, http.MethodPost, path, nil, nil, http.StatusCreated, nil); err != nil {
-			return provider.EffectResult{}, fmt.Errorf("re-run workflow run %d: %w", r.ID, ciError(err, e.repo))
+			return provider.EffectResult{}, fmt.Errorf("re-run workflow run %d: %w", r.ID, ciError(err, e.repo, actionsWrite))
 		}
 		rerun = append(rerun, r.ID)
 	}
@@ -204,16 +208,20 @@ func latestRuns(runs []ghWorkflowRun) []ghWorkflowRun {
 	return out
 }
 
+// actionsWrite is the App permission ci.rerun's Actions calls need, as GitHub's App settings
+// name it.
+const actionsWrite = "Actions: write"
+
 // ciError maps a GitHub refusal of ci.rerun's calls: a 403 that isn't a rate limit is
-// ErrInvalid, naming Actions: write when GitHub says the App may not do it; anything else as
-// is (404 ErrNotFound, 422 ErrInvalid, rate limits and 5xx retryable).
-func ciError(err error, repo string) error {
+// ErrInvalid, naming perm when GitHub says the App may not do it; anything else as is (404
+// ErrNotFound, 422 ErrInvalid, rate limits and 5xx retryable).
+func ciError(err error, repo, perm string) error {
 	if !errors.Is(err, tokens.ErrForbidden) {
 		return err
 	}
 	var apiErr *tokens.APIError
 	if errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Message), "not accessible by integration") {
-		return fmt.Errorf("the App lacks Actions: write on %s (grant it in the GitHub App's permissions): %w: %w", repo, err, provider.ErrInvalid)
+		return fmt.Errorf("the App lacks %s on %s (grant it in the GitHub App's permissions): %w: %w", perm, repo, err, provider.ErrInvalid)
 	}
 	return fmt.Errorf("%w: %w", err, provider.ErrInvalid)
 }

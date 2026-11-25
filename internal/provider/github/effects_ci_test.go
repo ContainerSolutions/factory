@@ -191,6 +191,9 @@ func TestApplyCIRerunRefused(t *testing.T) {
 		{name: "GitHub's 403 on the re-run", seed: func(s *githubtest.Server) {
 			s.FailNext(githubtest.RouteRerunFailedJobs, githubtest.Failure{Status: http.StatusForbidden, Message: "Resource not accessible by integration"})
 		}, req: ciRerun(""), is: provider.ErrInvalid, msg: "Actions: write"},
+		{name: "GitHub's 403 on the PR", seed: func(s *githubtest.Server) {
+			s.FailNext(githubtest.RoutePull, githubtest.Failure{Status: http.StatusForbidden, Message: "Resource not accessible by integration"})
+		}, req: ciRerun(""), is: provider.ErrInvalid, msg: "Pull requests: read"},
 		{name: "GitHub's 403 for another reason", seed: func(s *githubtest.Server) {
 			s.FailNext(githubtest.RouteRerunFailedJobs, githubtest.Failure{Status: http.StatusForbidden, Message: "Unable to re-run this workflow run because it was created over a month ago"})
 		}, req: ciRerun(""), is: provider.ErrInvalid, msg: "over a month ago"},
