@@ -3,3 +3,9 @@ ccf-review #3 (should-fix CORE-DOC-001): documented the real behaviour in contra
 ccf-review #4 (question): decided "once per task per key"; head SHA not folded into the server effect key. Docs only.
 ccf-review #5 (question): startup_failure -> POST .../rerun; a run refused with 403/422 is skipped, others continue; success if >=1 rerun with outcome "partially-rerun: skipped run <id> (refused)"; ErrInvalid (errors.Join of refusals) only when nothing rerun and something refused. Tests: TestApplyCIRerun (startup_failure whole), TestApplyCIRerunPartlyRefused. (10b3a8e)
 ccf-review #6 (question): MaxRunAttempts = 3; runs with run_attempt >= 3 are skipped, don't count; alone -> nothing-to-rerun, beside a rerun -> named in partially-rerun outcome. Documented in contracts.md and the LLD; TestApplyCIRerunAttemptCap. (10b3a8e)
+
+lisa-design:
+- (coordinator decision) ci.rerun's agent-path contract is ONCE PER TASK PER KEY (the dispatcher's Effect store replays before the provider); per-head reruns in one task use --key rerun-<sha> or no key. Do not fold the head SHA into the server's effectID.
+- (coordinator decision) startup_failure is rerun whole (/rerun) like cancelled.
+- (coordinator decision) Per-run 403/422 refusals are skipped, not fatal; Outcome "partially-rerun: skipped run <id> (refused|attempt <n>), ..." when something was rerun and something skipped; ErrInvalid only if nothing rerun and something refused. 404 and retryable errors still fail/retry the whole op.
+- (coordinator decision) MaxRunAttempts = 3: never take a run past its third attempt; capped runs don't count as rerun.
