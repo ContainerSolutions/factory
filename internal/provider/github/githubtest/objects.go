@@ -96,7 +96,8 @@ type Object struct {
 // Conclusion once completed (SUCCESS, FAILURE, …) and how many check runs it has. ID, Created
 // and App are the suite's databaseId, createdAt and App (zero: null, an App not read); a
 // workflow run's suite (GitHub Actions) also has Workflow (the workflow's databaseId),
-// RunNumber and Event, and without them its workflowRun is null.
+// RunNumber and Event; without both Workflow and RunNumber its workflowRun is null, and with a
+// RunNumber but no Workflow the run's workflow is null.
 type CheckSuite struct {
 	Status     string
 	Conclusion string
@@ -768,7 +769,11 @@ func (s *Server) gqlObserve(repo string, n int) map[string]any {
 				suite["app"] = map[string]any{"databaseId": cs.App}
 			}
 			if cs.Workflow != 0 || cs.RunNumber != 0 {
-				suite["workflowRun"] = map[string]any{"runNumber": cs.RunNumber, "event": cs.Event, "workflow": map[string]any{"databaseId": cs.Workflow}}
+				var workflow any // null: a run without its workflow
+				if cs.Workflow != 0 {
+					workflow = map[string]any{"databaseId": cs.Workflow}
+				}
+				suite["workflowRun"] = map[string]any{"runNumber": cs.RunNumber, "event": cs.Event, "workflow": workflow}
 			}
 			suites[i] = suite
 		}

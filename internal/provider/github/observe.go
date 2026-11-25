@@ -407,7 +407,7 @@ func prObservation(o *gqlObject, bots map[string]string) *provider.PRObservation
 // with runs leaves checks empty. The first 100 suites are read (one page; a commit has one per
 // App and workflow run).
 //
-// Only the latest suite of each kind counts (latestSuites): a workflow run superseded by a
+// Only the latest suite of each workflow counts (latestSuites): a workflow run superseded by a
 // later run of the same workflow for the same event (a concurrency group cancelling it, a
 // re-trigger) no longer makes a green PR "failure". Re-running a run (rerun-failed-jobs, re-run
 // all jobs) is a new attempt of the same run, and GitHub reports it in the same check suite,
@@ -447,11 +447,12 @@ func checksOf(suites []gqlCheckSuite) provider.Checks {
 }
 
 // latestSuites are the suites with check runs that no later suite of the same kind supersedes,
-// in their order. A suite's kind (suiteKind) is its App's workflow and event for a workflow
-// run (GitHub Actions), else its App: an App that isn't Actions runs one suite per commit, and
-// a later one replaces the earlier. Of a kind, the latest is the highest run number, then the
-// newest createdAt, then the highest databaseId. A suite with no App (not read) is its own
-// kind, so it always counts.
+// in their order. A suite's kind (suiteKind) is its App, workflow and event: only workflow runs
+// (GitHub Actions) supersede each other. Of a kind, the latest is the highest run number, then
+// the newest createdAt, then the highest databaseId. A suite whose workflow can't be told (no
+// App, no workflow run: another App's suite, or an Actions suite whose run was deleted; or a
+// run without its workflow) is its own kind: it always counts and supersedes nothing, so a
+// failing suite can't hide behind an unrelated green one.
 func latestSuites(suites []gqlCheckSuite) []gqlCheckSuite {
 	latest := map[string]int{} // kind → index of its latest suite
 	for i, s := range suites {
@@ -480,21 +481,14 @@ func latestSuites(suites []gqlCheckSuite) []gqlCheckSuite {
 }
 
 // suiteKind is what a later suite of the same kind supersedes: "<app>/<workflow>/<event>" for a
-// workflow run, "<app>" for another App's suite. ok is false without an App, or for a workflow
-// run without its workflow: nothing supersedes it.
+// workflow run. ok is false when the suite's workflow can't be told (no App, a null
+// workflowRun, a null workflow): nothing supersedes it and it supersedes nothing.
 func suiteKind(s gqlCheckSuite) (string, bool) {
-	if s.App == nil || s.App.DatabaseID == 0 {
+	w := s.WorkflowRun
+	if s.App == nil || s.App.DatabaseID == 0 || w == nil || w.Workflow == nil || w.Workflow.DatabaseID == 0 {
 		return "", false
 	}
-	app := strconv.FormatInt(s.App.DatabaseID, 10)
-	switch w := s.WorkflowRun; {
-	case w == nil:
-		return app, true
-	case w.Workflow == nil || w.Workflow.DatabaseID == 0:
-		return "", false
-	default:
-		return app + "/" + strconv.FormatInt(w.Workflow.DatabaseID, 10) + "/" + w.Event, true
-	}
+	return strconv.FormatInt(s.App.DatabaseID, 10) + "/" + strconv.FormatInt(w.Workflow.DatabaseID, 10) + "/" + w.Event, true
 }
 
 // newerSuite reports whether a is later than b, two suites of one kind: the higher workflow

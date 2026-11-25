@@ -391,6 +391,10 @@ func TestObserveChecks(t *testing.T) {
 		s.Created = t
 		return s
 	}
+	noWorkflow := func(s githubtest.CheckSuite) githubtest.CheckSuite {
+		s.Workflow = 0
+		return s
+	}
 	event := func(s githubtest.CheckSuite, ev string) githubtest.CheckSuite {
 		s.Event = ev
 		return s
@@ -455,9 +459,24 @@ func TestObserveChecks(t *testing.T) {
 		{"one run number and createdAt: the higher databaseId", []githubtest.CheckSuite{
 			at(run(ciWF, 10, 9, "COMPLETED", "FAILURE", 3), created), at(run(ciWF, 10, 8, "COMPLETED", "SUCCESS", 3), created),
 		}, provider.Checks{State: "failure", Settled: true}},
-		{"another App: its latest suite counts", []githubtest.CheckSuite{
+		{"another App's suites never supersede each other", []githubtest.CheckSuite{
 			app(coderabbit, 1, "COMPLETED", "FAILURE", 1), app(coderabbit, 2, "COMPLETED", "SUCCESS", 1),
-		}, provider.Checks{State: "success", Settled: true}},
+		}, provider.Checks{State: "failure", Settled: true}},
+		{"an Actions suite with a null workflowRun is never superseded", []githubtest.CheckSuite{
+			app(actions, 1, "COMPLETED", "FAILURE", 3), run(ciWF, 10, 2, "COMPLETED", "SUCCESS", 3),
+		}, provider.Checks{State: "failure", Settled: true}},
+		{"an Actions suite with a null workflowRun supersedes nothing", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "FAILURE", 3), app(actions, 2, "COMPLETED", "SUCCESS", 3),
+		}, provider.Checks{State: "failure", Settled: true}},
+		{"two Actions suites with null workflowRuns both count", []githubtest.CheckSuite{
+			app(actions, 1, "COMPLETED", "FAILURE", 3), app(actions, 2, "COMPLETED", "SUCCESS", 3),
+		}, provider.Checks{State: "failure", Settled: true}},
+		{"a run with a null workflow is never superseded", []githubtest.CheckSuite{
+			noWorkflow(run(ciWF, 10, 1, "COMPLETED", "FAILURE", 3)), run(ciWF, 11, 2, "COMPLETED", "SUCCESS", 3),
+		}, provider.Checks{State: "failure", Settled: true}},
+		{"a run with a null workflow supersedes nothing", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "FAILURE", 3), noWorkflow(run(ciWF, 11, 2, "COMPLETED", "SUCCESS", 3)),
+		}, provider.Checks{State: "failure", Settled: true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t)
