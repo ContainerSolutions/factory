@@ -163,8 +163,8 @@ func (c *Conn) projectLocked(ref v1alpha1.ObjectRef, p provider.Projection) (boo
 // close; link-duplicate (label "duplicate" and close); create-issue and pr.open (Target.Ref is
 // the repo; args.labels, args.base, args.head, args.draft) create the next number in the
 // repo; sub-issue.add (args.issue: a ref); pr.retarget (args.base); pr.merge; review.approve
-// (approves the head for Identity); thread.resolve. Other API ops only need the target to
-// exist. Git-side ops are ErrUnsupported (the agent executes them).
+// (approves the head for Identity); thread.resolve; ci.rerun (needs a PR; there's no CI to
+// re-run). Other API ops only need the target to exist. Git-side ops are ErrUnsupported (the agent executes them).
 func (c *Conn) Apply(ctx context.Context, e provider.EffectRequest) (provider.EffectResult, error) {
 	if err := ctx.Err(); err != nil {
 		return provider.EffectResult{}, err
@@ -325,6 +325,11 @@ func (c *Conn) mutateLocked(e provider.EffectRequest) (provider.EffectResult, er
 			return provider.EffectResult{}, err
 		}
 		p.UnresolvedThreads = max(0, p.UnresolvedThreads-1)
+	case v1alpha1.OpCIRerun:
+		// The fake has no CI: re-running it changes nothing, but needs a PR.
+		if _, err := pr(); err != nil {
+			return provider.EffectResult{}, err
+		}
 	}
 	o.UpdatedAt = c.opts.Clock.Now()
 	return res, nil

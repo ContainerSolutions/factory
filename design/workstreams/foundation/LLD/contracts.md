@@ -122,6 +122,7 @@ Canonical names (as used in the PoC catalog), constants in `v1alpha1/effects.go`
 | `pr.open`, `pr.update`, `pr.retarget`, `pr.merge` | API | `pr.merge` honours repo merge method; falls back to label if review requirement blocks (Q5) |
 | `review.comment`, `review.request-changes`, `review.approve` | API | reviewer identity only (TaskSpec `identity: reviewer`) |
 | `thread.reply`, `thread.resolve` | API | both identities: the author addresses review feedback, the reviewer follows up on its threads |
+| `ci.rerun` | API | target: a PR. Re-runs the failed jobs of the PR head commit's failed workflow runs, keeping only the latest run per workflow (a cancelled one is re-run whole); nothing to re-run is outcome `nothing-to-rerun`. Needs the identity's App to have **Actions: write**, which only the author App (`ccf-factory`) is granted. Idempotent per (key, head SHA): the same key re-runs a head at most once ([github-provider.md §Decisions taken in fx/ci-rerun-effect](../../provider-github/LLD/github-provider.md#decisions-taken-in-fxci-rerun-effect)) |
 | `push-branch`, `stack.push`, `stack.rebase` | **git (agent)** | executed in the workspace with the scoped git token; the agent still records them via `POST /effects` (op + ref) for audit |
 
 ## Provider interface

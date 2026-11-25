@@ -1,4 +1,9 @@
 {
+  "ci rerun": {
+    "idempotencyKey": "tsk_1/ci.rerun/5fca7643095dbbee.0",
+    "op": "ci.rerun",
+    "target": "acme/docs#9"
+  },
   "comment": {
     "args": {
       "body": "Planning the epic."

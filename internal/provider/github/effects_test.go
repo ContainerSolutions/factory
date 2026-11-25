@@ -51,6 +51,7 @@ func writeCounts(s *githubtest.Server) map[string]int {
 		githubtest.RouteCreateComment, githubtest.RouteUpdateComment, githubtest.RouteAddLabels, githubtest.RouteRemoveLabel,
 		githubtest.RouteCreateIssue, githubtest.RouteUpdateIssue, githubtest.RouteAddSubIssue, githubtest.RouteCreatePull,
 		githubtest.RouteUpdatePull, githubtest.RouteMerge, githubtest.RouteCreateReview,
+		githubtest.RouteRerunFailedJobs, githubtest.RouteRerun,
 	} {
 		out[r] = s.Count(r)
 	}
@@ -314,6 +315,21 @@ func TestApplyOps(t *testing.T) {
 			check: func(t *testing.T, s *githubtest.Server) {
 				if !obj(t, s, 60).Threads[0].Resolved {
 					t.Error("thread not resolved")
+				}
+			},
+		},
+		{
+			name: "ci.rerun",
+			seed: func(s *githubtest.Server) {
+				s.AddWorkflowRuns(docs, githubtest.WorkflowRun{ID: 1, WorkflowID: 7, RunNumber: 3, HeadSHA: "abc123", Status: "completed", Conclusion: "failure"})
+			},
+			req:    effectReq(v1alpha1.OpCIRerun, provider.KindPR, docs+"#60", "author", nil),
+			perms:  map[string]string{"actions": "write", "pull_requests": "read"},
+			writes: map[string]int{githubtest.RouteRerunFailedJobs: 1},
+			object: docs + "#60", url: githubtest.WebURL + "/" + docs + "/pull/60/checks",
+			check: func(t *testing.T, s *githubtest.Server) {
+				if rs := s.WorkflowRuns(docs); len(rs) != 1 || rs[0].Attempt != 2 || !rs[0].FailedJobsOnly {
+					t.Errorf("runs %+v", rs)
 				}
 			},
 		},

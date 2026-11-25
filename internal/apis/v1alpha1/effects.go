@@ -36,6 +36,7 @@ const (
 	OpReviewApprove        EffectOp = "review.approve"
 	OpThreadReply          EffectOp = "thread.reply"
 	OpThreadResolve        EffectOp = "thread.resolve"
+	OpCIRerun              EffectOp = "ci.rerun"
 	OpPushBranch           EffectOp = "push-branch"
 	OpStackPush            EffectOp = "stack.push"
 	OpStackRebase          EffectOp = "stack.rebase"
@@ -62,6 +63,7 @@ var effectOps = []struct {
 	{OpReviewApprove, SideAPI},
 	{OpThreadReply, SideAPI},
 	{OpThreadResolve, SideAPI},
+	{OpCIRerun, SideAPI},
 	{OpPushBranch, SideGit},
 	{OpStackPush, SideGit},
 	{OpStackRebase, SideGit},

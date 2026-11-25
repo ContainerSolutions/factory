@@ -18,7 +18,7 @@ Created by an org owner (RUN-S0-T02). Settings → Developer settings → GitHub
 | Setting | `ccf-factory` (author + events) | `ccf-factory-reviewer` |
 |---|---|---|
 | Webhook | **active**, URL `https://<tunnel-host>/hooks/github-public`, secret = random 32 bytes | inactive |
-| Repository permissions | Contents RW, Pull requests RW, Issues RW, Checks R, Actions R, Deployments R, Metadata R | Contents RW, Pull requests RW, Issues R, Checks R, Metadata R |
+| Repository permissions | Contents RW, Pull requests RW, Issues RW, Checks R, Actions RW (write: `ci.rerun`), Deployments R, Metadata R | Contents RW, Pull requests RW, Issues R, Checks R, Metadata R |
 | Organization permissions | Members R | — |
 | Events | Issues, Issue comment, Pull request, Pull request review, Pull request review comment, Pull request review thread, Release, Deployment status, Check suite, Sub issues | — |
 | Install on | `docs`, `mock-docs`, `workflows`, `mock-*` | `docs`, `mock-docs` |

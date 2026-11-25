@@ -268,6 +268,7 @@ func apiCases(t *testing.T) []struct {
 		{"review comment", []string{"review", "--pr", "9", "--event", "comment", "--body", "A nit.", "--comments", `[{"path": "README.md", "line": 1, "body": "nit"}]`, "--commit", "4b825dc"}},
 		{"thread reply", []string{"thread", "reply", "--thread", "PRRT_kwDOA", "--body", "Fixed in 4b825dc."}},
 		{"thread resolve", []string{"thread", "resolve", "--thread", "PRRT_kwDOA", "--pr", "9"}},
+		{"ci rerun", []string{"ci", "rerun", "--pr", "#9"}},
 	}
 }
 
@@ -528,6 +529,7 @@ func TestPrecheck(t *testing.T) {
 		{[]string{"push"}, 3, "push-branch is not allowed"},
 		{[]string{"stack", "push"}, 3, "stack.push is not allowed"},
 		{[]string{"stack", "rebase"}, 3, "stack.rebase is not allowed"},
+		{[]string{"ci", "rerun", "--pr", "9"}, 3, "ci.rerun is not allowed"},
 		{[]string{"label", "add", "--name", "triage:bug"}, 0, ""},
 		{[]string{"review", "--pr", "9", "--event", "comment", "--body", "hm"}, 0, ""},
 	}

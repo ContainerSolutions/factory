@@ -123,6 +123,7 @@ func (s *Server) routeAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/compare/{basehead}", s.handleCompare)
 	s.routeObjects(mux)
 	s.routeEffects(mux)
+	s.routeActions(mux)
 }
 
 // beginToken records a request authenticated with an installation token and returns what

@@ -1,0 +1,219 @@
+package github
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/ContainerSolutions/factory/internal/provider"
+	"github.com/ContainerSolutions/factory/internal/provider/tokens"
+)
+
+// The CI op, ci.rerun: re-run the failed GitHub Actions workflow runs of a PR's head commit
+// (github-provider.md §Effects). Its token is actions: write on the target repo, with
+// pull_requests: read for the PR's head.
+
+const (
+	// OutcomeNothingToRerun is ci.rerun's outcome when the head has no failed run to re-run:
+	// the latest run of every workflow passed or is still running.
+	OutcomeNothingToRerun = "nothing-to-rerun"
+	// maxRunPages bounds the pages of a head commit's workflow runs ci.rerun reads.
+	maxRunPages = 5
+	// maxReruns bounds the ci.rerun effects a Conn remembers for replays (rerunLog).
+	maxReruns = 1024
+)
+
+func ciRerunPerms() map[string]string {
+	return map[string]string{"actions": "write", "pull_requests": "read"}
+}
+
+// rerunConclusions are the conclusions of a run ci.rerun re-runs.
+var rerunConclusions = []string{"failure", "timed_out", "cancelled", "startup_failure"}
+
+// ghWorkflowRun is a workflow run as the Actions API shows it: its latest attempt's status and
+// conclusion.
+type ghWorkflowRun struct {
+	ID         int64     `json:"id"`
+	WorkflowID int64     `json:"workflow_id"`
+	RunNumber  int       `json:"run_number"`
+	RunAttempt int       `json:"run_attempt"`
+	Event      string    `json:"event"`
+	Status     string    `json:"status"`
+	Conclusion *string   `json:"conclusion"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+func (r *ghWorkflowRun) conclusion() string {
+	if r.Conclusion == nil {
+		return ""
+	}
+	return *r.Conclusion
+}
+
+// rerunLog remembers the ci.rerun effects a Conn applied that re-ran something, by effective
+// key (the request's key and the head SHA), so the same key on the same head is a replay. A
+// re-run leaves nothing on GitHub that carries the key (the API takes no body to put a marker
+// in), so unlike the other ops the replay can't be found there; the dispatcher's Effect store
+// is the durable record (see applyCIRerun). Bounded to maxReruns, the oldest forgotten first.
+type rerunLog struct {
+	mu    sync.Mutex
+	done  map[string]provider.EffectResult
+	order []string
+}
+
+func (l *rerunLog) get(key string) (provider.EffectResult, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	res, ok := l.done[key]
+	return res, ok
+}
+
+func (l *rerunLog) put(key string, res provider.EffectResult) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.done == nil {
+		l.done = map[string]provider.EffectResult{}
+	}
+	if _, ok := l.done[key]; !ok {
+		l.order = append(l.order, key)
+	}
+	l.done[key] = res
+	for len(l.order) > maxReruns {
+		delete(l.done, l.order[0])
+		l.order = l.order[1:]
+	}
+}
+
+// applyCIRerun re-runs the failed workflow runs of the PR's head commit: of the head's runs,
+// the latest of each workflow and event (latestRuns, the superseding rule of checksOf), and of
+// those the completed ones that concluded failure, timed_out, cancelled or startup_failure.
+// Each is re-run with POST …/rerun-failed-jobs, a cancelled one with POST …/rerun (a run
+// cancelled by its concurrency group may have no failed job). With nothing to re-run (every
+// latest run passed or is still running) the result's outcome is OutcomeNothingToRerun, not an
+// error. The result's URL is the PR's checks page. A closed or merged PR is ErrInvalid.
+//
+// Idempotency: the effective key is the request's key and the head SHA, so a head is re-run at
+// most once per key, and a new head (a pushed fix) with the same key is re-run again. The Conn
+// remembers the keys it re-ran with (rerunLog): the same key on the same head is a replay
+// (Replayed, nothing posted). That memory is the process's; durably, the dispatcher records
+// every effect by key (an Effector call is replayed from the Effect store before the provider
+// sees it, a rule's key is its event's), and a replay the Conn forgot still posts nothing
+// while the runs it re-ran are queued or running, since only completed runs are re-run.
+//
+// Errors: a 404 is ErrNotFound; a 403 or 422 is ErrInvalid, naming Actions: write when the
+// App lacks it (as does a token the installation can't be granted).
+func (c *Conn) applyCIRerun(ctx context.Context, e *effect) (provider.EffectResult, error) {
+	tok, err := c.token(ctx, e, ciRerunPerms())
+	if err != nil {
+		if errors.Is(err, provider.ErrInvalid) {
+			return provider.EffectResult{}, fmt.Errorf("ci.rerun needs the %s identity's App to have Actions: write on %s: %w", e.identity, e.repo, err)
+		}
+		return provider.EffectResult{}, err
+	}
+	p, err := c.pull(ctx, tok, e)
+	if err != nil {
+		return provider.EffectResult{}, ciError(err, e.repo)
+	}
+	if p.Merged || p.State != "open" {
+		state := p.State
+		if p.Merged {
+			state = "merged"
+		}
+		return provider.EffectResult{}, fmt.Errorf("%s#%d is %s: no CI to re-run: %w", e.repo, e.number, state, provider.ErrInvalid)
+	}
+	key := e.key() + "@" + p.Head.SHA
+	if res, ok := c.reruns.get(key); ok {
+		res.Replayed = true
+		return res, nil
+	}
+	runs, err := c.headRuns(ctx, tok, e.repo, p.Head.SHA)
+	if err != nil {
+		return provider.EffectResult{}, ciError(err, e.repo)
+	}
+	res := c.result(provider.KindPR, e.repo, e.number, strings.TrimSuffix(p.HTMLURL, "/")+"/checks", false)
+	var rerun []int64
+	for _, r := range latestRuns(runs) {
+		if r.Status != "completed" || !slices.Contains(rerunConclusions, r.conclusion()) {
+			continue
+		}
+		path := fmt.Sprintf("repos/%s/actions/runs/%d/rerun-failed-jobs", e.repo, r.ID)
+		if r.conclusion() == "cancelled" {
+			path = fmt.Sprintf("repos/%s/actions/runs/%d/rerun", e.repo, r.ID)
+		}
+		if _, err := c.minter.Do(ctx, tok, http.MethodPost, path, nil, nil, http.StatusCreated, nil); err != nil {
+			return provider.EffectResult{}, fmt.Errorf("re-run workflow run %d: %w", r.ID, ciError(err, e.repo))
+		}
+		rerun = append(rerun, r.ID)
+	}
+	if len(rerun) == 0 {
+		res.Outcome = OutcomeNothingToRerun
+		return res, nil
+	}
+	c.reruns.put(key, res)
+	c.log.DebugContext(ctx, "workflow runs re-run", "ref", e.repo+"#"+strconv.Itoa(e.number), "head", p.Head.SHA, "runs", rerun)
+	return res, nil
+}
+
+// headRuns lists the workflow runs of the head commit sha (up to maxRunPages pages).
+func (c *Conn) headRuns(ctx context.Context, tok, repo, sha string) ([]ghWorkflowRun, error) {
+	q := url.Values{"head_sha": {sha}, "per_page": {strconv.Itoa(perPage)}}
+	var out []ghWorkflowRun
+	for range maxRunPages {
+		var page struct {
+			WorkflowRuns []ghWorkflowRun `json:"workflow_runs"`
+		}
+		h, err := c.minter.Get(ctx, tok, "repos/"+repo+"/actions/runs", q, &page)
+		if err != nil {
+			return nil, fmt.Errorf("list workflow runs of %s: %w", sha, err)
+		}
+		out = append(out, page.WorkflowRuns...)
+		next, ok := nextQuery(h)
+		if !ok {
+			break
+		}
+		q = next
+	}
+	return out, nil
+}
+
+// latestRuns are the runs no later run of the same workflow and event supersedes, in their
+// order: checksOf's rule for check suites (a run cancelled by its concurrency group, or
+// re-triggered, is superseded by the later run).
+func latestRuns(runs []ghWorkflowRun) []ghWorkflowRun {
+	kind := func(r ghWorkflowRun) string { return strconv.FormatInt(r.WorkflowID, 10) + "/" + r.Event }
+	order := func(r ghWorkflowRun) runOrder { return runOrder{number: r.RunNumber, created: r.CreatedAt, id: r.ID} }
+	latest := map[string]int{}
+	for i, r := range runs {
+		if j, seen := latest[kind(r)]; !seen || order(r).after(order(runs[j])) {
+			latest[kind(r)] = i
+		}
+	}
+	var out []ghWorkflowRun
+	for i, r := range runs {
+		if latest[kind(r)] == i {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// ciError maps a GitHub refusal of ci.rerun's calls: a 403 that isn't a rate limit is
+// ErrInvalid, naming Actions: write when GitHub says the App may not do it; anything else as
+// is (404 ErrNotFound, 422 ErrInvalid, rate limits and 5xx retryable).
+func ciError(err error, repo string) error {
+	if !errors.Is(err, tokens.ErrForbidden) {
+		return err
+	}
+	var apiErr *tokens.APIError
+	if errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Message), "not accessible by integration") {
+		return fmt.Errorf("the App lacks Actions: write on %s (grant it in the GitHub App's permissions): %w: %w", repo, err, provider.ErrInvalid)
+	}
+	return fmt.Errorf("%w: %w", err, provider.ErrInvalid)
+}

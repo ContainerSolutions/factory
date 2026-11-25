@@ -1714,7 +1714,7 @@ export interface components {
          * @description EffectOp is a provider effect, as named in TaskSpec effects.allow and the effect action.
          * @enum {string}
          */
-        EffectOp: "comment" | "pr.comment" | "label.add" | "label.remove" | "create-issue" | "sub-issue.add" | "close" | "link-duplicate" | "pr.open" | "pr.update" | "pr.retarget" | "pr.merge" | "review.comment" | "review.request-changes" | "review.approve" | "thread.reply" | "thread.resolve" | "push-branch" | "stack.push" | "stack.rebase";
+        EffectOp: "comment" | "pr.comment" | "label.add" | "label.remove" | "create-issue" | "sub-issue.add" | "close" | "link-duplicate" | "pr.open" | "pr.update" | "pr.retarget" | "pr.merge" | "review.comment" | "review.request-changes" | "review.approve" | "thread.reply" | "thread.resolve" | "ci.rerun" | "push-branch" | "stack.push" | "stack.rebase";
         /** @description EffectResult is the outcome of an effect. */
         EffectResult: {
             url?: string;
