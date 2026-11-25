@@ -1,0 +1,35 @@
+{
+  "data": {
+    "repository": {
+      "nameWithOwner": "compliance-framework/docs",
+      "defaultBranchRef": { "name": "main" },
+      "issueOrPullRequest": {
+        "__typename": "PullRequest",
+        "id": "PR_kwDOLq7d2c5zQ2cD",
+        "number": 92,
+        "state": "OPEN",
+        "isDraft": false,
+        "updatedAt": "2026-11-24T14:12:03Z",
+        "headRefOid": "5e68fb002a163814ca570130838187423532fb60",
+        "baseRefName": "main",
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommit": null,
+        "author": { "__typename": "Bot", "login": "renovate" },
+        "labels": { "nodes": [] },
+        "reviews": { "nodes": [] },
+        "reviewThreads": { "pageInfo": { "hasNextPage": false, "endCursor": null }, "nodes": [] },
+        "commits": { "nodes": [ { "commit": { "oid": "5e68fb002a163814ca570130838187423532fb60", "checkSuites": { "nodes": [
+          {"databaseId": 122870589751, "createdAt": "2026-11-24T14:00:57Z", "status": "COMPLETED", "conclusion": "SKIPPED", "app": {"databaseId": 347564}, "workflowRun": null, "checkRuns": {"totalCount": 1}},
+          {"databaseId": 122870649391, "createdAt": "2026-11-24T14:01:04Z", "status": "COMPLETED", "conclusion": "CANCELLED", "app": {"databaseId": 15368}, "workflowRun": {"runNumber": 372, "event": "pull_request", "workflow": {"databaseId": 379691137}}, "checkRuns": {"totalCount": 4}},
+          {"databaseId": 122870651416, "createdAt": "2026-11-24T14:01:04Z", "status": "COMPLETED", "conclusion": "SUCCESS", "app": {"databaseId": 15368}, "workflowRun": {"runNumber": 373, "event": "pull_request", "workflow": {"databaseId": 379691137}}, "checkRuns": {"totalCount": 4}},
+          {"databaseId": 122870653629, "createdAt": "2026-11-24T14:01:05Z", "status": "COMPLETED", "conclusion": "SUCCESS", "app": {"databaseId": 15368}, "workflowRun": {"runNumber": 2512, "event": "pull_request", "workflow": {"databaseId": 67470646}}, "checkRuns": {"totalCount": 10}},
+          {"databaseId": 122870654416, "createdAt": "2026-11-24T14:01:05Z", "status": "COMPLETED", "conclusion": "SUCCESS", "app": {"databaseId": 15368}, "workflowRun": {"runNumber": 2513, "event": "pull_request", "workflow": {"databaseId": 67470646}}, "checkRuns": {"totalCount": 10}},
+          {"databaseId": 122871061681, "createdAt": "2026-11-24T14:01:52Z", "status": "COMPLETED", "conclusion": "SUCCESS", "app": {"databaseId": 57789}, "workflowRun": null, "checkRuns": {"totalCount": 1}},
+          {"databaseId": 122876027225, "createdAt": "2026-11-24T14:11:49Z", "status": "COMPLETED", "conclusion": "SUCCESS", "app": {"databaseId": 15368}, "workflowRun": {"runNumber": 2516, "event": "pull_request", "workflow": {"databaseId": 67470646}}, "checkRuns": {"totalCount": 8}},
+          {"databaseId": 122876027300, "createdAt": "2026-11-24T14:11:49Z", "status": "QUEUED", "conclusion": null, "app": {"databaseId": 29110}, "workflowRun": null, "checkRuns": {"totalCount": 0}}
+        ] } } } ] }
+      }
+    }
+  }
+}

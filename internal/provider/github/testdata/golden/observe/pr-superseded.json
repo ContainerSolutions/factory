@@ -1,0 +1,22 @@
+{
+  "ref": {
+    "provider": "github-public",
+    "kind": "pr",
+    "ref": "compliance-framework/docs#92"
+  },
+  "state": "open",
+  "author": {
+    "id": "github-public:renovate[bot]",
+    "isBot": true
+  },
+  "updatedAt": "2026-11-24T14:12:03Z",
+  "pr": {
+    "draft": false,
+    "head": "5e68fb002a163814ca570130838187423532fb60",
+    "base": "main",
+    "checks": {
+      "state": "success",
+      "settled": true
+    }
+  }
+}
