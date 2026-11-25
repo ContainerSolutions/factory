@@ -19,7 +19,6 @@ const (
 	ReasonAgentThrottled = "agent-throttled"
 	ReasonLending        = "lending"
 	ReasonNoCapableAgent = "no-capable-agent"
-	ReasonAntiAffinity   = "anti-affinity"
 	// ReasonAgentLost is a lease that expired without a heartbeat (retry reason agent-lost).
 	ReasonAgentLost = string(v1alpha1.RetryAgentLost)
 	// ReasonGitCredential is a task whose git credential could not be minted at lease time.

@@ -217,7 +217,6 @@ pools. The section is kept short and bounded:
 The scheduler's other in-process state stays per instance and only affects preference, never a
 limit:
 - `waiting`: fairness picks among the polls parked on the same instance;
-- `heldSince`: the anti-affinity wait;
 - `mintBackoff`: a task whose credentials failed to mint may be tried once more by another
   instance before its delay ends.
 
@@ -584,8 +583,6 @@ poll:
   - The scheduler's fairness picks among the polls waiting at that moment. With brief polls,
     that is usually just the agent asking, so fairness becomes "first to poll". That is fine for
     a few agents.
-  - Anti-affinity still holds a task for up to 10 minutes for a different agent, whose next
-    poll takes it.
 - **What it buys:** Cloud Run, with CPU allocated only during requests, bills a few
   milliseconds per poll, not 24 hours of held connections. A poll every 30 s keeps an instance
   warm, unbilled, so cold starts stay rare.

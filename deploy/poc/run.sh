@@ -103,5 +103,4 @@ exec bin/factory serve \
 	--retention 2160h \
 	--state-dir "$state_dir" \
 	--log-format json \
-	--anti-affinity-wait "${FACTORY_ANTI_AFFINITY_WAIT:-10m}" \
 	"$@"

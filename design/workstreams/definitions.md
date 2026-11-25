@@ -318,7 +318,7 @@ Use the `fake` provider from contracts.md in tests.
 
 - queue ordering, concurrency and budgets (runs, tokens, USD);
 - agent registration (owner verification, Group membership, agent tokens);
-- the long-poll lease matcher: harness, pattern resolution, `requires.labels`, **lending** limits, hours, throttling, author anti-affinity for `docs-review`, fairness;
+- the long-poll lease matcher: harness, pattern resolution, `requires.labels`, **lending** limits, hours, throttling, fairness;
 - heartbeats, lease expiry, `abandon`, and the retry policy.
 
 **Done when:** the LLD's matching table is covered by tests, plus a lease-expiry test and a lending-limit test.
