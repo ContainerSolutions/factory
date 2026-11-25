@@ -4,3 +4,7 @@ lisa-design:
 - A suite with no App read, or a workflowRun without its workflow, is never superseded (own kind): keeps the old behaviour for fixtures/responses without the new fields.
 - Re-runs: verified on GitHub (compliance-framework/api run 45409396833, attempt 1 failure -> attempt 2 success): the run's check_suite_id is unchanged and the suite's conclusion flips to the latest attempt's, so no attempt handling is needed.
 - observePerms gains actions: read for CheckSuite.workflowRun. Could not verify on a private repo whether GitHub requires it (public repos answer any token), so we ask for it rather than risk FORBIDDEN on every PR; the ccf-factory App already lists actions R in the LLD's App table. githubtest now requires actions for workflowRun.
+
+lisa-selfreview:
+pass 1: 1 finding (CORE-STYLE-001 nit): githubtest fieldPerms doc comment left badly wrapped after the edit -> fixed. Checked and not an issue: check_suite webhook facts (event checks.state) stay per-suite by design; rules read item.pr.checks.state from Observe, which this fixes.
+pass 2: approve, no findings.
