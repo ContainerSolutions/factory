@@ -1,0 +1,3 @@
+lisa-addressed:
+ccf-review #1 (should-fix, observe.go suiteKind): a suite with an App but no workflowRun was grouped per App, so unrelated suites superseded each other. Fixed in 3cd7b31: suiteKind is ok=false unless App, workflowRun and workflow are all known; such suites always count and supersede nothing. Tests: null workflowRun (Actions app, both directions, two of them), null workflow (both directions), another App's suites. githubtest emits workflow: null for a RunNumber without Workflow.
+ccf-review #2 (nit, observePerms actions: read without fallback): no code change by decision; PR body states installations without Actions: read fail Observe/ReadContent/Project with ErrInvalid after deploy.
