@@ -258,6 +258,7 @@
         "review.approve",
         "thread.reply",
         "thread.resolve",
+        "ci.rerun",
         "push-branch",
         "stack.push",
         "stack.rebase"

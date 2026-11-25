@@ -49,7 +49,7 @@ func newEnv(t *testing.T) *env {
 	srv.AddApp(reviewerApp, &reviewerRSA.PublicKey)
 	srv.AddInstallation(githubtest.Installation{ID: 1, AppID: authorApp, Owner: org, Permissions: map[string]string{
 		"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read", "members": "read",
-		"checks": "read", "actions": "read", "deployments": "read",
+		"checks": "read", "actions": "write", "deployments": "read",
 	}})
 	srv.AddInstallation(githubtest.Installation{ID: 2, AppID: reviewerApp, Owner: org, Permissions: map[string]string{
 		"contents": "write", "pull_requests": "write", "issues": "read", "metadata": "read",

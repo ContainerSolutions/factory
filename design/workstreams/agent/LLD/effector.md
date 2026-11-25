@@ -31,6 +31,7 @@ func (e *Effector) Do(ctx context.Context, op string, args map[string]any) (Resu
 | `factory pr merge --pr N` | | API |
 | `factory review --pr N --event approve\|request-changes\|comment --body-file f [--comments-file c.json]` | inline comments `[{path, line, body}]` | API |
 | `factory thread reply --thread ID --body-file f` / `factory thread resolve --thread ID` | | API |
+| `factory ci rerun --pr N [--key k]` | `ci.rerun` (MCP `ci_rerun`): re-runs the failed jobs of the PR head commit's failed workflow runs; `--pr` is `N`, `#N` or `owner/name#N`. With `--key` it acts **once per task per key** (the dispatcher replays the recorded effect), so re-running a later head in the same task needs a per-head key (`--key rerun-<sha>`) or no key | API |
 | `factory push [--branch B]` | `git push` with the scoped token; records `push-branch` | git |
 | `factory stack push` / `factory stack rebase` | git (an atomic leased push / `rebase --update-refs`), records op | git |
 | `factory result --file out/result.json` | validates locally, copies to `$FACTORY_RESULT` | local |

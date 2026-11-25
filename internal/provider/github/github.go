@@ -183,6 +183,9 @@ type Conn struct {
 	// bots maps the factory Apps' bot logins (lower-case) to identities; nil until learned.
 	bots        map[string]string
 	memberCache map[string]membersEntry // group member sources resolved for trust, by source key
+
+	// reruns are the ci.rerun effects applied, for replays (effects_ci.go).
+	reruns rerunLog
 }
 
 var _ provider.Conn = (*Conn)(nil)

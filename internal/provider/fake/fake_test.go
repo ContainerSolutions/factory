@@ -757,6 +757,11 @@ func TestApply(t *testing.T) {
 		},
 		{name: "unknown target", req: provider.EffectRequest{Op: v1alpha1.OpClose, Target: ref("issue", "o/r#404")}, wantErr: provider.ErrNotFound},
 		{name: "PR op on an issue", req: provider.EffectRequest{Op: v1alpha1.OpPRMerge, Target: issue}, wantErr: provider.ErrInvalid},
+		{
+			name: "ci.rerun", req: provider.EffectRequest{Op: v1alpha1.OpCIRerun, Target: pr},
+			wantURL: "https://fake.invalid/compliance-framework/docs/pull/57", wantObj: pr,
+		},
+		{name: "ci.rerun on an issue", req: provider.EffectRequest{Op: v1alpha1.OpCIRerun, Target: issue}, wantErr: provider.ErrInvalid},
 		{name: "create in a non-repo", req: provider.EffectRequest{Op: v1alpha1.OpCreateIssue, Target: issue}, wantErr: provider.ErrInvalid},
 		{name: "git-side op", req: provider.EffectRequest{Op: v1alpha1.OpPushBranch, Target: pr}, wantErr: provider.ErrUnsupported},
 		{name: "unknown op", req: provider.EffectRequest{Op: "explode", Target: pr}, wantErr: provider.ErrInvalid},

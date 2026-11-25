@@ -82,8 +82,8 @@ func TestMCPToolsMatchTheCLI(t *testing.T) {
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools %q, want the ops %q", names, want)
 	}
-	if len(ops) != 19 {
-		t.Errorf("%d ops, want the 18 of effector.md's table and link-duplicate", len(ops))
+	if len(ops) != 20 {
+		t.Errorf("%d ops, want the 19 of effector.md's table and link-duplicate", len(ops))
 	}
 	for _, tool := range res.Tools {
 		o := ops[slices.IndexFunc(ops, func(o *effector.Op) bool { return o.Name() == tool.Name })]

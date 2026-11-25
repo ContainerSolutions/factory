@@ -491,16 +491,34 @@ func suiteKind(s gqlCheckSuite) (string, bool) {
 	return strconv.FormatInt(s.App.DatabaseID, 10) + "/" + strconv.FormatInt(w.Workflow.DatabaseID, 10) + "/" + w.Event, true
 }
 
-// newerSuite reports whether a is later than b, two suites of one kind: the higher workflow
-// run number, then the newer createdAt, then the higher databaseId.
-func newerSuite(a, b gqlCheckSuite) bool {
-	if a.WorkflowRun != nil && b.WorkflowRun != nil && a.WorkflowRun.RunNumber != b.WorkflowRun.RunNumber {
-		return a.WorkflowRun.RunNumber > b.WorkflowRun.RunNumber
+// newerSuite reports whether a is later than b, two suites of one kind (runOrder).
+func newerSuite(a, b gqlCheckSuite) bool { return suiteOrder(a).after(suiteOrder(b)) }
+
+func suiteOrder(s gqlCheckSuite) runOrder {
+	o := runOrder{created: s.CreatedAt, id: s.DatabaseID}
+	if s.WorkflowRun != nil {
+		o.number = s.WorkflowRun.RunNumber
 	}
-	if !a.CreatedAt.Equal(b.CreatedAt) {
-		return a.CreatedAt.After(b.CreatedAt)
+	return o
+}
+
+// runOrder places a run of one kind (a check suite, a workflow run) in time, for the
+// superseding rule checksOf and ci.rerun share: the higher workflow run number, then the newer
+// creation, then the higher ID.
+type runOrder struct {
+	number  int
+	created time.Time
+	id      int64
+}
+
+func (a runOrder) after(b runOrder) bool {
+	if a.number != b.number {
+		return a.number > b.number
 	}
-	return a.DatabaseID > b.DatabaseID
+	if !a.created.Equal(b.created) {
+		return a.created.After(b.created)
+	}
+	return a.id > b.id
 }
 
 // objectState maps an issue's or PR's GraphQL state.

@@ -27,7 +27,9 @@ import (
 //     returns it with Replayed;
 //   - what it changes (labels, sub-issue links, state, base, title and body, merges, resolved
 //     threads) is read first: when the object is already as asked, nothing is written and the
-//     result has Replayed.
+//     result has Replayed;
+//   - ci.rerun leaves nothing on GitHub that carries the key: it is remembered by key and head
+//     SHA instead (applyCIRerun).
 //
 // A rate limit, a 5xx or a transport failure retries the whole op (lookup included, so a
 // write GitHub made before failing is found rather than repeated), up to maxApplyTries times,
@@ -172,13 +174,14 @@ var effectOps = map[v1alpha1.EffectOp]opFunc{
 	v1alpha1.OpReviewApprove:        (*Conn).applyReview,
 	v1alpha1.OpThreadReply:          (*Conn).applyThreadReply,
 	v1alpha1.OpThreadResolve:        (*Conn).applyThreadResolve,
+	v1alpha1.OpCIRerun:              (*Conn).applyCIRerun,
 }
 
 // prOps act on a PR whatever the target's kind says.
 var prOps = []v1alpha1.EffectOp{
 	v1alpha1.OpPRComment, v1alpha1.OpPRUpdate, v1alpha1.OpPRRetarget, v1alpha1.OpPRMerge,
 	v1alpha1.OpReviewComment, v1alpha1.OpReviewRequestChanges, v1alpha1.OpReviewApprove,
-	v1alpha1.OpThreadReply, v1alpha1.OpThreadResolve,
+	v1alpha1.OpThreadReply, v1alpha1.OpThreadResolve, v1alpha1.OpCIRerun,
 }
 
 // reviewOps act only as ReviewerIdentity.

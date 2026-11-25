@@ -305,6 +305,18 @@ func TestStrictTurnsWarningsIntoErrors(t *testing.T) {
 	}
 }
 
+// TestCIRerunOp: ci.rerun is an API-side op a TaskSpec can allow and a rule's effect action can
+// apply to its primary PR.
+func TestCIRerunOp(t *testing.T) {
+	fsys := fsWith(map[string]string{
+		"taskspecs/work.yaml": strings.Replace(base["taskspecs/work.yaml"], "[push-branch, pr.open]", "[push-branch, pr.open, ci.rerun]", 1),
+		"rules/work.yaml":     rule(ruleHead + "  actions: [{ effect: { op: ci.rerun, target: primary } }]\n"),
+	})
+	if c, errs := LoadDir(fsys, Options{Strict: true}); c == nil || len(errs) > 0 {
+		t.Errorf("ci.rerun in effects.allow and a rule's effect:\n%s", format(errs))
+	}
+}
+
 // TestThreadOpsForAuthors: thread.reply and thread.resolve are allowed for both identities
 // (the author addresses review feedback); only review.* needs the reviewer (CAT902).
 func TestThreadOpsForAuthors(t *testing.T) {

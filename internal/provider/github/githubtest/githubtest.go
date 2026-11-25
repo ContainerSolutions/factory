@@ -132,6 +132,10 @@ const (
 	RouteReviews      = "reviews"
 	RouteReview       = "review"
 	RouteCreateReview = "create_review"
+
+	RouteWorkflowRuns    = "workflow_runs"
+	RouteRerunFailedJobs = "rerun_failed_jobs"
+	RouteRerun           = "rerun"
 )
 
 // Server is an httptest GitHub.
@@ -162,14 +166,15 @@ type Server struct {
 	hooks      map[int64]bool               // apps with a webhook
 	deliveries map[int64][]Delivery         // by app, newest first
 
-	objects     map[string]*Object      // by objectKey
-	commentSeq  int64                   // comment IDs
-	idSeq       int64                   // object IDs
-	repoConfig  map[string]Repo         // repo (lower) → settings
-	canned      map[string][]byte       // GraphQL responses, by cannedKey
-	deployments map[string][]Deployment // repo (lower), newest first
-	accountRepo map[string][]string     // owner (lower) → repo names, for "all" installations
-	queries     []GraphQLRequest        // GraphQL requests received
+	objects     map[string]*Object       // by objectKey
+	commentSeq  int64                    // comment IDs
+	idSeq       int64                    // object IDs
+	repoConfig  map[string]Repo          // repo (lower) → settings
+	canned      map[string][]byte        // GraphQL responses, by cannedKey
+	deployments map[string][]Deployment  // repo (lower), newest first
+	accountRepo map[string][]string      // owner (lower) → repo names, for "all" installations
+	queries     []GraphQLRequest         // GraphQL requests received
+	runs        map[string][]WorkflowRun // repo (lower) → workflow runs
 }
 
 // mintedToken is what an installation token the server minted covers.
@@ -205,6 +210,7 @@ func NewServer(t testing.TB, c clock.Clock) *Server {
 		deployments: map[string][]Deployment{},
 		accountRepo: map[string][]string{},
 		repoConfig:  map[string]Repo{},
+		runs:        map[string][]WorkflowRun{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /app", s.handleApp)
