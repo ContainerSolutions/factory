@@ -1,0 +1,6 @@
+lisa-design:
+- Supersede key is (App, workflow, EVENT), not just (App, workflow): a push and a pull_request run of one workflow are separate checks with separate concurrency groups, so a failing push run must not be hidden by a green pull_request run. More conservative than the spec's (app, workflow).
+- Latest = highest workflowRun.runNumber, then newest suite createdAt, then highest suite databaseId. Only suites with check runs are grouped, so an empty queued suite never supersedes a real one.
+- A suite with no App read, or a workflowRun without its workflow, is never superseded (own kind): keeps the old behaviour for fixtures/responses without the new fields.
+- Re-runs: verified on GitHub (compliance-framework/api run 45409396833, attempt 1 failure -> attempt 2 success): the run's check_suite_id is unchanged and the suite's conclusion flips to the latest attempt's, so no attempt handling is needed.
+- observePerms gains actions: read for CheckSuite.workflowRun. Could not verify on a private repo whether GitHub requires it (public repos answer any token), so we ask for it rather than risk FORBIDDEN on every PR; the ccf-factory App already lists actions R in the LLD's App table. githubtest now requires actions for workflowRun.
