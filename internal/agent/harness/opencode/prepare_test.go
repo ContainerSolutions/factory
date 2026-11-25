@@ -85,10 +85,10 @@ func TestPrepare(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ws := workspace(t, tt.writable)
-			want := []string{"opencode.json", "skills/", "skills/ccf-review-review/", "skills/ccf-review-review/SKILL.md",
+			want := []string{"node_modules/", "opencode.json", "package-lock.json", "skills/", "skills/ccf-review-review/", "skills/ccf-review-review/SKILL.md",
 				"skills/docs-style/", "skills/docs-style/SKILL.md", "skills/lisa-review/", "skills/lisa-review/SKILL.md"}
 			if tt.noSkills {
-				ws.SkillList, want = nil, []string{"opencode.json", "skills/"}
+				ws.SkillList, want = nil, []string{"node_modules/", "opencode.json", "package-lock.json", "skills/"}
 			}
 			if err := adapter(t, tt.def).Prepare(context.Background(), ws, task(tt.model, tt.effort, AuthSelfHosted)); err != nil {
 				t.Fatal(err)
@@ -103,6 +103,10 @@ func TestPrepare(t *testing.T) {
 						t.Errorf("%s doesn't name the skill %s: %q %v", p, filepath.Base(dir), b, err)
 					}
 				}
+			}
+			// what opencode's plugin install checks before it skips (flags.go).
+			if lock, want := readNew(t, filepath.Join(cfg, "package-lock.json")), `{"lockfileVersion":3,"packages":{"":{"dependencies":{"@opencode-ai/plugin":"1.19.6"}}}}`+"\n"; string(lock) != want {
+				t.Errorf("package-lock.json = %s, want %s", lock, want)
 			}
 			b := readNew(t, filepath.Join(cfg, "opencode.json"))
 			golden(t, ws, "config-"+tt.name+".golden.json", b)

@@ -23,7 +23,8 @@ const (
 // Prepare implements harness.Adapter: on the model server's key (selfHosted), the resolved
 // model or the config's default, and the served model's limits, it writes instructions.md in
 // <home>/.factory-opencode/ and, in the scratch XDG_CONFIG_HOME's opencode/, opencode.json
-// (new, 0600, never over an existing file or link) and the flattened skills/.
+// (new, 0600, never over an existing file or link), the flattened skills/ and the files that
+// skip opencode's plugin install (skipPluginInstall).
 func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, t v1alpha1.Task) error {
 	res := resolved(t)
 	if res.Auth != "" && res.Auth != AuthSelfHosted {
@@ -64,6 +65,9 @@ func (a *Adapter) Prepare(_ context.Context, ws harness.Workspace, t v1alpha1.Ta
 	}
 	if err := clirun.FlattenSkills(ws, filepath.Join(cfg, skillsDir)); err != nil {
 		return fmt.Errorf("opencode skills: %w", err)
+	}
+	if err := skipPluginInstall(cfg); err != nil {
+		return fmt.Errorf("opencode: the plugin install: %w", err)
 	}
 	return nil
 }
