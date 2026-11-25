@@ -22,8 +22,16 @@ import (
 
 const (
 	// OutcomeNothingToRerun is ci.rerun's outcome when the head has no failed run to re-run:
-	// the latest run of every workflow passed or is still running.
+	// the latest run of every workflow passed, is still running or is at MaxRunAttempts.
 	OutcomeNothingToRerun = "nothing-to-rerun"
+	// OutcomePartiallyRerun starts ci.rerun's outcome when some runs were re-run and others
+	// skipped (refused by GitHub, or at MaxRunAttempts); the outcome names the skipped runs:
+	// "partially-rerun: skipped run 12 (refused), run 13 (attempt 3)".
+	OutcomePartiallyRerun = "partially-rerun"
+	// MaxRunAttempts is the attempt ci.rerun never takes a run past: a run whose latest
+	// attempt is MaxRunAttempts or more is skipped, a safety net against a rule re-running a
+	// failing run forever.
+	MaxRunAttempts = 3
 	// maxRunPages bounds the pages of a head commit's workflow runs ci.rerun reads.
 	maxRunPages = 5
 	// maxReruns bounds the ci.rerun effects a Conn remembers for replays (rerunLog).
@@ -97,19 +105,27 @@ func (l *rerunLog) put(key string, res provider.EffectResult) {
 
 // applyCIRerun re-runs the failed workflow runs of the PR's head commit: of the head's runs,
 // the latest of each workflow and event (latestRuns, the superseding rule of checksOf), and of
-// those the completed ones that concluded failure, timed_out, cancelled or startup_failure.
-// Each is re-run with POST …/rerun-failed-jobs, a cancelled one with POST …/rerun (a run
-// cancelled by its concurrency group may have no failed job). With nothing to re-run (every
-// latest run passed or is still running) the result's outcome is OutcomeNothingToRerun, not an
-// error. The result's URL is the PR's checks page. A closed or merged PR is ErrInvalid.
+// those the completed ones that concluded failure, timed_out, cancelled or startup_failure,
+// below MaxRunAttempts. A failure or timed_out run is re-run with POST …/rerun-failed-jobs; a
+// cancelled or startup_failure one with POST …/rerun (a run cancelled by its concurrency group,
+// or one that failed to start, may have no failed job). With nothing to re-run (every latest
+// run passed, is still running or is at MaxRunAttempts) the outcome is OutcomeNothingToRerun,
+// not an error. A run GitHub refuses (403, 422: over 30 days old, already re-running, …) is
+// skipped and the others are still re-run; the outcome then names it (OutcomePartiallyRerun).
+// Only when nothing was re-run and something was refused is the op ErrInvalid. The result's
+// URL is the PR's checks page. A closed or merged PR is ErrInvalid.
 //
-// Idempotency: the effective key is the request's key and the head SHA, so a head is re-run at
-// most once per key, and a new head (a pushed fix) with the same key is re-run again. The Conn
-// remembers the keys it re-ran with (rerunLog): the same key on the same head is a replay
-// (Replayed, nothing posted). That memory is the process's; durably, the dispatcher records
-// every effect by key (an Effector call is replayed from the Effect store before the provider
-// sees it, a rule's key is its event's), and a replay the Conn forgot still posts nothing
-// while the runs it re-ran are queued or running, since only completed runs are re-run.
+// Idempotency: the effective key is the request's key and the head SHA. The Conn remembers the
+// effective keys it re-ran something with (rerunLog), so the same key on the same head is a
+// replay (Replayed, nothing posted). This covers what the dispatcher's Effect store doesn't:
+// a rule's effect is applied before it is recorded and again when its reconcile retries, and
+// an Effector call whose Apply succeeded but whose record failed is applied again. On the
+// Effector path the store answers first: CreateEffect replays any recorded effectID(task, key)
+// before the provider is called, and every successful Apply is recorded (nothing-to-rerun
+// included), so a --key acts once per task whatever the head; to re-run a new head in the
+// same task the agent uses a per-head key (--key rerun-<sha>) or no key. The Conn's memory is
+// the process's; a replay it forgot still posts nothing while the runs it re-ran are queued or
+// running, since only completed runs are re-run.
 //
 // Errors: a 404 is ErrNotFound; a 403 or 422 is ErrInvalid, naming Actions: write when the
 // App lacks it (as does a token the installation can't be granted).
@@ -142,27 +158,53 @@ func (c *Conn) applyCIRerun(ctx context.Context, e *effect) (provider.EffectResu
 		return provider.EffectResult{}, ciError(err, e.repo, actionsWrite)
 	}
 	res := c.result(provider.KindPR, e.repo, e.number, strings.TrimSuffix(p.HTMLURL, "/")+"/checks", false)
-	var rerun []int64
+	var (
+		rerun    []int64
+		skipped  []string // "run <id> (<why>)", for the outcome
+		refusals []error
+	)
 	for _, r := range latestRuns(runs) {
 		if r.Status != "completed" || !slices.Contains(rerunConclusions, r.conclusion()) {
 			continue
 		}
+		if r.RunAttempt >= MaxRunAttempts {
+			skipped = append(skipped, fmt.Sprintf("run %d (attempt %d)", r.ID, r.RunAttempt))
+			continue
+		}
 		path := fmt.Sprintf("repos/%s/actions/runs/%d/rerun-failed-jobs", e.repo, r.ID)
-		if r.conclusion() == "cancelled" {
+		if wholeRerun(r.conclusion()) {
 			path = fmt.Sprintf("repos/%s/actions/runs/%d/rerun", e.repo, r.ID)
 		}
 		if _, err := c.minter.Do(ctx, tok, http.MethodPost, path, nil, nil, http.StatusCreated, nil); err != nil {
-			return provider.EffectResult{}, fmt.Errorf("re-run workflow run %d: %w", r.ID, ciError(err, e.repo, actionsWrite))
+			err = fmt.Errorf("re-run workflow run %d: %w", r.ID, ciError(err, e.repo, actionsWrite))
+			if !errors.Is(err, provider.ErrInvalid) {
+				return provider.EffectResult{}, err // not found, or retryable: the whole op again
+			}
+			skipped = append(skipped, fmt.Sprintf("run %d (refused)", r.ID))
+			refusals = append(refusals, err)
+			continue
 		}
 		rerun = append(rerun, r.ID)
 	}
-	if len(rerun) == 0 {
+	ref := e.repo + "#" + strconv.Itoa(e.number)
+	switch {
+	case len(rerun) == 0 && len(refusals) > 0:
+		return provider.EffectResult{}, fmt.Errorf("no workflow run could be re-run: %w", errors.Join(refusals...))
+	case len(rerun) == 0:
 		res.Outcome = OutcomeNothingToRerun
 		return res, nil
+	case len(skipped) > 0:
+		res.Outcome = OutcomePartiallyRerun + ": skipped " + strings.Join(skipped, ", ")
 	}
 	c.reruns.put(key, res)
-	c.log.DebugContext(ctx, "workflow runs re-run", "ref", e.repo+"#"+strconv.Itoa(e.number), "head", p.Head.SHA, "runs", rerun)
+	c.log.DebugContext(ctx, "workflow runs re-run", "ref", ref, "head", p.Head.SHA, "runs", rerun, "skipped", skipped, "refusals", refusals)
 	return res, nil
+}
+
+// wholeRerun reports whether a run with conclusion is re-run whole (POST …/rerun) rather than
+// its failed jobs: a cancelled run or one that failed to start may have no failed job.
+func wholeRerun(conclusion string) bool {
+	return conclusion == "cancelled" || conclusion == "startup_failure"
 }
 
 // headRuns lists the workflow runs of the head commit sha (up to maxRunPages pages).

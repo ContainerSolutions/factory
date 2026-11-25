@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -63,7 +64,7 @@ func TestApplyCIRerun(t *testing.T) {
 		wfRun(4, lint, 30, "completed", "success"),       // green
 		wfRun(5, 12, 40, "in_progress", ""),              // still running
 		wfRun(6, 13, 50, "completed", "timed_out"),       // re-run: failed jobs
-		wfRun(7, 14, 60, "completed", "startup_failure"), // re-run: failed jobs
+		wfRun(7, 14, 60, "completed", "startup_failure"), // re-run whole
 		wfRun(8, 15, 70, "completed", "neutral"),         // not a failure
 		githubtest.WorkflowRun{ID: 9, WorkflowID: 16, RunNumber: 1, HeadSHA: "0ther0", Status: "completed", Conclusion: "failure"}, // another commit
 	)
@@ -75,7 +76,7 @@ func TestApplyCIRerun(t *testing.T) {
 	if res.Replayed || res.Outcome != "" || res.Object == nil || res.Object.Ref != docs+"#60" || res.URL != githubtest.WebURL+"/"+docs+"/pull/60/checks" {
 		t.Errorf("result %+v (object %+v)", res, res.Object)
 	}
-	want := map[int64]bool{2: true, 3: false, 6: true, 7: true}
+	want := map[int64]bool{2: true, 3: false, 6: true, 7: false}
 	if got := reruns(e.srv); !maps.Equal(got, want) {
 		t.Errorf("re-runs %v, want %v", got, want)
 	}
@@ -158,6 +159,91 @@ func TestApplyCIRerunPages(t *testing.T) {
 	if got := reruns(e.srv); !got[4] || len(got) != 1 {
 		t.Errorf("re-runs %v, want run 4", got)
 	}
+}
+
+// A run GitHub refuses (403, 422) is skipped and the others are still re-run: the outcome names
+// the skipped run, and a replay returns it. Only when nothing could be re-run is it an error.
+func TestApplyCIRerunPartlyRefused(t *testing.T) {
+	ctx := context.Background()
+	for _, status := range []int{http.StatusUnprocessableEntity, http.StatusForbidden} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			e := newEnv(t)
+			seedEffects(e.srv)
+			e.srv.AddWorkflowRuns(docs, wfRun(1, ciWorkflow, 10, "completed", "failure"), wfRun(2, preview, 20, "completed", "failure"))
+			e.srv.FailNext(githubtest.RouteRerunFailedJobs, githubtest.Failure{Status: status, Message: "Unable to re-run this workflow run because it was created over a month ago"})
+			c := e.connect(t)
+			res, err := c.Apply(ctx, ciRerun(""))
+			if err != nil || res.Replayed || res.Outcome != github.OutcomePartiallyRerun+": skipped run 1 (refused)" {
+				t.Fatalf("Apply = %+v, %v", res, err)
+			}
+			if got := reruns(e.srv); !maps.Equal(got, map[int64]bool{2: true}) {
+				t.Errorf("re-runs %v, want run 2", got)
+			}
+			again, err := c.Apply(ctx, ciRerun(""))
+			if err != nil || !again.Replayed || again.Outcome != res.Outcome {
+				t.Errorf("replay = %+v, %v", again, err)
+			}
+		})
+	}
+	t.Run("every run refused", func(t *testing.T) {
+		e := newEnv(t)
+		seedEffects(e.srv)
+		e.srv.AddWorkflowRuns(docs, wfRun(1, ciWorkflow, 10, "completed", "failure"), wfRun(2, preview, 20, "completed", "cancelled"))
+		e.srv.FailNext(githubtest.RouteRerunFailedJobs, githubtest.Failure{Status: http.StatusUnprocessableEntity, Message: "Validation Failed"})
+		e.srv.FailNext(githubtest.RouteRerun, githubtest.Failure{Status: http.StatusForbidden, Message: "This workflow is already running"})
+		_, err := e.connect(t).Apply(ctx, ciRerun(""))
+		if !errors.Is(err, provider.ErrInvalid) || !strings.Contains(err.Error(), "already running") || !strings.Contains(err.Error(), "Validation Failed") {
+			t.Errorf("Apply = %v, want ErrInvalid naming both refusals", err)
+		}
+	})
+}
+
+// A run at MaxRunAttempts is never re-run: alone it leaves nothing to re-run, beside another
+// failed run the outcome names it; a run re-run up to the cap is skipped next time.
+func TestApplyCIRerunAttemptCap(t *testing.T) {
+	ctx := context.Background()
+	capped := func(r githubtest.WorkflowRun, attempt int) githubtest.WorkflowRun {
+		r.Attempt = attempt
+		return r
+	}
+	t.Run("alone", func(t *testing.T) {
+		e := newEnv(t)
+		seedEffects(e.srv)
+		e.srv.AddWorkflowRuns(docs, capped(wfRun(1, ciWorkflow, 10, "completed", "failure"), github.MaxRunAttempts))
+		res, err := e.connect(t).Apply(ctx, ciRerun(""))
+		posts := e.srv.Count(githubtest.RouteRerunFailedJobs) + e.srv.Count(githubtest.RouteRerun)
+		if err != nil || res.Outcome != github.OutcomeNothingToRerun || posts != 0 {
+			t.Errorf("Apply = %+v, %v; %d re-runs posted", res, err, posts)
+		}
+	})
+	t.Run("beside another failed run", func(t *testing.T) {
+		e := newEnv(t)
+		seedEffects(e.srv)
+		e.srv.AddWorkflowRuns(docs, capped(wfRun(1, ciWorkflow, 10, "completed", "failure"), 4), capped(wfRun(2, preview, 20, "completed", "failure"), 2))
+		res, err := e.connect(t).Apply(ctx, ciRerun(""))
+		if err != nil || res.Outcome != github.OutcomePartiallyRerun+": skipped run 1 (attempt 4)" {
+			t.Fatalf("Apply = %+v, %v", res, err)
+		}
+		if rs := e.srv.WorkflowRuns(docs); rs[0].Attempt != 4 || rs[1].Attempt != 3 {
+			t.Errorf("attempts %d and %d, want 4 and 3", rs[0].Attempt, rs[1].Attempt)
+		}
+	})
+	t.Run("re-run up to the cap", func(t *testing.T) {
+		e := newEnv(t)
+		seedEffects(e.srv)
+		e.srv.AddWorkflowRuns(docs, capped(wfRun(1, ciWorkflow, 10, "completed", "failure"), github.MaxRunAttempts-1))
+		c := e.connect(t)
+		if res, err := c.Apply(ctx, ciRerun("eff_a")); err != nil || res.Outcome != "" {
+			t.Fatalf("first = %+v, %v", res, err)
+		}
+		e.srv.SetWorkflowRun(docs, 1, func(r *githubtest.WorkflowRun) { r.Status, r.Conclusion = "completed", "failure" })
+		if res, err := c.Apply(ctx, ciRerun("eff_b")); err != nil || res.Outcome != github.OutcomeNothingToRerun {
+			t.Errorf("at the cap = %+v, %v", res, err)
+		}
+		if n := e.srv.Count(githubtest.RouteRerunFailedJobs); n != 1 {
+			t.Errorf("%d re-runs, want 1", n)
+		}
+	})
 }
 
 // TestApplyCIRerunRefused: a closed or merged PR and a non-PR target are ErrInvalid; an App

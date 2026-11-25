@@ -281,7 +281,8 @@ var ops = []*Op{
 	{
 		Words: []string{"ci", "rerun"}, Effects: []v1alpha1.EffectOp{v1alpha1.OpCIRerun},
 		Help: "Re-run the failed jobs of the failed workflow runs on a pull request's head commit (the latest run of each " +
-			"workflow; a cancelled run is re-run whole). Nothing to re-run (all green or still running) is not an error.",
+			"workflow; a cancelled run is re-run whole). Nothing to re-run (all green or still running) is not an error. " +
+			"With --key it acts once per task per key: to re-run a later head, use --key rerun-<sha> or no key.",
 		Params: []Param{pPR, pKey},
 		run: apiOp(v1alpha1.OpCIRerun, func(e *Effector, a args) (string, map[string]any, error) {
 			t, err := e.ref(a.str("pr"))
