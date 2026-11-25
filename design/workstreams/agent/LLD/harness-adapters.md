@@ -110,7 +110,7 @@ Scriptable (`fake.Script{Events, Result, Err, RateLimitAfter}`) for pipeline and
   - `--skip-git-repo-check` is there because a task without a checkout works in the workspace root.
   - There is no codex sandbox (`danger-full-access`): the VM is the boundary. The workdir (`--cd`, and the process's directory) is the pipeline's `WorkDir`, else the workspace root.
   - The environment is the pipeline's `Workspace.Env` plus `CODEX_HOME`.
-  - codex runs in its own process group. Cancelling the context sends SIGTERM to the whole group, codex is SIGKILLed after `KillGrace` (5 s, as `exec.Cmd.WaitDelay`), and the rest of the group gets SIGKILL once codex has exited. That always happens, so commands it left running don't outlive the run.
+  - codex runs in its own process group. Cancelling the context sends SIGTERM to the whole group, codex is SIGKILLed after `KillGrace` (5 s, as `exec.Cmd.WaitDelay`), and the rest of the group gets SIGKILL once codex has exited. That always happens, so commands it left running in its group don't outlive the run. A command started in a session of its own (opencode's shell tool starts every command so) leads a group of its own: on the cancel, `clirun` finds the groups of the harness's descendants in `/proc` (Linux, as in the workspace VM; elsewhere only the harness's group) and gives them the same SIGTERM and, once the harness has exited, SIGKILL.
   - The transcript is the stdout lines as they came, plus `factory.codex-exec` (the args), `factory.codex-stderr` (the last 64 KB) and, past 64 MB, `factory.codex-transcript-truncated` lines.
 - **Stream mapping.**
   - Each `turn.started` is one `turn` event.

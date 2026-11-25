@@ -32,6 +32,7 @@ import (
 	"github.com/ContainerSolutions/factory/internal/agent/runner"
 	"github.com/ContainerSolutions/factory/internal/apiclient"
 	"github.com/ContainerSolutions/factory/internal/apis/v1alpha1"
+	"github.com/ContainerSolutions/factory/internal/clock"
 )
 
 // Recorder is a harness.EventSink that records what a run reported. Read its fields once
@@ -92,6 +93,8 @@ type E2E struct {
 	WorkRoot string
 	// SkillsCommit is the ccf-skills commit the task pins.
 	SkillsCommit string
+	// Clock, when set, is Pipeline's clock (the wall-clock limit's): default the real one.
+	Clock clock.Clock
 
 	mu          sync.Mutex
 	transcripts [][]byte
@@ -306,7 +309,7 @@ func (e *E2E) Pipeline(a harness.Adapter, job *runner.Job, extra ...string) (*pi
 		Env: map[string]string{"HTTPS_PROXY": gw.URL(), "GIT_SSL_CAINFO": ca, "SSL_CERT_FILE": ca,
 			pipeline.EnvGHToken: harness.Placeholder, "FACTORY_RUNTIME": "workspace"},
 		Prompts: pipeline.BundlePrompts{B: b}, Schemas: pipeline.BundleSchemas{B: b}, Skills: pipeline.BundleSkills(b),
-		Transcripts: e2eTranscripts{e},
+		Transcripts: e2eTranscripts{e}, Clock: e.Clock,
 		Environ: func() []string {
 			return append([]string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8", "TERM=dumb"}, extra...)
 		},
