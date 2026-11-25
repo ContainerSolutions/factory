@@ -22,11 +22,13 @@ const maxFollowPages = 10
 
 // observePerms are the read identity's permissions for Observe, exactly what observeQuery
 // reads: the issue or the PR with its reviews and threads (issues, pull_requests), the
-// commits it reaches (the head, the merge commit, each review's commit: contents) and the head
-// commit's check suites (checks). ReadContent and Project's reads share the set, so one
-// cached token per repo serves them all. No statuses: the head's statusCheckRollup also
-// covers commit statuses, which the factory's Apps aren't granted (see checksOf).
-var observePerms = map[string]string{"issues": "read", "pull_requests": "read", "contents": "read", "checks": "read"}
+// commits it reaches (the head, the merge commit, each review's commit: contents), the head
+// commit's check suites (checks) and the workflow run behind each Actions suite (actions: which
+// workflow it is, so a superseded run doesn't count, see checksOf). ReadContent and Project's
+// reads share the set, so one cached token per repo serves them all. No statuses: the head's
+// statusCheckRollup also covers commit statuses, which the factory's Apps aren't granted (see
+// checksOf).
+var observePerms = map[string]string{"issues": "read", "pull_requests": "read", "contents": "read", "checks": "read", "actions": "read"}
 
 // observeQuery reads one issue or PR (github-provider.md §Observe): whichever the number is,
 // so a ref of the wrong kind is told apart from a missing one.
@@ -62,7 +64,7 @@ const observeQuery = `query Observe($owner: String!, $name: String!, $number: In
         labels(first: 100) { nodes { name } }
         reviews(last: 100) { nodes { author { __typename login } state commit { oid } } }
         reviewThreads(first: 100) { pageInfo { hasNextPage endCursor } nodes { isResolved } }
-        commits(last: 1) { nodes { commit { oid checkSuites(first: 100) { nodes { status conclusion checkRuns(first: 1) { totalCount } } } } } }
+        commits(last: 1) { nodes { commit { oid checkSuites(first: 100) { nodes { databaseId createdAt status conclusion app { databaseId } workflowRun { runNumber event workflow { databaseId } } checkRuns(first: 1) { totalCount } } } } } }
       }
     }
   }
@@ -155,11 +157,23 @@ type (
 		} `json:"commits"`
 	}
 	// gqlCheckSuite is one check suite of a commit: an App's checks (GitHub Actions: one
-	// workflow run's jobs).
+	// workflow run's jobs, WorkflowRun).
 	gqlCheckSuite struct {
-		Status     string `json:"status"`
-		Conclusion string `json:"conclusion"`
-		CheckRuns  struct {
+		DatabaseID int64     `json:"databaseId"`
+		CreatedAt  time.Time `json:"createdAt"`
+		Status     string    `json:"status"`
+		Conclusion string    `json:"conclusion"`
+		App        *struct {
+			DatabaseID int64 `json:"databaseId"`
+		} `json:"app"`
+		WorkflowRun *struct {
+			RunNumber int    `json:"runNumber"`
+			Event     string `json:"event"`
+			Workflow  *struct {
+				DatabaseID int64 `json:"databaseId"`
+			} `json:"workflow"`
+		} `json:"workflowRun"`
+		CheckRuns struct {
 			TotalCount int `json:"totalCount"`
 		} `json:"checkRuns"`
 	}
@@ -393,16 +407,21 @@ func prObservation(o *gqlObject, bots map[string]string) *provider.PRObservation
 // with runs leaves checks empty. The first 100 suites are read (one page; a commit has one per
 // App and workflow run).
 //
+// Only the latest suite of each kind counts (latestSuites): a workflow run superseded by a
+// later run of the same workflow for the same event (a concurrency group cancelling it, a
+// re-trigger) no longer makes a green PR "failure". Re-running a run (rerun-failed-jobs, re-run
+// all jobs) is a new attempt of the same run, and GitHub reports it in the same check suite,
+// whose status and conclusion are the latest attempt's (checked against a re-run on GitHub:
+// the run's check_suite_id is the same suite, which went from failure to success), so a
+// re-run that passed counts as passed without any attempt handling here.
+//
 // Check suites are what checks: read reaches, and what pr.checks.completed (check_suite
 // webhooks) reports; commit statuses (the statuses API) aren't read: the App isn't granted
 // them, so a status-only CI doesn't count here (branch protection still gates the merge on
 // required statuses).
 func checksOf(suites []gqlCheckSuite) provider.Checks {
 	var counted, failed, pending bool
-	for _, s := range suites {
-		if s.CheckRuns.TotalCount == 0 {
-			continue
-		}
+	for _, s := range latestSuites(suites) {
 		counted = true
 		if s.Status != "COMPLETED" {
 			pending = true
@@ -425,6 +444,69 @@ func checksOf(suites []gqlCheckSuite) provider.Checks {
 		return provider.Checks{State: "pending"}
 	}
 	return provider.Checks{State: "success", Settled: true}
+}
+
+// latestSuites are the suites with check runs that no later suite of the same kind supersedes,
+// in their order. A suite's kind (suiteKind) is its App's workflow and event for a workflow
+// run (GitHub Actions), else its App: an App that isn't Actions runs one suite per commit, and
+// a later one replaces the earlier. Of a kind, the latest is the highest run number, then the
+// newest createdAt, then the highest databaseId. A suite with no App (not read) is its own
+// kind, so it always counts.
+func latestSuites(suites []gqlCheckSuite) []gqlCheckSuite {
+	latest := map[string]int{} // kind → index of its latest suite
+	for i, s := range suites {
+		if s.CheckRuns.TotalCount == 0 {
+			continue
+		}
+		kind, ok := suiteKind(s)
+		if !ok {
+			continue
+		}
+		if j, seen := latest[kind]; !seen || newerSuite(s, suites[j]) {
+			latest[kind] = i
+		}
+	}
+	var out []gqlCheckSuite
+	for i, s := range suites {
+		if s.CheckRuns.TotalCount == 0 {
+			continue
+		}
+		if kind, ok := suiteKind(s); ok && latest[kind] != i {
+			continue // superseded
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// suiteKind is what a later suite of the same kind supersedes: "<app>/<workflow>/<event>" for a
+// workflow run, "<app>" for another App's suite. ok is false without an App, or for a workflow
+// run without its workflow: nothing supersedes it.
+func suiteKind(s gqlCheckSuite) (string, bool) {
+	if s.App == nil || s.App.DatabaseID == 0 {
+		return "", false
+	}
+	app := strconv.FormatInt(s.App.DatabaseID, 10)
+	switch w := s.WorkflowRun; {
+	case w == nil:
+		return app, true
+	case w.Workflow == nil || w.Workflow.DatabaseID == 0:
+		return "", false
+	default:
+		return app + "/" + strconv.FormatInt(w.Workflow.DatabaseID, 10) + "/" + w.Event, true
+	}
+}
+
+// newerSuite reports whether a is later than b, two suites of one kind: the higher workflow
+// run number, then the newer createdAt, then the higher databaseId.
+func newerSuite(a, b gqlCheckSuite) bool {
+	if a.WorkflowRun != nil && b.WorkflowRun != nil && a.WorkflowRun.RunNumber != b.WorkflowRun.RunNumber {
+		return a.WorkflowRun.RunNumber > b.WorkflowRun.RunNumber
+	}
+	if !a.CreatedAt.Equal(b.CreatedAt) {
+		return a.CreatedAt.After(b.CreatedAt)
+	}
+	return a.DatabaseID > b.DatabaseID
 }
 
 // objectState maps an issue's or PR's GraphQL state.

@@ -36,6 +36,7 @@ var observeCases = []struct {
 	{"issue-train", objRef(provider.KindIssue, workflows+"#123")},
 	{"pr-review", objRef(provider.KindPR, docs+"#90")},
 	{"pr-draft", objRef(provider.KindPR, docs+"#91")},
+	{"pr-superseded", objRef(provider.KindPR, docs+"#92")},
 	{"pr-merged", objRef(provider.KindPR, docs+"#89")},
 	{"pr-closed", objRef("", docs+"#88")},
 }
@@ -238,12 +239,13 @@ func TestObserveFields(t *testing.T) {
 
 	t.Run("tokens", func(t *testing.T) {
 		// Observe reads with the author identity's read-only token on the object's repo (the
-		// commits it reaches need contents, their check suites checks; never statuses, which
-		// the App isn't granted), and the deployment with contents and deployments read.
+		// commits it reaches need contents, their check suites checks, the suites' workflow
+		// runs actions; never statuses, which the App isn't granted), and the deployment with
+		// contents and deployments read.
 		var sawObserve, sawDeploy bool
 		for _, r := range e.srv.TokenRequests() {
 			switch {
-			case reflect.DeepEqual(r.Permissions, map[string]string{"checks": "read", "contents": "read", "issues": "read", "pull_requests": "read"}):
+			case reflect.DeepEqual(r.Permissions, map[string]string{"actions": "read", "checks": "read", "contents": "read", "issues": "read", "pull_requests": "read"}):
 				sawObserve = true
 			case reflect.DeepEqual(r.Permissions, map[string]string{"contents": "read", "deployments": "read"}):
 				sawDeploy = true
@@ -364,6 +366,35 @@ func TestObserveChecks(t *testing.T) {
 	suite := func(status, conclusion string, runs int) githubtest.CheckSuite {
 		return githubtest.CheckSuite{Status: status, Conclusion: conclusion, Runs: runs}
 	}
+	// The Apps and workflows of compliance-framework/api#584's head commit.
+	const (
+		actions          = 15368
+		coderabbit       = 347564
+		advancedSecurity = 57789
+		previewWF        = 379691137
+		ciWF             = 67470646
+	)
+	created := time.Date(2026, 11, 24, 14, 0, 0, 0, time.UTC)
+	// app is a suite of an App that isn't Actions; run one of an Actions workflow run on a
+	// pull_request event. id orders them in time too (createdAt).
+	app := func(appID, id int64, status, conclusion string, runs int) githubtest.CheckSuite {
+		s := suite(status, conclusion, runs)
+		s.ID, s.Created, s.App = id, created.Add(time.Duration(id)*time.Second), appID
+		return s
+	}
+	run := func(workflow int64, number int, id int64, status, conclusion string, runs int) githubtest.CheckSuite {
+		s := app(actions, id, status, conclusion, runs)
+		s.Workflow, s.RunNumber, s.Event = workflow, number, "pull_request"
+		return s
+	}
+	at := func(s githubtest.CheckSuite, t time.Time) githubtest.CheckSuite {
+		s.Created = t
+		return s
+	}
+	event := func(s githubtest.CheckSuite, ev string) githubtest.CheckSuite {
+		s.Event = ev
+		return s
+	}
 	for i, tc := range []struct {
 		name   string
 		suites []githubtest.CheckSuite
@@ -387,6 +418,46 @@ func TestObserveChecks(t *testing.T) {
 		{"startup failure", []githubtest.CheckSuite{suite("COMPLETED", "STARTUP_FAILURE", 1)}, provider.Checks{State: "failure", Settled: true}},
 		{"stale", []githubtest.CheckSuite{suite("COMPLETED", "STALE", 1)}, provider.Checks{State: "failure", Settled: true}},
 		{"unknown conclusion", []githubtest.CheckSuite{suite("COMPLETED", "SOMETHING_NEW", 1)}, provider.Checks{State: "pending"}},
+		// Only the latest suite of a workflow (per event), or of another App, counts.
+		{"api#584: a cancelled run superseded by a green one", []githubtest.CheckSuite{
+			app(coderabbit, 1, "COMPLETED", "SKIPPED", 1),
+			run(previewWF, 372, 2, "COMPLETED", "CANCELLED", 4),
+			run(previewWF, 373, 3, "COMPLETED", "SUCCESS", 4),
+			run(ciWF, 2512, 4, "COMPLETED", "SUCCESS", 10),
+			run(ciWF, 2513, 5, "COMPLETED", "SUCCESS", 10),
+			app(advancedSecurity, 6, "COMPLETED", "SUCCESS", 1),
+			run(ciWF, 2516, 7, "COMPLETED", "SUCCESS", 8),
+		}, provider.Checks{State: "success", Settled: true}},
+		{"cancelled then failed, same workflow", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "CANCELLED", 3), run(ciWF, 11, 2, "COMPLETED", "FAILURE", 3),
+		}, provider.Checks{State: "failure", Settled: true}},
+		{"failed then succeeded, same workflow (re-triggered)", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "FAILURE", 3), run(ciWF, 11, 2, "COMPLETED", "SUCCESS", 3),
+		}, provider.Checks{State: "success", Settled: true}},
+		{"the latest by run number, whatever the order", []githubtest.CheckSuite{
+			run(ciWF, 11, 2, "COMPLETED", "SUCCESS", 3), run(ciWF, 10, 1, "COMPLETED", "FAILURE", 3),
+		}, provider.Checks{State: "success", Settled: true}},
+		{"two workflows: a cancelled one not superseded still fails", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "SUCCESS", 3), run(previewWF, 20, 2, "COMPLETED", "CANCELLED", 2),
+		}, provider.Checks{State: "failure", Settled: true}},
+		{"the latest run in progress, an older one failed", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "FAILURE", 3), run(ciWF, 11, 2, "IN_PROGRESS", "", 3),
+		}, provider.Checks{State: "pending"}},
+		{"a later run without check runs doesn't supersede", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "FAILURE", 3), run(ciWF, 11, 2, "QUEUED", "", 0),
+		}, provider.Checks{State: "failure", Settled: true}},
+		{"another event's run of the same workflow still counts", []githubtest.CheckSuite{
+			event(run(ciWF, 10, 1, "COMPLETED", "FAILURE", 3), "push"), run(ciWF, 11, 2, "COMPLETED", "SUCCESS", 3),
+		}, provider.Checks{State: "failure", Settled: true}},
+		{"one run number: the newer suite", []githubtest.CheckSuite{
+			run(ciWF, 10, 2, "COMPLETED", "SUCCESS", 3), run(ciWF, 10, 1, "COMPLETED", "FAILURE", 3),
+		}, provider.Checks{State: "success", Settled: true}},
+		{"one run number and createdAt: the higher databaseId", []githubtest.CheckSuite{
+			at(run(ciWF, 10, 9, "COMPLETED", "FAILURE", 3), created), at(run(ciWF, 10, 8, "COMPLETED", "SUCCESS", 3), created),
+		}, provider.Checks{State: "failure", Settled: true}},
+		{"another App: its latest suite counts", []githubtest.CheckSuite{
+			app(coderabbit, 1, "COMPLETED", "FAILURE", 1), app(coderabbit, 2, "COMPLETED", "SUCCESS", 1),
+		}, provider.Checks{State: "success", Settled: true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t)
@@ -421,11 +492,11 @@ func TestObserveFieldPermissions(t *testing.T) {
 	if q := e.srv.GraphQLRequests(); len(q) != 1 || q[0].Operation != "Observe" {
 		t.Errorf("GraphQL requests = %+v", q)
 	}
-	for _, missing := range []string{"contents", "checks"} {
+	for _, missing := range []string{"contents", "checks", "actions"} {
 		t.Run("installation without "+missing, func(t *testing.T) {
 			e := newEnv(t)
 			e.srv.AddObject(pr)
-			perms := map[string]string{"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read", "members": "read", "checks": "read"}
+			perms := map[string]string{"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read", "members": "read", "checks": "read", "actions": "read"}
 			delete(perms, missing)
 			e.srv.SetInstallationPermissions(1, perms)
 			_, err := e.connect(t).Observe(ctx, ref)

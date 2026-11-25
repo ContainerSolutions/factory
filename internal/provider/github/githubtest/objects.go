@@ -93,11 +93,20 @@ type Object struct {
 }
 
 // CheckSuite is one check suite of a commit: Status (QUEUED, IN_PROGRESS, COMPLETED, …),
-// Conclusion once completed (SUCCESS, FAILURE, …) and how many check runs it has.
+// Conclusion once completed (SUCCESS, FAILURE, …) and how many check runs it has. ID, Created
+// and App are the suite's databaseId, createdAt and App (zero: null, an App not read); a
+// workflow run's suite (GitHub Actions) also has Workflow (the workflow's databaseId),
+// RunNumber and Event, and without them its workflowRun is null.
 type CheckSuite struct {
 	Status     string
 	Conclusion string
 	Runs       int
+	ID         int64
+	Created    time.Time
+	App        int64
+	Workflow   int64
+	RunNumber  int
+	Event      string
 }
 
 // Merge blocks (Object.MergeBlock).
@@ -665,7 +674,8 @@ func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
 
 // fieldPerms are the permissions an installation token needs for GraphQL fields, as GitHub
 // checks them: Commit objects (a PR's commits, its merge commit, a review's commit) need
-// contents, a commit's check suites checks, its status rollup and status statuses. The server
+// contents, a commit's check suites checks, a check suite's workflow run actions, its status
+// rollup and status statuses. The server
 // matches the query text, so it is stricter than GitHub, which checks only the fields it
 // resolves (an issue's observation doesn't reach the PR fragment's commits).
 var fieldPerms = []struct {
@@ -674,6 +684,7 @@ var fieldPerms = []struct {
 }{
 	{regexp.MustCompile(`\b(?:commit|mergeCommit)\s*\{`), "contents"},
 	{regexp.MustCompile(`\b(?:checkSuites|checkRuns)\b`), "checks"},
+	{regexp.MustCompile(`\bworkflowRun\s*\{`), "actions"},
 	{regexp.MustCompile(`\b(?:statusCheckRollup|status)\s*\{`), "statuses"},
 }
 
@@ -751,7 +762,15 @@ func (s *Server) gqlObserve(repo string, n int) map[string]any {
 			if cs.Conclusion != "" {
 				conclusion = cs.Conclusion
 			}
-			suites[i] = map[string]any{"status": cs.Status, "conclusion": conclusion, "checkRuns": map[string]any{"totalCount": cs.Runs}}
+			suite := map[string]any{"databaseId": cs.ID, "createdAt": cs.Created.UTC().Format(time.RFC3339), "status": cs.Status, "conclusion": conclusion,
+				"app": nil, "workflowRun": nil, "checkRuns": map[string]any{"totalCount": cs.Runs}}
+			if cs.App != 0 {
+				suite["app"] = map[string]any{"databaseId": cs.App}
+			}
+			if cs.Workflow != 0 || cs.RunNumber != 0 {
+				suite["workflowRun"] = map[string]any{"runNumber": cs.RunNumber, "event": cs.Event, "workflow": map[string]any{"databaseId": cs.Workflow}}
+			}
+			suites[i] = suite
 		}
 		obj["commits"] = map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"oid": o.Head, "checkSuites": map[string]any{"nodes": suites}}}}}
 	} else {
