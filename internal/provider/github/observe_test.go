@@ -478,6 +478,9 @@ func TestObserveChecks(t *testing.T) {
 		{"the latest run cancelled before a job started", []githubtest.CheckSuite{
 			run(ciWF, 10, 1, "COMPLETED", "SUCCESS", 3), run(ciWF, 11, 2, "COMPLETED", "CANCELLED", 0),
 		}, provider.Checks{State: "failure", Settled: true}},
+		{"the latest run awaits approval", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "SUCCESS", 3), run(ciWF, 11, 2, "COMPLETED", "ACTION_REQUIRED", 0),
+		}, provider.Checks{State: "failure", Settled: true}},
 		{"the latest run completed without jobs, passing", []githubtest.CheckSuite{
 			run(ciWF, 10, 1, "COMPLETED", "FAILURE", 3), run(ciWF, 11, 2, "COMPLETED", "SUCCESS", 0),
 		}, provider.Checks{State: "success", Settled: true}},
