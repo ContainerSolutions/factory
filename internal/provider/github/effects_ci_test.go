@@ -133,7 +133,10 @@ func TestApplyCIRerunNothing(t *testing.T) {
 	}
 	e.srv.AddWorkflowRuns(docs,
 		wfRun(1, ciWorkflow, 10, "completed", "failure"), wfRun(2, ciWorkflow, 11, "completed", "success"), // superseded failure
-		wfRun(3, preview, 20, "queued", ""), wfRun(4, lint, 30, "completed", "skipped"))
+		wfRun(3, preview, 20, "queued", ""), wfRun(4, lint, 30, "completed", "skipped"),
+		// compliance-framework/api#587: a run its concurrency group cancelled, superseded by a
+		// later run that has no jobs yet (the runs API lists it all the same).
+		wfRun(5, preview, 19, "completed", "cancelled"))
 	if res, err := c.Apply(ctx, ciRerun("")); err != nil || res.Outcome != github.OutcomeNothingToRerun || res.Replayed {
 		t.Fatalf("green and running: %+v, %v", res, err)
 	}
