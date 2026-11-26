@@ -410,11 +410,12 @@ func prObservation(o *gqlObject, bots map[string]string) *provider.PRObservation
 // Only the latest suite of each workflow counts (latestSuites): a workflow run superseded by a
 // later run of the same workflow for the same event (a concurrency group cancelling it, a
 // re-trigger) no longer makes a green PR "failure", even while the later run has no check runs
-// yet: it counts as pending until its jobs conclude (compliance-framework/api#587). Re-running a run (rerun-failed-jobs, re-run
-// all jobs) is a new attempt of the same run, and GitHub reports it in the same check suite,
-// whose status and conclusion are the latest attempt's (checked against a re-run on GitHub:
-// the run's check_suite_id is the same suite, which went from failure to success), so a
-// re-run that passed counts as passed without any attempt handling here.
+// yet: it counts as pending until it concludes (compliance-framework/api#587). Re-running a
+// run (rerun-failed-jobs, re-run all jobs) is a new attempt of the same run, and GitHub reports
+// it in the same check suite, whose status and conclusion are the latest attempt's (checked
+// against a re-run on GitHub: the run's check_suite_id is the same suite, which went from
+// failure to success), so a re-run that passed counts as passed without any attempt handling
+// here.
 //
 // Check suites are what checks: read reaches, and what pr.checks.completed (check_suite
 // webhooks) reports; commit statuses (the statuses API) aren't read: the App isn't granted
@@ -460,9 +461,9 @@ func checksOf(suites []gqlCheckSuite) provider.Checks {
 // cancelled, and had no check runs yet when 387's check_suite webhook was observed). A completed
 // one without check runs counts by its conclusion: GitHub completes a run without creating jobs
 // when it failed to start (startup_failure: an invalid workflow file), was cancelled before a job
-// started (cancelled: by its concurrency group, which then has a later run that supersedes it)
-// or awaits approval (action_required); none of them passed, and ignoring it would let an older
-// run of the same workflow, or nothing, stand for it.
+// started (cancelled: usually by its concurrency group, and a later run of the same workflow
+// and event then supersedes it) or awaits approval (action_required); none of them passed, and
+// ignoring it would let an older run of the same workflow, or nothing, stand for it.
 //
 // A suite whose workflow can't be told (no App, no workflow run: another App's suite, or an
 // Actions suite whose run was deleted; or a run without its workflow) is its own kind: it counts
