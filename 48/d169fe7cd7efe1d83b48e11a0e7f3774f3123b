@@ -3,3 +3,8 @@ lisa-design:
 - A kind-known suite COMPLETED with zero check runs counts by its conclusion, not ignored: GitHub completes a run without jobs for startup_failure (invalid workflow file), cancelled before a job started, or action_required (awaiting approval); none passed, and ignoring it would let an older run of the workflow stand for it. Behaviour change: a broken workflow file's startup_failure now fails checks.
 - Kind-less suites (no App / null workflowRun / null workflow) with zero check runs stay ignored: GitHub's placeholder suites that never complete.
 - ci.rerun (latestRuns) unchanged: the Actions runs API lists a run from creation regardless of jobs; only a test case was added.
+
+lisa-selfreview:
+pass 1: CORE-STYLE-001 nit observe.go checksOf doc: one rewrapped line overruns the comment width -> fix.
+pass 1: CORE-DOC-001 should-fix observe.go latestSuites doc + LLD: "cancelled by its concurrency group, which then has a later run that supersedes it" overstates; a group can span workflows/events, so the later run may be another kind -> soften.
+pass 1: Question (not fixed): action_required with zero check runs (fork PR awaiting approval) now counts as failure where it was ignored -> list in PR body.
