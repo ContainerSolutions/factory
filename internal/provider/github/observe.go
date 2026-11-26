@@ -402,18 +402,20 @@ func prObservation(o *gqlObject, bots map[string]string) *provider.PRObservation
 // combined state does: "failure" once a suite concluded failing (failure, timed out,
 // cancelled, action required, startup failure, stale), else "pending" while one hasn't
 // concluded, else "success" (success, neutral, skipped); settled for success and failure.
-// Suites without check runs don't count: GitHub leaves one queued for every App that could
-// run checks (Actions with no workflow for the event), and they never complete. No suite
-// with runs leaves checks empty. The first 100 suites are read (one page; a commit has one per
-// App and workflow run).
+// A suite whose workflow can't be told and that has no check runs doesn't count: GitHub leaves
+// one queued for every App that could run checks (Actions with no workflow for the event), and
+// they never complete. No suite that counts leaves checks empty. The first 100 suites are read
+// (one page; a commit has one per App and workflow run).
 //
 // Only the latest suite of each workflow counts (latestSuites): a workflow run superseded by a
 // later run of the same workflow for the same event (a concurrency group cancelling it, a
-// re-trigger) no longer makes a green PR "failure". Re-running a run (rerun-failed-jobs, re-run
-// all jobs) is a new attempt of the same run, and GitHub reports it in the same check suite,
-// whose status and conclusion are the latest attempt's (checked against a re-run on GitHub:
-// the run's check_suite_id is the same suite, which went from failure to success), so a
-// re-run that passed counts as passed without any attempt handling here.
+// re-trigger) no longer makes a green PR "failure", even while the later run has no check runs
+// yet: it counts as pending until it concludes (compliance-framework/api#587). Re-running a
+// run (rerun-failed-jobs, re-run all jobs) is a new attempt of the same run, and GitHub reports
+// it in the same check suite, whose status and conclusion are the latest attempt's (checked
+// against a re-run on GitHub: the run's check_suite_id is the same suite, which went from
+// failure to success), so a re-run that passed counts as passed without any attempt handling
+// here.
 //
 // Check suites are what checks: read reaches, and what pr.checks.completed (check_suite
 // webhooks) reports; commit statuses (the statuses API) aren't read: the App isn't granted
@@ -446,19 +448,31 @@ func checksOf(suites []gqlCheckSuite) provider.Checks {
 	return provider.Checks{State: "success", Settled: true}
 }
 
-// latestSuites are the suites with check runs that no later suite of the same kind supersedes,
-// in their order. A suite's kind (suiteKind) is its App, workflow and event: only workflow runs
-// (GitHub Actions) supersede each other. Of a kind, the latest is the highest run number, then
-// the newest createdAt, then the highest databaseId. A suite whose workflow can't be told (no
-// App, no workflow run: another App's suite, or an Actions suite whose run was deleted; or a
-// run without its workflow) is its own kind: it always counts and supersedes nothing, so a
-// failing suite can't hide behind an unrelated green one.
+// latestSuites are the suites that count, in their order: of each kind (suiteKind: its App,
+// workflow and event; only workflow runs, GitHub Actions, supersede each other) the latest
+// suite, and every suite whose kind can't be told that has check runs. Of a kind, the latest is
+// the highest run number, then the newest createdAt, then the highest databaseId.
+//
+// A suite of a known kind takes part with or without check runs. A workflow run's suite exists
+// before its jobs do, so the later run of a re-triggered workflow (a concurrency group
+// cancelling the earlier one) supersedes it from the start and counts as pending until it
+// concludes; skipping it until its first job started let the cancelled run count as the latest
+// in between (compliance-framework/api#587: run 388's suite was created before run 387 was
+// cancelled, and had no check runs yet when 387's check_suite webhook was observed). A completed
+// one without check runs counts by its conclusion: GitHub completes a run without creating jobs
+// when it failed to start (startup_failure: an invalid workflow file), was cancelled before a job
+// started (cancelled: usually by its concurrency group, and a later run of the same workflow
+// and event then supersedes it) or awaits approval (action_required); none of them passed, and
+// ignoring it would let an older run of the same workflow, or nothing, stand for it.
+//
+// A suite whose workflow can't be told (no App, no workflow run: another App's suite, or an
+// Actions suite whose run was deleted; or a run without its workflow) is its own kind: it counts
+// when it has check runs and supersedes nothing, so a failing suite can't hide behind an
+// unrelated green one. Without check runs it doesn't count: those are GitHub's placeholders,
+// one queued for every App that could run checks, which never complete.
 func latestSuites(suites []gqlCheckSuite) []gqlCheckSuite {
 	latest := map[string]int{} // kind → index of its latest suite
 	for i, s := range suites {
-		if s.CheckRuns.TotalCount == 0 {
-			continue
-		}
 		kind, ok := suiteKind(s)
 		if !ok {
 			continue
@@ -469,11 +483,12 @@ func latestSuites(suites []gqlCheckSuite) []gqlCheckSuite {
 	}
 	var out []gqlCheckSuite
 	for i, s := range suites {
-		if s.CheckRuns.TotalCount == 0 {
-			continue
-		}
-		if kind, ok := suiteKind(s); ok && latest[kind] != i {
+		kind, ok := suiteKind(s)
+		switch {
+		case ok && latest[kind] != i:
 			continue // superseded
+		case !ok && s.CheckRuns.TotalCount == 0:
+			continue // a placeholder
 		}
 		out = append(out, s)
 	}

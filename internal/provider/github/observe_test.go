@@ -366,7 +366,7 @@ func TestObserveChecks(t *testing.T) {
 	suite := func(status, conclusion string, runs int) githubtest.CheckSuite {
 		return githubtest.CheckSuite{Status: status, Conclusion: conclusion, Runs: runs}
 	}
-	// The Apps and workflows of compliance-framework/api#584's head commit.
+	// The Apps and workflows of compliance-framework/api#584's and api#587's head commits.
 	const (
 		actions          = 15368
 		coderabbit       = 347564
@@ -447,9 +447,50 @@ func TestObserveChecks(t *testing.T) {
 		{"the latest run in progress, an older one failed", []githubtest.CheckSuite{
 			run(ciWF, 10, 1, "COMPLETED", "FAILURE", 3), run(ciWF, 11, 2, "IN_PROGRESS", "", 3),
 		}, provider.Checks{State: "pending"}},
-		{"a later run without check runs doesn't supersede", []githubtest.CheckSuite{
+		// A workflow run's suite exists before its jobs: without check runs yet it still
+		// supersedes, and counts as pending.
+		{"api#587: a cancelled run superseded by one without jobs yet", []githubtest.CheckSuite{
+			app(coderabbit, 1, "COMPLETED", "SKIPPED", 1),
+			run(previewWF, 387, 2, "COMPLETED", "CANCELLED", 4),
+			run(ciWF, 2530, 3, "COMPLETED", "SUCCESS", 10),
+			run(previewWF, 388, 4, "IN_PROGRESS", "", 0),
+		}, provider.Checks{State: "pending"}},
+		{"api#587: the later run then passed", []githubtest.CheckSuite{
+			app(coderabbit, 1, "COMPLETED", "SKIPPED", 1),
+			run(previewWF, 387, 2, "COMPLETED", "CANCELLED", 4),
+			run(ciWF, 2530, 3, "COMPLETED", "SUCCESS", 10),
+			run(previewWF, 388, 4, "COMPLETED", "SUCCESS", 4),
+		}, provider.Checks{State: "success", Settled: true}},
+		{"a later queued run without check runs supersedes a failed one", []githubtest.CheckSuite{
 			run(ciWF, 10, 1, "COMPLETED", "FAILURE", 3), run(ciWF, 11, 2, "QUEUED", "", 0),
+		}, provider.Checks{State: "pending"}},
+		{"a later run without check runs supersedes a green one too", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "SUCCESS", 3), run(ciWF, 11, 2, "QUEUED", "", 0),
+		}, provider.Checks{State: "pending"}},
+		{"an earlier run without check runs is superseded", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "CANCELLED", 0), run(ciWF, 11, 2, "COMPLETED", "SUCCESS", 3),
+		}, provider.Checks{State: "success", Settled: true}},
+		{"only a run without check runs: pending", []githubtest.CheckSuite{run(ciWF, 10, 1, "QUEUED", "", 0)}, provider.Checks{State: "pending"}},
+		// A run completed without jobs counts by its conclusion.
+		{"the latest run failed to start", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "SUCCESS", 3), run(ciWF, 11, 2, "COMPLETED", "STARTUP_FAILURE", 0),
 		}, provider.Checks{State: "failure", Settled: true}},
+		{"the latest run cancelled before a job started", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "SUCCESS", 3), run(ciWF, 11, 2, "COMPLETED", "CANCELLED", 0),
+		}, provider.Checks{State: "failure", Settled: true}},
+		{"the latest run awaits approval", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "SUCCESS", 3), run(ciWF, 11, 2, "COMPLETED", "ACTION_REQUIRED", 0),
+		}, provider.Checks{State: "failure", Settled: true}},
+		{"the latest run completed without jobs, passing", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "FAILURE", 3), run(ciWF, 11, 2, "COMPLETED", "SUCCESS", 0),
+		}, provider.Checks{State: "success", Settled: true}},
+		// A suite whose workflow can't be told counts only with check runs: GitHub's placeholders.
+		{"an Actions placeholder without a workflow run is ignored", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "SUCCESS", 3), app(actions, 2, "QUEUED", "", 0), app(coderabbit, 3, "QUEUED", "", 0),
+		}, provider.Checks{State: "success", Settled: true}},
+		{"a run with a null workflow and no check runs is ignored", []githubtest.CheckSuite{
+			run(ciWF, 10, 1, "COMPLETED", "SUCCESS", 3), noWorkflow(run(ciWF, 11, 2, "QUEUED", "", 0)),
+		}, provider.Checks{State: "success", Settled: true}},
 		{"another event's run of the same workflow still counts", []githubtest.CheckSuite{
 			event(run(ciWF, 10, 1, "COMPLETED", "FAILURE", 3), "push"), run(ciWF, 11, 2, "COMPLETED", "SUCCESS", 3),
 		}, provider.Checks{State: "failure", Settled: true}},

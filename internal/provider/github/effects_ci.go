@@ -231,7 +231,9 @@ func (c *Conn) headRuns(ctx context.Context, tok, repo, sha string) ([]ghWorkflo
 
 // latestRuns are the runs no later run of the same workflow and event supersedes, in their
 // order: checksOf's rule for check suites (a run cancelled by its concurrency group, or
-// re-triggered, is superseded by the later run).
+// re-triggered, is superseded by the later run). The runs API lists a run from its creation,
+// before it has jobs, so a later run supersedes here from the start as its suite does in
+// latestSuites.
 func latestRuns(runs []ghWorkflowRun) []ghWorkflowRun {
 	kind := func(r ghWorkflowRun) string { return strconv.FormatInt(r.WorkflowID, 10) + "/" + r.Event }
 	order := func(r ghWorkflowRun) runOrder { return runOrder{number: r.RunNumber, created: r.CreatedAt, id: r.ID} }
