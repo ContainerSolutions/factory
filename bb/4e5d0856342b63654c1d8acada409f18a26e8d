@@ -1,0 +1,3 @@
+lisa-addressed:
+- review nit 1: TestObserveChecks covers the latest run COMPLETED/ACTION_REQUIRED with 0 check runs -> failure, settled.
+- review nit 2: LLD checks roll-up names what consumers now see as failure, settled (fork PR awaiting approval, invalid workflow file on the default branch, a cross-kind concurrency cancel before the first job) and that it was kept on review.
