@@ -1,3 +1,6 @@
 lisa-addressed:
 - pass 1 nit: rewrapped the over-long checksOf doc line.
 - pass 1 doc: "cancelled before a job started" now says a later run of the same workflow and event supersedes it only usually (a concurrency group can span workflows/events), in observe.go and the LLD.
+
+lisa-selfreview:
+pass 2: approve, no new findings.
